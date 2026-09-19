@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a vulnerability
+    url: https://github.com/joshwrightcodes/bk-agent-stack-orchard/security/advisories/new
+    about: Never report a vulnerability in a public issue. Use a private security advisory.
+  - name: Read the documents first
+    url: https://github.com/joshwrightcodes/bk-agent-stack-orchard/tree/main/docs
+    about: The requirements, the decisions, and the design explain what the project does and what it deliberately does not do.

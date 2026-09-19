@@ -1,0 +1,33 @@
+bk-agent-stack-orchard
+Copyright (c) 2026 Josh Wright
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version. See LICENSE.
+
+Third-party code in the distributed work
+----------------------------------------
+
+  * github.com/buildkite/stacksapi — MIT
+  * The OpenTelemetry Go SDK and its contrib packages — Apache License 2.0
+  * github.com/buildkite/agent-stack-k8s (FakeAgentServer, test scope only)
+    — MIT
+
+The distributed binary and container image contain no code with a
+field-of-use restriction.
+
+Programs that the fleet runs, and that this program talks to
+-------------------------------------------------------------
+
+  * github.com/openai/orchard — FSL-1.1-ALv2
+  * github.com/openai/tart    — FSL-1.1-ALv2
+
+Orchard and Tart are separate programs. This program calls the Orchard REST
+API with its own client and imports no Orchard package, because the FSL
+permits every purpose except a competing use, and the AGPL-3.0 forbids a
+further restriction on a distributed work. See
+docs/adrs/0010-call-the-orchard-api-with-a-client-of-this-project.md.
+
+The fleet operator installs Orchard and Tart, and the FSL of each version
+converts to the Apache License 2.0 two years after its release.

@@ -1,0 +1,59 @@
+name: Bug report
+description: The controller does something other than the target design states.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never paste a Buildkite agent token, a job acquisition token, an Orchard token, or source
+        code. Remove them before you send this report.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The behaviour that you saw, and the behaviour that the documents state.
+      placeholder: |
+        Observed: the controller deleted the VM of a job that an agent had acquired.
+        Expected: rule 5 of the target design, section 7.1 keeps that VM.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: The smallest sequence that shows the behaviour.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Controller version or commit
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: The versions that were in use.
+      value: |
+        - Controller platform (Kubernetes, plain process, `orchard dev`):
+        - Orchard server version:
+        - Tart version:
+        - VM image (macOS and Xcode versions):
+        - `buildkite-agent` version in the image:
+        - Startup-script transport (`tart-guest-agent` or `ssh`):
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: >
+        Log records, the `reason` of a Reaper decision, metric values, or a trace identifier. The
+        trace identifier of a job is its Buildkite job UUID.
+      render: text
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: What this costs. A leaked VM, a failed job, or a false failure of a job that ran.

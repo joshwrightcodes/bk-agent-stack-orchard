@@ -1,0 +1,58 @@
+name: Change request
+description: The project should do something that the documents do not state yet.
+labels: ["change"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The document set decides the behaviour of this project. A change of behaviour starts in
+        the product requirements, and a change of approach needs a decision record. This issue
+        collects what a reviewer needs to make that decision.
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: What a person can do after this change that they cannot do now.
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: >
+        The problem behind the request, not the solution. Say what fails, how often, and what it
+        costs.
+    validations:
+      required: true
+  - type: input
+    id: requirement
+    attributes:
+      label: Requirement
+      description: The requirement that changes (PR-nnn), or "new" when the project needs a new one.
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind of change
+      options:
+        - Behaviour (product requirements)
+        - Approach (a decision record)
+        - Mechanism (the target design)
+        - Evidence (the test strategy)
+        - Documents only
+    validations:
+      required: true
+  - type: textarea
+    id: non-goals
+    attributes:
+      label: Known non-goals
+      description: >
+        The target design lists warm pools, host scaling, high availability, more than one queue
+        in one process, and more than one region as non-goals. If this request is one of them, say
+        why the reason for the non-goal no longer holds.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: The other ways to reach the same outcome, and why they are worse.
