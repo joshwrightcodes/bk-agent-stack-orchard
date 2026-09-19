@@ -141,7 +141,7 @@ from their number.
 
 | ID | Outcome | Boundary | Depends on | Completion evidence | Requirements |
 |---|---|---|---|---|---|
-| W-01 | The repository builds, lints, and releases a snapshot image, and it holds the commit rules | `go.mod`, `mise.toml`, `.golangci.yaml`, `.goreleaser.yaml`, `.conform.yaml`, CI workflow | — | T-120, T-122, and T-123 pass in CI, through `mise run check` | CO-04, ADR-0005 |
+| W-01 | The repository builds, lints, and releases a snapshot image, and it holds the commit rules | `go.mod`, `mise.toml`, `.golangci.yaml`, `.goreleaser.yaml`, `.conform.yaml`, CI workflow | W-26 | T-120, T-122, and T-123 pass in CI, through `mise run check` | CO-04, ADR-0005 |
 | W-02 | A configuration file becomes validated types, and secrets come from the environment | `internal/config`, `internal/profile` | W-01 | T-002, T-006 | PR-020, PR-021, PR-022 |
 | W-03 | Job tags select one profile, or give a mismatch reason | `internal/match` | W-02 | T-001 | PR-003, PR-004 |
 | W-04 | A profile and a job become a valid Orchard VM specification | `internal/vmspec` | W-02 | T-003, and I-3 and I-4 hold | PR-030, PR-001 |
