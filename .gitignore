@@ -134,7 +134,8 @@ fabric.properties
 .LSOverride
 
 # Icon must end with two \r
-Icon
+Icon
+
 
 # Thumbnails
 ._*
@@ -210,6 +211,9 @@ $RECYCLE.BIN/
 # Structurizr local/playground server data (generated, not part of the C4 model source)
 docs/architecture/-workspace/
 .structurizr/
+
+# The compiled binary, which "go build ./..." writes into the working directory
+/bk-agent-stack-orchard
 
 # GoReleaser and ko output
 dist/

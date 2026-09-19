@@ -799,6 +799,8 @@ Each item MUST have its own ADR before implementation:
 ## 15. Implementation conventions
 
 * **Go version:** 1.27.
+* **Dependency updates:** Dependabot proposes the Go module and the action updates each week.
+  Its commit messages use the conventional types of the contributing guide.
 * **Tool versions:** one `mise.toml` file pins Go, golangci-lint, GoReleaser, Packer, and
   Ansible. A developer and CI use the same versions. CI runs `mise install` before each task.
   The golangci-lint documentation gives `mise` as an installation method, and it states that

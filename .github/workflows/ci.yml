@@ -1,0 +1,38 @@
+name: ci
+
+# The Go gates of work unit W-01: the dependency rules, the linters, the tests, and the release
+# artifacts (test strategy, T-120 and T-122). The document gates live in documents.yml.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: lint and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+      - run: mise run check-deps
+      - run: mise run lint
+      - run: mise run test
+
+  release:
+    name: snapshot release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # GoReleaser reads the tags to name a snapshot.
+          fetch-depth: 0
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+      - run: mise run snapshot
