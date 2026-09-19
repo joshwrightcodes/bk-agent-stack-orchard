@@ -47,6 +47,7 @@ evidence, and each increment leaves the system in a state that a person can demo
 
 | # | Increment | Observable outcome | Evidence that ends it |
 |---|---|---|---|
+| 0 | Foundations | Every pull request proves that the documents stay whole, and a weekly job reports a dependency that moved | T-121, T-123, T-124 |
 | 1 | Walking skeleton | One job goes from `scheduled` to a deleted VM, against a synthetic Orchard and a fake Stacks server | T-001, T-002, T-003, T-004 (capacity), T-005 (rows 2 and 4), T-006, T-040, T-060, T-120, T-122 |
 | 2 | Full lifecycle | The controller obeys the complete Reaper decision table, the admission rules, and a restart | T-004, T-005 (all rows), T-007, T-020, T-021, T-022, T-023, T-025, T-061, T-062 |
 | 3 | Operability | An operator can see the state, replace the token, and survive an outage | T-008, T-009, T-024, T-041, T-063, T-064, T-121 |
@@ -125,6 +126,17 @@ T-040 come from recorded responses of a real Buildkite test cluster.
 
 ## 4. Work units
 
+### 4.0 Increment 0 — foundations
+
+These units need no Go code, so they start first. Their identifiers follow W-25 because an
+identifier never changes after publication. Their position in the order comes from section 5, not
+from their number.
+
+| ID | Outcome | Boundary | Depends on | Completion evidence | Requirements |
+|---|---|---|---|---|---|
+| W-26 | Every pull request proves that the documents stay whole | `.github/workflows/docs.yml`, `scripts/check-docs.sh` | — | T-121, T-123, and T-124 pass in CI | CO-04 |
+| W-27 | A weekly job reports an upstream release that the documents must answer | `.github/workflows/upstream.yml` | — | The job opens an issue when Orchard, Tart, the Buildkite agent, `stacksapi`, or a published macOS image moves past the version in the documents | CO-02, CO-05, CO-06 |
+
 ### 4.1 Increment 1 — walking skeleton
 
 | ID | Outcome | Boundary | Depends on | Completion evidence | Requirements |
@@ -174,7 +186,9 @@ T-040 come from recorded responses of a real Buildkite test cluster.
 
 ```mermaid
 flowchart LR
-    W01[W-01 repo] --> W02[W-02 config]
+    W26[W-26 docs gate] --> W01[W-01 repo]
+    W27[W-27 upstream watch]
+    W01 --> W02[W-02 config]
     W01 --> W05[W-05 stacks client]
     W01 --> W06[W-06 orchard client]
     W01 --> W07[W-07 telemetry]
@@ -206,7 +220,8 @@ flowchart LR
     W24 --> W25[W-25 pilot start]
 ```
 
-The critical path is W-01, W-02, W-04, W-08, W-10, W-11, W-13, W-16, W-21, W-24, W-25.
+The critical path is W-26, W-01, W-02, W-04, W-08, W-10, W-11, W-13, W-16, W-21, W-24, W-25.
+W-27 is on no path, and it runs on a schedule after it exists.
 
 W-22 and W-23 are not on the software path. W-23 SHOULD start first, because the image build
 needs a long machine time and a 140 GB disk, and because it has no dependency on the controller.
@@ -218,6 +233,7 @@ familiar Go, no interruption for other work, and no new decision during the incr
 
 | Increment | Work units | Range | Main uncertainty |
 |---|---|---|---|
+| 0 | W-26 and W-27 | 1 to 2 days | The checks that the document integrity script must make |
 | 1 | W-01 to W-09 | 5 to 8 days | The fidelity of the fake Stacks server (O-1) |
 | 2 | W-10 to W-14 | 6 to 10 days | The thirteen decision rows and their property tests |
 | 3 | W-15 to W-20 | 4 to 7 days | The outage matrix and the load harness |
@@ -230,7 +246,7 @@ Dates that the plan must respect:
 * The pilot exit criteria need two weeks of measurement (QA-04), so the earliest exit is about
   2026-10-28.
 
-The sum of the ranges is 20 to 34 working days. The lower range meets the pilot date only if the
+The sum of the ranges is 21 to 36 working days. The lower range meets the pilot date only if the
 image build (W-23) starts before the hosts arrive, and if no increment needs a new decision. The
 owner SHOULD expect the pilot entry in the second half of October 2026.
 
