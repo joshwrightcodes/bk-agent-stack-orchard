@@ -750,9 +750,9 @@ APIs.
 
 Exactly one controller replica MUST serve a queue. Two controllers MUST NOT use the same
 `controllerID`. The controller cannot detect a second replica with the same `controllerID`. Two
-replicas can reserve more jobs than the free slots. The unplaced-VM timeout then releases these jobs,
-and the "Timeouts repeat" alert (§10.6) shows the effect. Outside the reference deployment, the
-platform MUST run exactly one replica.
+replicas can reserve more jobs than the free slots. The unplaced-VM timeout then releases these
+jobs, and the "Timeouts repeat" alert (§10.6) shows the effect. Outside the reference deployment,
+the platform MUST run exactly one replica.
 
 **Implements.** PR-022, PR-023, PR-024, OP-03, OP-04, CO-02, CO-06.
 

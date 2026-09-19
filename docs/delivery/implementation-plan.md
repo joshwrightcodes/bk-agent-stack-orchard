@@ -134,7 +134,7 @@ from their number.
 
 | ID | Outcome | Boundary | Depends on | Completion evidence | Requirements |
 |---|---|---|---|---|---|
-| W-26 | Every pull request proves that the documents stay whole | `.github/workflows/docs.yml`, `scripts/check-docs.sh` | — | T-121, T-123, and T-124 pass in CI | CO-04 |
+| W-26 | Every pull request proves that the documents stay whole | `.github/workflows/docs.yml`, `mise.toml`, `scripts/check-docs.py`, `scripts/check-commits.py`, `scripts/check-c4.sh` | — | T-121, T-123, and T-124 pass in CI | CO-04 |
 | W-27 | A weekly job reports an upstream release that the documents must answer | `.github/workflows/upstream.yml` | — | The job opens an issue when Orchard, Tart, the Buildkite agent, `stacksapi`, or a published macOS image moves past the version in the documents | CO-02, CO-05, CO-06 |
 
 ### 4.1 Increment 1 — walking skeleton

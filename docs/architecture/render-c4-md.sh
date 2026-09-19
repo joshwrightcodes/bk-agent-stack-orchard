@@ -15,7 +15,14 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 cp "$arch/workspace.dsl" "$tmp/"
-docker run --rm -v "$tmp:/usr/local/structurizr" structurizr/structurizr \
+
+# The container runs as the user of this shell. It can then read a directory that mktemp created
+# with mode 0700, and the files that it writes belong to this user, so the trap above can remove
+# them. HOME points at the mount, because this user has no home directory in the container.
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/usr/local/structurizr \
+  -v "$tmp:/usr/local/structurizr" structurizr/structurizr \
   export -workspace /usr/local/structurizr/workspace.dsl -format mermaid \
   -output /usr/local/structurizr/mermaid >/dev/null
 

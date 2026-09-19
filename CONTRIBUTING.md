@@ -3,6 +3,25 @@
 This is a personal project with one maintainer. Issues and pull requests are welcome, and the
 maintainer decides what the project accepts.
 
+## Workflow
+
+Work is tracked in the [project](https://github.com/users/joshwrightcodes/projects/1). Each item
+is a work unit of the [implementation plan](docs/delivery/implementation-plan.md).
+
+1. **Assign the item** to its owner before any work starts. An unassigned item is not in
+   progress.
+2. **Move it to In progress** when the work starts, and work on a branch named for the unit, for
+   example `w-26-document-gate`.
+3. **Open a pull request** that links the item, with `Closes #<number>` in its body. A unit that
+   needs more than one pull request gets a sub-issue for each one, and the sub-issues carry the
+   links.
+4. **Move it to In review** when the pull request is ready for the maintainer.
+5. **The maintainer merges**, which closes the item and moves it to Done. Only the maintainer
+   merges.
+
+Nothing goes to `main` directly. Every change arrives through a pull request, and the project
+squashes it into one commit.
+
 ## Before code: the documents decide
 
 The document set is the source of truth, and it has one direction:
@@ -96,9 +115,9 @@ one commit. The pull request template asks for the work unit (`W-nn`), the requi
 bug report for behaviour that differs from the target design, or a change request for behaviour
 that the documents do not state yet.
 
-CI checks every commit of a pull request with
-[`conform`](https://github.com/siderolabs/conform), and a message that does not follow these
-rules fails the gate.
+CI checks every commit of a pull request with `scripts/check-commits.py`, and a message that does
+not follow these rules fails the gate. Run `mise run check` before you open a pull request, which
+also checks the documents and the C4 model.
 
 ## Licence of contributions
 

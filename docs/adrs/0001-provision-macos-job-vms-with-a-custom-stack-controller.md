@@ -82,8 +82,8 @@ infrastructure, not on the self-hosted hosts, so source code checkouts leave own
 **A permanent agent on each host.** A Buildkite agent runs on each host and runs jobs directly on
 the host operating system. This option is the simplest, and it needs no VM tooling. However, a job
 can change the host for the next job. A job can also read the files and the credentials of the
-host and of other jobs. The agents also hold host capacity when the queue is empty, and all jobs get the
-same host environment.
+host and of other jobs. The agents also hold host capacity when the queue is empty, and all jobs
+get the same host environment.
 
 **A permanent agent on each host, with a VM plugin for each step.** A plugin such as
 `veertuinc/anka-buildkite-plugin` or `cirruslabs/tart-buildkite-plugin` clones a VM for each step.

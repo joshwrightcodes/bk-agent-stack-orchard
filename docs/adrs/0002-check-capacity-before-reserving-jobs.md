@@ -24,11 +24,11 @@ seconds by default and 3600 seconds at most. When a reservation expires, the job
 A stack must reserve a job before it can request a job acquisition token for the job. The token
 expires early if the reservation expires.
 
-`agent-stack-k8s`, the Buildkite stack controller for Kubernetes, reserves jobs first, and then waits
-for free capacity. A code comment in
-`agent-stack-k8s` accepts that reservations can expire while jobs wait. Each macOS host has only
-two VM slots (ADR-0001), so free slots are few. With the `agent-stack-k8s` order, a job can stay
-reserved and hidden while it waits. Its token can also expire before a slot is free.
+`agent-stack-k8s`, the Buildkite stack controller for Kubernetes, reserves jobs first, and then
+waits for free capacity. A code comment in `agent-stack-k8s` accepts that reservations can expire
+while jobs wait. Each macOS host has only two VM slots (ADR-0001), so free slots are few. With the
+`agent-stack-k8s` order, a job can stay reserved and hidden while it waits. Its token can also
+expire before a slot is free.
 
 ## Goals and non-goals
 
