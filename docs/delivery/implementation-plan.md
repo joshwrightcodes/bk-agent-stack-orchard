@@ -253,6 +253,11 @@ Dates that the plan must respect:
 * The pilot exit criteria need two weeks of measurement (QA-04), so the earliest exit is about
   2026-10-28.
 
+Each work unit carries a day estimate and a size in the
+[project](https://github.com/users/joshwrightcodes/projects/1). The estimates of an increment sum
+inside its range above. The project holds the value for each unit, and this document holds the
+range for each increment, so a change to one unit does not need a change to this document.
+
 The sum of the ranges is 21 to 36 working days. The lower range meets the pilot date only if the
 image build (W-23) starts before the hosts arrive, and if no increment needs a new decision. The
 owner SHOULD expect the pilot entry in the second half of October 2026.
