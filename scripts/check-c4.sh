@@ -11,6 +11,8 @@ cd "$root"
 
 echo "check-c4: validating the workspace"
 docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/tmp \
   -v "$root/docs/architecture:/usr/local/structurizr" \
   structurizr/structurizr validate -workspace /usr/local/structurizr/workspace.dsl
 

@@ -14,13 +14,15 @@ arch="$root/docs/architecture"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-# mktemp gives mode 0700 owned by the current user. The Structurizr container runs as another
-# user, which then cannot enter the directory, and the export reports that the workspace does
-# not exist. The directory holds only a copy of a file that this repository publishes.
-chmod 0777 "$tmp"
-
 cp "$arch/workspace.dsl" "$tmp/"
-docker run --rm -v "$tmp:/usr/local/structurizr" structurizr/structurizr \
+
+# The container runs as the user of this shell. It can then read a directory that mktemp created
+# with mode 0700, and the files that it writes belong to this user, so the trap above can remove
+# them. HOME points at the mount, because this user has no home directory in the container.
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/usr/local/structurizr \
+  -v "$tmp:/usr/local/structurizr" structurizr/structurizr \
   export -workspace /usr/local/structurizr/workspace.dsl -format mermaid \
   -output /usr/local/structurizr/mermaid >/dev/null
 
