@@ -32,7 +32,9 @@ SEPARATOR = "\x1e"
 
 
 def commits(base: str) -> list[tuple[str, str]]:
-    revs = subprocess.run(["git", "rev-list", f"{base}..HEAD"],
+    # --no-merges: a pull request event checks out refs/pull/N/merge, so the range contains a
+    # merge commit that GitHub wrote. The rules apply to the commits that a person wrote.
+    revs = subprocess.run(["git", "rev-list", "--no-merges", f"{base}..HEAD"],
                           capture_output=True, text=True, check=True).stdout.split()
     out = []
     for rev in revs:

@@ -14,6 +14,11 @@ arch="$root/docs/architecture"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
+# mktemp gives mode 0700 owned by the current user. The Structurizr container runs as another
+# user, which then cannot enter the directory, and the export reports that the workspace does
+# not exist. The directory holds only a copy of a file that this repository publishes.
+chmod 0777 "$tmp"
+
 cp "$arch/workspace.dsl" "$tmp/"
 docker run --rm -v "$tmp:/usr/local/structurizr" structurizr/structurizr \
   export -workspace /usr/local/structurizr/workspace.dsl -format mermaid \
