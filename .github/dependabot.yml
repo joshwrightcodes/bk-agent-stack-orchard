@@ -1,0 +1,39 @@
+version: 2
+
+# The project pins its dependencies and its actions, and the upstream watch reports only the
+# tools that the documents name. Dependabot keeps the rest current. Its commit messages use the
+# conventional types of CONTRIBUTING.md, so the commit gate accepts them.
+
+updates:
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Australia/Sydney
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build
+      include: scope
+    labels: [dependencies]
+    groups:
+      # One pull request for the patch and minor updates keeps the review small.
+      go-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Australia/Sydney
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: ci
+      include: scope
+    labels: [dependencies]
+    groups:
+      actions:
+        update-types: [major, minor, patch]

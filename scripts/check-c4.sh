@@ -2,8 +2,7 @@
 # Validate the C4 workspace and confirm that the generated views agree with it.
 #
 # The workspace is the source of truth for the diagrams (target design, section 4). This script
-# fails when the workspace is not valid, or when docs/architecture/c4.md is older than it
-# (test strategy, T-121).
+# fails when the workspace is not valid, or when docs/architecture/c4.md is older than it.
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"

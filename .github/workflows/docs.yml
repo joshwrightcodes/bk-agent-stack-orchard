@@ -1,7 +1,7 @@
 name: documents
 
 # The document set is accepted, so drift in it is a defect. These checks are the gate that keeps
-# the set whole (test strategy, T-121, T-123, and T-124).
+# the set whole: the documents, the commit messages, and the C4 model.
 
 on:
   pull_request:

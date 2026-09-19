@@ -5,7 +5,7 @@ Several accepted facts in this project carry a version and a date: the minimum O
 the Tart version, the Buildkite agent line, the Stacks API client, and the published macOS
 images. This script compares those facts with the current upstream state and writes a report.
 
-It reports only. A version change can need a decision, so no document changes here (W-27).
+It reports only. A version change can need a decision, so it changes no document.
 
 The expected values come from the documents themselves, not from a copy in this script. When a
 document changes its pinned version, this check follows it. When a document no longer states a
@@ -106,7 +106,7 @@ def main() -> int:
         moved = normalise(current) > normalise(expected)
         rows.append((name, expected, current, moved))
 
-    # A published image with Xcode 27 removes the image build from the pilot (CO-05, SC-07).
+    # A published image with Xcode 27 removes the image build from the pilot.
     golden_gate = ghcr_tags("cirruslabs/macos-golden-gate-xcode")
     rows.append((
         "macos-golden-gate-xcode",

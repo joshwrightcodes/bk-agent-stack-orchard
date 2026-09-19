@@ -3,7 +3,7 @@ name: upstream
 # Several accepted facts carry a version and a date: the minimum Orchard version, the Tart
 # version, the Buildkite agent line, the Stacks API client, and the published macOS images. This
 # job reports when one of them moves, so that a document answers the change instead of a
-# production job finding it (W-27, drivers CO-02, CO-05, and CO-06).
+# production job finding it.
 
 on:
   schedule:
@@ -47,11 +47,11 @@ jobs:
             echo
             echo "What to do with this:"
             echo
-            echo "* A new Orchard release can change the minimum version in the target design,"
-            echo "  section 9.2, and driver CO-02. Check its notes before the version moves."
-            echo "* A new Buildkite agent line changes driver CO-06 and the image of W-23."
+            echo "* A new Orchard release can change the minimum version in the target design."
+            echo "  Read its notes before the version moves."
+            echo "* A new Buildkite agent line changes the baseline and the pilot image."
             echo "* A published macOS image with Xcode 27 can remove the image build from the"
-            echo "  pilot. Driver CO-05 and SC-07 then change, and W-23 becomes smaller."
+            echo "  pilot, which makes that work smaller."
             echo "* A version change needs a document change, and sometimes a decision record."
             echo "  This issue is the trigger, not the decision."
             echo

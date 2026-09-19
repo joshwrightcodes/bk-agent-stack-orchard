@@ -1,0 +1,28 @@
+version: "2"
+
+run:
+  go: "1.27"
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - contextcheck
+    - errorlint
+    - gocritic
+    - gosec
+    - misspell
+    - noctx
+    - revive
+    - sloglint
+    - unconvert
+    - usestdlibvars
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/joshwrightcodes/bk-agent-stack-orchard

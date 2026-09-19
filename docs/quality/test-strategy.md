@@ -144,11 +144,11 @@ stops a merge or a release, and `diagnostic` when it reports only.
 
 | ID | Basis | Scenario | Oracle | Gate |
 |---|---|---|---|---|
-| T-120 | R-19, CO-04 | `mise run check`: `golangci-lint run`, `golangci-lint fmt --diff`, `golangci-lint config verify`, `goreleaser check`, and `goreleaser release --snapshot --clean` | Each command exits 0. The snapshot image configuration has the user 65532 and the base `gcr.io/distroless/static-debian13` | required |
+| T-120 | R-19, CO-04 | The golangci-lint analysis, `mise run lint-format`, `mise run lint-config`, and `mise run snapshot` (`goreleaser check`, a snapshot release, then `scripts/check-image.sh`) | Each command exits 0. In CI the analysis runs through the golangci-lint action, which writes each finding as an annotation on the changed line. `scripts/check-image.sh` confirms that the snapshot image runs as user 65532 and that the configuration names the base `gcr.io/distroless/static-debian13:nonroot` | required |
 | T-121 | Target design section 4 | `scripts/check-c4.sh`: `structurizr validate` on `workspace.dsl`, then `render-c4-md.sh` | The command exits 0, and the committed `c4.md` is not different from the generated file | required |
 | T-124 | CO-04, R-21 | Document integrity, checked by `scripts/check-docs.py` | Every identifier that a document cites exists (`PR-`, `QA-`, `SC-`, `SE-`, `OP-`, `CO-`, `DR-`, `QS-`, `T-`, `W-`, and `ADR-`); every requirement appears in an `Implements` line of the target design; no ADR cites a later ADR; every relative link resolves; every line outside a table or a code block has 100 characters or less | required |
 | T-123 | CO-04 | The commit messages of a pull request, checked with `scripts/check-commits.py` | Each message follows Conventional Commits 1.0.0, with a type of the CONTRIBUTING list, a subject line of 72 characters or less, a lowercase description with no full stop, and a body that wraps at 72 | required |
-| T-122 | R-20, R-21, ADR-0005, ADR-0010 | Dependency and licence check of `go.mod`, `mise.toml`, and the tree | `go.mod` has no Orchard dependency and no `replace` directive; the repository contains no file of the Orchard repository; `stacksapi` is v1.2.0 or later; the Go version is 1.27; the pinned tool versions are the versions that CI uses | required |
+| T-122 | R-20, R-21, ADR-0005, ADR-0010 | `scripts/check-deps.py` over `go.mod` and the tree | `go.mod` has no Orchard dependency and no `replace` directive; the repository contains no file of the Orchard repository; the Go version is the version that the design states; `stacksapi`, when `go.mod` names it, is v1.2.0 or later | required |
 
 ### 6.2 Unit (L1)
 

@@ -1,0 +1,42 @@
+version: 2
+
+project_name: bk-agent-stack-orchard
+
+builds:
+  - id: bk-agent-stack-orchard
+    main: ./cmd/bk-agent-stack-orchard
+    binary: bk-agent-stack-orchard
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: darwin
+        goarch: amd64
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{ .Version }} -X main.commit={{ .ShortCommit }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: bk-agent-stack-orchard
+    ids: [bk-agent-stack-orchard]
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+kos:
+  - id: bk-agent-stack-orchard
+    build: bk-agent-stack-orchard
+    base_image: gcr.io/distroless/static-debian13:nonroot
+    repositories: [ghcr.io/joshwrightcodes/bk-agent-stack-orchard]
+    platforms: [linux/amd64, linux/arm64]
+    tags:
+      - "{{ .Tag }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    bare: true
+    creation_time: "{{ .CommitTimestamp }}"
+    ko_data_creation_time: "{{ .CommitTimestamp }}"
+    sbom: spdx

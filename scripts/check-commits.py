@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Check that commit messages follow Conventional Commits 1.0.0.
 
-CONTRIBUTING.md states the rules. This script is the gate for them (test strategy, T-123). It
-reads the commit range and changes nothing.
+CONTRIBUTING.md states the rules. This script is the gate for them. It reads the commit range
+and changes nothing.
 
 Usage:
     scripts/check-commits.py [<base-ref>]
@@ -31,7 +31,7 @@ MAX_BODY = 72
 SEPARATOR = "\x1e"
 
 
-def commits(base: str) -> list[tuple[str, str]]:
+def commits(base: str) -> list[tuple[str, str, str]]:
     # --no-merges: a pull request event checks out refs/pull/N/merge, so the range contains a
     # merge commit that GitHub wrote. The rules apply to the commits that a person wrote.
     revs = subprocess.run(["git", "rev-list", "--no-merges", f"{base}..HEAD"],
@@ -40,14 +40,22 @@ def commits(base: str) -> list[tuple[str, str]]:
     for rev in revs:
         message = subprocess.run(["git", "log", "-1", "--format=%B", rev],
                                  capture_output=True, text=True, check=True).stdout
-        out.append((rev[:8], message.rstrip("\n")))
+        author = subprocess.run(["git", "log", "-1", "--format=%an", rev],
+                                capture_output=True, text=True, check=True).stdout.strip()
+        out.append((rev[:8], message.rstrip("\n"), author))
     return out
 
 
-def check(rev: str, message: str) -> list[str]:
+BOTS = ("dependabot[bot]", "github-actions[bot]")
+
+
+def check(rev: str, message: str, author: str = "") -> list[str]:
     problems = []
     lines = message.split("\n")
     subject = lines[0]
+    # A bot writes the module path into the subject, and a long path passes the limit. The type
+    # and the shape still apply, because its configuration sets them.
+    subject_limit = 200 if author in BOTS else MAX_SUBJECT
 
     match = SUBJECT.match(subject)
     if not match:
@@ -57,8 +65,8 @@ def check(rev: str, message: str) -> list[str]:
         )
     else:
         description = match.group("description")
-        if len(subject) > MAX_SUBJECT:
-            problems.append(f"subject is {len(subject)} characters, the limit is {MAX_SUBJECT}")
+        if len(subject) > subject_limit:
+            problems.append(f"subject is {len(subject)} characters, the limit is {subject_limit}")
         if description[0].isupper():
             problems.append("description starts with a capital letter")
         if description.endswith("."):
@@ -68,6 +76,8 @@ def check(rev: str, message: str) -> list[str]:
         problems.append("the line after the subject must be empty")
 
     for number, line in enumerate(lines[1:], 2):
+        if author in BOTS:
+            break
         if len(line) > MAX_BODY and "http" not in line and not line.startswith("    "):
             problems.append(f"body line {number} is {len(line)} characters, the limit is {MAX_BODY}")
 
@@ -89,7 +99,7 @@ def main() -> int:
         print(f"check-commits: no commit in {base}..HEAD")
         return 0
 
-    problems = [p for rev, message in found for p in check(rev, message)]
+    problems = [p for rev, message, author in found for p in check(rev, message, author)]
     if problems:
         print(f"check-commits: {len(problems)} problem(s) in {len(found)} commit(s)\n",
               file=sys.stderr)

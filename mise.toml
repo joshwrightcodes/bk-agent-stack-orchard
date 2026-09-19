@@ -1,23 +1,53 @@
 # Tool versions and tasks for bk-agent-stack-orchard.
 #
-# One file gives a developer and CI the same versions (target design, section 15). W-01 adds Go,
-# golangci-lint, and GoReleaser here. The checks of W-26 need only Python and Docker, which the
-# development machine and the CI runner already have.
+# One file gives a developer and CI the same versions (target design, section 15).
 
 [tools]
+go = "1.27.1"
+golangci-lint = "2.13.2"
+goreleaser = "2.18.2"
 
 [tasks.check-docs]
-description = "Check that the document set stays whole (T-124)"
+description = "Check that the document set stays whole"
 run = "python3 scripts/check-docs.py"
 
 [tasks.check-commits]
-description = "Check the commit messages of this branch (T-123)"
+description = "Check the commit messages of this branch"
 run = "python3 scripts/check-commits.py"
 
 [tasks.check-c4]
-description = "Validate the C4 workspace and the generated views (T-121)"
+description = "Validate the C4 workspace and the generated views"
 run = "./scripts/check-c4.sh"
+
+[tasks.check-deps]
+description = "Check the dependency and licence rules of go.mod"
+run = "python3 scripts/check-deps.py"
+
+[tasks.lint]
+description = "Run the golangci-lint analysis over the Go code"
+run = "golangci-lint run"
+
+[tasks.lint-format]
+description = "Check the formatting that golangci-lint owns"
+run = "golangci-lint fmt --diff"
+
+[tasks.lint-config]
+description = "Check that .golangci.yaml is valid"
+run = "golangci-lint config verify"
+
+[tasks.test]
+description = "Run the Go tests"
+run = "go test ./..."
+
+[tasks.build]
+description = "Build the binary"
+run = "go build ./..."
+
+[tasks.snapshot]
+description = "Build the release artifacts and the image, without publishing"
+run = ["goreleaser check", "goreleaser release --snapshot --clean", "./scripts/check-image.sh"]
 
 [tasks.check]
 description = "Run every gate that this repository has"
-depends = ["check-docs", "check-commits", "check-c4"]
+depends = ["check-docs", "check-commits", "check-c4", "check-deps", "lint", "lint-format",
+           "lint-config", "test"]

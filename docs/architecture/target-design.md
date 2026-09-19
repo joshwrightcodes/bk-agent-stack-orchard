@@ -799,6 +799,8 @@ Each item MUST have its own ADR before implementation:
 ## 15. Implementation conventions
 
 * **Go version:** 1.27.
+* **Dependency updates:** Dependabot proposes the Go module and the action updates each week.
+  Its commit messages use the conventional types of the contributing guide.
 * **Tool versions:** one `mise.toml` file pins Go, golangci-lint, GoReleaser, Packer, and
   Ansible. A developer and CI use the same versions. CI runs `mise install` before each task.
   The golangci-lint documentation gives `mise` as an installation method, and it states that
@@ -899,7 +901,9 @@ These rules apply to the configuration:
   `ghcr.io/joshwrightcodes/bk-agent-stack-orchard`. The push needs a registry login, for
   example `docker login ghcr.io`.
 
-**Static analysis.** golangci-lint (v2.13 or later) MUST examine all Go code. The
+**Static analysis.** golangci-lint (v2.13 or later) MUST examine all Go code. In CI the analysis
+MUST report each finding as an annotation on the line that carries it, so that a person reads the
+finding in the pull request and not in a log. The
 `.golangci.yaml` file MUST contain this configuration. `golangci-lint config verify` validates
 it.
 

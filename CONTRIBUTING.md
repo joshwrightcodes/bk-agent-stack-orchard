@@ -55,6 +55,11 @@ identifiers it implements, so the direction stays visible.
 
 ## Code
 
+* **Identifiers stay in the documents.** Code, configuration, and task descriptions say what they
+  do and why. They do not carry a work unit, a requirement, or a test identifier, because a
+  reader of the code cannot resolve one. The traceability lives in the commit footers, the pull
+  request, and the project item. A decision record is the exception: a rule that exists for a
+  recorded decision may name that ADR, because the reason is the useful part.
 * Go 1.27. `mise install` gives the pinned tool versions, and `mise run check` runs the gate.
 * Test-driven development. Each change of behaviour starts with a failing test.
 * The Matcher, the Admission function, and the Reaper decision function stay pure, with an
@@ -103,6 +108,8 @@ Rules for the subject line:
 Rules for the rest of the message:
 
 * The body says why the change is necessary, and it wraps at 72 characters.
+* A commit from Dependabot keeps the type and the shape, but its subject may pass 72 characters,
+  because the module path belongs in the subject.
 * A breaking change has `!` before the colon, and a `BREAKING CHANGE:` footer that says what
   a user of the project must do.
 * Footers name the source identifiers, for example `Refs: W-06, PR-001` and `Evidence: T-041`.
