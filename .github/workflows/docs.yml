@@ -1,0 +1,47 @@
+name: documents
+
+# The document set is accepted, so drift in it is a defect. These checks are the gate that keeps
+# the set whole (test strategy, T-121, T-123, and T-124).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: documents-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  documents:
+    name: document integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+      - run: mise run check-docs
+
+  commits:
+    name: commit messages
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+      - env:
+          # Event data never reaches the shell directly, even when it is a commit SHA.
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 scripts/check-commits.py "$BASE_SHA"
+
+  c4:
+    name: c4 model
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+      - run: mise run check-c4

@@ -10,14 +10,14 @@ decision-makers: Josh Wright
 
 ADR-0001 starts one VM for each job, so each job waits for a VM to start. A pool of started, idle
 VMs would remove most of this wait. The decision is to start VMs only when jobs need them, and to
-keep no idle VMs. The cost is a VM start time for each job, with a target of 60 seconds and an estimate of 30 to 60
-seconds.
+keep no idle VMs. The cost is a VM start time for each job, with a target of 60 seconds and an
+estimate of 30 to 60 seconds.
 
 ## Context
 
-Each macOS host can run only two VMs at the same time (ADR-0001). The first fleet has 2 to 10 Macs,
-so it has only 4 to 20 VM slots (SC-01, SC-02). An idle VM in a pool holds one of these slots, and no job can use
-that slot.
+Each macOS host can run only two VMs at the same time (ADR-0001). The first fleet has 2 to 10
+Macs, so it has only 4 to 20 VM slots (SC-01, SC-02). An idle VM in a pool holds one of these
+slots, and no job can use that slot.
 
 The VM start time target is 60 seconds (QA-01). The estimate is 30 to 60 seconds, and nobody has
 measured it. The controller records the duration of each start phase, and this data will show the
