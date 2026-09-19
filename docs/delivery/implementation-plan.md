@@ -223,8 +223,15 @@ flowchart LR
 The critical path is W-26, W-01, W-02, W-04, W-08, W-10, W-11, W-13, W-16, W-21, W-24, W-25.
 W-27 is on no path, and it runs on a schedule after it exists.
 
-W-22 and W-23 are not on the software path. W-23 SHOULD start first, because the image build
-needs a long machine time and a 140 GB disk, and because it has no dependency on the controller.
+W-22 and W-23 are not on the software path, and the owner decided on 2026-09-20 that neither one
+starts early: the hosts are not necessary for increments 0 to 3, and the pilot image blocks no
+software work until W-24. W-23 therefore runs last.
+
+This has one consequence to watch. W-24 needs an image that contains `buildkite-agent` v4 and the
+Tart guest agent, so the end-to-end evidence, and with it the only proof that the guest-agent
+transport starts an agent (open item O-2), waits for W-23. If that wait becomes a problem, the
+smaller step is an image with the agent and the guest agent but no Xcode, which the end-to-end
+scenarios other than the iOS build can use.
 
 ## 6. Estimates
 

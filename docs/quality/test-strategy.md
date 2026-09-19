@@ -302,7 +302,7 @@ Each item is an unknown that can change a level or a scenario. Each has the smal
 
 | ID | Unknown | Effect | Next action |
 |---|---|---|---|
-| O-1 | The Buildkite `FakeAgentServer` is a test double, not a conformance suite. Its fidelity is unproven for this controller. | T-040 and T-060 can prove behaviour that the real API does not have. | Record the responses of a Buildkite test cluster one time, and compare them with the fake. Use them as the fixtures of T-040. |
+| O-1 | The Buildkite `FakeAgentServer` is a test double, not a conformance suite. Its fidelity is unproven for this controller. | T-040 and T-060 can prove behaviour that the real API does not have. | During W-24, when a Buildkite test cluster exists, record its responses, compare them with the fake, and use them as the fixtures of T-040 (owner decision, 2026-09-20). |
 | O-2 | `orchard dev --synthetic` does not run a real startup script. | L4 proves only that the API accepts the guest-agent transport. The transport itself is unproven until L6. | Send one VM specification with `transport: tart-guest-agent` to a synthetic controller, and record whether validation accepts it. T-100 stays the only proof of execution. |
 | O-3 | Agent v4 support for an injected `traceparent` is not verified (target design, section 10.4). | The agent spans can stay outside the job trace. | Run one job on the development Mac with `profile.otel.enabled: true`, and examine the trace. |
 | O-4 | The host macOS version that a macOS 27 guest needs is an assumption (CO-07). | L6 and the pilot can need a host update before the hosts arrive on 2026-09-22. | Start a Golden Gate VM on the development Mac before the pilot hosts arrive. |
