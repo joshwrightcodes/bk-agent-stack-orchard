@@ -1,8 +1,8 @@
 // Command bk-agent-stack-orchard runs Buildkite macOS jobs in temporary Tart virtual machines
 // through Orchard.
 //
-// This is the stub of work unit W-01. It proves that the repository builds, lints, and releases.
-// The controller behaviour arrives with the work units of increment 1.
+// This is a stub. It proves that the repository builds, lints, tests, and releases. The
+// controller behaviour arrives with the walking skeleton.
 package main
 
 import (

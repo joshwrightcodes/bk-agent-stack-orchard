@@ -1,7 +1,7 @@
 name: ci
 
-# The Go gates of work unit W-01: the dependency rules, the linters, the tests, and the release
-# artifacts (test strategy, T-120 and T-122). The document gates live in documents.yml.
+# The Go gates: the dependency rules, the linters, the tests, and the release artifacts. The
+# document gates live in documents.yml.
 
 on:
   pull_request:

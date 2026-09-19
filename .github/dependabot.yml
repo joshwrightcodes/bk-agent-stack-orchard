@@ -1,8 +1,8 @@
 version: 2
 
-# The project pins its dependencies and its actions, and the upstream watch (W-27) reports only
-# the tools that the documents name. Dependabot keeps the rest current. Its commit messages use
-# the conventional types of CONTRIBUTING.md, so the commit gate accepts them.
+# The project pins its dependencies and its actions, and the upstream watch reports only the
+# tools that the documents name. Dependabot keeps the rest current. Its commit messages use the
+# conventional types of CONTRIBUTING.md, so the commit gate accepts them.
 
 updates:
   - package-ecosystem: gomod

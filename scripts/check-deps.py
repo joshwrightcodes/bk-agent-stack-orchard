@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the dependency rules of this repository (test strategy, T-122).
+"""Check the dependency rules of this repository.
 
 Two of these rules are licence rules, not preferences. The project publishes an image under the
 AGPL-3.0, and Orchard carries a licence with a field-of-use restriction, so no Orchard code may
@@ -85,7 +85,7 @@ def main() -> int:
             print(f"  {error}", file=sys.stderr)
         return 1
 
-    note = "" if stacks else " (stacksapi arrives with W-05)"
+    note = "" if stacks else " (nothing imports stacksapi yet)"
     print(f"check-deps: the dependency rules hold{note}")
     return 0
 

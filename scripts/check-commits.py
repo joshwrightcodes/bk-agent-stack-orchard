@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Check that commit messages follow Conventional Commits 1.0.0.
 
-CONTRIBUTING.md states the rules. This script is the gate for them (test strategy, T-123). It
-reads the commit range and changes nothing.
+CONTRIBUTING.md states the rules. This script is the gate for them. It reads the commit range
+and changes nothing.
 
 Usage:
     scripts/check-commits.py [<base-ref>]

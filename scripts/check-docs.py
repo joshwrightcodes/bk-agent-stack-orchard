@@ -5,7 +5,7 @@ The documents of this project carry identifiers, and the direction of the set ru
 product requirements to the design. This script fails when that structure breaks. It reads only;
 it changes nothing.
 
-Checks (test strategy, T-124):
+Checks:
 
   1. every identifier that a document cites exists;
   2. every requirement appears in an "Implements" line of the target design;

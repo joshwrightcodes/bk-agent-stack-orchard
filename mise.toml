@@ -8,31 +8,31 @@ golangci-lint = "2.13.2"
 goreleaser = "2.18.2"
 
 [tasks.check-docs]
-description = "Check that the document set stays whole (T-124)"
+description = "Check that the document set stays whole"
 run = "python3 scripts/check-docs.py"
 
 [tasks.check-commits]
-description = "Check the commit messages of this branch (T-123)"
+description = "Check the commit messages of this branch"
 run = "python3 scripts/check-commits.py"
 
 [tasks.check-c4]
-description = "Validate the C4 workspace and the generated views (T-121)"
+description = "Validate the C4 workspace and the generated views"
 run = "./scripts/check-c4.sh"
 
 [tasks.check-deps]
-description = "Check the dependency and licence rules of go.mod (T-122)"
+description = "Check the dependency and licence rules of go.mod"
 run = "python3 scripts/check-deps.py"
 
 [tasks.lint]
-description = "Run the golangci-lint analysis over the Go code (T-120)"
+description = "Run the golangci-lint analysis over the Go code"
 run = "golangci-lint run"
 
 [tasks.lint-format]
-description = "Check the formatting that golangci-lint owns (T-120)"
+description = "Check the formatting that golangci-lint owns"
 run = "golangci-lint fmt --diff"
 
 [tasks.lint-config]
-description = "Check that .golangci.yaml is valid (T-120)"
+description = "Check that .golangci.yaml is valid"
 run = "golangci-lint config verify"
 
 [tasks.test]
@@ -44,7 +44,7 @@ description = "Build the binary"
 run = "go build ./..."
 
 [tasks.snapshot]
-description = "Build the release artifacts and the image, without publishing (T-120)"
+description = "Build the release artifacts and the image, without publishing"
 run = ["goreleaser check", "goreleaser release --snapshot --clean", "./scripts/check-image.sh"]
 
 [tasks.check]

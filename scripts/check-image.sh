@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Check the container image that GoReleaser and ko build (test strategy, T-120).
+# Check the container image that GoReleaser and ko build.
 #
 # The design states a distroless base and a non-root user. An image that runs as root, or that
 # uses another base, fails here rather than in a cluster.
