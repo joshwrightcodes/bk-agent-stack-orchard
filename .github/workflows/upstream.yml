@@ -1,0 +1,69 @@
+name: upstream
+
+# Several accepted facts carry a version and a date: the minimum Orchard version, the Tart
+# version, the Buildkite agent line, the Stacks API client, and the published macOS images. This
+# job reports when one of them moves, so that a document answers the change instead of a
+# production job finding it (W-27, drivers CO-02, CO-05, and CO-06).
+
+on:
+  schedule:
+    # Monday, 06:00 UTC.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: upstream
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    name: upstream releases
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - id: check
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/check-upstream.py --output upstream-table.md
+
+      - name: report
+        if: steps.check.outputs.moved == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Context values reach the shell through the environment, never by interpolation.
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "An upstream dependency moved past the version that the documents state."
+            echo
+            cat upstream-table.md
+            echo
+            echo "What to do with this:"
+            echo
+            echo "* A new Orchard release can change the minimum version in the target design,"
+            echo "  section 9.2, and driver CO-02. Check its notes before the version moves."
+            echo "* A new Buildkite agent line changes driver CO-06 and the image of W-23."
+            echo "* A published macOS image with Xcode 27 can remove the image build from the"
+            echo "  pilot. Driver CO-05 and SC-07 then change, and W-23 becomes smaller."
+            echo "* A version change needs a document change, and sometimes a decision record."
+            echo "  This issue is the trigger, not the decision."
+            echo
+            echo "Run: $RUN_URL"
+          } > upstream-issue.md
+
+          title="Upstream releases moved"
+          existing="$(gh issue list --state open --label upstream --search "$title in:title" \
+            --json number --jq '.[0].number // empty')"
+
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file upstream-issue.md
+          else
+            gh issue create --title "$title" --label upstream --body-file upstream-issue.md
+          fi
