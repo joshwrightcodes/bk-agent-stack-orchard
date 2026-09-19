@@ -10,6 +10,10 @@ on:
 
 permissions:
   contents: read
+  # The lint action writes its findings as annotations on the pull request.
+  checks: write
+  # only-new-issues reads the diff of the pull request.
+  pull-requests: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -23,7 +27,17 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
       - run: mise run check-deps
-      - run: mise run lint
+
+      # The analysis runs through the action, which turns each finding into an annotation on the
+      # changed line. install-mode "none" uses the golangci-lint that mise installed, so
+      # mise.toml stays the one place that pins the version.
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+        with:
+          install-mode: none
+          only-new-issues: true
+
+      - run: mise run lint-format
+      - run: mise run lint-config
       - run: mise run test
 
   release:

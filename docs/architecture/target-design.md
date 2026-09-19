@@ -901,7 +901,9 @@ These rules apply to the configuration:
   `ghcr.io/joshwrightcodes/bk-agent-stack-orchard`. The push needs a registry login, for
   example `docker login ghcr.io`.
 
-**Static analysis.** golangci-lint (v2.13 or later) MUST examine all Go code. The
+**Static analysis.** golangci-lint (v2.13 or later) MUST examine all Go code. In CI the analysis
+MUST report each finding as an annotation on the line that carries it, so that a person reads the
+finding in the pull request and not in a log. The
 `.golangci.yaml` file MUST contain this configuration. `golangci-lint config verify` validates
 it.
 

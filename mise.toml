@@ -24,8 +24,16 @@ description = "Check the dependency and licence rules of go.mod (T-122)"
 run = "python3 scripts/check-deps.py"
 
 [tasks.lint]
-description = "Run golangci-lint over the Go code (T-120)"
-run = ["golangci-lint run", "golangci-lint fmt --diff", "golangci-lint config verify"]
+description = "Run the golangci-lint analysis over the Go code (T-120)"
+run = "golangci-lint run"
+
+[tasks.lint-format]
+description = "Check the formatting that golangci-lint owns (T-120)"
+run = "golangci-lint fmt --diff"
+
+[tasks.lint-config]
+description = "Check that .golangci.yaml is valid (T-120)"
+run = "golangci-lint config verify"
 
 [tasks.test]
 description = "Run the Go tests"
@@ -41,4 +49,5 @@ run = ["goreleaser check", "goreleaser release --snapshot --clean", "./scripts/c
 
 [tasks.check]
 description = "Run every gate that this repository has"
-depends = ["check-docs", "check-commits", "check-c4", "check-deps", "lint", "test"]
+depends = ["check-docs", "check-commits", "check-c4", "check-deps", "lint", "lint-format",
+           "lint-config", "test"]
