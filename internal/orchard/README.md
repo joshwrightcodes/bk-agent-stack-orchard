@@ -35,8 +35,8 @@ The Go types are what the server marshals, so they are the contract.
 | List the workers | `GET /v1/workers` | admission |
 | Read the events of a machine | `GET /v1/vms/{name}/events` | the acquire timeout |
 
-Nothing else of the API is here. A new call needs a new method, a new entry in
-`scripts/check-orchard-contract.py`, and a test.
+Nothing else of the API is here. A new call needs a new method, a new entry in the contract
+test, and a test of its own.
 
 ## How the project notices that the contract moved
 
@@ -45,9 +45,14 @@ Three layers, from cheapest to strongest:
 1. **The weekly upstream watch** reports an Orchard release later than the pinned version. A
    version that moves is the trigger to read the release notes.
 2. **`mise run check-orchard-contract`** compares every field that this client uses with the Go
-   tags of the pinned version, and follows an embedded structure. It fails when a field that the
-   client depends on disappears or changes its name. It reads the upstream source and writes no
-   upstream file into this repository.
+   tags of the pinned version, and follows an embedded structure. The list of fields comes from
+   the structures themselves, by reflection, so no person keeps a second list current. It fails
+   when a field that the client depends on disappears or changes its name, and it reads the
+   upstream source without writing an upstream file into this repository.
+
+   The test carries the `contract` build tag, because it needs the network, so `go test ./...`
+   does not run it. `ORCHARD_VERSION=0.58.0 mise run check-orchard-contract` checks a candidate
+   release before the documents pin it.
 3. **The integration tests** run against a real Orchard with synthetic workers at the pinned
    version. They are the only layer that proves behaviour, and a field that the API rejects fails
    the gate.
@@ -55,8 +60,10 @@ Three layers, from cheapest to strongest:
 ## How to change the client
 
 1. Read the release notes of the new Orchard version.
-2. Run `mise run check-orchard-contract --version <new version>` to see which fields moved.
-3. Change the client and the list in `scripts/check-orchard-contract.py` together.
+2. Run `ORCHARD_VERSION=<new version> mise run check-orchard-contract` to see which fields
+   moved.
+3. Change the client. The contract test follows the structures by reflection, so only a new
+   type needs an entry there.
 4. Run the integration tests against the new version.
 5. Change the minimum version in the target design, section 9.2, and the driver in the system
    design baseline.

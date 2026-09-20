@@ -21,7 +21,7 @@ run = "./scripts/check-c4.sh"
 
 [tasks.check-orchard-contract]
 description = "Compare the Orchard fields that the client uses with the pinned upstream version"
-run = "python3 scripts/check-orchard-contract.py"
+run = "go test -tags contract -count=1 ./internal/orchard/ -run TestTheOrchardContract -v"
 
 [tasks.check-deps]
 description = "Check the dependency and licence rules of go.mod"
