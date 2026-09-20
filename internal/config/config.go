@@ -42,6 +42,10 @@ func (Secret) MarshalJSON() ([]byte, error) { return []byte(`"[redacted]"`), nil
 // MarshalText hides the value from an encoder that asks for text, such as YAML.
 func (Secret) MarshalText() ([]byte, error) { return []byte("[redacted]"), nil }
 
+// GoString hides the value from the %#v verb, which asks GoStringer and never String. A
+// structure that a developer dumps while debugging is a common way for a secret to reach a log.
+func (Secret) GoString() string { return `"[redacted]"` }
+
 // Reveal gives the value. Every call is a place where the secret leaves this package.
 func (s Secret) Reveal() string { return string(s) }
 

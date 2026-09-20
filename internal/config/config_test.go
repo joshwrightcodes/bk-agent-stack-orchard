@@ -302,6 +302,9 @@ func TestSecretDoesNotPrintItsValue(t *testing.T) {
 		"String of the token": cfg.Buildkite.AgentToken.String(),
 		"the whole block":     fmt.Sprintf("%+v", cfg.Buildkite),
 		"the orchard block":   fmt.Sprintf("%+v", cfg.Orchard),
+		"%#v of the block":    fmt.Sprintf("%#v", cfg.Buildkite),
+		"%#v of the token":    fmt.Sprintf("%#v", cfg.Buildkite.AgentToken),
+		"%q of the token":     fmt.Sprintf("%q", cfg.Buildkite.AgentToken),
 	} {
 		if strings.Contains(printed, "bkct_test") || strings.Contains(printed, "orchard_test") {
 			t.Errorf("%s printed the secret: %s", name, printed)
