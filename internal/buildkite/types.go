@@ -23,6 +23,10 @@ type ScheduledJob struct {
 	// RunnableAt is when the job became able to run.
 	RunnableAt time.Time
 
+	// ScheduledAt is when Buildkite scheduled the job. Admission orders equal priorities by
+	// this time, and the age of the oldest waiting job is measured from it.
+	ScheduledAt time.Time
+
 	// Pipeline and Build name the job for a person who reads a log line.
 	Pipeline string
 	Build    int

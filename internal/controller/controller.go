@@ -72,6 +72,10 @@ type Options struct {
 	// queue.
 	Queue Queue
 
+	// Fleet gives what the parts of the controller saw, which the instruments report. The loop
+	// adds the age of each source to it. A nil value reports the sources only.
+	Fleet func() telemetry.Observation
+
 	// Reap examines the machines of this controller. A nil value skips the step.
 	Reap func(ctx context.Context) error
 
@@ -92,6 +96,7 @@ type Controller struct {
 	stack    Registrar
 	sources  []Source
 	queue    Queue
+	fleet    func() telemetry.Observation
 	reap     func(ctx context.Context) error
 	admit    func(ctx context.Context) error
 	interval time.Duration
@@ -138,6 +143,7 @@ func New(options Options) (*Controller, error) {
 		stack:    options.Stack,
 		sources:  options.Sources,
 		queue:    options.Queue,
+		fleet:    options.Fleet,
 		reap:     options.Reap,
 		admit:    options.Admit,
 		interval: options.Interval,
@@ -190,8 +196,11 @@ func (c *Controller) withdraw(ctx context.Context) error {
 
 // tick runs the steps of one tick, in order.
 func (c *Controller) tick(ctx context.Context) {
+	// The observation comes last, so that it reports the fleet as this tick left it and not as
+	// this tick found it.
+	defer c.observe()
+
 	c.refresh(ctx)
-	c.observe()
 
 	c.run(ctx, "reap", c.reap)
 
@@ -237,8 +246,16 @@ func (c *Controller) run(ctx context.Context, name string, work func(context.Con
 	}
 }
 
-// observe gives the instruments the state that this tick saw.
+// observe gives the instruments the state that this tick left.
+//
+// One observation replaces the one before it, so the loop assembles the whole of it here: a part
+// that reported its own series would stop the series of every other part.
 func (c *Controller) observe() {
+	observation := telemetry.Observation{}
+	if c.fleet != nil {
+		observation = c.fleet()
+	}
+
 	synced := make(map[telemetry.Source]time.Time, len(c.sources))
 
 	for _, source := range c.sources {
@@ -247,7 +264,9 @@ func (c *Controller) observe() {
 		}
 	}
 
-	c.metrics.Observe(telemetry.Observation{Synced: synced})
+	observation.Synced = synced
+
+	c.metrics.Observe(observation)
 }
 
 // mayAdmit reports whether this tick may start jobs, and why not when it may not.

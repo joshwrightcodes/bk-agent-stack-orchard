@@ -546,6 +546,7 @@ orchard:
   url: https://orchard.internal:6120
   serviceAccount: bk-agent-stack-orchard
   inventoryInterval: 1s
+  workerOfflineTimeout: 3m # MUST match the worker offline timeout of the Orchard controller
 maxInFlight: 0 # 0 means the total VM slots of the eligible workers
 stateFreshness: 60s
 defaults:
