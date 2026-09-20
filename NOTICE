@@ -10,6 +10,8 @@ Third-party code in the distributed work
 ----------------------------------------
 
   * github.com/buildkite/stacksapi — MIT
+  * github.com/buildkite/roko — MIT (a dependency of stacksapi)
+  * github.com/google/uuid — BSD-3-Clause (a dependency of stacksapi)
   * The OpenTelemetry Go SDK and its contrib packages — Apache License 2.0
   * github.com/buildkite/agent-stack-k8s (FakeAgentServer, test scope only)
     — MIT

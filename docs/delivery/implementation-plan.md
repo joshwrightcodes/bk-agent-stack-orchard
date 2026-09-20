@@ -117,10 +117,22 @@ Buildkite maintains a fake: `FakeAgentServer` in `github.com/buildkite/agent-sta
 It records the reserve calls, the reservation expiry values, and the token requests, and it can
 give a configured response, status code, or error. Buildkite tests its own controller with it.
 
-W-05 MUST use this fake, and it MUST NOT contain a new fake of the same API. The unit of work
-first imports the package. If the module graph of `agent-stack-k8s` (a Kubernetes controller) puts
-a cost on the build, W-05 copies `fake_agent_server.go` into `test/fakestacks` with the MIT notice.
-The copy is permitted, and the file has approximately 300 lines.
+W-05 MUST use this fake, and it MUST NOT contain a new fake of the same API.
+
+W-05 measured the import first, and it copied the file. An import puts `k8s.io/apimachinery`,
+`k8s.io/klog/v2`, `k8s.io/utils`, and `go-logr` in the module graph for one test helper, and it
+asks for `stacksapi` v1.0.2, which is older than the version that this project needs. The package
+carries no release tag, so an import also pins an untagged commit of a Kubernetes controller.
+`test/fakestacks` therefore holds the file with its MIT notice and its provenance, and the module
+graph gains only `stacksapi` and the two small libraries that it needs.
+
+The copy carries three changes, because the original models only the calls that its own controller
+makes. Each change carries a comment in the file that starts with "Change of this project":
+
+1. The stack key is a field. The original writes `test-stack` into every route, and the stack key
+   of this controller comes from its configuration.
+2. A scheduled-jobs route exists. The original models none, and T-040 asks for an empty page.
+3. A test can set the headers of an answer, which the `Retry-After` case of T-040 needs.
 
 The fake is not a conformance suite. Open item O-1 of the test strategy stays: the fixtures of
 T-040 come from recorded responses of a real Buildkite test cluster.
