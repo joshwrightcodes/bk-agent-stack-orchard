@@ -557,6 +557,12 @@ defaults:
 profiles: [] # see §5
 ```
 
+Each secret belongs to the settings of the component that uses it: the agent token to the
+Buildkite settings, and the Orchard token and certificate to the Orchard settings. A component
+then receives one value that is complete, and no part of the controller holds a collection of
+secrets that it does not need. The type of a secret refuses to print itself, so a log line, a
+JSON encoder, or a format verb writes `[redacted]`.
+
 | Environment variable | Contents |
 |---|---|
 | `BK_AGENT_STACK_ORCHARD_CONFIG` | The path to the configuration file. The default is `/etc/bk-agent-stack-orchard/config.yaml`. |

@@ -9,6 +9,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"net/url"
 	"os"
@@ -22,6 +23,27 @@ import (
 
 // Environment reads a variable. os.Getenv satisfies it, and a test gives its own.
 type Environment func(name string) string
+
+// Secret is a value that must never reach a log, a metric, or a virtual machine specification.
+// It prints as "[redacted]", so a careless format verb or log call cannot leak it. Reveal gives
+// the value to the code that needs it.
+type Secret string
+
+// String hides the value from every format verb.
+func (Secret) String() string { return "[redacted]" }
+
+// LogValue hides the value from slog when the secret is an attribute of its own.
+func (Secret) LogValue() slog.Value { return slog.StringValue("[redacted]") }
+
+// MarshalJSON hides the value from every JSON encoder. A handler that writes a whole structure
+// reflects into its fields, which reaches the secret without asking LogValue.
+func (Secret) MarshalJSON() ([]byte, error) { return []byte(`"[redacted]"`), nil }
+
+// MarshalText hides the value from an encoder that asks for text, such as YAML.
+func (Secret) MarshalText() ([]byte, error) { return []byte("[redacted]"), nil }
+
+// Reveal gives the value. Every call is a place where the secret leaves this package.
+func (s Secret) Reveal() string { return string(s) }
 
 // Names of the variables that carry a secret or a certificate. These constants hold the name of
 // a variable, never its value.
@@ -39,7 +61,9 @@ var controllerIDFormat = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,21}[a-z0-9])?
 
 // Buildkite holds the settings of the Stacks API client.
 type Buildkite struct {
-	Queue                  string        `yaml:"queue"`
+	Queue string `yaml:"queue"`
+	// AgentToken comes from the environment, never from the file.
+	AgentToken             Secret        `yaml:"-"`
 	Endpoint               string        `yaml:"endpoint,omitempty"`
 	PollInterval           time.Duration `yaml:"pollInterval,omitempty"`
 	JobStatesInterval      time.Duration `yaml:"jobStatesInterval,omitempty"`
@@ -53,18 +77,15 @@ type Orchard struct {
 	URL               string        `yaml:"url"`
 	ServiceAccount    string        `yaml:"serviceAccount"`
 	InventoryInterval time.Duration `yaml:"inventoryInterval,omitempty"`
+
+	// Token and CACert come from the environment, never from the file.
+	Token  Secret `yaml:"-"`
+	CACert string `yaml:"-"`
 }
 
 // Defaults holds the values that a profile takes when it states none.
 type Defaults struct {
 	Timeouts profile.Timeouts `yaml:"timeouts,omitempty"`
-}
-
-// Secrets holds what the environment gives. These values never appear in the file.
-type Secrets struct {
-	BuildkiteAgentToken string
-	OrchardToken        string
-	OrchardCACert       string
 }
 
 // Config is the whole configuration of one controller.
@@ -77,9 +98,7 @@ type Config struct {
 	Defaults       Defaults          `yaml:"defaults,omitempty"`
 	Profiles       []profile.Profile `yaml:"profiles"`
 
-	// Secrets comes from the environment, and Warnings from the validation. Neither is part of
-	// the file.
-	Secrets  Secrets  `yaml:"-"`
+	// Warnings comes from the validation, not from the file.
 	Warnings []string `yaml:"-"`
 }
 
@@ -146,12 +165,11 @@ func (c *Config) applyProfileDefaults() {
 	}
 }
 
+// readSecrets puts each secret beside the settings that use it.
 func (c *Config) readSecrets(environment Environment) {
-	c.Secrets = Secrets{
-		BuildkiteAgentToken: environment(EnvBuildkiteAgentToken),
-		OrchardToken:        environment(EnvOrchardToken),
-		OrchardCACert:       environment(EnvOrchardCACert),
-	}
+	c.Buildkite.AgentToken = Secret(environment(EnvBuildkiteAgentToken))
+	c.Orchard.Token = Secret(environment(EnvOrchardToken))
+	c.Orchard.CACert = environment(EnvOrchardCACert)
 }
 
 func (c *Config) validate(environment Environment) error {
@@ -268,9 +286,9 @@ func (c *Config) validateProfileTimeouts(p profile.Profile) error {
 func (c *Config) validateSecrets(environment Environment) []error {
 	var problems []error
 
-	for name, value := range map[string]string{
-		EnvBuildkiteAgentToken: c.Secrets.BuildkiteAgentToken,
-		EnvOrchardToken:        c.Secrets.OrchardToken,
+	for name, value := range map[string]Secret{
+		EnvBuildkiteAgentToken: c.Buildkite.AgentToken,
+		EnvOrchardToken:        c.Orchard.Token,
 	} {
 		if value == "" {
 			problems = append(problems, fmt.Errorf("%s must hold a secret, because the file holds none", name))
