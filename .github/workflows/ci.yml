@@ -28,12 +28,6 @@ jobs:
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
       - run: mise run check-deps
 
-      # The Orchard wire types are generated from the pinned upstream version. A difference here
-      # means that the contract moved, and the client must answer it.
-      - env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: mise run check-generate
-
       # The analysis runs through the action, which turns each finding into an annotation on the
       # changed line. install-mode "none" uses the golangci-lint that mise installed, so
       # mise.toml stays the one place that pins the version.

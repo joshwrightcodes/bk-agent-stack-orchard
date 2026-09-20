@@ -851,9 +851,12 @@ the server marshals: the description of version 0.57.0 omits `randomSerial`, `cr
 `last_seen`, and `scheduling_paused`, and its paths leave out the `/v1` prefix.
 
 **Contract drift.** CI MUST run `go generate ./...` and MUST fail when a generated file is
-different from the file in the tree, which turns an upstream change into a failed gate. The
-weekly upstream watch reports a release later than the pinned version. The integration tests
-against a real Orchard prove the behaviour, and they are the only layer that can.
+different from the file in the tree, which turns an upstream change into a failed gate. That job
+runs for a pull request that touches the client, the generator, or this document, because those
+are the changes that can move a generated file, and it reads an API that limits a caller. The
+weekly upstream watch runs the same check without a change, which catches a tag that moved and a
+release later than the pinned version. The integration tests against a real Orchard prove the
+behaviour, and they are the only layer that can.
 
 **Build and release.** GoReleaser (v2.18 or later) MUST build the release binaries, the
 archives, the checksums, and the container image. GoReleaser MUST use ko through its `kos`
