@@ -63,6 +63,7 @@ with one responsibility, so that the pure functions stay testable without a VM.
 
 ```
 cmd/bk-agent-stack-orchard/     process entry point, flags, signal handling
+internal/secret/                a value that no log, metric, or VM specification may carry
 internal/config/                configuration types, loading, and validation
 internal/profile/               profiles, the match map, and the VM size
 internal/match/                 Matcher: job tags to one profile (pure)

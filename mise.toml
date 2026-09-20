@@ -19,6 +19,16 @@ run = "python3 scripts/check-commits.py"
 description = "Validate the C4 workspace and the generated views"
 run = "./scripts/check-c4.sh"
 
+[tasks.generate]
+description = "Write the generated files, including the Orchard wire types"
+run = "go generate ./..."
+
+[tasks.check-generate]
+description = "Fail when a generated file is behind the version that the documents pin"
+# git add -N first: a generated file that nobody added is invisible to git diff, so a new one
+# would pass this check without it.
+run = ["go generate ./...", "git add -N .", "git diff --exit-code -- ':(glob)**/*_gen.go'"]
+
 [tasks.check-deps]
 description = "Check the dependency and licence rules of go.mod"
 run = "python3 scripts/check-deps.py"

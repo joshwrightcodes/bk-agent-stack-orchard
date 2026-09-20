@@ -1,0 +1,43 @@
+name: generate
+
+# The Orchard wire types are generated from a pinned commit of Orchard. This job writes them
+# again and fails when the result is different from the tree, which is how a contract that moved
+# reaches a person.
+#
+# It runs only for a change that can move the generated file, because it reads the GitHub API and
+# a pull request that touches neither the client nor the generator should not wait for it. The
+# weekly upstream job runs the same check without a change, which catches a tag that moved.
+
+on:
+  pull_request:
+    paths:
+      - internal/orchard/**
+      - tools/orchardgen/**
+      - docs/architecture/target-design.md
+      - .github/workflows/generate.yml
+  push:
+    branches: [main]
+    paths:
+      - internal/orchard/**
+      - tools/orchardgen/**
+      - docs/architecture/target-design.md
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: generate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  generated-files:
+    name: generated files are current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+      - env:
+          # The generator reads the GitHub API, which limits an anonymous caller.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: mise run check-generate

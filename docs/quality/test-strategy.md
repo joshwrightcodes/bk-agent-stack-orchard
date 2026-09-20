@@ -180,7 +180,7 @@ stops a merge or a release, and `diagnostic` when it reports only.
 | ID | Basis | Scenario | Oracle | Gate |
 |---|---|---|---|---|
 | T-040 | R-08, R-15, R-17, CO-01 | The Stacks client against recorded responses: a partial `batch-reserve` result, `not_issued` tokens, HTTP 422 on finish, HTTP 401, HTTP 429 with `Retry-After`, and an empty scheduled-jobs page | Each response gives the documented decision. HTTP 401 makes the readiness check fail. HTTP 422 marks the job as ignored and sends no second call | required |
-| T-041 | R-20, ADR-0005, ADR-0010 | The Orchard client of this project against `orchard dev --synthetic`: create, list with a name prefix, delete, `409 Conflict` for a name that exists, and `GET /v1/vms/{name}/events` | The real API accepts the specification; a `409` counts as a successful launch; the event stream gives the script output. A field that the API rejects fails the gate | required |
+| T-041 | R-20, ADR-0005, ADR-0010, ADR-0011 | The Orchard client of this project against `orchard dev --synthetic`: create, list with a name prefix, delete, `409 Conflict` for a name that exists, and `GET /v1/vms/{name}/events`. `go generate ./...` with a difference check compares the generated wire types with the pinned upstream version | The real API accepts the specification; a `409` counts as a successful launch; the event stream gives the script output. A field that the API rejects, or a field that upstream renames, fails the gate | required |
 
 ### 6.5 Integration (L4)
 

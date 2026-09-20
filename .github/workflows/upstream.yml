@@ -31,6 +31,15 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 scripts/check-upstream.py --output upstream-table.md
 
+      # The client of this project is not generated, so this reports when a field that it uses
+      # moves in the version that the documents pin.
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+
+      - name: orchard contract
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: mise run check-generate
+
       - name: report
         if: steps.check.outputs.moved == 'true'
         env:

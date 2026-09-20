@@ -839,6 +839,25 @@ These rules apply:
 The minimum Orchard version of §9.2 applies to the server that the fleet runs, not to a Go
 dependency.
 
+**Wire types.** `tools/orchardgen` writes the wire types from the Orchard resource types of the
+pinned commit, and `go generate ./internal/orchard/` runs it (ADR-0011). The directive MUST carry
+a commit, not a tag, because a tag can move, and the generator MUST stop when the tag of the
+minimum version no longer points at that commit. The generated file
+carries the field names, the JSON tags, and a type for each field, and no behaviour of Orchard. A
+field whose type the controller does not read carries `json.RawMessage`.
+
+The generator reads the Go types, not the published description, because the Go types are what
+the server marshals: the description of version 0.57.0 omits `randomSerial`, `createdAt`,
+`last_seen`, and `scheduling_paused`, and its paths leave out the `/v1` prefix.
+
+**Contract drift.** CI MUST run `go generate ./...` and MUST fail when a generated file is
+different from the file in the tree, which turns an upstream change into a failed gate. That job
+runs for a pull request that touches the client, the generator, or this document, because those
+are the changes that can move a generated file, and it reads an API that limits a caller. The
+weekly upstream watch runs the same check without a change, which catches a tag that moved and a
+release later than the pinned version. The integration tests against a real Orchard prove the
+behaviour, and they are the only layer that can.
+
 **Build and release.** GoReleaser (v2.18 or later) MUST build the release binaries, the
 archives, the checksums, and the container image. GoReleaser MUST use ko through its `kos`
 section to build the image. The image MUST be distroless. The repository MUST NOT have a
