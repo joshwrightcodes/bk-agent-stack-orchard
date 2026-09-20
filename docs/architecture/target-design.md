@@ -557,6 +557,12 @@ defaults:
 profiles: [] # see §5
 ```
 
+Each secret belongs to the settings of the component that uses it: the agent token to the
+Buildkite settings, and the Orchard token and certificate to the Orchard settings. A component
+then receives one value that is complete, and no part of the controller holds a collection of
+secrets that it does not need. The type of a secret refuses to print itself, so a log line, a
+JSON encoder, or a format verb writes `[redacted]`.
+
 | Environment variable | Contents |
 |---|---|
 | `BK_AGENT_STACK_ORCHARD_CONFIG` | The path to the configuration file. The default is `/etc/bk-agent-stack-orchard/config.yaml`. |
@@ -808,6 +814,9 @@ Each item MUST have its own ADR before implementation:
   builds the tool (2026-09-19).
 * **Module path:** `github.com/joshwrightcodes/bk-agent-stack-orchard`.
 * **Buildkite dependency:** `github.com/buildkite/stacksapi` v1.2.0 or later.
+* **Configuration dependency:** `github.com/goccy/go-yaml`. It decodes `time.Duration`, it
+  refuses a key that the configuration does not declare, and its errors name the line and the
+  column. `gopkg.in/yaml.v3` is archived (2025-04-01).
 * **Telemetry dependencies:** the OpenTelemetry Go SDK, `otelslog`, and `otelhttp`.
 
 **Orchard client.** The controller MUST call the Orchard REST API with the client in
