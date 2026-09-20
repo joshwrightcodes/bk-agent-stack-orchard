@@ -24,6 +24,7 @@ import (
 	"go/format"
 	"go/parser"
 	"go/token"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -63,7 +64,9 @@ var sources = []string{
 }
 
 func main() {
-	version := flag.String("version", "", "the Orchard version to follow")
+	ref := flag.String("ref", "", "the Orchard commit to read, which must be the commit of the "+
+		"version that the design states")
+	version := flag.String("version", "", "a version to follow instead of the one in the design")
 	out := flag.String("out", "", "the file to write")
 	design := flag.String("design", "docs/architecture/target-design.md",
 		"the document that states the minimum Orchard version")
@@ -82,21 +85,68 @@ func main() {
 		}
 	}
 
-	types, err := readUpstream(resolved)
+	// A tag can move, and a generator that follows a tag then writes something else without a
+	// word. The commit is the pin, and the version is what a person reads, so the two must agree.
+	source := resolved
+	if *ref != "" {
+		if err := verifyRef(resolved, *ref); err != nil {
+			log.Fatalf("orchardgen: %v", err)
+		}
+		source = *ref
+	}
+
+	types, err := readUpstream(source)
 	if err != nil {
 		log.Fatalf("orchardgen: %v", err)
 	}
 
-	source, err := render(resolved, types)
+	rendered, err := render(resolved, *ref, types)
 	if err != nil {
 		log.Fatalf("orchardgen: %v", err)
 	}
 
-	if err := os.WriteFile(*out, source, 0o600); err != nil {
+	if err := os.WriteFile(*out, rendered, 0o600); err != nil {
 		log.Fatalf("orchardgen: writing %s: %v", *out, err)
 	}
 
-	fmt.Printf("orchardgen: wrote %s from Orchard %s\n", *out, resolved)
+	fmt.Printf("orchardgen: wrote %s from Orchard %s (%s)\n", *out, resolved, short(source))
+}
+
+// short gives the readable part of a commit, and leaves a version alone.
+func short(ref string) string {
+	if len(ref) == 40 {
+		return ref[:12]
+	}
+
+	return ref
+}
+
+// verifyRef confirms that the tag of a version still points at the commit that this repository
+// pins. A tag that moved is a supply-chain change, and it stops the generator here instead of
+// changing the generated file without a word.
+func verifyRef(version, ref string) error {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/commits/%s", upstreamRepo, version)
+
+	body, err := get(url)
+	if err != nil {
+		return fmt.Errorf("resolving the tag %s: %w", version, err)
+	}
+
+	var commit struct {
+		SHA string `json:"sha"`
+	}
+	if err := json.Unmarshal(body, &commit); err != nil {
+		return fmt.Errorf("reading the commit of %s: %w", version, err)
+	}
+
+	if commit.SHA != ref {
+		return fmt.Errorf(
+			"the tag %s now points at %s, and this repository pins %s. A tag that moves changes "+
+				"the generated file without a word: read the difference, then change the -ref of "+
+				"the go:generate directive", version, short(commit.SHA), short(ref))
+	}
+
+	return nil
 }
 
 // pinnedVersion reads the version out of the design, so that one document decides it.
@@ -229,13 +279,35 @@ func expression(e ast.Expr) string {
 	return b.String()
 }
 
-func fetch(path, version string) (string, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/contents/%s?ref=%s",
-		upstreamRepo, path, version)
+func fetch(path, ref string) (string, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/contents/%s?ref=%s", upstreamRepo, path, ref)
 
-	request, err := http.NewRequest(http.MethodGet, url, nil) //nolint:noctx // a short tool run
+	raw, err := get(url)
+	if err != nil {
+		return "", fmt.Errorf("reading %s at %s: %w", path, short(ref), err)
+	}
+
+	var body struct {
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return "", err
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(body.Content, "\n", ""))
 	if err != nil {
 		return "", err
+	}
+
+	return string(decoded), nil
+}
+
+// get reads one document of the GitHub API. A token raises the limit for an anonymous caller,
+// which is sixty calls each hour.
+func get(url string) ([]byte, error) {
+	request, err := http.NewRequest(http.MethodGet, url, nil) //nolint:noctx // a short tool run
+	if err != nil {
+		return nil, err
 	}
 	request.Header.Set("User-Agent", "bk-agent-stack-orchard")
 	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
@@ -246,25 +318,13 @@ func fetch(path, version string) (string, error) {
 
 	response, err := client.Do(request)
 	if err != nil {
-		return "", fmt.Errorf("reading %s at %s: %w", path, version, err)
+		return nil, err
 	}
 	defer func() { _ = response.Body.Close() }()
 
 	if response.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("reading %s at %s: %s", path, version, response.Status)
+		return nil, fmt.Errorf("the answer was %s", response.Status)
 	}
 
-	var body struct {
-		Content string `json:"content"`
-	}
-	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
-		return "", err
-	}
-
-	decoded, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(body.Content, "\n", ""))
-	if err != nil {
-		return "", err
-	}
-
-	return string(decoded), nil
+	return io.ReadAll(response.Body)
 }

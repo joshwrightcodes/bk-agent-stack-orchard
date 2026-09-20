@@ -840,7 +840,9 @@ The minimum Orchard version of §9.2 applies to the server that the fleet runs, 
 dependency.
 
 **Wire types.** `tools/orchardgen` writes the wire types from the Orchard resource types of the
-pinned version, and `go generate ./internal/orchard/` runs it (ADR-0011). The generated file
+pinned commit, and `go generate ./internal/orchard/` runs it (ADR-0011). The directive MUST carry
+a commit, not a tag, because a tag can move, and the generator MUST stop when the tag of the
+minimum version no longer points at that commit. The generated file
 carries the field names, the JSON tags, and a type for each field, and no behaviour of Orchard. A
 field whose type the controller does not read carries `json.RawMessage`.
 

@@ -15,8 +15,10 @@ reasoning.
 
 ## What is generated, and what is not
 
-`tools/orchardgen` writes `types_gen.go` from the Orchard resource types at the pinned version,
-and `go generate ./internal/orchard/` runs it. The generated file carries the field names, the
+`tools/orchardgen` writes `types_gen.go` from the Orchard resource types at the pinned commit,
+and `go generate ./internal/orchard/` runs it. The `go:generate` directive carries that commit,
+because a tag can move: the generator resolves the tag of the version that the design states and
+stops when it no longer points at the pinned commit. The generated file carries the field names, the
 JSON tags, and a type for each field. Everything else here is written by hand: the requests, the
 retries, the errors, and the decisions about a conflict or a machine that is already gone.
 
@@ -57,12 +59,15 @@ Three layers, from cheapest to strongest:
 
 1. Read the release notes of the new Orchard version.
 2. Run `go run ./tools/orchardgen -version <new version> -out internal/orchard/types_gen.go` and
-   read the difference. That is the list of fields that moved.
+   read the difference. That is the list of fields that moved. The run needs no commit, because a
+   candidate is a question rather than a pin.
 3. Change the client where a moved field matters. A new type that the controller needs gets an
    entry in the `wanted` list of the generator.
 4. Run the integration tests against the new version.
 5. Change the minimum version in the target design, section 9.2, and the driver in the system
    design baseline.
+6. Change the `-ref` of the `go:generate` directive to the commit of the new version, which
+   `gh api repos/openai/orchard/commits/<version> --jq .sha` gives.
 
 ## If Orchard publishes a client or a specification under a permissive licence
 
