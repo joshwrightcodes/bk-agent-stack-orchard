@@ -13,6 +13,13 @@ Third-party code in the distributed work
   * github.com/buildkite/roko — MIT (a dependency of stacksapi)
   * github.com/google/uuid — BSD-3-Clause (a dependency of stacksapi)
   * The OpenTelemetry Go SDK and its contrib packages — Apache License 2.0
+  * google.golang.org/grpc, google.golang.org/genproto, github.com/go-logr/logr,
+    and github.com/go-logr/stdr — Apache License 2.0 (the OTLP export)
+  * google.golang.org/protobuf, golang.org/x/net, golang.org/x/sys,
+    golang.org/x/text, and github.com/grpc-ecosystem/grpc-gateway
+    — BSD-3-Clause (the OTLP export)
+  * github.com/cenkalti/backoff, github.com/cespare/xxhash, and
+    github.com/felixge/httpsnoop — MIT (the OTLP export)
   * github.com/buildkite/agent-stack-k8s (FakeAgentServer, test scope only)
     — MIT
 

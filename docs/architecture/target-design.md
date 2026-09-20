@@ -650,27 +650,54 @@ startup-script transport.
 
 All telemetry MUST use OpenTelemetry. The controller MUST export telemetry through OTLP to an
 OpenTelemetry Collector. The standard `OTEL_*` environment variables configure the export. The
-controller MUST NOT have a Prometheus endpoint.
+controller MUST NOT have a Prometheus endpoint. Because of this, the controller MUST refuse a
+value of `OTEL_<signal>_EXPORTER` that is not `otlp` or `none`, and it MUST NOT build an
+exporter that the value names. A rule that an environment variable can break is not a rule.
 
 ### 10.1 Metrics
 
+The instruments follow the OpenTelemetry semantic conventions. The prefix `bkaso` below is
+`bk_agent_stack_orchard`, which this table shortens for width only.
+
 | Instrument | Name (unit) | Attributes |
 |---|---|---|
-| Gauge | `bk_agent_stack_orchard.jobs.waiting` (`{job}`) | `profile` |
-| Gauge | `bk_agent_stack_orchard.jobs.oldest_waiting.age` (`s`) | `profile` |
-| Counter | `bk_agent_stack_orchard.jobs.unmatched` (`{job}`) | — |
-| Counter | `bk_agent_stack_orchard.jobs.failed_by_controller` (`{job}`) | `reason` |
-| Gauge | `bk_agent_stack_orchard.slots` (`{slot}`) | `pool`, `state` = `total`/`used`/`free` |
-| Gauge | `bk_agent_stack_orchard.vms` (`{vm}`) | `profile`, `phase` = `unplaced`/`booting`/`running`/`failed` |
-| Histogram | `bk_agent_stack_orchard.job.phase.duration` (`s`) | `profile`, `phase` = `scheduled_to_reserved`/`reserved_to_placed`/`placed_to_running`/`running_to_accepted`/`total` |
-| Counter | `bk_agent_stack_orchard.vm.deletes` (`{vm}`) | `reason` (§7.2) |
-| Histogram | `bk_agent_stack_orchard.api.request.duration` (`s`) | `api` = `buildkite`/`orchard`, `endpoint`, `http.response.status_code` |
-| Counter | `bk_agent_stack_orchard.api.rate_limited` (`{request}`) | `api`, `endpoint` |
-| Histogram | `bk_agent_stack_orchard.tick.duration` (`s`) | `step` |
-| Gauge | `bk_agent_stack_orchard.source.last_sync` (`s`, Unix time) | `source` = `scheduled_jobs`/`job_states`/`inventory` |
+| UpDownCounter | `bkaso.job.waiting.count` (`{job}`) | `bkaso.profile` |
+| Gauge | `bkaso.job.waiting.oldest.age` (`s`) | `bkaso.profile` |
+| Counter | `bkaso.job.unmatched` (`{job}`) | — |
+| Counter | `bkaso.job.failed` (`{job}`) | `error.type` |
+| UpDownCounter | `bkaso.slot.count` (`{slot}`) | `bkaso.pool`, `bkaso.slot.state` = `total`/`used`/`free` |
+| UpDownCounter | `bkaso.vm.count` (`{vm}`) | `bkaso.profile`, `bkaso.vm.phase` = `unplaced`/`booting`/`running`/`failed` |
+| UpDownCounter | `cicd.worker.count` (`{worker}`) | `cicd.worker.state` = `available`/`busy`/`offline` |
+| Histogram | `bkaso.job.phase.duration` (`s`) | `bkaso.profile`, `bkaso.job.phase` = `scheduled_to_reserved`/`reserved_to_placed`/`placed_to_running`/`running_to_accepted`/`total` |
+| Counter | `bkaso.vm.deletions` (`{vm}`) | `bkaso.vm.delete.reason` (§7.2) |
+| Counter | `cicd.system.errors` (`{error}`) | `cicd.system.component` = `buildkite`/`orchard`, `error.type` |
+| Histogram | `bkaso.tick.duration` (`s`) | `bkaso.tick.step` |
+| Gauge | `bkaso.source.staleness` (`s`) | `bkaso.source` = `scheduled_jobs`/`job_states`/`inventory` |
 
-Metric attributes MUST NOT contain job UUIDs or VM names. The `pool` attribute is the value of
-the worker `pool` label. If the worker has no `pool` label, the value is `none`.
+These rules come from the conventions and MUST hold:
+
+* **An attribute that the conventions do not define carries the prefix of this project.** A bare
+  word such as `state`, `reason`, or `source` can collide with a name that OpenTelemetry gives a
+  meaning later, and it says nothing in a backend that holds several systems.
+* **A count of things is an up-down counter, and a gauge is for a value that does not add up.**
+  The conventions use an up-down counter for every level, such as `cicd.worker.count`. An age is
+  a gauge.
+* **A level comes from a callback.** The controller computes its levels from observed state at
+  each tick, so it gives the whole observation and an asynchronous instrument reports it. A
+  series that leaves an observation stops, which is why a profile that no longer exists cannot
+  report its last count for ever.
+* **The worker of the conventions is the virtual machine**, because `cicd.worker` is the thing
+  that does the work of a job. The Mac host is not that worker, and the attribute for its name
+  is `bkaso.worker.name`.
+* **The controller MUST NOT define a metric for its own HTTP calls.** `otelhttp` gives
+  `http.client.request.duration` with the attributes of the conventions, and a second instrument
+  for the same measurement would disagree with it. A rate limit and a status that the controller
+  cannot use are `cicd.system.errors`.
+* **`bkaso.source.staleness` is an age and not a time.** The readiness alert reads a number that
+  needs no clock of its own, and the value cannot disagree with the clock of the backend.
+
+Metric attributes MUST NOT contain job UUIDs or VM names. The `bkaso.pool` attribute is the value
+of the worker `pool` label. If the worker has no `pool` label, the value is `none`.
 
 The controller observes phase changes at poll intervals. Because of this, phase durations have a
 tolerance of ±`jobStatesInterval`. Outgoing HTTP clients MUST use `otelhttp`.
@@ -681,19 +708,25 @@ tolerance of ±`jobStatesInterval`. Outgoing HTTP clients MUST use `otelhttp`.
   Because of this, all spans of a job are in one trace, also after controller restarts. A person
   can find the trace from the job UUID.
 * **Spans:** `job.match`, `job.admit`, `stacks.reserve`, `stacks.issue_token`,
-  `orchard.vm.create`, `reaper.decide` (attributes `vm.phase`, `job.state`, `decision`,
-  `reason`), `stacks.finish_job`, `orchard.vm.delete`. Orchard state changes (placement on a
-  worker, `running`) are span events.
+  `orchard.vm.create`, `reaper.decide` (attributes `bkaso.vm.phase`, `bkaso.job.state`,
+  `bkaso.reaper.decision`, `bkaso.reaper.reason`), `stacks.finish_job`, `orchard.vm.delete`.
+  Orchard state changes (placement on a worker, `running`) are span events. A span carries
+  `cicd.pipeline.task.run.id` for its job, and the HTTP client spans come from `otelhttp`.
 * **Tick spans** (`tick.poll`, `tick.inventory`, `tick.job_states`, `tick.reap`, `tick.admit`)
   are separate short traces. They have span links to the job traces that they affect.
 
 ### 10.3 Logs
 
 The controller MUST send `slog` records to OTLP through the `otelslog` bridge. The controller
-MUST also write the records to stdout as JSON.
+MUST also write the records to stdout as JSON. Both destinations MUST be exporters of one logger
+provider, so that the record on stdout and the record in the backend are the same record in the
+same shape, which is the OpenTelemetry log data model.
 
-When a span is active, each record MUST contain `trace_id` and `span_id`. Records MUST also
-contain `job_uuid`, `vm_name`, `profile`, and `worker` when these values are known. Each Reaper
+When a span is active, each record MUST contain the trace and the span. Records MUST also
+contain `cicd.pipeline.task.run.id` (the Buildkite job), `cicd.pipeline.name`,
+`cicd.pipeline.run.id`, `bkaso.vm.name`, `bkaso.profile`, and `bkaso.worker.name` when these
+values are known. Buildkite has the shape that the CI/CD conventions describe, so a person with a
+backend of several CI systems can ask one question of all of them. Each Reaper
 action MUST write exactly one decision record with its table row and its `reason`.
 
 ### 10.4 Agent telemetry (optional for each profile)
@@ -731,12 +764,12 @@ are out of scope, because they depend on the backend behind the collector.
 
 | Alert | Condition |
 |---|---|
-| Jobs wait too long | `jobs.oldest_waiting.age` is more than 15 min. This value is the QA-02 target. |
-| Controller is not ready | `source.last_sync` of a source is older than 2 min. |
-| Controller fails jobs | `jobs.failed_by_controller` increases for 15 min. |
-| Timeouts repeat | `vm.deletes{reason=~".*_timeout"}` increases. |
-| Orphans exist | `vm.deletes{reason="orphan"}` is more than 0. |
-| Fleet is full | `slots{state="free"}` is 0 for 30 min. |
+| Jobs wait too long | `bkaso.job.waiting.oldest.age` is more than 15 min. This value is the QA-02 target. |
+| Controller is not ready | `bkaso.source.staleness` of a source is more than 2 min. |
+| Controller fails jobs | `bkaso.job.failed` increases for 15 min. |
+| Timeouts repeat | `bkaso.vm.deletions{bkaso.vm.delete.reason=~".*_timeout"}` increases. |
+| Orphans exist | `bkaso.vm.deletions{bkaso.vm.delete.reason="orphan"}` is more than 0. |
+| Fleet is full | `bkaso.slot.count{bkaso.slot.state="free"}` is 0 for 30 min. |
 
 **Implements.** PR-009, PR-025, QA-01, QA-02, OP-05.
 
@@ -817,7 +850,13 @@ Each item MUST have its own ADR before implementation:
 * **Configuration dependency:** `github.com/goccy/go-yaml`. It decodes `time.Duration`, it
   refuses a key that the configuration does not declare, and its errors name the line and the
   column. `gopkg.in/yaml.v3` is archived (2025-04-01).
-* **Telemetry dependencies:** the OpenTelemetry Go SDK, `otelslog`, and `otelhttp`.
+* **Telemetry dependencies:** the OpenTelemetry Go SDK, its semantic conventions package, the
+  OTLP exporters of the three signals, the stdout exporter of the log signal, the `minsev`
+  processor, `otelslog`, and `otelhttp`. The CI/CD conventions are a release candidate, so a
+  version of them can still change a name. The names that this project takes from them are worth
+  that: the alternative is a bare word that is wrong today. The `autoexport` package of the
+  contrib repository is not one of them, because it carries a Prometheus exporter into the
+  binary.
 
 **Orchard client.** The controller MUST call the Orchard REST API with the client in
 `internal/orchard` (ADR-0010). The licence makes this necessary: Orchard carries FSL-1.1-ALv2,
