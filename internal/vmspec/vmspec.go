@@ -11,10 +11,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/config"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/profile"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/secret"
 )
 
 // Orchard recommends a name of 63 characters or fewer.
@@ -34,7 +34,7 @@ const (
 // environment that the profile names, never from the configuration file.
 type Credentials struct {
 	Username string
-	Password config.Secret
+	Password secret.String
 }
 
 // Request is everything that one virtual machine needs.
@@ -42,7 +42,7 @@ type Request struct {
 	ControllerID string
 	Queue        string
 	JobID        job.ID
-	JobToken     config.Secret
+	JobToken     secret.String
 	Profile      profile.Profile
 
 	// ImageCredentials is necessary only for a profile that uses the SSH transport.
@@ -50,7 +50,7 @@ type Request struct {
 
 	// TraceParent and OTelHeaders travel to the agent only when the profile enables telemetry.
 	TraceParent string
-	OTelHeaders config.Secret
+	OTelHeaders secret.String
 }
 
 // Name is the name of the machine that serves one job.

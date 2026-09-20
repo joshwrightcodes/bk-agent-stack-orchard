@@ -212,8 +212,9 @@ $RECYCLE.BIN/
 docs/architecture/-workspace/
 .structurizr/
 
-# The compiled binary, which "go build ./..." writes into the working directory
+# The compiled binaries, which "go build ./..." writes into the working directory
 /bk-agent-stack-orchard
+/orchardgen
 
 # GoReleaser and ko output
 dist/

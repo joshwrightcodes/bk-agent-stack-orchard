@@ -20,7 +20,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/config"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/secret"
 )
 
 // Errors that a caller decides about.
@@ -56,7 +56,7 @@ func (w Worker) Offline(timeout time.Duration) bool {
 type Options struct {
 	URL            string
 	ServiceAccount string
-	Token          config.Secret
+	Token          secret.String
 
 	// HTTPClient carries the transport. The controller gives one with telemetry.
 	HTTPClient *http.Client
@@ -70,7 +70,7 @@ type Options struct {
 type Client struct {
 	url            *url.URL
 	serviceAccount string
-	token          config.Secret
+	token          secret.String
 	http           *http.Client
 	attempts       int
 	retryWait      time.Duration

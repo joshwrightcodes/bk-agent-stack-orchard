@@ -1,10 +1,6 @@
 package config_test
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -286,42 +282,5 @@ func TestLoadRejectsAConfigurationWithNoProfile(t *testing.T) {
 
 	if _, err := load(t, body, secrets()); err == nil {
 		t.Error("Load() with no profile = nil, want an error")
-	}
-}
-
-// A secret that prints itself reaches a log by accident. The type refuses, and Reveal is the one
-// place where the value leaves.
-func TestSecretDoesNotPrintItsValue(t *testing.T) {
-	cfg, err := load(t, minimal, secrets())
-	if err != nil {
-		t.Fatalf("Load() = %v, want no error", err)
-	}
-
-	for name, printed := range map[string]string{
-		"%v of the token":     fmt.Sprintf("%v", cfg.Buildkite.AgentToken),
-		"String of the token": cfg.Buildkite.AgentToken.String(),
-		"the whole block":     fmt.Sprintf("%+v", cfg.Buildkite),
-		"the orchard block":   fmt.Sprintf("%+v", cfg.Orchard),
-		"%#v of the block":    fmt.Sprintf("%#v", cfg.Buildkite),
-		"%#v of the token":    fmt.Sprintf("%#v", cfg.Buildkite.AgentToken),
-		"%q of the token":     fmt.Sprintf("%q", cfg.Buildkite.AgentToken),
-	} {
-		if strings.Contains(printed, "bkct_test") || strings.Contains(printed, "orchard_test") {
-			t.Errorf("%s printed the secret: %s", name, printed)
-		}
-	}
-
-	if encoded, err := json.Marshal(cfg.Buildkite); err != nil {
-		t.Fatalf("json.Marshal() = %v", err)
-	} else if strings.Contains(string(encoded), "bkct_test") {
-		t.Errorf("json.Marshal wrote the secret: %s", encoded)
-	}
-
-	var buffer bytes.Buffer
-	slog.New(slog.NewJSONHandler(&buffer, nil)).
-		Info("configuration", "buildkite", cfg.Buildkite, "orchard", cfg.Orchard)
-
-	if strings.Contains(buffer.String(), "bkct_test") {
-		t.Errorf("slog wrote the secret: %s", buffer.String())
 	}
 }

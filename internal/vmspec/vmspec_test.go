@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/config"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/profile"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/secret"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/vmspec"
 )
 
@@ -22,7 +22,7 @@ func request() vmspec.Request {
 		ControllerID: "macos-prod",
 		Queue:        "macos",
 		JobID:        jobUUID,
-		JobToken:     config.Secret("bkjat_job_token"),
+		JobToken:     secret.String("bkjat_job_token"),
 		Profile: profile.Profile{
 			Name:             "xcode-27",
 			Match:            map[string]string{"xcode": "27"},
@@ -215,7 +215,7 @@ func TestBuildUsesTheImageCredentialsWithTheSSHTransport(t *testing.T) {
 	r := request()
 	r.Profile.StartupTransport = profile.TransportSSH
 	r.Profile.VMCredentials = &profile.Credentials{UsernameEnv: "VM_USER", PasswordEnv: "VM_PASSWORD"}
-	r.ImageCredentials = &vmspec.Credentials{Username: "image-admin", Password: config.Secret("image-password")}
+	r.ImageCredentials = &vmspec.Credentials{Username: "image-admin", Password: secret.String("image-password")}
 
 	vm := build(t, r)
 
@@ -243,7 +243,7 @@ func TestBuildAddsTheAgentTelemetryOnlyWhenTheProfileAsksForIt(t *testing.T) {
 	r := request()
 	r.Profile.OTel = profile.OTel{Enabled: true, Endpoint: "https://otel.example:4318"}
 	r.TraceParent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
-	r.OTelHeaders = config.Secret("authorization=Bearer token")
+	r.OTelHeaders = secret.String("authorization=Bearer token")
 
 	vm := build(t, r)
 	env := vm.StartupScript.Env
@@ -309,7 +309,7 @@ func TestVMDoesNotPrintItsSecrets(t *testing.T) {
 	r := request()
 	r.Profile.StartupTransport = profile.TransportSSH
 	r.Profile.VMCredentials = &profile.Credentials{UsernameEnv: "VM_USER", PasswordEnv: "VM_PASSWORD"}
-	r.ImageCredentials = &vmspec.Credentials{Username: "image-admin", Password: config.Secret("image-password")}
+	r.ImageCredentials = &vmspec.Credentials{Username: "image-admin", Password: secret.String("image-password")}
 
 	vm := build(t, r)
 

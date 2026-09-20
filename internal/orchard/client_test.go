@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/config"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/secret"
 )
 
 // server gives a client that talks to a handler, with the retry wait removed so that a test of
@@ -26,7 +26,7 @@ func server(t *testing.T, handler http.HandlerFunc) (*orchard.Client, *httptest.
 	client, err := orchard.New(orchard.Options{
 		URL:            s.URL,
 		ServiceAccount: "bk-agent-stack-orchard",
-		Token:          config.Secret("orchard-token"),
+		Token:          secret.String("orchard-token"),
 		RetryWait:      time.Nanosecond,
 	})
 	if err != nil {

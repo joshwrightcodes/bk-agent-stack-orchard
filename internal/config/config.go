@@ -9,7 +9,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"maps"
 	"net/url"
 	"os"
@@ -19,35 +18,11 @@ import (
 	"github.com/goccy/go-yaml"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/profile"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/secret"
 )
 
 // Environment reads a variable. os.Getenv satisfies it, and a test gives its own.
 type Environment func(name string) string
-
-// Secret is a value that must never reach a log, a metric, or a virtual machine specification.
-// It prints as "[redacted]", so a careless format verb or log call cannot leak it. Reveal gives
-// the value to the code that needs it.
-type Secret string
-
-// String hides the value from every format verb.
-func (Secret) String() string { return "[redacted]" }
-
-// LogValue hides the value from slog when the secret is an attribute of its own.
-func (Secret) LogValue() slog.Value { return slog.StringValue("[redacted]") }
-
-// MarshalJSON hides the value from every JSON encoder. A handler that writes a whole structure
-// reflects into its fields, which reaches the secret without asking LogValue.
-func (Secret) MarshalJSON() ([]byte, error) { return []byte(`"[redacted]"`), nil }
-
-// MarshalText hides the value from an encoder that asks for text, such as YAML.
-func (Secret) MarshalText() ([]byte, error) { return []byte("[redacted]"), nil }
-
-// GoString hides the value from the %#v verb, which asks GoStringer and never String. A
-// structure that a developer dumps while debugging is a common way for a secret to reach a log.
-func (Secret) GoString() string { return `"[redacted]"` }
-
-// Reveal gives the value. Every call is a place where the secret leaves this package.
-func (s Secret) Reveal() string { return string(s) }
 
 // Names of the variables that carry a secret or a certificate. These constants hold the name of
 // a variable, never its value.
@@ -67,7 +42,7 @@ var controllerIDFormat = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,21}[a-z0-9])?
 type Buildkite struct {
 	Queue string `yaml:"queue"`
 	// AgentToken comes from the environment, never from the file.
-	AgentToken             Secret        `yaml:"-"`
+	AgentToken             secret.String `yaml:"-"`
 	Endpoint               string        `yaml:"endpoint,omitempty"`
 	PollInterval           time.Duration `yaml:"pollInterval,omitempty"`
 	JobStatesInterval      time.Duration `yaml:"jobStatesInterval,omitempty"`
@@ -83,8 +58,8 @@ type Orchard struct {
 	InventoryInterval time.Duration `yaml:"inventoryInterval,omitempty"`
 
 	// Token and CACert come from the environment, never from the file.
-	Token  Secret `yaml:"-"`
-	CACert string `yaml:"-"`
+	Token  secret.String `yaml:"-"`
+	CACert string        `yaml:"-"`
 }
 
 // Defaults holds the values that a profile takes when it states none.
@@ -171,8 +146,8 @@ func (c *Config) applyProfileDefaults() {
 
 // readSecrets puts each secret beside the settings that use it.
 func (c *Config) readSecrets(environment Environment) {
-	c.Buildkite.AgentToken = Secret(environment(EnvBuildkiteAgentToken))
-	c.Orchard.Token = Secret(environment(EnvOrchardToken))
+	c.Buildkite.AgentToken = secret.String(environment(EnvBuildkiteAgentToken))
+	c.Orchard.Token = secret.String(environment(EnvOrchardToken))
 	c.Orchard.CACert = environment(EnvOrchardCACert)
 }
 
@@ -290,7 +265,7 @@ func (c *Config) validateProfileTimeouts(p profile.Profile) error {
 func (c *Config) validateSecrets(environment Environment) []error {
 	var problems []error
 
-	for name, value := range map[string]Secret{
+	for name, value := range map[string]secret.String{
 		EnvBuildkiteAgentToken: c.Buildkite.AgentToken,
 		EnvOrchardToken:        c.Orchard.Token,
 	} {
