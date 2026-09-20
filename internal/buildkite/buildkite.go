@@ -213,12 +213,13 @@ func (c *Client) ScheduledJobs(ctx context.Context, cursor string, size int) (Pa
 		}
 
 		page.Jobs = append(page.Jobs, ScheduledJob{
-			ID:         id,
-			Priority:   scheduled.Priority,
-			Rules:      scheduled.AgentQueryRules,
-			RunnableAt: scheduled.RunnableAt,
-			Pipeline:   scheduled.Pipeline.Slug,
-			Build:      scheduled.Build.Number,
+			ID:          id,
+			Priority:    scheduled.Priority,
+			Rules:       scheduled.AgentQueryRules,
+			RunnableAt:  scheduled.RunnableAt,
+			ScheduledAt: scheduled.ScheduledAt,
+			Pipeline:    scheduled.Pipeline.Slug,
+			Build:       scheduled.Build.Number,
 		})
 	}
 

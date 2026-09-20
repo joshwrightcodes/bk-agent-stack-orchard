@@ -10,16 +10,23 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
+	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/admission"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/config"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/controller"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/inventory"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/stack"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
 )
@@ -145,15 +152,127 @@ func assemble(settings *config.Config, recorder *telemetry.Telemetry) (*controll
 		return nil, err
 	}
 
+	machines, err := orchard.New(orchard.Options{
+		URL:            settings.Orchard.URL,
+		ServiceAccount: settings.Orchard.ServiceAccount,
+		Token:          settings.Orchard.Token,
+		HTTPClient:     client,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	fleet, err := inventory.New(inventory.Options{
+		Orchard:        machines,
+		ControllerID:   settings.ControllerID,
+		Interval:       settings.Orchard.InventoryInterval,
+		OfflineTimeout: settings.Orchard.WorkerOfflineTimeout,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	decisions := &admitter{
+		settings: settings,
+		queue:    poller,
+		fleet:    fleet,
+		logger:   recorder.Logger,
+		metrics:  recorder.Metrics,
+	}
+
 	return controller.New(controller.Options{
 		Stack:    registration,
-		Sources:  []controller.Source{poller},
+		Sources:  []controller.Source{poller, fleet},
 		Queue:    poller,
+		Fleet:    decisions.observe,
+		Admit:    decisions.admit,
 		Interval: settings.Buildkite.PollInterval,
 		Metrics:  recorder.Metrics,
 		Logger:   recorder.Logger,
 		Tracer:   recorder.Tracer,
 	})
+}
+
+// admitter runs the admission decision of a tick and remembers what it decided, so that the
+// observation of the same tick can report it.
+type admitter struct {
+	settings *config.Config
+	queue    *stack.Poller
+	fleet    *inventory.Inventory
+	logger   *slog.Logger
+	metrics  *telemetry.Metrics
+
+	mu     sync.Mutex
+	latest admission.Result
+}
+
+// admit decides which jobs the fleet can carry. The launcher that starts them is the next unit
+// of work, so this step records the decision and starts nothing.
+func (a *admitter) admit(ctx context.Context) error {
+	queue, read := a.queue.Latest()
+	if !read {
+		return nil
+	}
+
+	held, read := a.fleet.Latest()
+	if !read {
+		// Admission needs the machines as well as the queue: without them it would count the
+		// room of the fleet as empty and start a job for every waiting one.
+		return nil
+	}
+
+	result := admission.Decide(admission.Request{
+		Jobs:        queue.Jobs,
+		Profiles:    a.settings.Profiles,
+		Fleet:       held,
+		Eligible:    a.fleet.Eligible,
+		MaxInFlight: a.settings.MaxInFlight,
+		Now:         time.Now(),
+	})
+
+	for _, unmatched := range result.Unmatched {
+		a.metrics.Unmatched(ctx)
+		a.logger.WarnContext(ctx, "no profile carries this job",
+			telemetry.LogJob, string(unmatched.Job.ID),
+			telemetry.LogPipeline, unmatched.Job.Pipeline,
+			"reason", unmatched.Reason)
+	}
+
+	for _, candidate := range result.Admit {
+		a.logger.InfoContext(ctx, "the fleet can carry this job",
+			telemetry.LogJob, string(candidate.Job.ID),
+			telemetry.LogProfile, candidate.Profile.Name)
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	a.latest = result
+
+	return nil
+}
+
+// observe gives the instruments what this tick saw.
+func (a *admitter) observe() telemetry.Observation {
+	a.mu.Lock()
+	result := a.latest
+	a.mu.Unlock()
+
+	observation := telemetry.Observation{}
+	result.Observe(&observation)
+
+	if held, read := a.fleet.Latest(); read {
+		held.Observe(&observation, a.fleet.Online, a.profileOf)
+	}
+
+	return observation
+}
+
+// profileOf gives the profile of a job that this process started. Nothing started a job yet, so
+// every machine of this controller counts as one of an unknown profile until the launcher
+// arrives.
+func (a *admitter) profileOf(job.ID) string {
+	return ""
 }
 
 // orUnknown gives a value that a development build left empty a name that a person can read.

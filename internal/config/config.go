@@ -57,6 +57,12 @@ type Orchard struct {
 	ServiceAccount    string        `yaml:"serviceAccount"`
 	InventoryInterval time.Duration `yaml:"inventoryInterval,omitempty"`
 
+	// WorkerOfflineTimeout is how long a worker may be silent before this controller counts it
+	// as offline. It MUST match the timeout of the Orchard controller: a value that is shorter
+	// makes this controller hold back slots that Orchard still uses, and a value that is longer
+	// makes it start jobs for a worker that Orchard has already given up on.
+	WorkerOfflineTimeout time.Duration `yaml:"workerOfflineTimeout,omitempty"`
+
 	// Token and CACert come from the environment, never from the file.
 	Token  secret.String `yaml:"-"`
 	CACert string        `yaml:"-"`
@@ -120,7 +126,8 @@ func defaults() *Config {
 			JobTokenLifetime:       1800 * time.Second,
 		},
 		Orchard: Orchard{
-			InventoryInterval: time.Second,
+			InventoryInterval:    time.Second,
+			WorkerOfflineTimeout: 3 * time.Minute,
 		},
 		StateFreshness: 60 * time.Second,
 		Defaults: Defaults{
@@ -212,6 +219,10 @@ func (c *Config) validateOrchard() []error {
 	}
 	if c.Orchard.InventoryInterval <= 0 {
 		problems = append(problems, errors.New("orchard.inventoryInterval must be more than zero"))
+	}
+	if c.Orchard.WorkerOfflineTimeout <= 0 {
+		problems = append(problems,
+			errors.New("orchard.workerOfflineTimeout must be more than zero"))
 	}
 
 	return problems

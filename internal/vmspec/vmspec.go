@@ -23,13 +23,6 @@ const maxNameLength = 63
 // namePrefix is what marks a machine as one that this controller created.
 const namePrefix = "bk-"
 
-// Resource names that the Orchard scheduler counts.
-const (
-	resourceVMs    = "org.cirruslabs.tart-vms"
-	resourceCores  = "org.cirruslabs.logical-cores"
-	resourceMemory = "org.cirruslabs.memory-mib"
-)
-
 // Credentials are the image credentials that the SSH transport needs. The values come from the
 // environment that the profile names, never from the configuration file.
 type Credentials struct {
@@ -58,12 +51,17 @@ func Name(controllerID string, id job.ID) string {
 	return namePrefix + controllerID + "-" + id.String()
 }
 
+// Prefix is what every machine name of this controller starts with. A caller that must tell an
+// orphan from a machine of somebody else needs this, because a name with the prefix and no
+// identifier belongs to this controller and nothing else will remove it.
+func Prefix(controllerID string) string {
+	return namePrefix + controllerID + "-"
+}
+
 // OwnedJob reports the job of a machine that this controller created. A machine of another
 // controller, or of another tool, belongs to nobody here.
 func OwnedJob(name, controllerID string) (job.ID, bool) {
-	prefix := namePrefix + controllerID + "-"
-
-	text, found := strings.CutPrefix(name, prefix)
+	text, found := strings.CutPrefix(name, Prefix(controllerID))
 	if !found {
 		return "", false
 	}
@@ -113,9 +111,9 @@ func Build(r Request) (orchard.VM, error) {
 		Labels: r.Profile.WorkerLabels,
 
 		Resources: map[string]uint64{
-			resourceVMs:    1,
-			resourceCores:  r.Profile.CPU,
-			resourceMemory: r.Profile.MemoryMiB,
+			orchard.ResourceVMs:       1,
+			orchard.ResourceCores:     r.Profile.CPU,
+			orchard.ResourceMemoryMiB: r.Profile.MemoryMiB,
 		},
 
 		StartupScript: &orchard.Script{
