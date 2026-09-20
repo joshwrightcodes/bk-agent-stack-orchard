@@ -839,15 +839,19 @@ These rules apply:
 The minimum Orchard version of §9.2 applies to the server that the fleet runs, not to a Go
 dependency.
 
-**Contract drift.** Nothing regenerates the client, so three checks report a contract that moved.
-The weekly upstream watch reports a release later than the pinned version. A contract test
-compares every field that the client uses with the Go tags of the pinned version, because the Go
-types are what the server marshals: the published OpenAPI description omits fields that the
-controller uses, and its paths leave out the `/v1` prefix of the server. That test reads the
-fields of the client by reflection, so no list needs a person to keep it current, and it carries
-a build tag because it needs the network. The integration tests against a real Orchard prove the
-behaviour, and they are the only layer that can. The `internal/orchard` directory documents the
-procedure for a version change.
+**Wire types.** `tools/orchardgen` writes the wire types from the Orchard resource types of the
+pinned version, and `go generate ./internal/orchard/` runs it (ADR-0011). The generated file
+carries the field names, the JSON tags, and a type for each field, and no behaviour of Orchard. A
+field whose type the controller does not read carries `json.RawMessage`.
+
+The generator reads the Go types, not the published description, because the Go types are what
+the server marshals: the description of version 0.57.0 omits `randomSerial`, `createdAt`,
+`last_seen`, and `scheduling_paused`, and its paths leave out the `/v1` prefix.
+
+**Contract drift.** CI MUST run `go generate ./...` and MUST fail when a generated file is
+different from the file in the tree, which turns an upstream change into a failed gate. The
+weekly upstream watch reports a release later than the pinned version. The integration tests
+against a real Orchard prove the behaviour, and they are the only layer that can.
 
 **Build and release.** GoReleaser (v2.18 or later) MUST build the release binaries, the
 archives, the checksums, and the container image. GoReleaser MUST use ko through its `kos`

@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/config"
-	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/vmspec"
 )
 
 // Errors that a caller decides about.
@@ -34,54 +33,23 @@ var (
 	ErrNotFound = errors.New("orchard does not have this resource")
 )
 
-// Status is the state of a machine inside Orchard. The Buildkite job state, not this status,
-// decides when a machine may go.
-type Status string
-
+// Status values of a machine inside Orchard. The Buildkite job state, not this status, decides
+// when a machine may go.
 const (
 	// StatusPending is a machine that Orchard has not started yet.
-	StatusPending Status = "pending"
+	StatusPending = "pending"
 
 	// StatusRunning is a machine whose process runs. The guest may still be starting.
-	StatusRunning Status = "running"
+	StatusRunning = "running"
 
 	// StatusFailed is a machine that did not reach the running state, or that stopped.
-	StatusFailed Status = "failed"
+	StatusFailed = "failed"
 )
-
-// VM is the part of an Orchard machine that the controller reads.
-type VM struct {
-	Name          string            `json:"name"`
-	Status        Status            `json:"status"`
-	StatusMessage string            `json:"status_message"`
-	Worker        string            `json:"worker"`
-	CreatedAt     time.Time         `json:"createdAt"`
-	ScheduledAt   time.Time         `json:"scheduled_at"`
-	StartedAt     time.Time         `json:"started_at"`
-	Resources     map[string]uint64 `json:"resources"`
-	Labels        map[string]string `json:"labels"`
-}
-
-// Worker is the part of an Orchard worker that admission reads.
-type Worker struct {
-	Name             string            `json:"name"`
-	LastSeen         time.Time         `json:"last_seen"`
-	SchedulingPaused bool              `json:"scheduling_paused"`
-	Resources        map[string]uint64 `json:"resources"`
-	Labels           map[string]string `json:"labels"`
-}
 
 // Offline reports a worker that nothing has seen inside the timeout. Orchard decides the same
 // way, from the time that the worker last reported.
 func (w Worker) Offline(timeout time.Duration) bool {
 	return time.Since(w.LastSeen) > timeout
-}
-
-// Event is one line that the startup script of a machine wrote.
-type Event struct {
-	Kind      string `json:"kind"`
-	Timestamp int64  `json:"timestamp"`
-	Payload   string `json:"payload"`
 }
 
 // Options configures the client.
@@ -149,7 +117,7 @@ func New(options Options) (*Client, error) {
 }
 
 // CreateVM asks Orchard for one machine. A name that exists gives ErrAlreadyExists.
-func (c *Client) CreateVM(ctx context.Context, spec vmspec.VM) error {
+func (c *Client) CreateVM(ctx context.Context, spec VM) error {
 	// G117: the specification carries the job acquisition token, and the image password when a
 	// profile uses the SSH transport. The worker needs both, so this call is where they travel.
 	// The specification type refuses to print them anywhere else.

@@ -1,9 +1,10 @@
 # The Orchard client
 
-This client belongs to the project. Nothing generates it, and this file says why, what it
-covers, how the project notices when the contract moves, and how to change it.
+This client belongs to the project: its wire types are generated from a pinned Orchard version,
+and its behaviour is written by hand. This file says why, what it covers, how the project notices
+when the contract moves, and how to change it.
 
-## Why the project writes it
+## Why the project owns it
 
 Orchard carries the FSL-1.1-ALv2 licence, which permits every purpose except a competing use.
 This project publishes a container image under the AGPL-3.0, which forbids a further restriction
@@ -12,18 +13,20 @@ generator produced from the Orchard OpenAPI file, cannot be distributed under th
 decision record `docs/adrs/0010-call-the-orchard-api-with-a-client-of-this-project.md` holds the
 reasoning.
 
-## Why generation would not help even without the licence
+## What is generated, and what is not
 
-The published OpenAPI description of Orchard is neither complete nor current. At version 0.57.0:
+`tools/orchardgen` writes `types_gen.go` from the Orchard resource types at the pinned version,
+and `go generate ./internal/orchard/` runs it. The generated file carries the field names, the
+JSON tags, and a type for each field. Everything else here is written by hand: the requests, the
+retries, the errors, and the decisions about a conflict or a machine that is already gone.
 
-* it has no `randomSerial`, `createdAt`, `last_seen`, or `scheduling_paused`, and the controller
-  reads or writes all four;
-* its paths omit the `/v1` prefix that the server uses;
-* it describes the status message of a machine as `status_message` in the state schema, while the
-  server marshals the same field from a Go tag of the same name — the two agree here, but the
-  description gives a reader no way to know which one the server follows.
+The generator reads the Go types rather than the published OpenAPI description, because the Go
+types are what the server marshals. At 0.57.0 that description omits `randomSerial`, `createdAt`,
+`last_seen`, and `scheduling_paused`, which the controller uses, and its paths leave out the
+`/v1` prefix that the server serves. A client generated from it would not work.
 
-The Go types are what the server marshals, so they are the contract.
+`ADR-0011` records this decision, and `ADR-0010` records why the Orchard Go client stays out of
+the binary.
 
 ## What the client covers
 
@@ -35,8 +38,7 @@ The Go types are what the server marshals, so they are the contract.
 | List the workers | `GET /v1/workers` | admission |
 | Read the events of a machine | `GET /v1/vms/{name}/events` | the acquire timeout |
 
-Nothing else of the API is here. A new call needs a new method, a new entry in the contract
-test, and a test of its own.
+Nothing else of the API is here. A new call needs a new method and a test of its own.
 
 ## How the project notices that the contract moved
 
@@ -44,15 +46,9 @@ Three layers, from cheapest to strongest:
 
 1. **The weekly upstream watch** reports an Orchard release later than the pinned version. A
    version that moves is the trigger to read the release notes.
-2. **`mise run check-orchard-contract`** compares every field that this client uses with the Go
-   tags of the pinned version, and follows an embedded structure. The list of fields comes from
-   the structures themselves, by reflection, so no person keeps a second list current. It fails
-   when a field that the client depends on disappears or changes its name, and it reads the
-   upstream source without writing an upstream file into this repository.
-
-   The test carries the `contract` build tag, because it needs the network, so `go test ./...`
-   does not run it. `ORCHARD_VERSION=0.58.0 mise run check-orchard-contract` checks a candidate
-   release before the documents pin it.
+2. **`mise run check-generate`** writes the generated files again and fails when the result is
+   different from the tree. A field that upstream renames, adds, or removes appears in that
+   difference with its old name and its new one. CI runs it on every pull request.
 3. **The integration tests** run against a real Orchard with synthetic workers at the pinned
    version. They are the only layer that proves behaviour, and a field that the API rejects fails
    the gate.
@@ -60,10 +56,10 @@ Three layers, from cheapest to strongest:
 ## How to change the client
 
 1. Read the release notes of the new Orchard version.
-2. Run `ORCHARD_VERSION=<new version> mise run check-orchard-contract` to see which fields
-   moved.
-3. Change the client. The contract test follows the structures by reflection, so only a new
-   type needs an entry there.
+2. Run `go run ./tools/orchardgen -version <new version> -out internal/orchard/types_gen.go` and
+   read the difference. That is the list of fields that moved.
+3. Change the client where a moved field matters. A new type that the controller needs gets an
+   entry in the `wanted` list of the generator.
 4. Run the integration tests against the new version.
 5. Change the minimum version in the target design, section 9.2, and the driver in the system
    design baseline.
@@ -71,4 +67,13 @@ Three layers, from cheapest to strongest:
 ## If Orchard publishes a client or a specification under a permissive licence
 
 That removes the reason for this client. The change needs a new decision record that supersedes
-ADR-0010, and the client then becomes a generated package with a pinned specification.
+ADR-0010 and ADR-0011, and the client then becomes their package with a pinned version.
+
+## Running the generator
+
+The generator reads the upstream source through the GitHub API, which limits an anonymous caller
+to sixty calls each hour. A local run therefore uses a token, and CI gives one to the job:
+
+```sh
+GITHUB_TOKEN=$(gh auth token) mise run generate
+```

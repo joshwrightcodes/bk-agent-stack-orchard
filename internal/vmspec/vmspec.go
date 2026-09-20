@@ -9,11 +9,11 @@ package vmspec
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/config"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/profile"
 )
 
@@ -53,70 +53,6 @@ type Request struct {
 	OTelHeaders config.Secret
 }
 
-// Script is the startup script that the Orchard worker runs in the guest.
-type Script struct {
-	Transport     string            `json:"transport,omitempty"`
-	ScriptContent string            `json:"script_content"`
-	Env           map[string]string `json:"env,omitempty"`
-}
-
-// VM is the specification that the controller sends to Orchard.
-type VM struct {
-	Name            string            `json:"name"`
-	Image           string            `json:"image"`
-	ImagePullPolicy string            `json:"imagePullPolicy"`
-	OS              string            `json:"os"`
-	CPU             uint64            `json:"cpu"`
-	Memory          uint64            `json:"memory"`
-	DiskSize        uint64            `json:"diskSize"`
-	Headless        bool              `json:"headless"`
-	RandomSerial    bool              `json:"randomSerial"`
-	NetSoftnet      bool              `json:"netSoftnet"`
-	NetSoftnetAllow []string          `json:"netSoftnetAllow,omitempty"`
-	RestartPolicy   string            `json:"restart_policy"`
-	Username        string            `json:"username,omitempty"`
-	Password        string            `json:"password,omitempty"`
-	Labels          map[string]string `json:"labels,omitempty"`
-	Resources       map[string]uint64 `json:"resources"`
-	HostDirs        []string          `json:"hostDirs,omitempty"`
-	StartupScript   *Script           `json:"startup_script,omitempty"`
-}
-
-// LogValue gives a view of the specification that carries no secret. The specification must
-// carry the job acquisition token, and the image password when a profile uses SSH, because the
-// worker needs both. A log line needs neither.
-func (v VM) LogValue() slog.Value {
-	return slog.GroupValue(
-		slog.String("name", v.Name),
-		slog.String("image", v.Image),
-		slog.Uint64("cpu", v.CPU),
-		slog.Uint64("memoryMiB", v.Memory),
-		slog.Uint64("diskSizeGB", v.DiskSize),
-		slog.Bool("netSoftnet", v.NetSoftnet),
-		slog.String("restartPolicy", v.RestartPolicy),
-		slog.String("transport", v.transport()),
-		slog.Bool("hasImageCredentials", v.Username != ""),
-	)
-}
-
-func (v VM) transport() string {
-	if v.StartupScript == nil {
-		return ""
-	}
-
-	return v.StartupScript.Transport
-}
-
-// String hides the specification from every format verb, because it carries the token of a job.
-func (v VM) String() string {
-	return fmt.Sprintf("VM(%s)", v.Name)
-}
-
-// GoString hides the specification from the %#v verb.
-func (v VM) GoString() string {
-	return fmt.Sprintf("vmspec.VM{Name:%q}", v.Name)
-}
-
 // Name is the name of the machine that serves one job.
 func Name(controllerID string, id job.ID) string {
 	return namePrefix + controllerID + "-" + id.String()
@@ -141,19 +77,19 @@ func OwnedJob(name, controllerID string) (job.ID, bool) {
 }
 
 // Build gives the specification of one job virtual machine.
-func Build(r Request) (VM, error) {
+func Build(r Request) (orchard.VM, error) {
 	if err := r.validate(); err != nil {
-		return VM{}, err
+		return orchard.VM{}, err
 	}
 
 	name := Name(r.ControllerID, r.JobID)
 	if len(name) > maxNameLength {
-		return VM{}, fmt.Errorf(
+		return orchard.VM{}, fmt.Errorf(
 			"the name %q is %d characters, and Orchard recommends %d or fewer: use a shorter controllerID",
 			name, len(name), maxNameLength)
 	}
 
-	vm := VM{
+	vm := orchard.VM{
 		Name:            name,
 		Image:           r.Profile.Image,
 		ImagePullPolicy: "IfNotPresent",
@@ -182,7 +118,7 @@ func Build(r Request) (VM, error) {
 			resourceMemory: r.Profile.MemoryMiB,
 		},
 
-		StartupScript: &Script{
+		StartupScript: &orchard.Script{
 			Transport:     string(r.Profile.StartupTransport),
 			ScriptContent: scriptContent,
 			Env:           r.environment(name),

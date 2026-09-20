@@ -13,7 +13,6 @@ import (
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/config"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
-	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/vmspec"
 )
 
 // server gives a client that talks to a handler, with the retry wait removed so that a test of
@@ -85,7 +84,7 @@ func TestCreateVMSendsTheSpecification(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	spec := vmspec.VM{Name: "bk-macos-prod-018f3b2c-1c4a-7e5b-9a3d-2f1e4c5b6a7d", Image: "img", CPU: 8}
+	spec := orchard.VM{Name: "bk-macos-prod-018f3b2c-1c4a-7e5b-9a3d-2f1e4c5b6a7d", Image: "img", CPU: 8}
 	if err := client.CreateVM(context.Background(), spec); err != nil {
 		t.Fatalf("CreateVM() = %v", err)
 	}
@@ -102,7 +101,7 @@ func TestCreateVMReportsAConflictOnItsOwn(t *testing.T) {
 		w.WriteHeader(http.StatusConflict)
 	})
 
-	err := client.CreateVM(context.Background(), vmspec.VM{Name: "bk-a-b"})
+	err := client.CreateVM(context.Background(), orchard.VM{Name: "bk-a-b"})
 	if !errors.Is(err, orchard.ErrAlreadyExists) {
 		t.Errorf("CreateVM() = %v, want ErrAlreadyExists", err)
 	}

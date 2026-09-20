@@ -38,7 +38,7 @@ jobs:
       - name: orchard contract
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: mise run check-orchard-contract
+        run: mise run check-generate
 
       - name: report
         if: steps.check.outputs.moved == 'true'

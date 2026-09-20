@@ -10,6 +10,7 @@ import (
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/config"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/profile"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/vmspec"
 )
@@ -36,7 +37,7 @@ func request() vmspec.Request {
 	}
 }
 
-func build(t *testing.T, r vmspec.Request) vmspec.VM {
+func build(t *testing.T, r vmspec.Request) orchard.VM {
 	t.Helper()
 
 	vm, err := vmspec.Build(r)
@@ -142,7 +143,7 @@ func TestBuildIsolatesTheVM(t *testing.T) {
 	if vm.RestartPolicy != "Never" {
 		t.Errorf("RestartPolicy = %q, want Never, because a VM serves one job", vm.RestartPolicy)
 	}
-	if vm.HostDirs != nil {
+	if len(vm.HostDirs) != 0 {
 		t.Errorf("HostDirs = %v, want none", vm.HostDirs)
 	}
 	if !vm.Headless || !vm.RandomSerial {
