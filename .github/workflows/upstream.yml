@@ -31,6 +31,13 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 scripts/check-upstream.py --output upstream-table.md
 
+      # The client of this project is not generated, so this reports when a field that it uses
+      # moves in the version that the documents pin.
+      - name: orchard contract
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/check-orchard-contract.py
+
       - name: report
         if: steps.check.outputs.moved == 'true'
         env:

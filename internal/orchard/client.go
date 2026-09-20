@@ -53,7 +53,7 @@ const (
 type VM struct {
 	Name          string            `json:"name"`
 	Status        Status            `json:"status"`
-	StatusMessage string            `json:"statusMessage"`
+	StatusMessage string            `json:"status_message"`
 	Worker        string            `json:"worker"`
 	CreatedAt     time.Time         `json:"createdAt"`
 	ScheduledAt   time.Time         `json:"scheduled_at"`

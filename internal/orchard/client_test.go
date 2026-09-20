@@ -116,15 +116,15 @@ func TestListVMsReadsEveryFieldThatTheControllerUses(t *testing.T) {
 			t.Errorf("ListVMs asked for %s, want /v1/vms", r.URL.Path)
 		}
 		writeJSON(t, w, []map[string]any{{
-			"name":          "bk-macos-prod-018f3b2c-1c4a-7e5b-9a3d-2f1e4c5b6a7d",
-			"status":        "running",
-			"statusMessage": "the agent started",
-			"worker":        "mac-03",
-			"createdAt":     created,
-			"scheduled_at":  created.Add(5 * time.Second),
-			"started_at":    created.Add(20 * time.Second),
-			"resources":     map[string]uint64{"org.cirruslabs.tart-vms": 1},
-			"labels":        map[string]string{"pool": "general"},
+			"name":           "bk-macos-prod-018f3b2c-1c4a-7e5b-9a3d-2f1e4c5b6a7d",
+			"status":         "running",
+			"status_message": "the agent started",
+			"worker":         "mac-03",
+			"createdAt":      created,
+			"scheduled_at":   created.Add(5 * time.Second),
+			"started_at":     created.Add(20 * time.Second),
+			"resources":      map[string]uint64{"org.cirruslabs.tart-vms": 1},
+			"labels":         map[string]string{"pool": "general"},
 		}})
 	})
 

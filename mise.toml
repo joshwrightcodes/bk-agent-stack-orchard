@@ -19,6 +19,10 @@ run = "python3 scripts/check-commits.py"
 description = "Validate the C4 workspace and the generated views"
 run = "./scripts/check-c4.sh"
 
+[tasks.check-orchard-contract]
+description = "Compare the Orchard fields that the client uses with the pinned upstream version"
+run = "python3 scripts/check-orchard-contract.py"
+
 [tasks.check-deps]
 description = "Check the dependency and licence rules of go.mod"
 run = "python3 scripts/check-deps.py"

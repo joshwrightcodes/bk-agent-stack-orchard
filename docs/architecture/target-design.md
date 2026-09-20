@@ -839,6 +839,14 @@ These rules apply:
 The minimum Orchard version of §9.2 applies to the server that the fleet runs, not to a Go
 dependency.
 
+**Contract drift.** Nothing regenerates the client, so three checks report a contract that moved.
+The weekly upstream watch reports a release later than the pinned version. A contract check
+compares every field that the client uses with the Go tags of the pinned version, because the
+Go types are what the server marshals: the published OpenAPI description omits fields that the
+controller uses, and its paths leave out the `/v1` prefix of the server. The integration tests
+against a real Orchard prove the behaviour, and they are the only layer that can. The
+`internal/orchard` directory documents the procedure for a version change.
+
 **Build and release.** GoReleaser (v2.18 or later) MUST build the release binaries, the
 archives, the checksums, and the container image. GoReleaser MUST use ko through its `kos`
 section to build the image. The image MUST be distroless. The repository MUST NOT have a
