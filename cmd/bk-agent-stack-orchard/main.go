@@ -26,6 +26,7 @@ import (
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/controller"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/inventory"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/launcher"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/stack"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
@@ -172,10 +173,27 @@ func assemble(settings *config.Config, recorder *telemetry.Telemetry) (*controll
 		return nil, err
 	}
 
+	starter, err := launcher.New(launcher.Options{
+		Stacks:            stacks,
+		Orchard:           machines,
+		ControllerID:      settings.ControllerID,
+		Queue:             settings.Buildkite.Queue,
+		ReservationExpiry: settings.Buildkite.ReservationExpiry,
+		TokenLifetime:     settings.Buildkite.JobTokenLifetime,
+		Environment:       os.Getenv,
+		Metrics:           recorder.Metrics,
+		Logger:            recorder.Logger,
+		Tracer:            recorder.Tracer,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	decisions := &admitter{
 		settings: settings,
 		queue:    poller,
 		fleet:    fleet,
+		starter:  starter,
 		logger:   recorder.Logger,
 		metrics:  recorder.Metrics,
 	}
@@ -199,6 +217,7 @@ type admitter struct {
 	settings *config.Config
 	queue    *stack.Poller
 	fleet    *inventory.Inventory
+	starter  *launcher.Launcher
 	logger   *slog.Logger
 	metrics  *telemetry.Metrics
 
@@ -206,8 +225,7 @@ type admitter struct {
 	latest admission.Result
 }
 
-// admit decides which jobs the fleet can carry. The launcher that starts them is the next unit
-// of work, so this step records the decision and starts nothing.
+// admit decides which jobs the fleet can carry, and starts them.
 func (a *admitter) admit(ctx context.Context) error {
 	queue, read := a.queue.Latest()
 	if !read {
@@ -238,18 +256,11 @@ func (a *admitter) admit(ctx context.Context) error {
 			"reason", unmatched.Reason)
 	}
 
-	for _, candidate := range result.Admit {
-		a.logger.InfoContext(ctx, "the fleet can carry this job",
-			telemetry.LogJob, string(candidate.Job.ID),
-			telemetry.LogProfile, candidate.Profile.Name)
-	}
-
 	a.mu.Lock()
-	defer a.mu.Unlock()
-
 	a.latest = result
+	a.mu.Unlock()
 
-	return nil
+	return a.starter.Launch(ctx, result, held)
 }
 
 // observe gives the instruments what this tick saw.
@@ -268,11 +279,10 @@ func (a *admitter) observe() telemetry.Observation {
 	return observation
 }
 
-// profileOf gives the profile of a job that this process started. Nothing started a job yet, so
-// every machine of this controller counts as one of an unknown profile until the launcher
-// arrives.
-func (a *admitter) profileOf(job.ID) string {
-	return ""
+// profileOf gives the profile of a job that this process started. A machine of a process before
+// a restart has none, and it counts as one of an unknown profile until it ends.
+func (a *admitter) profileOf(id job.ID) string {
+	return a.starter.Profile(id)
 }
 
 // orUnknown gives a value that a development build left empty a name that a person can read.
