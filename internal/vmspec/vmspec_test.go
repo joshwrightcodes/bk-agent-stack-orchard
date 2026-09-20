@@ -9,17 +9,18 @@ import (
 	"testing"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/config"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/profile"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/vmspec"
 )
 
-const jobUUID = "018f3b2c-1c4a-7e5b-9a3d-2f1e4c5b6a7d"
+const jobUUID = job.ID("018f3b2c-1c4a-7e5b-9a3d-2f1e4c5b6a7d")
 
 func request() vmspec.Request {
 	return vmspec.Request{
 		ControllerID: "macos-prod",
 		Queue:        "macos",
-		JobUUID:      jobUUID,
+		JobID:        jobUUID,
 		JobToken:     config.Secret("bkjat_job_token"),
 		Profile: profile.Profile{
 			Name:             "xcode-27",
@@ -49,7 +50,7 @@ func build(t *testing.T, r vmspec.Request) vmspec.VM {
 func TestBuildNamesTheVMAfterTheControllerAndTheJob(t *testing.T) {
 	vm := build(t, request())
 
-	want := "bk-macos-prod-" + jobUUID
+	want := "bk-macos-prod-" + jobUUID.String()
 	if vm.Name != want {
 		t.Errorf("Name = %q, want %q", vm.Name, want)
 	}
@@ -71,10 +72,10 @@ func TestBuildRejectsANameThatIsTooLong(t *testing.T) {
 
 func TestBuildRejectsAnEmptyJobOrController(t *testing.T) {
 	for name, change := range map[string]func(*vmspec.Request){
-		"no job UUID":      func(r *vmspec.Request) { r.JobUUID = "" },
-		"no controller ID": func(r *vmspec.Request) { r.ControllerID = "" },
-		"no queue":         func(r *vmspec.Request) { r.Queue = "" },
-		"no job token":     func(r *vmspec.Request) { r.JobToken = "" },
+		"no job identifier": func(r *vmspec.Request) { r.JobID = "" },
+		"no controller ID":  func(r *vmspec.Request) { r.ControllerID = "" },
+		"no queue":          func(r *vmspec.Request) { r.Queue = "" },
+		"no job token":      func(r *vmspec.Request) { r.JobToken = "" },
 	} {
 		r := request()
 		change(&r)
@@ -159,7 +160,7 @@ func TestBuildGivesTheVMOnlyTheTokenOfItsOwnJob(t *testing.T) {
 	if env["BUILDKITE_AGENT_TOKEN"] != "bkjat_job_token" {
 		t.Errorf("BUILDKITE_AGENT_TOKEN = %q, want the job acquisition token", env["BUILDKITE_AGENT_TOKEN"])
 	}
-	if env["BUILDKITE_AGENT_ACQUIRE_JOB"] != jobUUID {
+	if env["BUILDKITE_AGENT_ACQUIRE_JOB"] != jobUUID.String() {
 		t.Errorf("BUILDKITE_AGENT_ACQUIRE_JOB = %q, want the job UUID", env["BUILDKITE_AGENT_ACQUIRE_JOB"])
 	}
 
@@ -274,13 +275,13 @@ func TestBuildStartsTheAgentForOneJob(t *testing.T) {
 		}
 	}
 	// The token and the job never appear in the script, because the environment carries them.
-	if strings.Contains(script, jobUUID) || strings.Contains(script, "bkjat_") {
+	if strings.Contains(script, jobUUID.String()) || strings.Contains(script, "bkjat_") {
 		t.Errorf("the script carries a value that belongs in the environment: %q", script)
 	}
 }
 
 func TestOwnedJobReadsTheJobOfAVMThatThisControllerCreated(t *testing.T) {
-	name := "bk-macos-prod-" + jobUUID
+	name := "bk-macos-prod-" + jobUUID.String()
 
 	got, ok := vmspec.OwnedJob(name, "macos-prod")
 	if !ok || got != jobUUID {
@@ -290,10 +291,10 @@ func TestOwnedJobReadsTheJobOfAVMThatThisControllerCreated(t *testing.T) {
 
 func TestOwnedJobIgnoresAVMOfAnotherOwner(t *testing.T) {
 	for _, name := range []string{
-		"bk-macos-dev-" + jobUUID,  // another controller
-		"some-other-vm",            // another tool
-		"bk-macos-prod-",           // no job
-		"bk-macos-prod-not-a-uuid", // a name that carries no job UUID
+		"bk-macos-dev-" + jobUUID.String(), // another controller
+		"some-other-vm",                    // another tool
+		"bk-macos-prod-",                   // no job
+		"bk-macos-prod-not-a-uuid",         // a name that carries no job UUID
 	} {
 		if job, ok := vmspec.OwnedJob(name, "macos-prod"); ok {
 			t.Errorf("OwnedJob(%q) = %q, true, want false", name, job)

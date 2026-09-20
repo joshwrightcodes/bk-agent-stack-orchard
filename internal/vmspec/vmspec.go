@@ -10,10 +10,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"strings"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/config"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/profile"
 )
 
@@ -30,9 +30,6 @@ const (
 	resourceMemory = "org.cirruslabs.memory-mib"
 )
 
-// jobUUIDFormat is the shape of a Buildkite job identifier.
-var jobUUIDFormat = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-
 // Credentials are the image credentials that the SSH transport needs. The values come from the
 // environment that the profile names, never from the configuration file.
 type Credentials struct {
@@ -44,7 +41,7 @@ type Credentials struct {
 type Request struct {
 	ControllerID string
 	Queue        string
-	JobUUID      string
+	JobID        job.ID
 	JobToken     config.Secret
 	Profile      profile.Profile
 
@@ -121,21 +118,26 @@ func (v VM) GoString() string {
 }
 
 // Name is the name of the machine that serves one job.
-func Name(controllerID, jobUUID string) string {
-	return namePrefix + controllerID + "-" + jobUUID
+func Name(controllerID string, id job.ID) string {
+	return namePrefix + controllerID + "-" + id.String()
 }
 
 // OwnedJob reports the job of a machine that this controller created. A machine of another
 // controller, or of another tool, belongs to nobody here.
-func OwnedJob(name, controllerID string) (string, bool) {
+func OwnedJob(name, controllerID string) (job.ID, bool) {
 	prefix := namePrefix + controllerID + "-"
 
-	job, found := strings.CutPrefix(name, prefix)
-	if !found || !jobUUIDFormat.MatchString(job) {
+	text, found := strings.CutPrefix(name, prefix)
+	if !found {
 		return "", false
 	}
 
-	return job, true
+	id, err := job.ParseID(text)
+	if err != nil {
+		return "", false
+	}
+
+	return id, true
 }
 
 // Build gives the specification of one job virtual machine.
@@ -144,7 +146,7 @@ func Build(r Request) (VM, error) {
 		return VM{}, err
 	}
 
-	name := Name(r.ControllerID, r.JobUUID)
+	name := Name(r.ControllerID, r.JobID)
 	if len(name) > maxNameLength {
 		return VM{}, fmt.Errorf(
 			"the name %q is %d characters, and Orchard recommends %d or fewer: use a shorter controllerID",
@@ -205,7 +207,7 @@ const scriptContent = `buildkite-agent start --tags ` +
 func (r Request) environment(name string) map[string]string {
 	env := map[string]string{
 		"BUILDKITE_AGENT_TOKEN":       r.JobToken.Reveal(),
-		"BUILDKITE_AGENT_ACQUIRE_JOB": r.JobUUID,
+		"BUILDKITE_AGENT_ACQUIRE_JOB": r.JobID.String(),
 		"BUILDKITE_AGENT_NAME":        name,
 		"BK_AGENT_STACK_QUEUE":        r.Queue,
 		"BK_AGENT_STACK_PROFILE":      r.Profile.Name,
@@ -238,8 +240,8 @@ func (r Request) validate() error {
 	if r.Queue == "" {
 		problems = append(problems, errors.New("the queue is empty"))
 	}
-	if !jobUUIDFormat.MatchString(r.JobUUID) {
-		problems = append(problems, fmt.Errorf("the job UUID %q is not a job identifier", r.JobUUID))
+	if !r.JobID.Valid() {
+		problems = append(problems, fmt.Errorf("the job identifier %q is not a Buildkite job", r.JobID))
 	}
 	if r.JobToken == "" {
 		problems = append(problems, errors.New("the job acquisition token is empty"))
