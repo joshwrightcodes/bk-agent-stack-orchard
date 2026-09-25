@@ -62,6 +62,10 @@ Until all thirteen rows exist and T-020 passes, these limits apply:
 * The skeleton MUST NOT run against the pilot queue, and MUST NOT run against a host that serves
   other work (PR-031).
 * Each skeleton run MUST end with a check that no owned VM remains. T-060 makes this check.
+* T-060 checks the stack notifications that the skeleton sends, which is "VM requested". The
+  target design, section 10.5, names a notification for each later step of the VM, and W-16 owns
+  them. W-16 MUST extend T-060 with each notification that it adds, so that T-060 checks every
+  step when the design is whole.
 
 | Increment | Components | Evidence that ends the increment |
 |---|---|---|

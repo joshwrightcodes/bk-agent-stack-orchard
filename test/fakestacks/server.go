@@ -6,12 +6,17 @@
 // that file also holds a Kubernetes controller: an import puts k8s.io/apimachinery, k8s.io/klog,
 // and an older stacksapi into the module graph of this project for one test helper.
 //
-// This project made three changes, because the original models only what its own controller
+// This project made five changes, because the original models only what its own controller
 // calls. Each one carries a comment that starts with "Change of this project":
 //
 //  1. The stack key is a field. The original writes "test-stack" into every route.
 //  2. A scheduled-jobs route exists, which the original does not model.
 //  3. A test can set the headers of an answer, which a rate-limit test needs for Retry-After.
+//  4. A reserved job leaves the scheduled-jobs list and takes the state "reserved", as the API
+//     states. A test that runs a controller end to end needs the list to move.
+//  5. A test can set a job state and read the calls while a controller runs, under the lock of
+//     the server. The original is read after each call returns, and a running controller makes
+//     calls at any moment.
 //
 // The fake is not a conformance suite. It answers as its author believed the API answers, so a
 // test against it proves the behaviour of this controller and not the behaviour of Buildkite.
@@ -287,10 +292,10 @@ func (f *Server) handleScheduledJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	f.mu.Lock()
 	page := f.ScheduledJobs
-	if page.Jobs == nil {
-		page.Jobs = []stacksapi.ScheduledJob{}
-	}
+	page.Jobs = append([]stacksapi.ScheduledJob{}, f.ScheduledJobs.Jobs...)
+	f.mu.Unlock()
 
 	f.writeJSON(w, f.ScheduledJobsStatusCode, page)
 }
@@ -327,7 +332,43 @@ func (f *Server) handleReserveJobs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Change of this project: a reserved job leaves the scheduled-jobs list and takes the state
+	// "reserved", which is what the API documents. The original keeps the list as a test set it.
+	f.mu.Lock()
+	f.reserve(resp.Reserved)
+	f.mu.Unlock()
+
 	f.writeJSON(w, f.ReserveStatusCode, resp)
+}
+
+// reserve moves jobs from the scheduled-jobs list to the state "reserved". The caller holds the
+// lock.
+//
+// Change of this project: the original models no list for a reservation to change.
+func (f *Server) reserve(ids []string) {
+	held := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		held[id] = true
+	}
+
+	waiting := f.ScheduledJobs.Jobs[:0:0]
+	for _, scheduled := range f.ScheduledJobs.Jobs {
+		if !held[scheduled.ID] {
+			waiting = append(waiting, scheduled)
+		}
+	}
+
+	f.ScheduledJobs.Jobs = waiting
+
+	if f.JobStates == nil {
+		f.JobStates = map[string]string{}
+	}
+
+	for id := range held {
+		if _, known := f.JobStates[id]; !known {
+			f.JobStates[id] = "reserved"
+		}
+	}
 }
 
 func (f *Server) handleIssueJobAcquisitionTokens(w http.ResponseWriter, r *http.Request) {
@@ -398,11 +439,14 @@ func (f *Server) handleGetJobStates(w http.ResponseWriter, r *http.Request) {
 	}
 
 	states := make(map[string]string)
+
+	f.mu.Lock()
 	for _, id := range req.JobUUIDs {
 		if s, ok := f.JobStates[id]; ok {
 			states[id] = s
 		}
 	}
+	f.mu.Unlock()
 
 	f.writeJSON(w, f.GetJobStatesStatusCode, stacksapi.GetJobStatesResponse{States: states})
 }
@@ -442,4 +486,61 @@ func (f *Server) handleNotifications(w http.ResponseWriter, r *http.Request) {
 	f.mu.Unlock()
 
 	f.writeJSON(w, http.StatusOK, stacksapi.CreateStackNotificationsResponse{})
+}
+
+// SetJobState gives a job a state, as an agent that acquires and runs it would.
+//
+// Change of this project: a test that runs a controller end to end moves a job while the
+// controller reads it, so the write takes the lock of the server.
+func (f *Server) SetJobState(id, state string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.JobStates == nil {
+		f.JobStates = map[string]string{}
+	}
+
+	f.JobStates[id] = state
+}
+
+// Reserved reports the jobs that the server holds for this stack.
+//
+// Change of this project: the original is read after a call returns.
+func (f *Server) Reserved() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	var held []string
+
+	for _, call := range f.ReserveCalls {
+		held = append(held, call...)
+	}
+
+	return held
+}
+
+// Notifications gives every line that the server received, in order.
+//
+// Change of this project: the original is read after a call returns.
+func (f *Server) Notifications() []stacksapi.StackNotification {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	var lines []stacksapi.StackNotification
+
+	for _, call := range f.NotificationCalls {
+		lines = append(lines, call...)
+	}
+
+	return lines
+}
+
+// Deregistrations counts the withdrawals of the stack.
+//
+// Change of this project: the original models no deregistration.
+func (f *Server) Deregistrations() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.DeregisterCalls
 }

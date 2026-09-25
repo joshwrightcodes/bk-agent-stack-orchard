@@ -998,6 +998,9 @@ version: "2"
 
 run:
   go: "1.27"
+  # The integration test sits behind a build tag, and the analysis covers all Go code.
+  build-tags:
+    - integration
 
 linters:
   default: standard
