@@ -288,13 +288,13 @@ func (s Snapshot) Observe(observation *telemetry.Observation, online func(orchar
 			name = UnknownProfile
 		}
 
-		observation.VMs[telemetry.VM{Profile: name, Phase: phase(owned.VM)}]++
+		observation.VMs[telemetry.VM{Profile: name, Phase: Phase(owned.VM)}]++
 
 		// The worker of the conventions is the thing that does the work of a job, which here is
 		// the machine. A machine of this controller carries one job and is never idle, so it is
 		// busy while it runs and offline when it failed. A machine that is still starting is not
 		// a worker yet.
-		switch phase(owned.VM) {
+		switch Phase(owned.VM) {
 		case telemetry.VMRunning:
 			observation.Workers[telemetry.WorkerBusy]++
 		case telemetry.VMFailed:
@@ -350,8 +350,8 @@ func count(value uint64) int64 {
 	return int64(value)
 }
 
-// phase says how far a machine has come, in the words of the instruments.
-func phase(vm orchard.VM) telemetry.VMPhase {
+// Phase says how far a machine has come, in the words of the instruments.
+func Phase(vm orchard.VM) telemetry.VMPhase {
 	switch {
 	case vm.Status == orchard.StatusFailed:
 		return telemetry.VMFailed

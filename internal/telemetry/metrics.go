@@ -33,6 +33,15 @@ const (
 	attributeSource       = prefix + "source"
 )
 
+// The attributes of the reaper.decide span (target design, section 10.2).
+const (
+	SpanVMPhase  = prefix + "vm.phase"
+	SpanJobState = prefix + "job.state"
+	SpanDecision = prefix + "reaper.decision"
+	SpanReason   = prefix + "reaper.reason"
+	SpanRow      = prefix + "reaper.row"
+)
+
 // SlotState is what a slot of the fleet does.
 type SlotState string
 

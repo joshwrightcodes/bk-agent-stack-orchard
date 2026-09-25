@@ -453,6 +453,12 @@ The Reaper MUST examine each owned VM at each tick. The first row that matches a
 | 12 | `running`, and the age since `started_at` is more than `acquire` (5 min) | `reserved` | Finish the job (`-1`, the last 50 startup-script log lines from `GET /v1/vms/{name}/events`). Delete the VM. | `acquire_timeout` |
 | 13 | `pending` or `running` | `reserved` | Extend the reservation when `reservedUntil − now` is less than `reservationRenewBefore` (120 s). If `reservedUntil` is unknown, extend it immediately. | — |
 
+The timeouts of a VM are the effective timeouts of its profile. A VM does not carry the name of
+its profile (§6.1), so after a restart the controller cannot name the profile of a VM that it did
+not start. The Reaper MUST then use the largest value of each timeout across the profiles. A
+restart MUST NOT end a VM sooner than its own profile allows: a VM that stays longer costs a slot,
+and a job that the controller ends early costs a build.
+
 Orchard sets the VM status to `running` when the Tart VM process starts. At this time, macOS has
 not completed its boot. Because of this:
 
