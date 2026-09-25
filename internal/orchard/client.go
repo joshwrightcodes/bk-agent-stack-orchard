@@ -46,10 +46,14 @@ const (
 	StatusFailed = "failed"
 )
 
-// Offline reports a worker that nothing has seen inside the timeout. Orchard decides the same
-// way, from the time that the worker last reported.
-func (w Worker) Offline(timeout time.Duration) bool {
-	return time.Since(w.LastSeen) > timeout
+// Offline reports a worker that nothing has seen inside the timeout, as of a time. Orchard decides
+// the same way, from the time that the worker last reported.
+//
+// The caller gives the time. A decision that reads the clock itself cannot be tested at a fixed
+// moment, and a test that fixes the last report of a worker then passes only while the clock of
+// the machine that runs it stays near that moment.
+func (w Worker) Offline(now time.Time, timeout time.Duration) bool {
+	return now.Sub(w.LastSeen) > timeout
 }
 
 // Options configures the client.

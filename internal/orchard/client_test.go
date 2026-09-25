@@ -205,10 +205,11 @@ func TestListWorkersReadsWhatAdmissionNeeds(t *testing.T) {
 	if !worker.SchedulingPaused || worker.Resources["org.cirruslabs.tart-vms"] != 2 {
 		t.Errorf("worker = %+v", worker)
 	}
-	if worker.Offline(3 * time.Minute) {
-		t.Error("Offline() = true for a worker that Orchard saw a moment ago")
+	reported := worker.LastSeen
+	if worker.Offline(reported.Add(time.Minute), 3*time.Minute) {
+		t.Error("Offline() = true for a worker that Orchard saw a minute before")
 	}
-	if !worker.Offline(time.Nanosecond) {
+	if !worker.Offline(reported.Add(4*time.Minute), 3*time.Minute) {
 		t.Error("Offline() = false for a worker that nothing saw inside the timeout")
 	}
 }
