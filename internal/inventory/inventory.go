@@ -247,7 +247,7 @@ func (i *Inventory) Latest() (Snapshot, bool) {
 // Eligible reports a worker that can take a new machine: it answered inside the offline timeout,
 // an operator has not paused it, and it carries the labels that a profile asks for.
 func (i *Inventory) Eligible(worker orchard.Worker, labels map[string]string) bool {
-	if worker.Offline(i.offline) || worker.SchedulingPaused {
+	if worker.Offline(i.now(), i.offline) || worker.SchedulingPaused {
 		return false
 	}
 
@@ -262,7 +262,7 @@ func (i *Inventory) Eligible(worker orchard.Worker, labels map[string]string) bo
 
 // Online reports a worker that answered inside the offline timeout.
 func (i *Inventory) Online(worker orchard.Worker) bool {
-	return !worker.Offline(i.offline)
+	return !worker.Offline(i.now(), i.offline)
 }
 
 // poolLabel is the worker label that names a pool of the fleet.

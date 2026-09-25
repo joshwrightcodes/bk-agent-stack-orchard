@@ -187,7 +187,7 @@ func TestEligibleRefusesAWorkerThatCannotTakeAMachine(t *testing.T) {
 	}
 
 	silent := ready
-	silent.LastSeen = time.Now().Add(-time.Hour)
+	silent.LastSeen = now.Add(-time.Hour)
 
 	if held.Eligible(silent, nil) {
 		t.Error("Eligible() = true for a worker that stopped answering")
