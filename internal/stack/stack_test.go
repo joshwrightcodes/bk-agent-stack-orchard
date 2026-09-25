@@ -218,34 +218,15 @@ func TestAFailedRefreshKeepsTheAnswerBeforeIt(t *testing.T) {
 	}
 }
 
-// The tick can run more often than the poll, so the poll says when its interval is complete.
-func TestDueFollowsTheInterval(t *testing.T) {
+// The poller gives its interval, and the control loop decides when it is complete. A source that
+// decided for itself would measure from its own answer, which arrives after the tick.
+func TestThePollerGivesItsInterval(t *testing.T) {
 	t.Parallel()
 
-	now := time.Date(2026, 9, 20, 10, 0, 0, 0, time.UTC)
+	poller, _ := stack.NewPoller(stack.PollerOptions{Stacks: &fake{}, Interval: 3 * time.Second})
 
-	poller, _ := stack.NewPoller(stack.PollerOptions{
-		Stacks:   &fake{},
-		Interval: time.Second,
-		Now:      func() time.Time { return now },
-	})
-
-	if !poller.Due() {
-		t.Error("Due() = false before the first poll, want true")
-	}
-
-	if err := poller.Refresh(t.Context()); err != nil {
-		t.Fatalf("Refresh() = %v, want no error", err)
-	}
-
-	if poller.Due() {
-		t.Error("Due() = true straight after a poll, want false")
-	}
-
-	now = now.Add(time.Second)
-
-	if !poller.Due() {
-		t.Error("Due() = false after the interval, want true")
+	if got := poller.Interval(); got != 3*time.Second {
+		t.Errorf("Interval() = %s, want 3s", got)
 	}
 }
 

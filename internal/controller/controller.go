@@ -38,8 +38,9 @@ type Source interface {
 	// Source says which supply this is.
 	Source() telemetry.Source
 
-	// Due reports a source whose interval is complete.
-	Due() bool
+	// Interval is how often the source may be read. The loop decides when that is, because the
+	// loop owns the timing of a tick.
+	Interval() time.Duration
 
 	// Refresh reads the source once.
 	Refresh(ctx context.Context) error
@@ -103,6 +104,10 @@ type Controller struct {
 	metrics  *telemetry.Metrics
 	logger   *slog.Logger
 	tracer   trace.Tracer
+
+	// refreshed holds the tick at which each source was last read. Only the goroutine of the
+	// loop reads and writes it.
+	refreshed map[telemetry.Source]time.Time
 }
 
 // New builds the loop.
@@ -140,16 +145,17 @@ func New(options Options) (*Controller, error) {
 	}
 
 	return &Controller{
-		stack:    options.Stack,
-		sources:  options.Sources,
-		queue:    options.Queue,
-		fleet:    options.Fleet,
-		reap:     options.Reap,
-		admit:    options.Admit,
-		interval: options.Interval,
-		metrics:  options.Metrics,
-		logger:   options.Logger,
-		tracer:   tracer,
+		stack:     options.Stack,
+		sources:   options.Sources,
+		queue:     options.Queue,
+		fleet:     options.Fleet,
+		reap:      options.Reap,
+		admit:     options.Admit,
+		interval:  options.Interval,
+		metrics:   options.Metrics,
+		logger:    options.Logger,
+		tracer:    tracer,
+		refreshed: map[telemetry.Source]time.Time{},
 	}, nil
 }
 
@@ -172,8 +178,8 @@ func (c *Controller) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return c.withdraw(ctx)
-		case <-ticker.C:
-			c.tick(ctx)
+		case at := <-ticker.C:
+			c.tick(ctx, at)
 		}
 	}
 }
@@ -194,13 +200,13 @@ func (c *Controller) withdraw(ctx context.Context) error {
 	return nil
 }
 
-// tick runs the steps of one tick, in order.
-func (c *Controller) tick(ctx context.Context) {
+// tick runs the steps of one tick, in order. At is the time of the tick.
+func (c *Controller) tick(ctx context.Context, at time.Time) {
 	// The observation comes last, so that it reports the fleet as this tick left it and not as
 	// this tick found it.
 	defer c.observe()
 
-	c.refresh(ctx)
+	c.refresh(ctx, at)
 
 	c.run(ctx, "reap", c.reap)
 
@@ -214,16 +220,37 @@ func (c *Controller) tick(ctx context.Context) {
 }
 
 // refresh reads each source whose interval is complete.
-func (c *Controller) refresh(ctx context.Context) {
+func (c *Controller) refresh(ctx context.Context, at time.Time) {
 	for _, source := range c.sources {
-		if !source.Due() {
+		if !c.due(source, at) {
 			continue
 		}
+
+		// The attempt counts, and not only a success. A source that failed waits for its
+		// interval like one that answered, because the API behind it is where the failure is,
+		// and a call at every tick would press it harder.
+		c.refreshed[source.Source()] = at
 
 		c.run(ctx, step[source.Source()], func(ctx context.Context) error {
 			return source.Refresh(ctx)
 		})
 	}
+}
+
+// due reports a source whose interval is complete at the tick at.
+//
+// The interval is measured between ticks, and not between the answers of the source. An answer
+// arrives some time after its tick, and later still for a source that waits for the ones before
+// it in the same tick, so a comparison of answers skips every other tick when the two intervals
+// are equal. Ticks arrive one tick interval apart, so half of that interval is room for the jitter
+// of the ticker, and it can never let a source be read a whole tick early.
+func (c *Controller) due(source Source, at time.Time) bool {
+	last, read := c.refreshed[source.Source()]
+	if !read {
+		return true
+	}
+
+	return at.Sub(last) >= source.Interval()-c.interval/2
 }
 
 // run carries out one step, and records what it cost. A step that fails is a log record and a

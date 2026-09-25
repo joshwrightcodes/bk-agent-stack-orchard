@@ -189,6 +189,12 @@ One goroutine runs the tick. Each tick does these steps in sequence:
 API calls in one step MAY run concurrently, with a concurrency limit. The steps MUST run in
 sequence. Because of this, Admission always sees the Reaper deletions of the same tick.
 
+The loop MUST decide when a source is due, and it MUST measure the interval of a source between
+ticks, not between the answers of the source. An answer arrives after its tick, and later still
+for a source that waits for the ones before it in the same tick, so a comparison of answers reads
+a source whose interval equals the tick interval at only every other tick. A source that failed
+MUST wait for its interval like one that answered.
+
 With 100 VMs, the controller makes approximately three API calls each second. All rate limits
 are higher. The Stacks API limits are 10 requests/s for list and reserve, and 20 requests/s for
 get-states.
@@ -321,9 +327,14 @@ Admission MUST run only when all of these conditions are true:
 
 Admission does these steps:
 
-1. **Candidates.** Select the matched scheduled jobs that have no owned VM with the same name.
-   Sort them by Buildkite `priority` (highest first), then by `scheduled_at` (oldest first).
-2. **In-flight limit.** Stop when the number of owned VMs plus admitted jobs is equal to
+1. **Candidates.** Select the matched scheduled jobs that have no owned VM with the same name,
+   and that this process does not hold. A job that this process reserved, or whose VM it
+   requested, is its own even when the Inventory data does not show the VM yet: the Inventory
+   learns of a launch only at its next refresh, and a poll that fails keeps an answer that still
+   lists the job. Sort them by Buildkite `priority` (highest first), then by `scheduled_at` (oldest
+   first).
+2. **In-flight limit.** Stop when the number of owned VMs, plus the VMs that this process
+   requested and the Inventory data does not show yet, plus admitted jobs, is equal to
    `maxInFlight`. The default value of `maxInFlight` is 0, which means the total VM slots of the
    eligible workers. Because of this, the limit follows the fleet, and it does not hold slots
    empty at the target scale (SC-01, QA-02). A value more than 0 limits the controller to that
@@ -334,8 +345,9 @@ Admission does these steps:
    resources that the worker advertises. Include the VMs of all owners. Count the VMs in the
    same way as the Orchard scheduler (`internal/controller/scheduler/scheduler.go` at the minimum
    Orchard version of §9.2).
-5. **Unplaced VMs.** Give a hypothetical placement to the VMs of all owners that have no worker.
-   Use the first eligible worker with sufficient free resources.
+5. **Unplaced VMs.** Give a hypothetical placement to the VMs of all owners that have no worker,
+   and to the VMs that this process requested and the Inventory data does not show yet. Use the
+   first eligible worker with sufficient free resources.
 6. **Admit.** For each candidate in sequence, find the first eligible worker with sufficient
    free `tart-vms`, `logical-cores`, and `memory-mib`. Subtract the resources. If no worker has
    sufficient resources, skip the candidate. A skipped candidate does not stop the next

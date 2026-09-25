@@ -153,17 +153,9 @@ func (p *Poller) Source() telemetry.Source {
 	return telemetry.SourceScheduledJobs
 }
 
-// Due reports a poll whose interval is complete. The controller asks before each tick, because
-// the tick can run more often than the poll.
-func (p *Poller) Due() bool {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	if !p.got {
-		return true
-	}
-
-	return p.now().Sub(p.latest.At) >= p.interval
+// Interval is how often the source may be read. The control loop decides when that is.
+func (p *Poller) Interval() time.Duration {
+	return p.interval
 }
 
 // Refresh reads the first page of the queue and keeps the answer.

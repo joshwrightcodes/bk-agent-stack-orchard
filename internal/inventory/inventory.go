@@ -169,16 +169,9 @@ func (i *Inventory) Source() telemetry.Source {
 	return telemetry.SourceInventory
 }
 
-// Due reports an inventory whose interval is complete.
-func (i *Inventory) Due() bool {
-	i.mu.RLock()
-	defer i.mu.RUnlock()
-
-	if !i.got {
-		return true
-	}
-
-	return i.now().Sub(i.latest.At) >= i.interval
+// Interval is how often the source may be read. The control loop decides when that is.
+func (i *Inventory) Interval() time.Duration {
+	return i.interval
 }
 
 // At gives when the last answer arrived, and the zero time while none has.

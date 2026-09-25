@@ -549,3 +549,57 @@ func telemetryMetrics(t *testing.T, provider *sdkmetric.MeterProvider) (*telemet
 
 	return telemetry.NewMetrics(provider.Meter("test"))
 }
+
+// The inventory learns of a launch only at its next refresh. Until then the launcher is the only
+// part that knows the job is taken, and admission asks it.
+func TestTheLauncherHoldsAJobUntilTheFleetShowsItsMachine(t *testing.T) {
+	t.Parallel()
+
+	api, fleet := &stacks{}, &machines{}
+	started := build(t, api, fleet)
+
+	before := inventory.Snapshot{At: time.Now().Add(-time.Minute)}
+	if err := started.Launch(t.Context(), admission.Result{Admit: candidates(first)},
+		before); err != nil {
+		t.Fatalf("Launch() = %v, want no error", err)
+	}
+
+	if held := started.Held(before); held[first] != pilot.Name {
+		t.Errorf("Held() = %v, want the job with the profile of its machine", held)
+	}
+
+	// A later snapshot shows the machine, and the inventory takes over from here.
+	shown := inventory.Snapshot{
+		At:    time.Now().Add(time.Minute),
+		Owned: []inventory.Owned{{Job: first}},
+	}
+
+	if held := started.Held(shown); len(held) != 0 {
+		t.Errorf("Held() = %v, want nothing once the fleet shows the machine", held)
+	}
+}
+
+// A job that Buildkite gave no token has no machine, and its reservation is still this
+// process's own until it lapses.
+func TestTheLauncherHoldsAReservedJobWithNoMachine(t *testing.T) {
+	t.Parallel()
+
+	api, fleet := &stacks{}, &machines{}
+	api.tokens = buildkite.Tokens{NotIssued: []job.ID{first}}
+	started := build(t, api, fleet)
+
+	before := inventory.Snapshot{At: time.Now().Add(-time.Minute)}
+	if err := started.Launch(t.Context(), admission.Result{Admit: candidates(first)},
+		before); err != nil {
+		t.Fatalf("Launch() = %v, want no error", err)
+	}
+
+	held, has := started.Held(before)[first]
+	if !has {
+		t.Fatal("Held() does not name a job whose reservation this process holds")
+	}
+
+	if held != "" {
+		t.Errorf("Held() gives the profile %q, want none: no machine is on its way", held)
+	}
+}
