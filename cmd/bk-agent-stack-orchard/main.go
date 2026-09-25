@@ -28,6 +28,7 @@ import (
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/launcher"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/reaper"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/stack"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
 )
@@ -189,6 +190,22 @@ func assemble(settings *config.Config, recorder *telemetry.Telemetry) (*controll
 		return nil, err
 	}
 
+	reaping, err := reaper.New(reaper.Options{
+		Stacks:    stacks,
+		Orchard:   machines,
+		Fleet:     fleet,
+		Profile:   starter.Profile,
+		Profiles:  settings.Profiles,
+		Defaults:  settings.Defaults.Timeouts,
+		Freshness: settings.StateFreshness,
+		Metrics:   recorder.Metrics,
+		Logger:    recorder.Logger,
+		Tracer:    recorder.Tracer,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	decisions := &admitter{
 		settings: settings,
 		queue:    poller,
@@ -203,6 +220,7 @@ func assemble(settings *config.Config, recorder *telemetry.Telemetry) (*controll
 		Sources:  []controller.Source{poller, fleet},
 		Queue:    poller,
 		Fleet:    decisions.observe,
+		Reap:     reaping.Reap,
 		Admit:    decisions.admit,
 		Interval: settings.Buildkite.PollInterval,
 		Metrics:  recorder.Metrics,
