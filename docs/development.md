@@ -15,6 +15,28 @@ mise run check   # the gates: documents, commits, dependencies, lint, tests, and
 The gates are also tasks of their own: `check-docs`, `check-commits`, `check-deps`, `lint`,
 `lint-format`, `test`, `check-generate`, and `snapshot`. `mise tasks` lists them.
 
+## The component suite
+
+The component suite (T-020) runs the controller that `internal/app` builds against in-memory fakes
+of both APIs, on a clock that the suite moves. `pgregory.net/rapid` draws random sequences of
+events: jobs arrive and are cancelled, agents take jobs, VMs fail, workers stop and return, the
+queue pauses, time passes, and the controller restarts. After each event the suite checks the
+invariants I-1, I-2, I-5, and I-8, and at the end of each sequence it checks I-6.
+
+`go test ./...` runs it, on any host, in a few seconds. When an invariant breaks, rapid shrinks the
+sequence to a short one, prints it, and writes a fail file under `test/component/testdata/rapid/`.
+The failure message gives the command that replays it:
+
+```sh
+go test ./test/component/ -run TestRandomEventsHoldTheInvariants -rapid.failfile=<the file>
+```
+
+A wider search, for example after a change to the Reaper or to admission:
+
+```sh
+go test ./test/component/ -rapid.checks=10000 -rapid.steps=200
+```
+
 ## The integration tests
 
 The integration tests run against a real Orchard in synthetic mode, at the version that `mise.toml`
