@@ -42,12 +42,18 @@ jobs:
 
   integration:
     name: skeleton journey
-    # arm64, and not the default amd64. Orchard gives a machine the architecture arm64 unless the
-    # specification states another, and it places a machine only on a worker of the same
-    # architecture. A synthetic worker takes the architecture of the host that runs it, so on an
-    # amd64 runner Orchard never places the macOS machine of the journey. The fleet is Apple
-    # silicon, so the specification is right, and the runner is what must match it.
-    runs-on: ubuntu-24.04-arm
+    # macOS on arm64, and nothing else. Orchard places a machine only on a worker of the same
+    # architecture and runtime. The machine of the journey is arm64 and runs on Tart, which is
+    # right for a fleet of Apple silicon. A synthetic worker takes its architecture from the host
+    # and its runtime from the host OS: Tart on macOS, and Vetu on Linux. On any Linux runner,
+    # arm64 included, Orchard never places the machine.
+    #
+    # The repository variable JOURNEY_RUNNER names a self-hosted runner while the repository is
+    # private, because a hosted macOS runner costs ten times the minutes of a Linux one there.
+    # Delete the variable when the repository is public: the job then runs on a hosted macOS
+    # runner, which costs nothing for a public repository, and a self-hosted runner must not
+    # serve a public repository, whose forks could run code on it.
+    runs-on: ${{ vars.JOURNEY_RUNNER || 'macos-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       # mise installs the Orchard that mise.toml pins, and checks it against the SHA-256 there.

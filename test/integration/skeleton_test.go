@@ -204,21 +204,24 @@ func startOrchard(t *testing.T, binary string) {
 	t.Cleanup(func() { stop(t, command, "orchard dev", log) })
 
 	var workers []struct {
-		Name string `json:"name"`
-		Arch string `json:"arch"`
+		Name    string `json:"name"`
+		Arch    string `json:"arch"`
+		Runtime string `json:"runtime"`
 	}
 
 	eventually(t, "orchard dev has a worker", func() bool {
 		return decode(orchardURL+"/v1/workers", &workers) == nil && len(workers) > 0
 	})
 
-	// Orchard gives a machine the architecture arm64 unless the specification states another, and
-	// it places a machine only on a worker of the same architecture. A synthetic worker takes the
-	// architecture of this host. On any other host the journey would wait for a placement that
-	// never comes, so it stops here and says why.
-	if workers[0].Arch != "arm64" {
-		t.Fatalf("the synthetic worker is %s, and Orchard places a macOS machine only on an arm64 "+
-			"worker; run this test on an arm64 host", workers[0].Arch)
+	// Orchard places a machine only on a worker of the same architecture and the same runtime.
+	// A macOS machine is arm64 and runs on Tart, and a synthetic worker takes both from the host
+	// that runs it: the architecture of the host, and Tart on macOS but Vetu on Linux. On any
+	// other host the journey would wait for a placement that never comes, so it stops here and
+	// says why.
+	if workers[0].Arch != "arm64" || workers[0].Runtime != "tart" {
+		t.Fatalf("the synthetic worker is %s with the runtime %s, and Orchard places a macOS "+
+			"machine only on an arm64 worker with the runtime tart, which a synthetic worker has "+
+			"only on an arm64 macOS host", workers[0].Arch, workers[0].Runtime)
 	}
 }
 
