@@ -1,0 +1,115 @@
+{{- $port := include "bkaso.healthPort" . | int -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bkaso.fullname" . }}
+  labels:
+    {{- include "bkaso.labels" . | nindent 4 }}
+spec:
+  # Exactly one controller serves a queue, and Recreate stops the old pod before the new one
+  # starts, so a rollout never runs two (target design, section 11).
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "bkaso.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "bkaso.selectorLabels" . | nindent 8 }}
+      annotations:
+        # The controller reads its configuration only when it starts, so a change restarts it.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "bkaso.fullname" . }}
+      automountServiceAccountToken: false
+      # The image runs as the nonroot user of distroless. Kubernetes can check runAsNonRoot only
+      # against a number, so the chart names the user by its number.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: controller
+          image: {{ include "bkaso.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["-config", "/etc/bk-agent-stack-orchard/config.yaml"]
+          envFrom:
+            - secretRef:
+                name: {{ required "secret.name must name the Secret of the tokens" .Values.secret.name }}
+          env:
+            - name: K8S_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: K8S_NAMESPACE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: K8S_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: OTEL_SERVICE_NAME
+              value: bk-agent-stack-orchard
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: k8s.pod.name=$(K8S_POD_NAME),k8s.namespace.name=$(K8S_NAMESPACE_NAME),k8s.node.name=$(K8S_NODE_NAME)
+            {{- with .Values.otel.endpoint }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: health
+              containerPort: {{ $port }}
+              protocol: TCP
+          # The gRPC health service of the controller. Liveness depends on neither API, because a
+          # restart cures nothing that an API causes. Readiness fails while a source is older than
+          # 30 s or Buildkite refused the token, and the log of the pod says why.
+          livenessProbe:
+            grpc:
+              port: {{ $port }}
+              service: liveness
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            grpc:
+              port: {{ $port }}
+              service: readiness
+            periodSeconds: 5
+            failureThreshold: 2
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/bk-agent-stack-orchard
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "bkaso.fullname" . }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -40,6 +40,14 @@ jobs:
       - run: mise run lint-config
       - run: mise run test
 
+  chart:
+    name: helm chart
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+      - run: mise run check-chart
+
   integration:
     name: integration tests
     # macOS on arm64, and nothing else. Orchard places a machine only on a worker of the same

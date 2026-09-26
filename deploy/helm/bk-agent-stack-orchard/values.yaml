@@ -1,0 +1,67 @@
+# The values of the chart. The target design, section 11 states the deployment, and section 8 the
+# configuration of the controller.
+
+image:
+  repository: ghcr.io/joshwrightcodes/bk-agent-stack-orchard
+  # The tag defaults to the appVersion of the chart. A digest pins the image, and wins over the tag.
+  tag: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+# config is the configuration file of the controller, as YAML. It MUST NOT contain a secret: the
+# secrets come from the Secret below. A change of the configuration restarts the pod, because the
+# controller reads its configuration only when it starts.
+config:
+  controllerID: ""
+  # The probes of the chart reach the controller on the port of this address.
+  healthAddress: ":8080"
+  buildkite:
+    queue: ""
+  orchard:
+    url: ""
+    serviceAccount: bk-agent-stack-orchard
+  profiles: []
+
+# secret names an existing Secret whose keys are the environment variables of the target design,
+# section 8: BK_AGENT_STACK_ORCHARD_BUILDKITE_AGENT_TOKEN and BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN,
+# and BK_AGENT_STACK_ORCHARD_ORCHARD_CA_CERT or the credentials of a profile when they apply. The
+# chart creates no Secret, so that no secret goes through the values of a release.
+secret:
+  name: ""
+
+# otel configures the export of the telemetry. The rest of the OpenTelemetry SDK configuration can
+# go in extraEnv.
+otel:
+  # OTEL_EXPORTER_OTLP_ENDPOINT, for example http://collector.observability:4317.
+  endpoint: ""
+
+# extraEnv adds environment variables to the controller.
+extraEnv: []
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+networkPolicy:
+  enabled: true
+  # Each destination is a port and the peers that may answer on it. No peers means any peer on that
+  # port. A standard NetworkPolicy matches addresses, pods, and namespaces, and not a DNS name, so it
+  # cannot limit the Stacks API to agent.buildkite.com: the port is the limit, unless the cluster
+  # has a CNI with a policy for DNS names.
+  buildkite:
+    port: 443
+    to: []
+  orchard:
+    port: 6120
+    to: []
+  collector:
+    port: 4317
+    to: []
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

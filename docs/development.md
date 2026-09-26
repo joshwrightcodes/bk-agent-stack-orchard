@@ -15,6 +15,19 @@ mise run check   # the gates: documents, commits, dependencies, lint, tests, and
 The gates are also tasks of their own: `check-docs`, `check-commits`, `check-deps`, `lint`,
 `lint-format`, `test`, `check-generate`, and `snapshot`. `mise tasks` lists them.
 
+## The Helm chart
+
+`deploy/helm/bk-agent-stack-orchard` deploys the controller (target design, section 11). CI lints
+it, renders it with `deploy/helm/bk-agent-stack-orchard/ci/values.yaml`, and validates the result
+against the Kubernetes schemas:
+
+```sh
+mise run check-chart
+```
+
+A values schema refuses a release without a `controllerID`, a queue, an Orchard URL, or the name
+of the Secret of the tokens. The chart creates no Secret.
+
 ## The component suite
 
 The component suite (T-020) runs the controller that `internal/app` builds against in-memory fakes

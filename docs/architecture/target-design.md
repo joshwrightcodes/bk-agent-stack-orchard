@@ -855,6 +855,12 @@ APIs.
 | Mac hosts | Mac mini with M5 Pro, 64 GB memory, and 1 TB storage (SC-04) | Ansible and launchd. Install Tart and Orchard at pinned versions. Run `orchard worker run --bootstrap-token … --labels pool=<pool>` as root with `--user`. Configure automatic login to unlock the login keychain. Set `OTEL_EXPORTER_OTLP_ENDPOINT`. Run `tart pull` for each profile image. Read the image list from the controller configuration file. Because of this, the pulled images always agree with the profiles. Each Xcode image needs 140 GB, so a 1 TB host holds only a few images (SC-09). The fleet operator builds the Xcode 27 image with `templates/xcode.pkr.hcl` and `macos_version = golden-gate` from `cirruslabs/macos-image-templates`, on the `macos-golden-gate-base` image (PR-026). The image contains `buildkite-agent` v4 and the Tart guest agent (§5). Each host MUST run a macOS version that can host the guest version. For a macOS 27 guest, the fleet assumes a macOS 27 host (CO-07). |
 | Local development | One Mac | `orchard dev` and `bk-agent-stack-orchard` with a `dev.yaml` file. A separate Buildkite test cluster and queue. |
 
+The chart is `deploy/helm/bk-agent-stack-orchard`. A standard Kubernetes NetworkPolicy matches
+addresses, pods, and namespaces, and not DNS names. The chart therefore limits the egress to the
+Stacks API by the port 443 and the peers that the values give, and not by the name
+`agent.buildkite.com`. A cluster whose CNI has a policy for DNS names, such as Cilium or Calico, can
+add that limit. The controller calls no Kubernetes API, so its pod mounts no service account token.
+
 Exactly one controller replica MUST serve a queue. Two controllers MUST NOT use the same
 `controllerID`. The controller cannot detect a second replica with the same `controllerID`. Two
 replicas can reserve more jobs than the free slots. The unplaced-VM timeout then releases these

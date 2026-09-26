@@ -1,0 +1,9 @@
+The controller {{ .Values.config.controllerID }} serves the queue {{ .Values.config.buildkite.queue }}.
+
+Exactly one controller MUST serve a queue. The controller cannot detect a second replica with the
+same controllerID: two would reserve more jobs than the free slots. This chart runs one replica,
+and it stops the old pod before it starts a new one. Do not scale it, and do not install a second
+release with the same controllerID.
+
+Readiness: the pod is ready when every source of the controller answered in the last 30 s and
+Buildkite accepts the agent token. When it is not ready, the log of the pod names each reason.
