@@ -1,12 +1,12 @@
 //go:build integration
 
-// Package integration runs the controller as a process, against a real Orchard in synthetic
-// mode and the fake Stacks server, with no Mac and no Tart.
+// Package integration runs against a real Orchard in synthetic mode, with no Tart and no virtual
+// machine: the controller as a process with the fake Stacks server, and the Orchard client of this
+// project by itself.
 //
-// The unit tests of each package prove a part against fakes that this project wrote. This test
-// proves the parts together, through the binary that the release ships, against the Orchard
-// scheduler itself: a fake of Orchard would agree with whatever this project believes about
-// Orchard, and the real one does not have to.
+// The unit tests of each package prove a part against fakes that this project wrote. These tests
+// prove the parts against the Orchard scheduler itself: a fake of Orchard would agree with
+// whatever this project believes about Orchard, and the real one does not have to.
 //
 // Run it with the orchard binary on PATH or in ORCHARD_BIN:
 //
@@ -89,7 +89,7 @@ func TestMain(m *testing.M) {
 // T-060. One job goes from scheduled to a deleted machine, and no machine of this controller
 // remains at the end (invariant I-6).
 func TestOneJobGoesFromScheduledToADeletedMachine(t *testing.T) {
-	startOrchard(t, orchard(t))
+	startOrchard(t, orchardBinary(t))
 
 	stacks := fakestacks.New()
 	stacks.StackKey = controllerID
@@ -150,9 +150,9 @@ func TestOneJobGoesFromScheduledToADeletedMachine(t *testing.T) {
 	}
 }
 
-// orchard finds the orchard binary. CI must run this test, because it is the evidence of the
+// orchardBinary finds the orchard binary. CI must run this test, because it is the evidence of the
 // walking skeleton, so there a missing binary is a failure and not a skip.
-func orchard(t *testing.T) string {
+func orchardBinary(t *testing.T) string {
 	t.Helper()
 
 	if path := os.Getenv("ORCHARD_BIN"); path != "" {

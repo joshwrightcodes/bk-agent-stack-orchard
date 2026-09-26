@@ -59,7 +59,7 @@ Buildkite.
 | [Decision records](docs/adrs/README.md) | ADR-0001 to ADR-0011 |
 | [Test strategy](docs/quality/test-strategy.md) | The risk map, the invariants, and the test obligations with their gates |
 | [Implementation plan](docs/delivery/implementation-plan.md) | Work units W-01 to W-27, their order, and the evidence that ends each one |
-| [Development guide](docs/development.md) | The gates, the skeleton journey, and the self-hosted runner of the journey |
+| [Development guide](docs/development.md) | The gates, the integration tests, and their self-hosted runner |
 
 ## Decisions
 
@@ -104,16 +104,16 @@ compiles.
 ```sh
 mise install           # install the pinned tool versions, Orchard included
 mise run check         # the gates: documents, commits, dependencies, lint, tests, and an image
-mise run integration   # the skeleton journey against Orchard in synthetic mode
+mise run integration   # the integration tests against Orchard in synthetic mode
 ```
 
-A development machine needs Docker for the Structurizr validation. The skeleton journey needs macOS
+A development machine needs Docker for the Structurizr validation. The integration tests need macOS
 on arm64, because Orchard places a macOS VM only on a worker with the runtime Tart.
 
-In CI the journey runs on a self-hosted runner in a Tart macOS VM while the repository is private,
-and [`scripts/journey-runner.sh`](scripts/journey-runner.sh) starts, stops, and removes it. The
-[development guide](docs/development.md) gives every step, and the step that is necessary before the
-repository is public.
+In CI the integration tests run on a self-hosted runner in a Tart macOS VM while the repository is
+private, and [`scripts/journey-runner.sh`](scripts/journey-runner.sh) starts, stops, and removes
+it. The [development guide](docs/development.md) gives every step, and the step that is necessary
+before the repository is public.
 
 ## Scope
 
