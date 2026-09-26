@@ -127,11 +127,18 @@ func serve(ctx context.Context, path string, out io.Writer) error {
 		return err
 	}
 
+	// Orchard makes its own certificate, and the calls to it trust the one that the operator
+	// gives. The calls to Buildkite keep the authorities of the system.
+	toOrchard, err := orchard.Transport(settings.Orchard.CACert)
+	if err != nil {
+		return err
+	}
+
 	machines, err := orchard.New(orchard.Options{
 		URL:            settings.Orchard.URL,
 		ServiceAccount: settings.Orchard.ServiceAccount,
 		Token:          settings.Orchard.Token,
-		HTTPClient:     client,
+		HTTPClient:     &http.Client{Transport: otelhttp.NewTransport(toOrchard)},
 	})
 	if err != nil {
 		return err
