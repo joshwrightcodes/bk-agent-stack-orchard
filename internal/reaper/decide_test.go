@@ -13,6 +13,7 @@ import (
 var (
 	now       = time.Date(2026, 9, 20, 10, 0, 0, 0, time.UTC)
 	freshness = 60 * time.Second
+	rules     = reaper.Rules{Freshness: freshness, RenewBefore: 120 * time.Second}
 	limits    = profile.Timeouts{
 		Unplaced:      2 * time.Minute,
 		Boot:          15 * time.Minute,
@@ -23,136 +24,256 @@ var (
 
 const carried = job.ID("018f3b2c-1c4a-7e5b-9a3d-2f1e4c5b6a7d")
 
-// machine gives a machine created some time ago, whose job state the controller read a moment ago.
-func machine(age time.Duration, state string) reaper.Machine {
-	return reaper.Machine{
+// machine gives a machine created an hour ago that runs on a worker, whose job state the
+// controller asked for a second ago and Buildkite named. A case changes what it needs.
+func machine(state string, change ...func(*reaper.Machine)) reaper.Machine {
+	m := reaper.Machine{
 		VM: orchard.VM{
-			Name:      "bk-macos-prod-" + string(carried),
-			CreatedAt: now.Add(-age),
-			Worker:    "mac-01",
-			Status:    orchard.StatusRunning,
+			Name:        "bk-macos-prod-" + string(carried),
+			CreatedAt:   now.Add(-time.Hour),
+			ScheduledAt: now.Add(-time.Hour),
+			StartedAt:   now.Add(-time.Minute),
+			Worker:      "mac-01",
+			Status:      orchard.StatusRunning,
 		},
-		Job:        carried,
-		State:      state,
-		Observed:   true,
-		ObservedAt: now.Add(-time.Second),
-		Timeouts:   limits,
+		Job:           carried,
+		State:         state,
+		Named:         true,
+		Observed:      true,
+		ObservedAt:    now.Add(-time.Second),
+		ReservedUntil: now.Add(4 * time.Minute),
+		Timeouts:      limits,
+	}
+
+	for _, f := range change {
+		f(&m)
+	}
+
+	return m
+}
+
+// The ways a case changes the machine.
+func status(s string) func(*reaper.Machine) {
+	return func(m *reaper.Machine) { m.VM.Status = s }
+}
+
+func created(ago time.Duration) func(*reaper.Machine) {
+	return func(m *reaper.Machine) { m.VM.CreatedAt = now.Add(-ago) }
+}
+
+func placed(ago time.Duration) func(*reaper.Machine) {
+	return func(m *reaper.Machine) { m.VM.ScheduledAt = now.Add(-ago) }
+}
+
+func started(ago time.Duration) func(*reaper.Machine) {
+	return func(m *reaper.Machine) { m.VM.StartedAt = now.Add(-ago) }
+}
+
+func unplaced(m *reaper.Machine) { m.VM.Worker = ""; m.VM.ScheduledAt = time.Time{} }
+
+func reservedFor(left time.Duration) func(*reaper.Machine) {
+	return func(m *reaper.Machine) { m.ReservedUntil = now.Add(left) }
+}
+
+// T-005. One case for each row of the table, a state that matches no row, a state that is not
+// causally fresh, and a stale state. The first row that matches applies, so the cases that sit
+// between two rows prove the order as well as the rows.
+func TestTheDecisionTable(t *testing.T) {
+	t.Parallel()
+
+	for name, test := range map[string]struct {
+		machine reaper.Machine
+		row     int
+		action  reaper.Action
+		reason  string
+	}{
+		// Row 1.
+		"a machine with no job is an orphan": {
+			machine(""), 1, reaper.Delete, reaper.ReasonOrphan,
+		},
+
+		// Row 2, which reads only the machine.
+		"a machine older than its lifetime goes": {
+			machine("running", created(26*time.Hour)), 2, reaper.Delete, reaper.ReasonLifetime,
+		},
+		"the lifetime acts with no job state": {
+			machine("", created(26*time.Hour), func(m *reaper.Machine) { m.Observed = false }),
+			2, reaper.Delete, reaper.ReasonLifetime,
+		},
+
+		// Row 3, before every row that reads the state.
+		"a state that was not read decides nothing": {
+			machine("finished", func(m *reaper.Machine) { m.Observed = false }),
+			3, reaper.Keep, "",
+		},
+		"a state asked for before the machine existed decides nothing": {
+			machine("finished", created(10*time.Second), func(m *reaper.Machine) {
+				m.ObservedAt = now.Add(-11 * time.Second)
+			}),
+			3, reaper.Keep, "",
+		},
+		"a stale state decides nothing": {
+			machine("finished", func(m *reaper.Machine) { m.ObservedAt = now.Add(-2 * freshness) }),
+			3, reaper.Keep, "",
+		},
+
+		// Row 4.
+		"an ended job needs no machine": {
+			machine("finished"), 4, reaper.Delete, reaper.ReasonJobTerminal,
+		},
+		"an ended job wins over a failed machine": {
+			machine("canceled", status(orchard.StatusFailed)), 4, reaper.Delete,
+			reaper.ReasonJobTerminal,
+		},
+
+		// Row 5.
+		"a job that Buildkite does not name goes": {
+			machine("", func(m *reaper.Machine) { m.Named = false }),
+			5, reaper.Delete, reaper.ReasonJobUnknown,
+		},
+
+		// Row 6.
+		"a job that is scheduled again lost its reservation": {
+			machine("scheduled"), 6, reaper.Delete, reaper.ReasonReservationLapsed,
+		},
+		"a lapsed reservation wins over a failed machine": {
+			machine("scheduled", status(orchard.StatusFailed)), 6, reaper.Delete,
+			reaper.ReasonReservationLapsed,
+		},
+
+		// Rows 7 and 8.
+		"a failed machine of an acquired job goes with a line on the job page": {
+			machine("running", status(orchard.StatusFailed)), 7, reaper.NotifyAndDelete,
+			reaper.ReasonVMFailed,
+		},
+		"a machine of an acquired job that runs stays": {
+			machine("running"), 8, reaper.Keep, "",
+		},
+
+		// Row 9.
+		"a failed machine of a reserved job fails the job": {
+			machine("reserved", status(orchard.StatusFailed)), 9, reaper.FinishAndDelete,
+			reaper.ReasonVMFailed,
+		},
+		"a failed machine wins over the timeouts": {
+			machine("reserved", status(orchard.StatusFailed), unplaced, created(time.Hour)),
+			9, reaper.FinishAndDelete, reaper.ReasonVMFailed,
+		},
+
+		// Row 10.
+		"a machine that no worker took in time goes and the job waits again": {
+			machine("reserved", status(orchard.StatusPending), unplaced, created(3*time.Minute)),
+			10, reaper.Delete, reaper.ReasonUnplacedTimeout,
+		},
+		"a machine that waits for a worker exactly as long as the limit stays": {
+			machine("reserved", status(orchard.StatusPending), unplaced, created(2*time.Minute)),
+			13, reaper.Keep, "",
+		},
+
+		// Row 11.
+		"a placed machine that did not boot in time fails the job": {
+			machine("reserved", status(orchard.StatusPending), placed(16*time.Minute)),
+			11, reaper.FinishAndDelete, reaper.ReasonBootTimeout,
+		},
+		"the boot limit counts from the placement and not from the creation": {
+			machine("reserved", status(orchard.StatusPending), created(20*time.Minute),
+				placed(time.Minute)),
+			13, reaper.Keep, "",
+		},
+
+		// Row 12.
+		"a running machine whose agent did not acquire in time fails the job": {
+			machine("reserved", started(6*time.Minute)), 12, reaper.FinishAndDelete,
+			reaper.ReasonAcquireTimeout,
+		},
+		"a running machine inside the acquire limit stays": {
+			machine("reserved", started(4*time.Minute)), 13, reaper.Keep, "",
+		},
+
+		// Row 13.
+		"a starting machine extends a reservation that ends soon": {
+			machine("reserved", reservedFor(time.Minute)), 13, reaper.Extend, "",
+		},
+		"a starting machine extends a reservation whose end is not known": {
+			machine("reserved", func(m *reaper.Machine) { m.ReservedUntil = time.Time{} }),
+			13, reaper.Extend, "",
+		},
+		"a pending machine extends as a running one does": {
+			machine("reserved", status(orchard.StatusPending), placed(time.Minute),
+				reservedFor(time.Minute)),
+			13, reaper.Extend, "",
+		},
+		"a reservation with time left is not extended yet": {
+			machine("reserved", reservedFor(4*time.Minute)), 13, reaper.Keep, "",
+		},
+
+		// No row.
+		"a state that the table does not name matches no row": {
+			machine("blocked"), 0, reaper.Keep, "",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			if name == "a machine with no job is an orphan" {
+				test.machine.Orphan = true
+				test.machine.Job = ""
+			}
+
+			got := reaper.Decide(test.machine, now, rules)
+
+			if got.Row != test.row || got.Action != test.action || got.Reason != test.reason {
+				t.Errorf("Decide() = row %d, %s, %q; want row %d, %s, %q",
+					got.Row, got.Action, got.Reason, test.row, test.action, test.reason)
+			}
+		})
 	}
 }
 
-// Row 2. A machine that outlives every other limit goes, whatever its job says. Nothing else
-// removes it, and it holds a slot of the fleet for as long as it stays.
-func TestRow2DeletesAMachineThatOutlivesItsLimit(t *testing.T) {
+// Every call about a job that Buildkite does not know gives the same refusal, so the decision
+// tells the executor to ask about it no more.
+func TestAnUnknownJobIsIgnoredAfterwards(t *testing.T) {
 	t.Parallel()
 
-	got := reaper.Decide(machine(26*time.Hour, "running"), now, freshness)
+	got := reaper.Decide(machine("", func(m *reaper.Machine) { m.Named = false }), now, rules)
+	if !got.Ignore {
+		t.Error("Decide() for an unknown job does not mark it ignored")
+	}
 
-	if got.Row != 2 || got.Action != reaper.Delete || got.Reason != reaper.ReasonLifetime {
-		t.Errorf("Decide() = %+v, want row 2, delete, %q", got, reaper.ReasonLifetime)
+	if ended := reaper.Decide(machine("finished"), now, rules); ended.Ignore {
+		t.Error("Decide() marks an ended job ignored, which is only for a job that Buildkite " +
+			"does not know")
 	}
 }
 
-// Row 2 reads only the machine, so it acts when the controller cannot reach Buildkite. That is
-// the reason that it comes before the freshness rule.
-func TestRow2ActsWithoutAJobState(t *testing.T) {
+// A job is failed only before an agent acquires it. After that the lost-agent procedure of
+// Buildkite decides the result, so no state that an agent owns may give a finish.
+func TestNoJobThatAnAgentOwnsIsFinished(t *testing.T) {
 	t.Parallel()
 
-	old := machine(26*time.Hour, "")
-	old.Observed = false
-
-	if got := reaper.Decide(old, now, freshness); got.Action != reaper.Delete {
-		t.Errorf("Decide() = %+v, want a deletion with no job state", got)
+	for _, state := range []string{"assigned", "accepted", "running", "canceling", "timing_out"} {
+		for _, vm := range []string{orchard.StatusPending, orchard.StatusRunning, orchard.StatusFailed} {
+			got := reaper.Decide(machine(state, status(vm), started(time.Hour)), now, rules)
+			if got.Action == reaper.FinishAndDelete {
+				t.Errorf("Decide() finishes a job in %q on a %s machine, which an agent owns",
+					state, vm)
+			}
+		}
 	}
 }
 
-// The limit is a limit: a machine at exactly the lifetime stays.
-func TestRow2WaitsForTheWholeLifetime(t *testing.T) {
+// The lifetime is a limit: a machine at exactly the lifetime stays, and a machine with no creation
+// time has no age at all.
+func TestTheLifetimeIsALimitAndNeedsATime(t *testing.T) {
 	t.Parallel()
 
-	if got := reaper.Decide(machine(25*time.Hour, "running"), now, freshness); got.Row == 2 {
+	if got := reaper.Decide(machine("running", created(25*time.Hour)), now, rules); got.Row == 2 {
 		t.Errorf("Decide() = %+v, want no deletion at exactly the lifetime", got)
 	}
-}
 
-// A machine with no creation time has no age. Treating it as ancient would delete a machine of a
-// job in progress at once.
-func TestRow2LeavesAMachineWithNoCreationTime(t *testing.T) {
-	t.Parallel()
-
-	undated := machine(0, "running")
-	undated.VM.CreatedAt = time.Time{}
-
-	if got := reaper.Decide(undated, now, freshness); got.Action == reaper.Delete {
-		t.Errorf("Decide() = %+v, want no deletion of a machine with no age", got)
-	}
-}
-
-// Row 4. A job that ended needs no machine.
-func TestRow4DeletesTheMachineOfEveryTerminalState(t *testing.T) {
-	t.Parallel()
-
-	for _, state := range []string{
-		"finished", "canceled", "expired", "timed_out", "skipped", "broken",
-	} {
-		got := reaper.Decide(machine(time.Hour, state), now, freshness)
-
-		if got.Row != 4 || got.Action != reaper.Delete || got.Reason != reaper.ReasonJobTerminal {
-			t.Errorf("Decide() with %q = %+v, want row 4, delete, %q",
-				state, got, reaper.ReasonJobTerminal)
-		}
-	}
-}
-
-// A job in progress keeps its machine. The rows that act on these states are not in the table
-// yet, and a state that matches no row keeps the machine.
-func TestAJobInProgressKeepsItsMachine(t *testing.T) {
-	t.Parallel()
-
-	for _, state := range []string{
-		"scheduled", "reserved", "assigned", "accepted", "running", "canceling", "timing_out",
-	} {
-		if got := reaper.Decide(machine(time.Hour, state), now, freshness); got.Action != reaper.Keep {
-			t.Errorf("Decide() with %q = %+v, want the machine kept", state, got)
-		}
-	}
-}
-
-// Row 3. A state that the controller could not read decides nothing. The empty text of a failed
-// call must not read as a state.
-func TestRow3IgnoresAStateThatWasNotRead(t *testing.T) {
-	t.Parallel()
-
-	unread := machine(time.Hour, "finished")
-	unread.Observed = false
-
-	if got := reaper.Decide(unread, now, freshness); got.Row != 3 || got.Action != reaper.Keep {
-		t.Errorf("Decide() = %+v, want row 3 and the machine kept", got)
-	}
-}
-
-// Row 3. A state read before the machine existed describes a job that the machine never saw.
-func TestRow3IgnoresAStateFromBeforeTheMachine(t *testing.T) {
-	t.Parallel()
-
-	// The state is fresh, and it is older than the machine. Only the order of the two may decide.
-	early := machine(10*time.Second, "finished")
-	early.ObservedAt = early.VM.CreatedAt.Add(-time.Second)
-
-	if got := reaper.Decide(early, now, freshness); got.Row != 3 || got.Action != reaper.Keep {
-		t.Errorf("Decide() = %+v, want row 3 and the machine kept", got)
-	}
-}
-
-// Row 3. An old state describes a job that may have moved on, so a terminal state that is too old
-// must not delete the machine of a job that runs.
-func TestRow3IgnoresAStateThatIsTooOld(t *testing.T) {
-	t.Parallel()
-
-	stale := machine(time.Hour, "finished")
-	stale.ObservedAt = now.Add(-2 * freshness)
-
-	if got := reaper.Decide(stale, now, freshness); got.Row != 3 || got.Action != reaper.Keep {
-		t.Errorf("Decide() = %+v, want row 3 and the machine kept", got)
+	undated := machine("running", func(m *reaper.Machine) { m.VM.CreatedAt = time.Time{} })
+	if got := reaper.Decide(undated, now, rules); got.Action != reaper.Keep {
+		t.Errorf("Decide() = %+v, want no action for a machine with no age", got)
 	}
 }
 
