@@ -1,12 +1,16 @@
 package buildkite_test
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/buildkite/stacksapi"
 
@@ -496,5 +500,101 @@ func TestTheClientIsUsableThroughTheInterface(t *testing.T) {
 	var stacks buildkite.Stacks = client
 	if err := stacks.Register(t.Context()); err != nil {
 		t.Errorf("Register() through the interface = %v, want no error", err)
+	}
+}
+
+// recording keeps the body of every request, and passes the request to the fake server.
+type recording struct {
+	bodies []string
+}
+
+func (r *recording) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.Body != nil {
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			return nil, err
+		}
+
+		r.bodies = append(r.bodies, string(body))
+		request.Body = io.NopCloser(bytes.NewReader(body))
+	}
+
+	return http.DefaultTransport.RoundTrip(request)
+}
+
+// finishWith sends one finish through the real client to the fake server, and gives the detail
+// that went out on the wire.
+func finishWith(t *testing.T, detail string) string {
+	t.Helper()
+
+	fake := fakestacks.New()
+	fake.StackKey = "bk-macos-prod"
+	t.Cleanup(fake.Close)
+
+	wire := &recording{}
+
+	client, err := buildkite.New(buildkite.Options{
+		Token:      secret.String("bkct_a-cluster-agent-token"),
+		Endpoint:   fake.URL(),
+		StackKey:   fake.StackKey,
+		Queue:      "macos-prod",
+		HTTPClient: &http.Client{Transport: wire},
+	})
+	if err != nil {
+		t.Fatalf("New() = %v, want a client", err)
+	}
+
+	if err := client.Finish(t.Context(), first, -1, detail); err != nil {
+		t.Fatalf("Finish() = %v, want no error", err)
+	}
+
+	if len(wire.bodies) != 1 {
+		t.Fatalf("the client sent %d requests, want 1", len(wire.bodies))
+	}
+
+	var sent struct {
+		Detail string `json:"detail"`
+	}
+	if err := json.Unmarshal([]byte(wire.bodies[0]), &sent); err != nil {
+		t.Fatalf("the finish body is not JSON: %v", err)
+	}
+
+	return sent.Detail
+}
+
+// T-007. No finish detail over 4 KB leaves the controller, and the cut never splits a character.
+// The library makes the cut and says so at the end of the detail.
+func TestFinishSendsADetailOfAtMostFourKilobytes(t *testing.T) {
+	t.Parallel()
+
+	// Each character takes three bytes, so a cut at a fixed byte would split one.
+	sent := finishWith(t, strings.Repeat("ビ", 2000))
+
+	if len(sent) > 4*1024 || !utf8.ValidString(sent) {
+		t.Errorf("the client sent a detail of %d bytes, whole characters %v; want at most 4096 "+
+			"bytes of whole characters", len(sent), utf8.ValidString(sent))
+	}
+
+	if !strings.HasSuffix(sent, "(Message was cropped because it exceeded the max size)") {
+		t.Error("the detail does not say that it was cut, so a reader cannot tell")
+	}
+}
+
+// DetailBudget copies a limit that the library does not export. A detail of exactly the budget
+// leaves unchanged, and one byte more is cut, so a version of the library that moves its limit
+// fails here instead of cutting the end of a message that counted on the budget.
+func TestTheDetailBudgetIsTheLimitOfTheLibrary(t *testing.T) {
+	t.Parallel()
+
+	fits := strings.Repeat("a", buildkite.DetailBudget)
+	if sent := finishWith(t, fits); sent != fits {
+		t.Errorf("a detail of %d bytes changed on the way out, want it unchanged",
+			buildkite.DetailBudget)
+	}
+
+	over := fits + "b"
+	if sent := finishWith(t, over); sent == over {
+		t.Errorf("a detail of %d bytes left unchanged, want it cut: the budget is below the "+
+			"limit of the library", buildkite.DetailBudget+1)
 	}
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/inventory"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/launcher"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/match"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/profile"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/secret"
@@ -47,6 +48,7 @@ type stacks struct {
 	lifetimes    []time.Duration
 	finished     []string
 	exitStatuses []int
+	details      []string
 	notified     [][]buildkite.Notification
 
 	reservation buildkite.Reservation
@@ -95,9 +97,10 @@ func (s *stacks) Tokens(_ context.Context, ids []job.ID, lifetime time.Duration)
 	return s.tokens, nil
 }
 
-func (s *stacks) Finish(_ context.Context, id job.ID, exitStatus int, _ string) error {
+func (s *stacks) Finish(_ context.Context, id job.ID, exitStatus int, detail string) error {
 	s.finished = append(s.finished, string(id))
 	s.exitStatuses = append(s.exitStatuses, exitStatus)
+	s.details = append(s.details, detail)
 
 	return s.finishErr
 }
@@ -601,5 +604,36 @@ func TestTheLauncherHoldsAReservedJobWithNoMachine(t *testing.T) {
 
 	if held != "" {
 		t.Errorf("Held() gives the profile %q, want none: no machine is on its way", held)
+	}
+}
+
+// T-007. A pipeline author whose job no profile carries reads why on the job page: the tags that
+// the job asked for, and the tags that every profile offers.
+func TestAnUnmatchedJobEndsWithItsTagsAndTheProfiles(t *testing.T) {
+	t.Parallel()
+
+	api, fleet := &stacks{}, &machines{}
+	started := build(t, api, fleet)
+
+	rules := []string{"queue=macos-prod", "xcode=99"}
+	_, err := match.Match(rules, []profile.Profile{pilot})
+
+	decision := admission.Result{Unmatched: []admission.Unmatched{{
+		Job: buildkite.ScheduledJob{ID: second, Rules: rules}, Reason: err.Error(),
+	}}}
+
+	if err := started.Launch(t.Context(), decision, inventory.Snapshot{}); err != nil {
+		t.Fatalf("Launch() = %v, want no error", err)
+	}
+
+	if len(api.details) != 1 {
+		t.Fatalf("buildkite saw %d finishes, want 1", len(api.details))
+	}
+
+	detail := api.details[0]
+	for _, want := range []string{"xcode=99", pilot.Name, "xcode=27"} {
+		if !strings.Contains(detail, want) {
+			t.Errorf("the job page reads %q, want it to name %q", detail, want)
+		}
 	}
 }

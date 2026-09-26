@@ -72,10 +72,16 @@ func (p *pages) Notify(_ context.Context, lines []buildkite.Notification) error 
 
 // fleet answers as Orchard: it holds the snapshot, and it records the deletions.
 type fleet struct {
-	snapshot inventory.Snapshot
-	read     bool
-	refuse   map[string]bool
-	deleted  []string
+	snapshot  inventory.Snapshot
+	read      bool
+	refuse    map[string]bool
+	deleted   []string
+	events    []orchard.Event
+	eventsErr error
+}
+
+func (f *fleet) Events(context.Context, string) ([]orchard.Event, error) {
+	return f.events, f.eventsErr
 }
 
 func (f *fleet) Latest() (inventory.Snapshot, bool) { return f.snapshot, f.read }

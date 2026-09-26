@@ -485,7 +485,11 @@ take no action. The Reaper MUST write a warning log with the VM phase and the jo
 still limits the life of this VM.
 
 The controller MUST cut finish-job detail messages to a maximum of 4 KB at a rune boundary. The
-controller MUST send all reservation extensions of one tick in one `batch-reserve` call.
+`stacksapi` library makes this cut, at the end of the detail, and it notes the cut there. A message
+whose end holds its reason MUST shorten itself below the limit of the library, so that the library
+cuts nothing: the message of an acquire timeout drops its oldest startup-script lines, and keeps its
+newest. The controller MUST send all reservation extensions of one tick in one `batch-reserve`
+call.
 
 ### 7.3 Timeout consistency
 
