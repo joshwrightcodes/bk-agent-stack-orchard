@@ -41,9 +41,9 @@ jobs:
       - run: mise run test
 
   integration:
-    name: skeleton journey
+    name: integration tests
     # macOS on arm64, and nothing else. Orchard places a machine only on a worker of the same
-    # architecture and runtime. The machine of the journey is arm64 and runs on Tart, which is
+    # architecture and runtime. The machine of each test is arm64 and runs on Tart, which is
     # right for a fleet of Apple silicon. A synthetic worker takes its architecture from the host
     # and its runtime from the host OS: Tart on macOS, and Vetu on Linux. On any Linux runner,
     # arm64 included, Orchard never places the machine.
@@ -57,8 +57,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       # mise installs the Orchard that mise.toml pins, and checks it against the SHA-256 there.
-      # The test runs `orchard dev --synthetic`, so it needs no Mac and no Tart. CI sets CI=true,
-      # and the test then fails instead of skipping when the binary is missing.
+      # The tests run `orchard dev --synthetic`, so they need no Tart and no virtual machine. CI
+      # sets CI=true, and a test then fails instead of skipping when the binary is missing.
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
       - run: mise run integration
 

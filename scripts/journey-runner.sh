@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# The self-hosted runner of the skeleton journey: a GitHub Actions runner inside a Tart macOS VM on
+# The self-hosted runner of the integration tests: a GitHub Actions runner inside a Tart macOS VM on
 # an Apple silicon Mac.
 #
-# The journey needs a macOS host on arm64, because Orchard places a macOS machine only on a worker
+# The tests need a macOS host on arm64, because Orchard places a macOS machine only on a worker
 # with the runtime Tart, and a synthetic worker has that runtime only on macOS. A hosted macOS
 # runner costs ten times the minutes of a Linux one while the repository is private, so this script
 # gives the job a runner of its own. The VM keeps the jobs away from the files of the Mac, and it
@@ -109,7 +109,7 @@ create() {
 			./svc.sh start
 		"
 
-	say "pointing the skeleton journey at the runner"
+	say "pointing the integration tests at the runner"
 	gh variable set JOURNEY_RUNNER --repo "$REPO" --body "$LABEL"
 
 	status
@@ -127,7 +127,7 @@ stop() {
 
 	if running; then
 		tart stop "$VM"
-		say "stopped the VM $VM; the skeleton journey waits in the queue until the next start"
+		say "stopped the VM $VM; the integration tests wait in the queue until the next start"
 	else
 		say "the VM $VM does not run"
 	fi
@@ -168,7 +168,7 @@ remove() {
 
 	if gh variable get JOURNEY_RUNNER --repo "$REPO" >/dev/null 2>&1; then
 		gh variable delete JOURNEY_RUNNER --repo "$REPO"
-		say "deleted JOURNEY_RUNNER; the skeleton journey now uses a hosted macOS runner"
+		say "deleted JOURNEY_RUNNER; the integration tests now use a hosted macOS runner"
 	fi
 
 	if exists; then

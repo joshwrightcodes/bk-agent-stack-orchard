@@ -63,7 +63,7 @@ description = "Run the Go tests"
 run = "go test ./..."
 
 [tasks.integration]
-description = "Run the skeleton journey against orchard dev in synthetic mode"
+description = "Run the integration tests against orchard dev in synthetic mode"
 run = "go test -tags integration -count=1 ./test/integration/..."
 
 [tasks.build]
