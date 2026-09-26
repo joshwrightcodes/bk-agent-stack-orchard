@@ -885,6 +885,12 @@ Each item MUST have its own ADR before implementation:
   `go install` and `tool` directives are not guaranteed to work, because the local Go version
   builds the tool (2026-09-19).
 * **Module path:** `github.com/joshwrightcodes/bk-agent-stack-orchard`.
+* **One clock:** each component MUST read the time from the clock that `internal/app` gives it,
+  and it MUST NOT read the clock of the machine. A component without a clock refuses to start.
+  Because of this, the component suite (T-020) runs the controller in its own time, and a test
+  passes at every moment. The `forbidigo` linter refuses `time.Now`, `time.Since`, and
+  `time.Until` outside tests. The binary gives `time.Now`. A measure of real elapsed time, such as
+  the duration of a tick step, is the only exception, and it carries a `nolint` comment.
 * **Buildkite dependency:** `github.com/buildkite/stacksapi` v1.2.0 or later.
 * **Configuration dependency:** `github.com/goccy/go-yaml`. It decodes `time.Duration`, it
   refuses a key that the configuration does not declare, and its errors name the line and the

@@ -80,7 +80,7 @@ type Options struct {
 	Logger  *slog.Logger
 	Tracer  trace.Tracer
 
-	// Now is for a test. A nil value gives time.Now.
+	// Now is the clock of the part. internal/app gives every part the same one.
 	Now func() time.Time
 }
 
@@ -116,6 +116,10 @@ type Reaper struct {
 func New(options Options) (*Reaper, error) {
 	var problems []error
 
+	if options.Now == nil {
+		problems = append(problems, errors.New("the reaper needs a clock"))
+	}
+
 	if options.Stacks == nil || options.States == nil || options.Reservations == nil ||
 		options.Orchard == nil || options.Fleet == nil {
 		problems = append(problems, errors.New("the reaper needs Buildkite, the job states, "+
@@ -146,9 +150,6 @@ func New(options Options) (*Reaper, error) {
 	}
 
 	now := options.Now
-	if now == nil {
-		now = time.Now
-	}
 
 	name := options.Profile
 	if name == nil {

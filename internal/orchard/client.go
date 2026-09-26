@@ -56,6 +56,18 @@ func (w Worker) Offline(now time.Time, timeout time.Duration) bool {
 	return now.Sub(w.LastSeen) > timeout
 }
 
+// API is the five calls of the client. The controller builds its parts around it, so that the
+// component suite can give them one fake of Orchard.
+type API interface {
+	CreateVM(ctx context.Context, spec VM) error
+	ListVMs(ctx context.Context) ([]VM, error)
+	DeleteVM(ctx context.Context, name string) error
+	ListWorkers(ctx context.Context) ([]Worker, error)
+	Events(ctx context.Context, name string) ([]Event, error)
+}
+
+var _ API = (*Client)(nil)
+
 // Options configures the client.
 type Options struct {
 	URL            string

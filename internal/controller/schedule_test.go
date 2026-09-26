@@ -69,7 +69,7 @@ func ticks(t *testing.T, c *Controller, offsets ...time.Duration) {
 	t.Helper()
 
 	for _, offset := range offsets {
-		c.tick(t.Context(), start.Add(offset))
+		c.Tick(t.Context(), start.Add(offset))
 	}
 }
 

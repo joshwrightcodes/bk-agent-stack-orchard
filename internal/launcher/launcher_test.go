@@ -185,6 +185,7 @@ func buildWithLog(t *testing.T, api *stacks, fleet launcher.Machines,
 		TokenLifetime:     1800 * time.Second,
 		Metrics:           instruments,
 		Logger:            slog.New(log),
+		Now:               time.Now,
 	})
 	if err != nil {
 		t.Fatalf("New() = %v, want the launcher", err)
@@ -529,8 +530,9 @@ func TestTheLauncherKeepsAJobThatASnapshotCouldNotSeeYet(t *testing.T) {
 func TestNewRefusesAnIncompleteLauncher(t *testing.T) {
 	t.Parallel()
 
-	if _, err := launcher.New(launcher.Options{}); err == nil {
-		t.Error("New() with nothing = nil, want an error")
+	// The clock is one of the parts: a launcher without one would read the clock of the machine.
+	if _, err := launcher.New(launcher.Options{}); err == nil || !strings.Contains(err.Error(), "needs a clock") {
+		t.Errorf("New() with nothing = %v, want an error that names the clock", err)
 	}
 }
 

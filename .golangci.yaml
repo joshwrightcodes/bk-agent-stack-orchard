@@ -12,6 +12,7 @@ linters:
     - bodyclose
     - contextcheck
     - errorlint
+    - forbidigo
     - gocritic
     - gosec
     - misspell
@@ -20,6 +21,26 @@ linters:
     - sloglint
     - unconvert
     - usestdlibvars
+  settings:
+    forbidigo:
+      analyze-types: true
+      forbid:
+        # Every part reads the one clock that internal/app gives it, so that the component suite
+        # can run the controller in its own time. A part that reads the clock of the machine
+        # decides by a time that the suite does not control, and a test of it passes only at
+        # some moments. A constructor may default a nil clock to time.Now, with a nolint comment.
+        - pattern: ^time\.(Now|Since|Until)$
+          msg: read the clock that the part was given, not the clock of the machine
+  exclusions:
+    rules:
+      # A test fixes its own times, and some measure the real time that a step takes. The fakes
+      # and the journeys under test/ run beside a real process, in real time.
+      - path: _test\.go
+        linters:
+          - forbidigo
+      - path: ^test/
+        linters:
+          - forbidigo
 
 formatters:
   enable:

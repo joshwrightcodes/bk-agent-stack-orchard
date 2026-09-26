@@ -120,13 +120,17 @@ type Options struct {
 	// OfflineTimeout is how long a worker may be silent before the fleet counts it as offline.
 	OfflineTimeout time.Duration
 
-	// Now is for a test. A nil value gives time.Now.
+	// Now is the clock of the part. internal/app gives every part the same one.
 	Now func() time.Time
 }
 
 // New builds the inventory.
 func New(options Options) (*Inventory, error) {
 	var problems []error
+
+	if options.Now == nil {
+		problems = append(problems, errors.New("the inventory needs a clock"))
+	}
 
 	if options.Orchard == nil {
 		problems = append(problems, errors.New("the inventory needs an Orchard client"))
@@ -151,9 +155,6 @@ func New(options Options) (*Inventory, error) {
 	}
 
 	now := options.Now
-	if now == nil {
-		now = time.Now
-	}
 
 	return &Inventory{
 		orchard:      options.Orchard,
