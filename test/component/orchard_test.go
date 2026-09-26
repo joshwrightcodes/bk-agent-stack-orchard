@@ -28,6 +28,10 @@ type orchardFake struct {
 
 	// created is called with each machine that the controller asks for, before Orchard holds it.
 	created func(spec orchard.VM)
+
+	// down is the answer of every call while the Orchard controller is not available. Its
+	// scheduler stops too, and the machines on the workers run on.
+	down error
 }
 
 func newOrchard(now func() time.Time, offline time.Duration, hosts int) *orchardFake {
@@ -58,6 +62,10 @@ func (o *orchardFake) online(w orchard.Worker) bool {
 // sync is what Orchard does between two calls of the controller: the workers that run report,
 // the machines of a worker that stopped reporting fail, and the scheduler places what waits.
 func (o *orchardFake) sync() {
+	if o.down != nil {
+		return
+	}
+
 	for _, h := range o.hosts {
 		if !h.stopped {
 			h.worker.LastSeen = o.now()
@@ -69,8 +77,10 @@ func (o *orchardFake) sync() {
 			continue
 		}
 
-		if h := o.host(vm.Worker); h != nil && !o.online(h.worker) {
+		if h := o.host(vm.Worker); h != nil && !o.online(h.worker) &&
+			vm.Status != orchard.StatusFailed {
 			vm.Status = orchard.StatusFailed
+			vm.StatusMessage = "the worker " + vm.Worker + " stopped reporting"
 		}
 	}
 
@@ -134,6 +144,10 @@ func contains(labels, wanted map[string]string) bool {
 }
 
 func (o *orchardFake) CreateVM(_ context.Context, spec orchard.VM) error {
+	if o.down != nil {
+		return o.down
+	}
+
 	if _, exists := o.vms[spec.Name]; exists {
 		return orchard.ErrAlreadyExists
 	}
@@ -151,6 +165,10 @@ func (o *orchardFake) CreateVM(_ context.Context, spec orchard.VM) error {
 }
 
 func (o *orchardFake) ListVMs(context.Context) ([]orchard.VM, error) {
+	if o.down != nil {
+		return nil, o.down
+	}
+
 	names := slices.Sorted(maps.Keys(o.vms))
 
 	vms := make([]orchard.VM, 0, len(names))
@@ -164,12 +182,20 @@ func (o *orchardFake) ListVMs(context.Context) ([]orchard.VM, error) {
 // DeleteVM removes a machine. The client of this project gives no error for a machine that is
 // already gone, and the fake answers as the client does.
 func (o *orchardFake) DeleteVM(_ context.Context, name string) error {
+	if o.down != nil {
+		return o.down
+	}
+
 	delete(o.vms, name)
 
 	return nil
 }
 
 func (o *orchardFake) ListWorkers(context.Context) ([]orchard.Worker, error) {
+	if o.down != nil {
+		return nil, o.down
+	}
+
 	workers := make([]orchard.Worker, 0, len(o.hosts))
 	for _, h := range o.hosts {
 		workers = append(workers, h.worker)
@@ -179,6 +205,10 @@ func (o *orchardFake) ListWorkers(context.Context) ([]orchard.Worker, error) {
 }
 
 func (o *orchardFake) Events(_ context.Context, name string) ([]orchard.Event, error) {
+	if o.down != nil {
+		return nil, o.down
+	}
+
 	if _, exists := o.vms[name]; !exists {
 		return nil, orchard.ErrNotFound
 	}

@@ -23,6 +23,11 @@ events: jobs arrive and are cancelled, agents take jobs, VMs fail, workers stop 
 queue pauses, time passes, and the controller restarts. After each event the suite checks the
 invariants I-1, I-2, I-5, and I-8, and at the end of each sequence it checks I-6.
 
+Beside the random sequences, the suite runs the outages of the target design, section 7.5, as
+scenarios on the same fakes (T-024): Buildkite not available, Orchard not available, and a worker
+that stops reporting. Each scenario also checks the request budget of the Stacks API in each
+second of the run. The client tests prove that the controller waits for `Retry-After` (T-040).
+
 `go test ./...` runs it, on any host, in a few seconds. When an invariant breaks, rapid shrinks the
 sequence to a short one, prints it, and writes a fail file under `test/component/testdata/rapid/`.
 The failure message gives the command that replays it:
