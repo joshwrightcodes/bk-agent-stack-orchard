@@ -52,6 +52,7 @@ type stacks struct {
 	notified     [][]buildkite.Notification
 
 	reservation buildkite.Reservation
+	clock       *time.Time
 	tokens      buildkite.Tokens
 	reserveErr  error
 	tokenErr    error
@@ -62,6 +63,11 @@ type stacks struct {
 func (s *stacks) Reserve(_ context.Context, ids []job.ID, expiry time.Duration) (buildkite.Reservation, error) {
 	s.reserved = append(s.reserved, ids)
 	s.expiries = append(s.expiries, expiry)
+
+	// A call over a network takes time, and a test that reads the clock sees it move.
+	if s.clock != nil {
+		*s.clock = s.clock.Add(3 * time.Second)
+	}
 
 	if s.reserveErr != nil {
 		return buildkite.Reservation{}, s.reserveErr
@@ -635,5 +641,126 @@ func TestAnUnmatchedJobEndsWithItsTagsAndTheProfiles(t *testing.T) {
 		if !strings.Contains(detail, want) {
 			t.Errorf("the job page reads %q, want it to name %q", detail, want)
 		}
+	}
+}
+
+// buildAt gives a launcher that reads a clock that the test holds.
+func buildAt(t *testing.T, api *stacks, fleet launcher.Machines, clock *time.Time) *launcher.Launcher {
+	t.Helper()
+
+	provider := sdkmetric.NewMeterProvider()
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+
+	instruments, err := telemetryMetrics(t, provider)
+	if err != nil {
+		t.Fatalf("NewMetrics() = %v, want the instruments", err)
+	}
+
+	api.clock = clock
+
+	started, err := launcher.New(launcher.Options{
+		Stacks:            api,
+		Orchard:           fleet,
+		ControllerID:      controller,
+		Queue:             "macos-prod",
+		ReservationExpiry: 300 * time.Second,
+		TokenLifetime:     1800 * time.Second,
+		Metrics:           instruments,
+		Logger:            slog.New(slog.DiscardHandler),
+		Now:               func() time.Time { return *clock },
+	})
+	if err != nil {
+		t.Fatalf("New() = %v, want the launcher", err)
+	}
+
+	return started
+}
+
+// T-025. The extensions of a pass go to Buildkite in one call, with the expiry of a reservation.
+func TestExtendHoldsEveryReservationInOneCall(t *testing.T) {
+	t.Parallel()
+
+	clock := time.Date(2026, 9, 20, 10, 0, 0, 0, time.UTC)
+	api := &stacks{}
+	started := buildAt(t, api, &machines{}, &clock)
+
+	if err := started.Extend(t.Context(), []job.ID{first, second}); err != nil {
+		t.Fatalf("Extend() = %v, want no error", err)
+	}
+
+	if len(api.reserved) != 1 || len(api.reserved[0]) != 2 {
+		t.Fatalf("the launcher made %v reservations, want one call of two jobs", api.reserved)
+	}
+
+	if api.expiries[0] != 300*time.Second {
+		t.Errorf("the extension asked for %s, want the expiry of 300s", api.expiries[0])
+	}
+}
+
+// A reservation starts when Buildkite handles the call, which is after the call leaves. Its end
+// therefore counts from the send, so that the renewal comes early and never late: an end counted
+// from the answer could lie after the true end, and the renewal could then find the reservation
+// already lapsed under a machine that is still starting.
+func TestAReservationEndCountsFromTheSend(t *testing.T) {
+	t.Parallel()
+
+	sent := time.Date(2026, 9, 20, 10, 0, 0, 0, time.UTC)
+	clock := sent
+	started := buildAt(t, &stacks{}, &machines{}, &clock)
+
+	if err := started.Extend(t.Context(), []job.ID{first}); err != nil {
+		t.Fatalf("Extend() = %v, want no error", err)
+	}
+
+	until, known := started.ReservedUntil(first)
+	if !known || !until.Equal(sent.Add(300*time.Second)) {
+		t.Errorf("the reservation ends at %s, want %s: 300s from the send and not from the answer",
+			until, sent.Add(300*time.Second))
+	}
+}
+
+// The first reservation of a launch follows the same rule as an extension.
+func TestTheFirstReservationEndCountsFromTheSend(t *testing.T) {
+	t.Parallel()
+
+	sent := time.Date(2026, 9, 20, 10, 0, 0, 0, time.UTC)
+	clock := sent
+	started := buildAt(t, &stacks{}, &machines{}, &clock)
+
+	if err := started.Launch(t.Context(), admission.Result{Admit: candidates(first)},
+		inventory.Snapshot{}); err != nil {
+		t.Fatalf("Launch() = %v, want no error", err)
+	}
+
+	until, _ := started.ReservedUntil(first)
+	if !until.Equal(sent.Add(300 * time.Second)) {
+		t.Errorf("the reservation ends at %s, want %s", until, sent.Add(300*time.Second))
+	}
+}
+
+// A job that the call does not extend keeps the end that it had. Its reservation lapses, and the
+// reaper removes its machine by the row for a lapsed reservation.
+func TestAJobThatWasNotExtendedKeepsItsEnd(t *testing.T) {
+	t.Parallel()
+
+	sent := time.Date(2026, 9, 20, 10, 0, 0, 0, time.UTC)
+	clock := sent
+	api := &stacks{}
+	started := buildAt(t, api, &machines{}, &clock)
+
+	if err := started.Launch(t.Context(), admission.Result{Admit: candidates(first)},
+		inventory.Snapshot{}); err != nil {
+		t.Fatalf("Launch() = %v, want no error", err)
+	}
+
+	before, _ := started.ReservedUntil(first)
+
+	api.reservation = buildkite.Reservation{NotReserved: []job.ID{first}}
+	if err := started.Extend(t.Context(), []job.ID{first}); err != nil {
+		t.Fatalf("Extend() = %v, want no error", err)
+	}
+
+	if after, _ := started.ReservedUntil(first); !after.Equal(before) {
+		t.Errorf("the reservation now ends at %s, want the end it had, %s", after, before)
 	}
 }

@@ -230,6 +230,45 @@ func (l *Launcher) Launch(ctx context.Context, decision admission.Result,
 	return nil
 }
 
+// Extend holds the reservations of jobs whose machines are still starting, in one call, and
+// records when each one now ends.
+//
+// One call for every job of a tick, because one call for each machine would spend the rate limit
+// of the organisation on a busy fleet (target design, section 7.2). A job that the call does not
+// extend keeps the end that it had: its reservation lapses, Buildkite schedules the job again, and
+// the reaper removes its machine by the row for a lapsed reservation.
+func (l *Launcher) Extend(ctx context.Context, ids []job.ID) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	ctx, span := l.tracer.Start(ctx, "stacks.reserve")
+	defer span.End()
+
+	// The end counts from the send, for the reason that reserve gives.
+	sent := l.now()
+
+	answer, err := l.stacks.Reserve(ctx, ids, l.expiry)
+	if err != nil {
+		span.RecordError(err)
+
+		return fmt.Errorf("extending %d reservations: %w", len(ids), err)
+	}
+
+	until := sent.Add(l.expiry)
+
+	for _, id := range answer.Reserved {
+		l.held.reserved(id, until, sent)
+	}
+
+	for _, id := range answer.NotReserved {
+		l.logger.WarnContext(ctx, "buildkite did not extend the reservation of this job",
+			telemetry.LogJob, string(id))
+	}
+
+	return nil
+}
+
 // reserve holds every job of the decision, in one call. The unmatched jobs travel with the
 // admitted ones, because one call costs less of the rate limit than two.
 func (l *Launcher) reserve(ctx context.Context, decision admission.Result) (map[job.ID]bool, error) {
@@ -246,6 +285,12 @@ func (l *Launcher) reserve(ctx context.Context, decision admission.Result) (map[
 		ids = append(ids, unmatched.Job.ID)
 	}
 
+	// The reservation starts when Buildkite handles the call, which is after the call leaves. An
+	// end counted from the send is therefore never later than the true end, so the renewal comes
+	// early and never late. An end counted from the answer could be later than the true end, and a
+	// renewal on that time could find the reservation already lapsed.
+	sent := l.now()
+
 	answer, err := l.stacks.Reserve(ctx, ids, l.expiry)
 	if err != nil {
 		span.RecordError(err)
@@ -253,13 +298,13 @@ func (l *Launcher) reserve(ctx context.Context, decision admission.Result) (map[
 		return nil, fmt.Errorf("reserving %d jobs: %w", len(ids), err)
 	}
 
-	until := l.now().Add(l.expiry)
+	until := sent.Add(l.expiry)
 	held := make(map[job.ID]bool, len(answer.Reserved))
 
 	for _, id := range answer.Reserved {
 		held[id] = true
 
-		l.held.reserved(id, until, l.now())
+		l.held.reserved(id, until, sent)
 	}
 
 	// A job that another stack holds is normal: every stack of the queue reads the same list.

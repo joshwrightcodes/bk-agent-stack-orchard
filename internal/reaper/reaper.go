@@ -31,6 +31,13 @@ type Stacks interface {
 	Notify(ctx context.Context, notifications []buildkite.Notification) error
 }
 
+// Reservations gives when the reservation of a job ends, and extends reservations. The launcher
+// holds both, because it makes the reservations and knows their expiry.
+type Reservations interface {
+	ReservedUntil(id job.ID) (time.Time, bool)
+	Extend(ctx context.Context, ids []job.ID) error
+}
+
 // States gives what Buildkite said about a job, and when the controller asked.
 type States interface {
 	Observed(id job.ID) (jobstates.Observation, bool)
@@ -49,10 +56,11 @@ type Fleet interface {
 
 // Options configures the reaper.
 type Options struct {
-	Stacks  Stacks
-	States  States
-	Orchard Machines
-	Fleet   Fleet
+	Stacks       Stacks
+	States       States
+	Reservations Reservations
+	Orchard      Machines
+	Fleet        Fleet
 
 	// Profile gives the profile of a job that this process started, and empty text for one that
 	// it did not.
@@ -65,6 +73,9 @@ type Options struct {
 	// Freshness is how old a job state may be and still count.
 	Freshness time.Duration
 
+	// RenewBefore is how long before its end a reservation is extended.
+	RenewBefore time.Duration
+
 	Metrics *telemetry.Metrics
 	Logger  *slog.Logger
 	Tracer  trace.Tracer
@@ -76,18 +87,20 @@ type Options struct {
 // Reaper examines the machines of this controller at each tick, and removes the ones that the
 // table says must go.
 type Reaper struct {
-	stacks    Stacks
-	states    States
-	machines  Machines
-	fleet     Fleet
-	profile   func(job.ID) string
-	profiles  []profile.Profile
-	defaults  profile.Timeouts
-	freshness time.Duration
-	metrics   *telemetry.Metrics
-	logger    *slog.Logger
-	tracer    trace.Tracer
-	now       func() time.Time
+	stacks       Stacks
+	states       States
+	reservations Reservations
+	renewBefore  time.Duration
+	machines     Machines
+	fleet        Fleet
+	profile      func(job.ID) string
+	profiles     []profile.Profile
+	defaults     profile.Timeouts
+	freshness    time.Duration
+	metrics      *telemetry.Metrics
+	logger       *slog.Logger
+	tracer       trace.Tracer
+	now          func() time.Time
 
 	// ignored holds the jobs that Buildkite refused with a 404 or a 422. Every further call about
 	// such a job gives the same refusal, so the controller makes none (target design, section 7.1,
@@ -103,10 +116,15 @@ type Reaper struct {
 func New(options Options) (*Reaper, error) {
 	var problems []error
 
-	if options.Stacks == nil || options.States == nil || options.Orchard == nil ||
-		options.Fleet == nil {
+	if options.Stacks == nil || options.States == nil || options.Reservations == nil ||
+		options.Orchard == nil || options.Fleet == nil {
 		problems = append(problems, errors.New("the reaper needs Buildkite, the job states, "+
-			"Orchard, and the fleet"))
+			"the reservations, Orchard, and the fleet"))
+	}
+
+	if options.RenewBefore <= 0 {
+		problems = append(problems, fmt.Errorf("the renewal lead is %s, and it must be more "+
+			"than zero", options.RenewBefore))
 	}
 
 	if options.Metrics == nil || options.Logger == nil {
@@ -138,20 +156,22 @@ func New(options Options) (*Reaper, error) {
 	}
 
 	return &Reaper{
-		stacks:    options.Stacks,
-		states:    options.States,
-		machines:  options.Orchard,
-		fleet:     options.Fleet,
-		profile:   name,
-		profiles:  options.Profiles,
-		defaults:  options.Defaults,
-		freshness: options.Freshness,
-		metrics:   options.Metrics,
-		logger:    options.Logger,
-		tracer:    tracer,
-		now:       now,
-		ignored:   map[job.ID]bool{},
-		warned:    map[job.ID]string{},
+		stacks:       options.Stacks,
+		states:       options.States,
+		reservations: options.Reservations,
+		renewBefore:  options.RenewBefore,
+		machines:     options.Orchard,
+		fleet:        options.Fleet,
+		profile:      name,
+		profiles:     options.Profiles,
+		defaults:     options.Defaults,
+		freshness:    options.Freshness,
+		metrics:      options.Metrics,
+		logger:       options.Logger,
+		tracer:       tracer,
+		now:          now,
+		ignored:      map[job.ID]bool{},
+		warned:       map[job.ID]string{},
 	}, nil
 }
 
@@ -167,14 +187,33 @@ func (r *Reaper) Reap(ctx context.Context) error {
 	}
 
 	now := r.now()
-	rules := Rules{Freshness: r.freshness}
+	rules := Rules{Freshness: r.freshness, RenewBefore: r.renewBefore}
 
-	var failures int
+	var (
+		failures int
+		extend   []job.ID
+	)
 
 	for _, machine := range r.collect(snapshot) {
-		if err := r.carry(ctx, machine, Decide(machine, now, rules)); err != nil {
+		decision := Decide(machine, now, rules)
+
+		// The extensions of one pass go in one call after it.
+		if decision.Action == Extend {
+			extend = append(extend, machine.Job)
+
+			continue
+		}
+
+		if err := r.carry(ctx, machine, decision); err != nil {
 			failures++
 		}
+	}
+
+	if err := r.reservations.Extend(ctx, extend); err != nil {
+		failures++
+
+		r.logger.ErrorContext(ctx, "the reaper could not extend the reservations of the machines "+
+			"that start", "jobs", len(extend), "error", err)
 	}
 
 	r.forget(snapshot)
@@ -203,6 +242,12 @@ func (r *Reaper) collect(snapshot inventory.Snapshot) []Machine {
 			Timeouts: Timeouts(r.profile(owned.Job), r.profiles, r.defaults),
 		}
 
+		// A reservation whose end the controller does not know is extended at once, which is
+		// every reservation after a restart.
+		if until, known := r.reservations.ReservedUntil(owned.Job); known {
+			machine.ReservedUntil = until
+		}
+
 		// A job that the controller has not asked about has no state, and not an empty one.
 		if observation, asked := r.states.Observed(owned.Job); asked {
 			machine.State = observation.State
@@ -227,7 +272,7 @@ func (r *Reaper) carry(ctx context.Context, machine Machine, decision Decision) 
 
 		return nil
 	case Extend:
-		// The extensions of one tick go in one call, which the renewal makes after this pass.
+		// Reap gathers the extensions of a pass into one call, and never passes one here.
 		return nil
 	case Delete, FinishAndDelete, NotifyAndDelete:
 	}
