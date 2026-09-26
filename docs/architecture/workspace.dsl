@@ -38,7 +38,7 @@ workspace "bk-agent-stack-orchard" "C4 model of the Buildkite agent stack that r
 
             controller = container "Controller" "Monitors the Buildkite queue. Creates one Orchard VM for each job. Deletes the VM when the job ends." "Go 1.27, distroless container image or binary" {
                 config = component "Configuration" "Loads and validates the YAML file and the secret environment variables." "Go"
-                health = component "Health server" "Serves /livez and /readyz." "Go, net/http"
+                health = component "Health server" "Serves the gRPC health service: liveness and readiness." "Go, gRPC"
                 tick = component "Tick loop" "Runs the refresh, Reaper, Admission, and Launcher steps in sequence." "Go"
                 stackRegistration = component "Stack" "Registers and deregisters the custom stack. Gives the dispatch_paused value." "Go"
                 poller = component "Poller" "Lists the first page of scheduled jobs at each poll interval." "Go"
@@ -77,7 +77,7 @@ workspace "bk-agent-stack-orchard" "C4 model of the Buildkite agent stack that r
         # Level 2 relationships
         operator -> stack.controller "Configures profiles through the deployment platform."
         operator -> stack.orchardWorker "Installs and configures with Ansible."
-        kubernetes -> stack.controller "Runs and probes /livez and /readyz."
+        kubernetes -> stack.controller "Runs and probes liveness and readiness."
         kubernetes -> stack.orchardController "Runs the Orchard controller."
         stack.controller -> buildkite "Lists and reserves jobs. Gets tokens and job states. Finishes jobs. Sends notifications." "Stacks API, HTTPS/JSON"
         stack.controller -> stack.orchardController "Lists workers and VMs. Creates and deletes VMs. Reads VM events." "Orchard REST API, HTTPS/JSON"
@@ -96,7 +96,7 @@ workspace "bk-agent-stack-orchard" "C4 model of the Buildkite agent stack that r
 
         # Level 3 relationships (controller components)
         operator -> stack.controller.config "Supplies the configuration file and secrets."
-        kubernetes -> stack.controller.health "Probes /livez and /readyz." "HTTP"
+        kubernetes -> stack.controller.health "Probes liveness and readiness." "gRPC"
         stack.controller.config -> stack.controller.tick "Gives intervals, limits, and timeouts to."
         stack.controller.config -> stack.controller.matcher "Gives profiles to."
         stack.controller.health -> stack.controller.tick "Reads the last synchronization times from."

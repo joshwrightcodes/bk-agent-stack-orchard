@@ -176,7 +176,7 @@ stops a merge or a release, and `diagnostic` when it reports only.
 | T-021 | R-11, PR-010, QS-4 | A stop and a start at each crash window of the target design, section 7.4 | Each job has a maximum of one VM; no VM of an ended job remains; `reservedUntil` is unknown, so the first pass extends all reservations | required |
 | T-022 | R-12, PR-011 | A paused queue with waiting jobs and unmatched jobs | No VM starts, no job finishes, and VMs in progress continue | required |
 | T-023 | R-13, PR-007 | A cancellation while the VM boots | The VM is deleted, and no agent acquires the job | required |
-| T-024 | R-17, R-18, QS-6, QS-7 | Outages: Orchard not available, Buildkite not available, HTTP 429 with `Retry-After`, and a worker that goes offline | Admission stops; `/readyz` fails; the controller obeys `Retry-After`; only rows 1 and 2 delete VMs with stale data; an offline worker gives rows 7 and 9 | required |
+| T-024 | R-17, R-18, QS-6, QS-7 | Outages: Orchard not available, Buildkite not available, HTTP 429 with `Retry-After`, and a worker that goes offline | Admission stops; readiness fails; the controller obeys `Retry-After`; only rows 1 and 2 delete VMs with stale data; an offline worker gives rows 7 and 9 | required |
 | T-025 | R-09, target design section 7.2 row 13 | Reservation renewal for many VMs in one tick | One `batch-reserve` call contains all extensions, and the renewal starts before `reservationRenewBefore` | required |
 
 ### 6.4 Contract (L3)

@@ -193,6 +193,12 @@ func New(options Options) (*Controller, error) {
 	}, nil
 }
 
+// Sources gives the supplies of the loop, in the order that a tick reads them. The readiness
+// check reads the time of their last answers.
+func (c *Controller) Sources() []Source {
+	return slices.Clone(c.sources)
+}
+
 // Run registers the stack, ticks until the context ends, and withdraws the stack.
 //
 // A tick that fails does not stop the loop, because almost every failure here is one call to one

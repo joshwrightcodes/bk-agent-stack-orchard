@@ -528,7 +528,7 @@ At start-up, before the first Admission, the controller MUST do these steps:
 
 | Outage | Behavior |
 |---|---|
-| The Orchard controller is not available | Inventory data becomes stale. Admission stops. The Reaper cannot delete VMs. VMs on the workers continue to run. `/readyz` fails. `/livez` passes. |
+| The Orchard controller is not available | Inventory data becomes stale. Admission stops. The Reaper cannot delete VMs. VMs on the workers continue to run. Readiness fails. Liveness passes. |
 | The Buildkite API is not available, or applies a rate limit | The controller obeys `Retry-After`. JobStates data becomes stale. The controller does not reserve or finish jobs. The controller deletes VMs only for rows 1 and 2. |
 | A worker is offline | After the worker offline timeout (3 min), Orchard sets the VMs of the worker to `failed`. Rows 7 and 9 apply. `restart_policy: Never` prevents a new VM for the same job on a different worker. |
 | The queue is `dispatch_paused` | Admission stops. The controller does not finish unmatched jobs. The Reaper continues for existing VMs. |
@@ -582,6 +582,7 @@ orchard:
   workerOfflineTimeout: 3m # MUST match the worker offline timeout of the Orchard controller
 maxInFlight: 0 # 0 means the total VM slots of the eligible workers
 stateFreshness: 60s
+healthAddress: ":8080" # the gRPC health service of the probes
 defaults:
   timeouts:
     unplaced: 2m
@@ -590,6 +591,18 @@ defaults:
     maxVMLifetime: 25h
 profiles: [] # see §5
 ```
+
+The controller serves the gRPC health checking protocol (`grpc.health.v1`) on `healthAddress`,
+with the services `liveness` and `readiness`. The empty service name, which is the health of the
+whole server in the protocol, follows `readiness`. The controller serves no other endpoint, and
+gRPC is in the binary already, because the OTLP exporters use it. Kubernetes probes the service
+natively (`grpc: {port, service}`).
+
+`liveness` serves while the process serves, and it does not depend on either API, because a
+restart cures nothing that an API causes. `readiness` stops serving while the last answer of a
+source is older than 30 s, or after the Stacks API returned HTTP 401. The protocol carries no
+reason, so the controller writes a log record at each change of readiness, and a record of
+`not ready` names each reason. A `healthAddress` that another process holds fails the start.
 
 The configuration MUST set `pollInterval`, `jobStatesInterval`, and `inventoryInterval` shorter
 than `stateFreshness`. Admission and the Reaper act only on data newer than `stateFreshness`, so a
@@ -821,7 +834,7 @@ APIs.
 
 | Component | Location | Configuration |
 |---|---|---|
-| bk-agent-stack-orchard | Kubernetes | A Helm chart that ArgoCD deploys. A `Deployment` with 1 replica and `strategy: Recreate`. A ConfigMap for the configuration. Secrets as environment variables. `/livez` (the process is alive) and `/readyz` (all sources synchronized in the last 30 s). `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME=bk-agent-stack-orchard`, and `OTEL_RESOURCE_ATTRIBUTES` (`controller.id`, and `k8s.*` from the downward API). A NetworkPolicy that permits egress only to `agent.buildkite.com:443`, Orchard `:6120`, and the collector. The image comes from §15. |
+| bk-agent-stack-orchard | Kubernetes | A Helm chart that ArgoCD deploys. A `Deployment` with 1 replica and `strategy: Recreate`. A ConfigMap for the configuration. Secrets as environment variables. gRPC probes of the health service on `healthAddress`: `liveness` (the process is alive) and `readiness` (all sources synchronized in the last 30 s). `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME=bk-agent-stack-orchard`, and `OTEL_RESOURCE_ATTRIBUTES` (`controller.id`, and `k8s.*` from the downward API). A NetworkPolicy that permits egress only to `agent.buildkite.com:443`, Orchard `:6120`, and the collector. The image comes from §15. |
 | Orchard controller | Kubernetes | `ghcr.io/openai/orchard` at the version of §9.2. A 1-replica StatefulSet with a PVC at `/data`. An internal LoadBalancer on port 6120 that the Mac hosts can reach. `ORCHARD_BOOTSTRAP_ADMIN_TOKEN` from a Secret. A bootstrap Job that creates the `bk-agent-stack-orchard` service account and the worker service accounts. An explicit `OTEL_EXPORTER_OTLP_ENDPOINT`. The loss of the PVC is recoverable, because workers register again and the controller removes in-flight VMs. A backup is not necessary. |
 | Mac hosts | Mac mini with M5 Pro, 64 GB memory, and 1 TB storage (SC-04) | Ansible and launchd. Install Tart and Orchard at pinned versions. Run `orchard worker run --bootstrap-token … --labels pool=<pool>` as root with `--user`. Configure automatic login to unlock the login keychain. Set `OTEL_EXPORTER_OTLP_ENDPOINT`. Run `tart pull` for each profile image. Read the image list from the controller configuration file. Because of this, the pulled images always agree with the profiles. Each Xcode image needs 140 GB, so a 1 TB host holds only a few images (SC-09). The fleet operator builds the Xcode 27 image with `templates/xcode.pkr.hcl` and `macos_version = golden-gate` from `cirruslabs/macos-image-templates`, on the `macos-golden-gate-base` image (PR-026). The image contains `buildkite-agent` v4 and the Tart guest agent (§5). Each host MUST run a macOS version that can host the guest version. For a macOS 27 guest, the fleet assumes a macOS 27 host (CO-07). |
 | Local development | One Mac | `orchard dev` and `bk-agent-stack-orchard` with a `dev.yaml` file. A separate Buildkite test cluster and queue. |

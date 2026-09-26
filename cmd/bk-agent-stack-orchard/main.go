@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -17,10 +18,13 @@ import (
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"google.golang.org/grpc"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/app"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/config"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/health"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
 )
@@ -133,19 +137,75 @@ func serve(ctx context.Context, path string, out io.Writer) error {
 		return err
 	}
 
+	now := time.Now //nolint:forbidigo // the binary runs on the clock of the machine
+
 	loop, err := app.Build(app.Options{
 		Config:      settings,
 		Telemetry:   recorder,
 		Stacks:      stacks,
 		Orchard:     machines,
-		Now:         time.Now, //nolint:forbidigo // the binary runs on the clock of the machine
+		Now:         now,
 		Environment: os.Getenv,
 	})
 	if err != nil {
 		return err
 	}
 
+	// Readiness rests on every source of the loop, so a source that the loop gains is part of it.
+	var sources []health.Source
+	for _, source := range loop.Sources() {
+		sources = append(sources, source)
+	}
+
+	checks, err := health.New(health.Options{
+		Sources:      sources,
+		Unauthorized: stacks.Unauthorized,
+		Now:          now,
+		Logger:       recorder.Logger,
+	})
+	if err != nil {
+		return err
+	}
+
+	stopProbes, err := probe(ctx, settings.HealthAddress, checks)
+	if err != nil {
+		return err
+	}
+	defer stopProbes()
+
 	return loop.Run(ctx)
+}
+
+// probe serves the gRPC health service of the probes, and keeps it current, until the returned
+// function stops both. A port that another process holds fails the start, because a controller
+// whose probes nobody can reach looks dead to the platform, which then restarts it for ever.
+func probe(ctx context.Context, address string, checks *health.Checks) (func(), error) {
+	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", address)
+	if err != nil {
+		return nil, fmt.Errorf("serving the probes on %s: %w", address, err)
+	}
+
+	server := grpc.NewServer()
+	healthpb.RegisterHealthServer(server, checks.Server())
+
+	go func() { _ = server.Serve(listener) }()
+
+	updates, stop := context.WithCancel(ctx)
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		checks.Run(updates, time.Second)
+	}()
+
+	return func() {
+		stop()
+		<-done
+
+		// A Watch of a probe is a stream without an end, so the stop does not wait for it.
+		server.Stop()
+	}, nil
 }
 
 // orUnknown gives a value that a development build left empty a name that a person can read.
