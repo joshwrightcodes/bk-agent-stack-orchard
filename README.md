@@ -60,6 +60,7 @@ Buildkite.
 | [Test strategy](docs/quality/test-strategy.md) | The risk map, the invariants, and the test obligations with their gates |
 | [Implementation plan](docs/delivery/implementation-plan.md) | Work units W-01 to W-27, their order, and the evidence that ends each one |
 | [Development guide](docs/development.md) | The gates, the integration tests, and their self-hosted runner |
+| [Runbook: replace the agent token](docs/runbooks/token-replacement.md) | The token replacement of the target design, section 9.2, with its checks and its rollback |
 
 ## Decisions
 
