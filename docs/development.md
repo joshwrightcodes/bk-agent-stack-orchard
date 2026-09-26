@@ -29,6 +29,9 @@ pins:
 * The restart journey (T-021) kills the controller with SIGKILL and starts it again, at each crash
   window of the target design, section 7.4. Each job keeps at most one VM, the VM of a job that
   ended while no controller ran goes, and the first pass extends every reservation.
+* The interruption journeys cover a paused queue (T-022), in which no VM starts, no job is reserved
+  or finished, and the VMs in progress continue, and a cancellation while a VM boots (T-023), in
+  which the controller deletes the VM and does not take the job again.
 * The Orchard client test (T-041) sends each call of the client of this project to the real API:
   create, a second create of the same name, list, events, and delete. A synthetic worker writes
   each line of the startup script as an event, so the test also proves the events of a VM.
