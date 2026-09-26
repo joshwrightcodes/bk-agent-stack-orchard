@@ -59,8 +59,13 @@ type Machine struct {
 	// Job is the job that the machine carries.
 	Job job.ID
 
-	// State is the Buildkite state of the job, when Observed is true.
+	// State is the Buildkite state of the job, when Observed and Named are true.
 	State string
+
+	// Named reports that Buildkite named the job when the controller asked. A job that Buildkite
+	// leaves out of its answer is unknown to it, which is a fact about the job and not a gap in
+	// what the controller knows.
+	Named bool
 
 	// Observed reports that the controller has a state for the job. A state that the controller
 	// could not read is not a state, and a decision must not read the empty text as one.

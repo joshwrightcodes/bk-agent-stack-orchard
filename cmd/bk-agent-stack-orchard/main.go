@@ -26,6 +26,7 @@ import (
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/controller"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/inventory"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/jobstates"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/launcher"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/reaper"
@@ -190,8 +191,19 @@ func assemble(settings *config.Config, recorder *telemetry.Telemetry) (*controll
 		return nil, err
 	}
 
+	// The job states ask about the machines that the inventory holds, so they follow it in the
+	// sources of the loop, and each tick asks about the machines that it has just read.
+	observed, err := jobstates.New(jobstates.Options{
+		Stacks:   stacks,
+		Fleet:    fleet,
+		Interval: settings.Buildkite.JobStatesInterval,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	reaping, err := reaper.New(reaper.Options{
-		Stacks:    stacks,
+		States:    observed,
 		Orchard:   machines,
 		Fleet:     fleet,
 		Profile:   starter.Profile,
@@ -217,7 +229,7 @@ func assemble(settings *config.Config, recorder *telemetry.Telemetry) (*controll
 
 	return controller.New(controller.Options{
 		Stack:    registration,
-		Sources:  []controller.Source{poller, fleet},
+		Sources:  []controller.Source{poller, fleet, observed},
 		Queue:    poller,
 		Fleet:    decisions.observe,
 		Reap:     reaping.Reap,

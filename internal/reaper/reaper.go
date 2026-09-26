@@ -14,13 +14,14 @@ import (
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/inventory"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/jobstates"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/profile"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
 )
 
-// Stacks is what the reaper needs of Buildkite.
-type Stacks interface {
-	States(ctx context.Context, ids []job.ID) (map[job.ID]string, error)
+// States gives what Buildkite said about a job, and when the controller asked.
+type States interface {
+	Observed(id job.ID) (jobstates.Observation, bool)
 }
 
 // Machines is what the reaper needs of Orchard.
@@ -35,7 +36,7 @@ type Fleet interface {
 
 // Options configures the reaper.
 type Options struct {
-	Stacks  Stacks
+	States  States
 	Orchard Machines
 	Fleet   Fleet
 
@@ -61,7 +62,7 @@ type Options struct {
 // Reaper examines the machines of this controller at each tick, and removes the ones that the
 // table says must go.
 type Reaper struct {
-	stacks    Stacks
+	states    States
 	machines  Machines
 	fleet     Fleet
 	profile   func(job.ID) string
@@ -78,8 +79,9 @@ type Reaper struct {
 func New(options Options) (*Reaper, error) {
 	var problems []error
 
-	if options.Stacks == nil || options.Orchard == nil || options.Fleet == nil {
-		problems = append(problems, errors.New("the reaper needs Buildkite, Orchard, and the fleet"))
+	if options.States == nil || options.Orchard == nil || options.Fleet == nil {
+		problems = append(problems, errors.New("the reaper needs the job states, Orchard, and "+
+			"the fleet"))
 	}
 
 	if options.Metrics == nil || options.Logger == nil {
@@ -111,7 +113,7 @@ func New(options Options) (*Reaper, error) {
 	}
 
 	return &Reaper{
-		stacks:    options.Stacks,
+		states:    options.States,
 		machines:  options.Orchard,
 		fleet:     options.Fleet,
 		profile:   name,
@@ -136,7 +138,6 @@ func (r *Reaper) Reap(ctx context.Context) error {
 		return nil
 	}
 
-	states, observedAt, observed := r.states(ctx, snapshot)
 	now := r.now()
 
 	var failed, deleted int
@@ -148,10 +149,12 @@ func (r *Reaper) Reap(ctx context.Context) error {
 			Timeouts: Timeouts(r.profile(owned.Job), r.profiles, r.defaults),
 		}
 
-		if observed {
-			machine.State = states[owned.Job]
+		// A job that the controller has not asked about has no state, and not an empty one.
+		if observation, asked := r.states.Observed(owned.Job); asked {
+			machine.State = observation.State
+			machine.Named = observation.Named
 			machine.Observed = true
-			machine.ObservedAt = observedAt
+			machine.ObservedAt = observation.At
 		}
 
 		decision := Decide(machine, now, r.freshness)
@@ -173,31 +176,6 @@ func (r *Reaper) Reap(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-// states reads the Buildkite state of every job that has a machine, in one call, and gives the
-// time that the controller read them.
-//
-// A call that fails gives no states and not empty ones. A job that Buildkite did not name and a
-// job that the controller could not ask about are different things, and only the first one says
-// anything about the job.
-func (r *Reaper) states(ctx context.Context, snapshot inventory.Snapshot) (map[job.ID]string,
-	time.Time, bool,
-) {
-	ids := make([]job.ID, 0, len(snapshot.Owned))
-	for _, owned := range snapshot.Owned {
-		ids = append(ids, owned.Job)
-	}
-
-	states, err := r.stacks.States(ctx, ids)
-	if err != nil {
-		r.logger.WarnContext(ctx, "the reaper could not read the job states, and acts only on "+
-			"the rows that need none", "error", err)
-
-		return nil, time.Time{}, false
-	}
-
-	return states, r.now(), true
 }
 
 // delete carries out one deletion, and writes its one decision record.

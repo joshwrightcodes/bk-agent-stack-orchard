@@ -167,7 +167,7 @@ In-memory data is only a cache. The loss of this cache is always safe.
 | **Poller** | Lists the first page of scheduled jobs at each `pollInterval` (1 s). Obeys `Retry-After`. | `Stacks` client |
 | **Matcher** | Pure function. Converts the job `agent_query_rules` to exactly one profile, or to a mismatch reason. | Configuration |
 | **Inventory** | Lists Orchard workers and VMs at each `inventoryInterval` (1 s). Selects owned VMs by name prefix. Parses the job UUIDs. | `Orchard` client |
-| **JobStates** | Gets the Buildkite job states of owned VMs in one batch at each `jobStatesInterval` (5 s). Records the observation time for each job. | `Stacks` client |
+| **JobStates** | Gets the Buildkite job states of owned VMs in one batch at each `jobStatesInterval` (5 s). Records the observation time for each job, and whether Buildkite named the job. A call that fails keeps the states before it, with their times. | `Stacks` client |
 | **Admission** | Pure function. Input: scheduled jobs, inventory, profiles, and `maxInFlight`. Output: jobs to start, and unmatched jobs to fail. | Matcher, Inventory |
 | **Launcher** | For admitted jobs: reserves the jobs, gets job acquisition tokens, and creates VMs. Sends stack notifications. | `Stacks` client, `Orchard` client |
 | **Reaper** | Pure decision function for each owned VM, and an executor. Actions: delete the VM, finish the job, extend the reservation, or send a notification. | Inventory, JobStates |
@@ -435,7 +435,10 @@ the OTel variables of §10.4.
    and `started_at`. Because of this, timeouts continue to operate after a controller restart.
 2. **Causally fresh job state.** The Reaper MUST use a job state for a VM only if the controller
    observed the state after the VM `createdAt`. If the state is older, the Reaper MUST wait for
-   the next JobStates refresh.
+   the next JobStates refresh. The observation time of a state MUST be the time that JobStates
+   sent the request, which is the earliest moment that the answer can describe. A time taken
+   from the answer makes a state look newer than it is, and this rule and the next one would
+   then trust it too soon.
 3. **Fresh data or no action.** If the job state of a VM is older than `stateFreshness` (60 s),
    the Reaper MUST do only the orphan action and the maximum-lifetime action.
 4. **Permanent errors are terminal.** If finish, get-states, or delete returns 404 or 422, the
