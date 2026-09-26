@@ -23,6 +23,7 @@ func TestTheCauseOfAFailedCall(t *testing.T) {
 		{nil, "", false},
 		{context.Canceled, "", false},
 		{fmt.Errorf("finishing: %w", buildkite.ErrTerminal), "", false},
+		{fmt.Errorf("notifying: %w", buildkite.ErrRefused), "", false},
 		{orchard.ErrAlreadyExists, "", false},
 		{orchard.ErrNotFound, "", false},
 		{fmt.Errorf("polling: %w", buildkite.ErrUnauthorized), errorUnauthorized, true},

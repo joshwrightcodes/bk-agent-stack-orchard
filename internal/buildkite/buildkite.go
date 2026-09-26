@@ -47,6 +47,10 @@ var (
 
 	// ErrRateLimited is a rate limit that outlived the retries of the library.
 	ErrRateLimited = errors.New("buildkite applied a rate limit")
+
+	// ErrRefused is a line that Buildkite did not put on a job page, such as a line for a job
+	// that ended. It is an answer about a job, and not a failure of the API.
+	ErrRefused = errors.New("buildkite refused a line for a job page")
 )
 
 // Stacks is what the rest of the controller sees of Buildkite. Each component depends on this
@@ -375,7 +379,7 @@ func (c *Client) Notify(ctx context.Context, notifications []Notification) error
 	// A notification is a line on a job page. A refused line loses information, and it must not
 	// stop the launch of a VM, so the caller logs the answer and continues.
 	if len(answer.Errors) > 0 {
-		return fmt.Errorf("buildkite refused %d of %d notifications: %s",
+		return fmt.Errorf("%w: %d of %d lines: %s", ErrRefused,
 			len(answer.Errors), len(lines), answer.Errors[0].Error)
 	}
 

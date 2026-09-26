@@ -28,6 +28,7 @@ func cause(err error) (string, bool) {
 	case err == nil,
 		errors.Is(err, context.Canceled),
 		errors.Is(err, buildkite.ErrTerminal),
+		errors.Is(err, buildkite.ErrRefused),
 		errors.Is(err, orchard.ErrAlreadyExists),
 		errors.Is(err, orchard.ErrNotFound):
 		return "", false

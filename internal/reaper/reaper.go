@@ -308,7 +308,7 @@ func (r *Reaper) carry(ctx context.Context, machine Machine, decision Decision) 
 			return err
 		}
 	case NotifyAndDelete:
-		r.notify(ctx, machine, decision)
+		r.notify(ctx, machine)
 	case Keep, Extend, Delete:
 	}
 
@@ -327,6 +327,10 @@ func (r *Reaper) carry(ctx context.Context, machine Machine, decision Decision) 
 	r.metrics.Deleted(ctx, decision.Reason)
 	r.logger.InfoContext(ctx, "the reaper acted on a machine", append(fields,
 		telemetry.SpanDecision, string(decision.Action))...)
+
+	// The last step on the job page. Buildkite may refuse a line for a job that ended, which
+	// changes nothing here.
+	r.tell(ctx, machine, Deleted(decision.Reason))
 
 	return nil
 }
@@ -388,15 +392,21 @@ func (r *Reaper) script(ctx context.Context, machine Machine, decision Decision)
 	return logLines(events)
 }
 
-// notify writes the reason on the job page. A line that does not arrive is worth less than the
-// removal of the machine, so a failure here is a log record and nothing more.
-func (r *Reaper) notify(ctx context.Context, machine Machine, decision Decision) {
+// notify writes on the job page why the machine failed. A line that does not arrive is worth
+// less than the removal of the machine, so a failure here is a log record and nothing more.
+func (r *Reaper) notify(ctx context.Context, machine Machine) {
 	if r.ignored[machine.Job] {
 		return
 	}
 
+	r.tell(ctx, machine, Failed(machine.VM.StatusMessage))
+}
+
+// tell writes one line on the job page of a machine. A line that does not arrive is worth less
+// than the removal of the machine, so a failure here is a log record and nothing more.
+func (r *Reaper) tell(ctx context.Context, machine Machine, line string) {
 	err := r.stacks.Notify(ctx, []buildkite.Notification{{
-		JobID: machine.Job, Detail: message(machine, decision, nil), At: r.now(),
+		JobID: machine.Job, Detail: line, At: r.now(),
 	}})
 	if err != nil {
 		r.logger.WarnContext(ctx, "the reaper could not write to the job page",

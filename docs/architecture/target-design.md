@@ -816,6 +816,15 @@ The controller MUST send a notification at each step: "VM requested", "placed on
 "booting", "failed: …", and "VM deleted: …". Pipeline authors can then find problems from the
 job page.
 
+The Launcher sends "VM requested" when it creates the VM. At each tick, before the Reaper, the
+controller compares each owned VM with what it saw before: it sends "placed on <worker>" when
+Orchard first gives the VM a worker, and "booting" when Orchard first reports the VM `running`,
+because macOS starts after that. The Reaper sends "failed: <status message>" for row 7, and
+"VM deleted: <reason>" after each deletion. After a restart, the controller does not send a
+step again for a VM that the last process started, because the job page already shows it. The
+same steps are span events in the job trace, and the times between them are the phase durations
+of §10.1.
+
 ### 10.6 Alert conditions
 
 These alert conditions are part of the design. Rule files and dashboards for a specific backend

@@ -26,6 +26,7 @@ import (
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/jobstates"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/launcher"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/progress"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/reaper"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/stack"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
@@ -149,6 +150,22 @@ func Build(options Options) (*controller.Controller, error) {
 		return nil, err
 	}
 
+	// The steps of each machine go to its job page before the reaper acts, so that a page shows
+	// "booting" before "VM deleted" when both happen in one tick.
+	steps, err := progress.New(progress.Options{
+		Stacks:    stacks,
+		Fleet:     fleet,
+		States:    observed,
+		Timelines: starter,
+		Metrics:   recorder.Metrics,
+		Logger:    recorder.Logger,
+		Tracer:    recorder.Tracer,
+		Now:       now,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	decisions := &admitter{
 		settings: settings,
 		queue:    poller,
@@ -162,11 +179,17 @@ func Build(options Options) (*controller.Controller, error) {
 	}
 
 	return controller.New(controller.Options{
-		Stack:     registration,
-		Sources:   []controller.Source{poller, fleet, observed},
-		Queue:     poller,
-		Fleet:     decisions.observe,
-		Reap:      reaping.Reap,
+		Stack:   registration,
+		Sources: []controller.Source{poller, fleet, observed},
+		Queue:   poller,
+		Fleet:   decisions.observe,
+		Reap: func(ctx context.Context) error {
+			if err := steps.Observe(ctx); err != nil {
+				return err
+			}
+
+			return reaping.Reap(ctx)
+		},
 		Admit:     decisions.admit,
 		Interval:  settings.Buildkite.PollInterval,
 		Freshness: settings.StateFreshness,

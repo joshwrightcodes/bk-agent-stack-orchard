@@ -16,6 +16,8 @@ package reaper
 import (
 	"time"
 
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
+
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/profile"
@@ -74,17 +76,6 @@ var terminal = map[string]bool{
 	"timed_out": true,
 	"skipped":   true,
 	"broken":    true,
-}
-
-// acquired holds the Buildkite states of a job that an agent owns. From here the lost-agent
-// procedure of Buildkite decides the result of the job, and the controller only removes the
-// machine.
-var acquired = map[string]bool{
-	"assigned":   true,
-	"accepted":   true,
-	"running":    true,
-	"canceling":  true,
-	"timing_out": true,
 }
 
 // Machine is everything that the decision reads about one machine of this controller.
@@ -191,7 +182,7 @@ func Decide(m Machine, now time.Time, rules Rules) Decision {
 
 	// Rows 7 and 8. An agent owns the job, so Buildkite decides its result. A machine that failed
 	// goes with a line on the job page; one that runs is doing its work.
-	if acquired[m.State] {
+	if buildkite.Acquired(m.State) {
 		if failed {
 			return Decision{Row: 7, Action: NotifyAndDelete, Reason: ReasonVMFailed}
 		}
