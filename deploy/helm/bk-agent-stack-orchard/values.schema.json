@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "Values of bk-agent-stack-orchard",
+  "type": "object",
+  "required": ["image", "config", "secret"],
+  "properties": {
+    "image": {
+      "type": "object",
+      "required": ["repository"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "tag": {"type": "string"},
+        "digest": {"type": "string", "pattern": "^(|sha256:[0-9a-f]{64})$"},
+        "pullPolicy": {"enum": ["Always", "IfNotPresent", "Never"]}
+      }
+    },
+    "config": {
+      "description": "The configuration file of the controller (target design, section 8). The controller checks the rest when it starts.",
+      "type": "object",
+      "required": ["controllerID", "healthAddress", "buildkite", "orchard"],
+      "properties": {
+        "controllerID": {"type": "string", "pattern": "^[a-z0-9-]{1,23}$"},
+        "healthAddress": {"type": "string", "pattern": ":[0-9]+$"},
+        "buildkite": {
+          "type": "object",
+          "required": ["queue"],
+          "properties": {"queue": {"type": "string", "minLength": 1}}
+        },
+        "orchard": {
+          "type": "object",
+          "required": ["url"],
+          "properties": {"url": {"type": "string", "minLength": 1}}
+        }
+      }
+    },
+    "secret": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {"name": {"type": "string", "minLength": 1}}
+    },
+    "otel": {
+      "type": "object",
+      "properties": {"endpoint": {"type": "string"}}
+    },
+    "networkPolicy": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "buildkite": {"$ref": "#/definitions/destination"},
+        "orchard": {"$ref": "#/definitions/destination"},
+        "collector": {"$ref": "#/definitions/destination"}
+      }
+    }
+  },
+  "definitions": {
+    "destination": {
+      "type": "object",
+      "required": ["port"],
+      "properties": {
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "to": {"type": "array"}
+      }
+    }
+  }
+}

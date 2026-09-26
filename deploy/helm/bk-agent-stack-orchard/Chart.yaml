@@ -1,0 +1,12 @@
+apiVersion: v2
+name: bk-agent-stack-orchard
+description: >-
+  A Buildkite custom stack that runs one temporary macOS VM for each job through Orchard.
+type: application
+# The chart and the controller release together, so the version of the chart is the version of
+# the controller that it deploys.
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/joshwrightcodes/bk-agent-stack-orchard
+sources:
+  - https://github.com/joshwrightcodes/bk-agent-stack-orchard

@@ -1,0 +1,37 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $port := include "bkaso.healthPort" . | int -}}
+# The controller answers probes, and it calls the Stacks API, Orchard, the collector, and DNS.
+# Nothing else. The target design, section 11 names agent.buildkite.com:443, but a standard
+# NetworkPolicy cannot name a host, so the port and the peers of the values are the limit.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "bkaso.fullname" . }}
+  labels:
+    {{- include "bkaso.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "bkaso.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - ports:
+        - port: {{ $port }}
+          protocol: TCP
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    {{- range $name := list "buildkite" "orchard" "collector" }}
+    {{- $destination := index $.Values.networkPolicy $name }}
+    - ports:
+        - port: {{ $destination.port }}
+          protocol: TCP
+      {{- with $destination.to }}
+      to:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- end }}
+{{- end }}

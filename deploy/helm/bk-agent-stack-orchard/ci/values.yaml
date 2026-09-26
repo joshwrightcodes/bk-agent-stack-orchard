@@ -1,0 +1,26 @@
+# The values that CI renders and validates the chart with. They name a controller of the size of
+# the pilot, and they are not a deployment.
+config:
+  controllerID: macos-prod
+  buildkite:
+    queue: macos
+  orchard:
+    url: https://orchard.internal:6120
+  profiles:
+    - name: xcode-27
+      match: {xcode: "27"}
+      image: ghcr.io/acme/macos-golden-gate-xcode@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      cpu: 8
+      memoryMiB: 28672
+      diskSizeGB: 150
+secret:
+  name: bk-agent-stack-orchard
+otel:
+  endpoint: http://collector.observability:4317
+networkPolicy:
+  orchard:
+    port: 6120
+    to:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: orchard
