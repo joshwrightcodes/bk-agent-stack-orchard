@@ -1,0 +1,20 @@
+# The Mac hosts reach Orchard on 6120 through an internal load balancer, and the controller of
+# this project reaches it by the name of the Service. The annotation that makes a load balancer
+# internal depends on the cloud, so an overlay adds it, for example
+# networking.gke.io/load-balancer-type: Internal, or
+# service.beta.kubernetes.io/aws-load-balancer-scheme: internal.
+apiVersion: v1
+kind: Service
+metadata:
+  name: orchard
+  labels:
+    app.kubernetes.io/name: orchard
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: orchard
+  ports:
+    - name: api
+      port: 6120
+      targetPort: api
+      protocol: TCP

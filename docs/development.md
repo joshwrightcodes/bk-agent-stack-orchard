@@ -22,7 +22,7 @@ it, renders it with `deploy/helm/bk-agent-stack-orchard/ci/values.yaml`, and val
 against the Kubernetes schemas:
 
 ```sh
-mise run check-chart
+mise run check-deploy
 ```
 
 A values schema refuses a release without a `controllerID`, a queue, an Orchard URL, or the name

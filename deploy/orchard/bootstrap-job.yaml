@@ -1,0 +1,93 @@
+# Creates the service accounts, and sets them again on each run, so a run after a token rotation
+# gives each account its new token (target design, section 9.2):
+#
+# - bk-agent-stack-orchard, the controller of this project: compute:read and compute:write only.
+# - worker, the Mac hosts: compute:read and compute:write.
+#
+# It calls the REST API of Orchard with the bootstrap admin, and trusts the authority of the
+# Secret orchard-tls. A PUT replaces an account that exists, and a POST creates one that does
+# not, so the Job gives the same result on every run.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: orchard-bootstrap
+  labels:
+    app.kubernetes.io/name: orchard-bootstrap
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: orchard-bootstrap
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: bootstrap
+          image: curlimages/curl:8.22.0@sha256:58adaa4e8dca9c988bae2aba4ab3434a0bb2da16bbe3f92dec39ec7785166777
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              account() {
+                body="{\"name\":\"$1\",\"token\":\"$2\",\"roles\":[\"compute:read\",\"compute:write\"]}"
+                for method in PUT POST; do
+                  path=/v1/service-accounts
+                  [ "$method" = PUT ] && path="$path/$1"
+                  code=$(curl -sS -o /tmp/answer -w '%{http_code}' --cacert /etc/orchard/tls/ca.crt \
+                    -u "bootstrap-admin:$ORCHARD_BOOTSTRAP_ADMIN_TOKEN" -X "$method" \
+                    -H 'Content-Type: application/json' --data "$body" "$ORCHARD_URL$path")
+                  case "$code" in
+                    200) echo "the service account $1 is set"; return 0 ;;
+                    404) continue ;;
+                    *) echo "orchard answered $code for $1: $(cat /tmp/answer)" >&2; return 1 ;;
+                  esac
+                done
+                return 1
+              }
+              account bk-agent-stack-orchard "$CONTROLLER_TOKEN"
+              account worker "$WORKER_TOKEN"
+          env:
+            - name: ORCHARD_URL
+              value: https://orchard:6120
+            - name: ORCHARD_BOOTSTRAP_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: orchard-bootstrap
+                  key: bootstrap-admin-token
+            - name: CONTROLLER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: orchard-bootstrap
+                  key: controller-token
+            - name: WORKER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: orchard-bootstrap
+                  key: worker-token
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tls
+              mountPath: /etc/orchard/tls
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tls
+          secret:
+            secretName: orchard-tls
+            items:
+              - key: ca.crt
+                path: ca.crt
+        - name: tmp
+          emptyDir: {}

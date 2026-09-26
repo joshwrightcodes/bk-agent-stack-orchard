@@ -12,7 +12,9 @@ Checks:
   3. go.mod declares the Go version that the documents state;
   4. github.com/buildkite/stacksapi, when go.mod names it, is v1.2.0 or later;
   5. the Orchard of mise.toml, which the skeleton journey runs, is the minimum Orchard version
-     that the design states, and every platform of it carries a SHA-256.
+     that the design states, and every platform of it carries a SHA-256;
+  6. the image of deploy/orchard/image takes the same version and the same SHA-256 of each Linux
+     archive, so the fleet runs the Orchard that the tests run.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 GO_MOD = ROOT / "go.mod"
 MISE = ROOT / "mise.toml"
 DESIGN = ROOT / "docs/architecture/target-design.md"
+ORCHARD_IMAGE = ROOT / "deploy/orchard/image/Dockerfile"
 
 ORCHARD = ("github.com/cirruslabs/orchard", "github.com/openai/orchard")
 MINIMUM_STACKSAPI = (1, 2, 0)
@@ -86,6 +89,35 @@ def check_orchard_tool() -> None:
             )
 
 
+def check_orchard_image() -> None:
+    """Rule 6: the image of the Orchard controller agrees with the Orchard of mise.toml."""
+    if not ORCHARD_IMAGE.exists() or not MISE.exists():
+        return
+
+    image = ORCHARD_IMAGE.read_text(encoding="utf-8")
+    mise = MISE.read_text(encoding="utf-8")
+
+    version = re.search(r'^ARG ORCHARD_VERSION=(\S+)$', image, re.M)
+    pinned = re.search(r'^\[tools\."github:openai/orchard"\]\s*\nversion\s*=\s*"([^"]+)"',
+                       mise, re.M)
+    if not version or not pinned or version.group(1) != pinned.group(1):
+        errors.append(
+            f"{ORCHARD_IMAGE.relative_to(ROOT)} builds Orchard "
+            f"{version.group(1) if version else 'of no version'}, and mise.toml pins "
+            f"{pinned.group(1) if pinned else 'none'}"
+        )
+
+    for arch, platform in (("AMD64", "linux-x64"), ("ARM64", "linux-arm64")):
+        in_image = re.search(rf'^ARG ORCHARD_SHA256_{arch}=([0-9a-f]{{64}})$', image, re.M)
+        in_mise = re.search(rf'^{platform}\s*=\s*\{{[^}}]*checksum\s*=\s*"sha256:([0-9a-f]{{64}})"',
+                            mise, re.M)
+        if not in_image or not in_mise or in_image.group(1) != in_mise.group(1):
+            errors.append(
+                f"{ORCHARD_IMAGE.relative_to(ROOT)} checks the {platform} archive against a "
+                f"SHA-256 that is not the one of mise.toml"
+            )
+
+
 def main() -> int:
     if not GO_MOD.exists():
         print("check-deps: no go.mod yet, nothing to check")
@@ -129,6 +161,7 @@ def main() -> int:
             errors.append(f"{path.relative_to(ROOT)} looks like a file of the Orchard repository")
 
     check_orchard_tool()
+    check_orchard_image()
 
     if errors:
         print(f"check-deps: {len(errors)} problem(s)\n", file=sys.stderr)

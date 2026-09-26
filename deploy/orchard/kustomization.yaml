@@ -1,0 +1,27 @@
+# The Orchard controller on Kubernetes (target design, section 11). A base: an overlay sets the
+# namespace, the image in the registry of the operator, the annotations of the internal load
+# balancer of the cloud, and the endpoint of the collector.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: bk-agent-stack-orchard
+    includeSelectors: false
+
+resources:
+  - statefulset.yaml
+  - service.yaml
+  - bootstrap-job.yaml
+
+images:
+  # The image of deploy/orchard/image, built for the registry of the operator.
+  - name: orchard
+    newName: registry.example.com/orchard
+    newTag: 0.57.0
+
+configMapGenerator:
+  - name: orchard-telemetry
+    literals:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://collector.observability:4317
+      - OTEL_SERVICE_NAME=orchard
