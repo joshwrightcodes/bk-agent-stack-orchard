@@ -16,6 +16,7 @@ import (
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/inventory"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/jobstates"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/profile"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
 )
@@ -38,6 +39,7 @@ type States interface {
 // Machines is what the reaper needs of Orchard.
 type Machines interface {
 	DeleteVM(ctx context.Context, name string) error
+	Events(ctx context.Context, name string) ([]orchard.Event, error)
 }
 
 // Fleet gives the last snapshot of the machines.
@@ -289,7 +291,8 @@ func (r *Reaper) finish(ctx context.Context, machine Machine, decision Decision)
 		return nil
 	}
 
-	err := r.stacks.Finish(ctx, machine.Job, failedExitStatus, message(machine, decision))
+	err := r.stacks.Finish(ctx, machine.Job, failedExitStatus,
+		message(machine, decision, r.script(ctx, machine, decision)))
 
 	// Buildkite refuses a finish of a job that already ended or that it does not know. A second
 	// finish after a restart is the common case. The job is done either way, and every further
@@ -309,6 +312,29 @@ func (r *Reaper) finish(ctx context.Context, machine Machine, decision Decision)
 	return nil
 }
 
+// script gives the lines of the startup script for an acquire timeout, and nothing for any other
+// reason. Lines that Orchard cannot give do not stop the finish: the job still fails, and its
+// message says that the lines were not available.
+func (r *Reaper) script(ctx context.Context, machine Machine, decision Decision) []string {
+	if decision.Reason != ReasonAcquireTimeout {
+		return nil
+	}
+
+	ctx, span := r.tracer.Start(ctx, "orchard.vm.events")
+	defer span.End()
+
+	events, err := r.machines.Events(ctx, machine.VM.Name)
+	if err != nil {
+		span.RecordError(err)
+		r.logger.WarnContext(ctx, "the reaper could not read the startup script of a machine",
+			telemetry.LogJob, string(machine.Job), telemetry.LogVM, machine.VM.Name, "error", err)
+
+		return nil
+	}
+
+	return logLines(events)
+}
+
 // notify writes the reason on the job page. A line that does not arrive is worth less than the
 // removal of the machine, so a failure here is a log record and nothing more.
 func (r *Reaper) notify(ctx context.Context, machine Machine, decision Decision) {
@@ -317,7 +343,7 @@ func (r *Reaper) notify(ctx context.Context, machine Machine, decision Decision)
 	}
 
 	err := r.stacks.Notify(ctx, []buildkite.Notification{{
-		JobID: machine.Job, Detail: message(machine, decision), At: r.now(),
+		JobID: machine.Job, Detail: message(machine, decision, nil), At: r.now(),
 	}})
 	if err != nil {
 		r.logger.WarnContext(ctx, "the reaper could not write to the job page",

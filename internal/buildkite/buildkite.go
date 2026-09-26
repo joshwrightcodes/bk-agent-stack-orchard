@@ -321,8 +321,23 @@ func (c *Client) States(ctx context.Context, ids []job.ID) (map[job.ID]string, e
 	return states, nil
 }
 
+// DetailBudget is the longest finish detail, in bytes, that the library sends unchanged.
+//
+// Buildkite accepts 4 KB. The library cuts a longer detail at a rune boundary and ends it with a
+// note that says so, and it keeps the room for that note, so it begins to cut a little below
+// 4 KB. It cuts the end of the detail. A caller whose message matters most at its end, such as
+// the last lines of a startup script, shortens the message itself to this budget, so that the
+// library has nothing to cut.
+//
+// The value copies a constant that the library does not export. A test sends a detail of exactly
+// this length, and one of a byte more, through the library, so a version that moves the limit
+// fails that test instead of cutting a message quietly.
+const DetailBudget = 4*1024 - len("… (Message was cropped because it exceeded the max size)")
+
 // Finish ends a job that no agent acquired. A job that already ended gives ErrTerminal, which
 // the caller treats as complete.
+//
+// The library cuts a detail over 4 KB, at a rune boundary, and says so at its end.
 func (c *Client) Finish(ctx context.Context, id job.ID, exitStatus int, detail string) error {
 	_, err := c.api.FinishJob(ctx, stacksapi.FinishJobRequest{
 		StackKey:   c.stackKey,
