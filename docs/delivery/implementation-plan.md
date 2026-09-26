@@ -79,7 +79,7 @@ internal/launcher/              reserve, issue tokens, create VMs, notify
 internal/stack/                 stack registration, the queue poll, and the paused value
 internal/controller/            the tick loop, which a test can run one tick at a time
 internal/telemetry/             OTel meter, tracer, and the slog bridge
-internal/health/                /livez and /readyz
+internal/health/                the gRPC health service: liveness and readiness
 test/fakestacks/                the fake Stacks API server
 test/component/                 T-020: in-memory fakes of both APIs and random event sequences
 test/integration/               tests against orchard dev --synthetic
@@ -129,7 +129,7 @@ carries no release tag, so an import also pins an untagged commit of a Kubernete
 `test/fakestacks` therefore holds the file with its MIT notice and its provenance, and the module
 graph gains only `stacksapi` and the two small libraries that it needs.
 
-The copy carries six changes, because the original models only the calls that its own controller
+The copy carries seven changes, because the original models only the calls that its own controller
 makes. Each change carries a comment in the file that starts with "Change of this project":
 
 1. The stack key is a field. The original writes `test-stack` into every route, and the stack key
@@ -141,6 +141,8 @@ makes. Each change carries a comment in the file that starts with "Change of thi
 5. A test can set a job state, schedule a job again as an expired reservation does (T-021), pause
    the queue (T-022), and read the calls while the controller runs, under the lock of the server.
 6. A finish call records the exit status and the detail that it sends, which T-062 reads.
+7. A test can revoke the token while the controller runs, and every call then gets HTTP 401
+   (T-063).
 
 The fake is not a conformance suite. Open item O-1 of the test strategy stays: the fixtures of
 T-040 come from recorded responses of a real Buildkite test cluster.
@@ -186,7 +188,7 @@ from their number.
 
 | ID | Outcome | Boundary | Depends on | Completion evidence | Requirements |
 |---|---|---|---|---|---|
-| W-15 | An operator sees readiness, liveness, and the freshness of each source | `internal/health`, `internal/controller` | W-13 | T-063; `/readyz` fails when a source is older than 30 s or the API returns HTTP 401 | PR-024, PR-023 |
+| W-15 | An operator sees readiness, liveness, and the freshness of each source | `internal/health`, `internal/controller` | W-13 | T-063; readiness fails when a source is older than 30 s or the API returns HTTP 401 | PR-024, PR-023 |
 | W-16 | The telemetry proves the quality targets, and the job page shows each step | `internal/telemetry`, `internal/launcher`, `internal/reaper` | W-13 | T-008, T-009; every metric of the target design, section 10.1 exists | PR-009, PR-024, PR-025 |
 | W-17 | An outage or a rate limit degrades the controller safely | `internal/controller`, both clients | W-15 | T-024; the controller obeys `Retry-After` | PR-010, QA-03 |
 | W-18 | The token replacement procedure works, and a runbook describes it | `docs/runbooks/`, `internal/health` | W-15 | The procedure of the target design, section 9.2 passes against a test cluster | PR-023 |

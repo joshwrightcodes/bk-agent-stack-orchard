@@ -211,6 +211,17 @@ func TestLoadRejectsASourceThatIsReadLessOftenThanTheFreshnessLimit(t *testing.T
 	}
 }
 
+// The probes are how the platform learns that the controller lives, so an address that cannot be
+// served fails at start-up and not at the first probe.
+func TestLoadRejectsAHealthAddressWithoutAPort(t *testing.T) {
+	body := "healthAddress: localhost\n" + minimal
+
+	_, err := load(t, body, secrets())
+	if err == nil || !strings.Contains(err.Error(), "healthAddress") {
+		t.Errorf("Load() with a health address without a port = %v, want an error naming it", err)
+	}
+}
+
 func TestLoadRejectsAMissingSecret(t *testing.T) {
 	none := func(string) string { return "" }
 

@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -229,7 +230,21 @@ func startOrchard(t *testing.T, binary string) {
 func writeConfig(t *testing.T, endpoint string) string {
 	t.Helper()
 
+	path, _ := writeConfigWithProbes(t, endpoint)
+
+	return path
+}
+
+// writeConfigWithProbes writes the configuration of the controller under test, and gives the
+// address where the controller serves its probes. Each controller gets a port of its own, so a
+// test does not depend on a port that something else on the machine may hold.
+func writeConfigWithProbes(t *testing.T, endpoint string) (string, string) {
+	t.Helper()
+
+	address := freeAddress(t)
+
 	body := fmt.Sprintf(`controllerID: %s
+healthAddress: %s
 buildkite:
   queue: %s
   endpoint: %s
@@ -243,14 +258,29 @@ profiles:
     cpu: 8
     memoryMiB: 28672
     diskSizeGB: 150
-`, controllerID, queue, endpoint, orchardURL)
+`, controllerID, address, queue, endpoint, orchardURL)
 
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatalf("writing the configuration: %v", err)
 	}
 
-	return path
+	return path, address
+}
+
+// freeAddress gives a local address with a port that nothing holds now.
+func freeAddress(t *testing.T) string {
+	t.Helper()
+
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("finding a free port: %v", err)
+	}
+
+	address := listener.Addr().String()
+	_ = listener.Close()
+
+	return address
 }
 
 // controller is a running controller, and the file that holds what it wrote.

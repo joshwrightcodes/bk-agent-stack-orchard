@@ -6,7 +6,7 @@
 // that file also holds a Kubernetes controller: an import puts k8s.io/apimachinery, k8s.io/klog,
 // and an older stacksapi into the module graph of this project for one test helper.
 //
-// This project made six changes, because the original models only what its own controller
+// This project made seven changes, because the original models only what its own controller
 // calls. Each one carries a comment that starts with "Change of this project":
 //
 //  1. The stack key is a field. The original writes "test-stack" into every route.
@@ -19,6 +19,8 @@
 //     controller makes calls at any moment.
 //  6. A finish call records the exit status and the detail that it sends, which a test of a job
 //     that no profile carries reads. The original records the job UUID only.
+//  7. A test can revoke the token while a controller runs, and every call then gets HTTP 401.
+//     The original models no credential.
 //
 // The fake is not a conformance suite. It answers as its author believed the API answers, so a
 // test against it proves the behaviour of this controller and not the behaviour of Buildkite.
@@ -69,6 +71,12 @@ const DefaultStackKey = "test-stack"
 type Server struct {
 	server *httptest.Server
 	mu     sync.Mutex
+
+	// revoked answers every call with HTTP 401, as Buildkite does for a token that an owner
+	// revoked.
+	//
+	// Change of this project: the original models no credential.
+	revoked bool
 
 	// StackKey is the stack that the routes answer for. A call for another stack gives 404.
 	//
@@ -201,10 +209,31 @@ func (f *Server) Close() {
 	f.server.Close()
 }
 
-// stack confirms that a call names the stack that this server answers for.
+// Revoke refuses the agent token from now on: every call gets HTTP 401.
+//
+// Change of this project: the original models no credential.
+func (f *Server) Revoke() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.revoked = true
+}
+
+// stack confirms that a call names the stack that this server answers for, with a token that
+// the server still accepts.
 //
 // Change of this project: the original has one stack key in its routes, so it needs no check.
 func (f *Server) stack(w http.ResponseWriter, r *http.Request) bool {
+	f.mu.Lock()
+	revoked := f.revoked
+	f.mu.Unlock()
+
+	if revoked {
+		f.writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "invalid token"})
+
+		return false
+	}
+
 	if r.PathValue("key") == f.StackKey {
 		return true
 	}

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"net/url"
 	"os"
 	"regexp"
@@ -80,6 +81,7 @@ type Config struct {
 	Orchard        Orchard           `yaml:"orchard"`
 	MaxInFlight    uint64            `yaml:"maxInFlight,omitempty"`
 	StateFreshness time.Duration     `yaml:"stateFreshness,omitempty"`
+	HealthAddress  string            `yaml:"healthAddress,omitempty"`
 	Defaults       Defaults          `yaml:"defaults,omitempty"`
 	Profiles       []profile.Profile `yaml:"profiles"`
 
@@ -130,6 +132,7 @@ func defaults() *Config {
 			WorkerOfflineTimeout: 3 * time.Minute,
 		},
 		StateFreshness: 60 * time.Second,
+		HealthAddress:  ":8080",
 		Defaults: Defaults{
 			Timeouts: profile.Timeouts{
 				Unplaced:      2 * time.Minute,
@@ -171,6 +174,11 @@ func (c *Config) validate(environment Environment) error {
 	problems = append(problems, c.validateOrchard()...)
 	problems = append(problems, c.validateProfiles()...)
 	problems = append(problems, c.validateFreshness()...)
+
+	if _, _, err := net.SplitHostPort(c.HealthAddress); err != nil {
+		problems = append(problems, fmt.Errorf("healthAddress %q is not a host and a port: %w",
+			c.HealthAddress, err))
+	}
 	problems = append(problems, c.validateSecrets(environment)...)
 
 	return errors.Join(problems...)

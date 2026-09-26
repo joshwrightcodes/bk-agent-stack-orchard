@@ -51,6 +51,16 @@ pins:
 * The restart journey (T-021) kills the controller with SIGKILL and starts it again, at each crash
   window of the target design, section 7.4. Each job keeps at most one VM, the VM of a job that
   ended while no controller ran goes, and the first pass extends every reservation.
+* The readiness journey (T-063) revokes the agent token while the controller runs. The gRPC
+  `readiness` service then stops serving, the log names the token, and `liveness` serves. Each
+  controller of the integration tests serves its probes on a free port of its own.
+
+To probe a controller by hand, use a gRPC health client, for example
+[`grpc-health-probe`](https://github.com/grpc-ecosystem/grpc-health-probe):
+
+```sh
+grpc-health-probe -addr=localhost:8080 -service=readiness
+```
 * The interruption journeys cover a paused queue (T-022), in which no VM starts, no job is reserved
   or finished, and the VMs in progress continue, and a cancellation while a VM boots (T-023), in
   which the controller deletes the VM and does not take the job again.
