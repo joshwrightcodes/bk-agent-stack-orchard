@@ -25,6 +25,9 @@ pins:
 * The Orchard client test (T-041) sends each call of the client of this project to the real API:
   create, a second create of the same name, list, events, and delete. A synthetic worker writes
   each line of the startup script as an event, so the test also proves the events of a VM.
+* The specification test (T-064) sends the VM specification of each startup transport, with every
+  optional field of a profile set, and reads the stored VM back. Orchard ignores a field that it
+  does not know, so every field that the specification sent MUST come back with the same value.
 
 ```sh
 mise run integration
