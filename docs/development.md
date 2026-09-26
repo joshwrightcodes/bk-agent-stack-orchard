@@ -140,8 +140,9 @@ administers the repository.
 | Command | When | What it does |
 |---|---|---|
 | `create` | Once | Clones the macOS image (about 30 GiB), starts the VM, installs the runner after it checks the SHA-256, registers the runner with the label `bk-orchard-mac`, and sets `JOURNEY_RUNNER` |
-| `start` | After a restart of the Mac, or after `stop` | Starts the VM without a window. The runner starts in the VM when the VM starts |
+| `start` | After a restart of the Mac, or after `stop` | Starts the VM without a window. The runner starts in the VM when the VM starts, and launchd starts it again whenever it stops |
 | `stop` | When the Mac needs its resources | Stops the VM. The integration tests wait in the queue until the next `start` |
+| `restart` | When GitHub shows the runner offline and the VM runs | Starts the runner again in the VM. A job that the runner holds fails |
 | `status` | Any time | Shows the VM, the runner as GitHub sees it, and `JOURNEY_RUNNER` |
 | `remove` | When the runner is no longer necessary | Removes the runner from GitHub, deletes `JOURNEY_RUNNER`, and deletes the VM |
 
@@ -149,6 +150,12 @@ administers the repository.
 scripts/journey-runner.sh create
 scripts/journey-runner.sh status
 ```
+
+A Mac that sleeps stops the clock of the VM. When the Mac wakes, the runner can renew its session
+with the old time, GitHub refuses the token as expired, and the runner exits: the VM runs, and
+GitHub shows the runner offline. The service of the runner has `KeepAlive`, so launchd starts the
+runner again within 30 s, when the clock of the VM is right again. `create` and `start` set it, and
+`restart` starts a runner at once.
 
 The runner takes a job only while the VM runs and the Mac is awake. A job that finds no runner waits
 in the queue, and GitHub cancels it after 24 hours. While jobs are expected, `caffeinate -i` keeps

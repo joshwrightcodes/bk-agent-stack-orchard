@@ -8,7 +8,7 @@
 # gives the job a runner of its own. The VM keeps the jobs away from the files of the Mac, and it
 # goes away with one command.
 #
-# Usage: scripts/journey-runner.sh create|start|stop|status|remove
+# Usage: scripts/journey-runner.sh create|start|stop|restart|status|remove
 #
 # docs/development.md explains when to use each command, and what to do before the repository is
 # public.
@@ -109,6 +109,8 @@ create() {
 			./svc.sh start
 		"
 
+	keepalive
+
 	say "pointing the integration tests at the runner"
 	gh variable set JOURNEY_RUNNER --repo "$REPO" --body "$LABEL"
 
@@ -119,6 +121,51 @@ start() {
 	require
 	exists || die "the VM $VM does not exist; run create first"
 	boot
+	keepalive
+	status
+}
+
+# keepalive makes launchd start the runner again whenever it stops.
+#
+# The service that svc.sh installs starts the runner once, at load. A Mac that sleeps stops the
+# clock of the VM with it, and when the Mac wakes, the runner renews its session with the old time,
+# GitHub refuses the token as expired, and the runner exits. The VM runs on with no runner, and
+# GitHub shows it offline until someone starts it. KeepAlive starts it again, and the throttle waits
+# 30 s between the starts, by which time the clock of the VM is right again.
+#
+# A service that already keeps the runner alive is left as it is, so that a start does not stop a
+# job that the runner has just taken.
+keepalive() {
+	tart exec "$VM" /bin/sh -c '
+		set -e
+		plist=$(ls ~/Library/LaunchAgents/actions.runner.*.plist)
+		buddy=/usr/libexec/PlistBuddy
+		if [ "$($buddy -c "Print :KeepAlive" "$plist" 2>/dev/null)" = "true" ]; then
+			exit 0
+		fi
+		label=$($buddy -c "Print :Label" "$plist")
+		$buddy -c "Delete :KeepAlive" "$plist" 2>/dev/null || true
+		$buddy -c "Add :KeepAlive bool true" "$plist"
+		$buddy -c "Delete :ThrottleInterval" "$plist" 2>/dev/null || true
+		$buddy -c "Add :ThrottleInterval integer 30" "$plist"
+		launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
+		launchctl bootstrap "gui/$(id -u)" "$plist"
+		echo "journey-runner: launchd now starts the runner again whenever it stops"
+	'
+}
+
+# restart starts the runner again inside a VM that runs. A job that the runner holds fails.
+restart() {
+	require
+	running || die "the VM $VM does not run; run start"
+	keepalive
+	tart exec "$VM" /bin/sh -c '
+		set -e
+		plist=$(ls ~/Library/LaunchAgents/actions.runner.*.plist)
+		label=$(/usr/libexec/PlistBuddy -c "Print :Label" "$plist")
+		launchctl kickstart -k "gui/$(id -u)/$label"
+	'
+	say "restarted the runner in $VM"
 	status
 }
 
@@ -179,6 +226,6 @@ remove() {
 }
 
 case "${1:-}" in
-create | start | stop | status | remove) "$1" ;;
-*) die "usage: $0 create|start|stop|status|remove" ;;
+create | start | stop | restart | status | remove) "$1" ;;
+*) die "usage: $0 create|start|stop|restart|status|remove" ;;
 esac
