@@ -120,11 +120,22 @@ func options(t *testing.T, r *recorder) controller.Options {
 	}
 
 	return controller.Options{
-		Stack:    &registrar{recorder: r},
-		Queue:    queue{latest: stack.Queue{At: time.Now()}, read: true},
-		Interval: time.Millisecond,
-		Metrics:  instruments,
-		Logger:   slog.New(slog.DiscardHandler),
+		Stack:     &registrar{recorder: r},
+		Sources:   fresh(r),
+		Queue:     queue{latest: stack.Queue{At: time.Now()}, read: true},
+		Interval:  time.Millisecond,
+		Freshness: time.Minute,
+		Metrics:   instruments,
+		Logger:    slog.New(slog.DiscardHandler),
+	}
+}
+
+// fresh gives the sources that admission rests on, each with an answer that has just arrived and
+// an interval that no test outlasts.
+func fresh(r *recorder) []controller.Source {
+	return []controller.Source{
+		&source{recorder: r, kind: telemetry.SourceScheduledJobs, interval: time.Hour, at: time.Now()},
+		&source{recorder: r, kind: telemetry.SourceInventory, interval: time.Hour, at: time.Now()},
 	}
 }
 
@@ -168,16 +179,13 @@ func TestTheStepsOfATickRunInOrder(t *testing.T) {
 
 	r := &recorder{}
 	settings := options(t, r)
-	settings.Sources = []controller.Source{
-		&source{recorder: r, kind: telemetry.SourceScheduledJobs, at: time.Now()},
-	}
 	settings.Reap = func(context.Context) error { r.add("reap"); return nil }
 	settings.Admit = func(context.Context) error { r.add("admit"); return nil }
 
 	runOnce(t, settings, func() bool { return slices.Contains(r.seen(), "admit") })
 
 	seen := r.seen()
-	want := []string{"register", "scheduled_jobs", "reap", "admit"}
+	want := []string{"register", "scheduled_jobs", "inventory", "reap", "admit"}
 
 	for i, step := range want {
 		if i >= len(seen) || seen[i] != step {
@@ -223,6 +231,43 @@ func TestAnUnreadQueueStopsAdmission(t *testing.T) {
 
 	if slices.Contains(r.seen(), "admit") {
 		t.Errorf("the loop admitted a job before it read the queue: %v", r.seen())
+	}
+}
+
+// A source whose calls fail keeps its last answer, and the fleet and the queue move on without it.
+// A job started on that answer can take a slot that is gone, so an old answer stops admission. The
+// reaper still runs, because its own rules decide what an old answer allows it.
+func TestAnOldAnswerStopsAdmissionAndNotTheReaper(t *testing.T) {
+	t.Parallel()
+
+	for _, stale := range []telemetry.Source{telemetry.SourceScheduledJobs, telemetry.SourceInventory} {
+		for name, at := range map[string]time.Time{
+			"older than the limit": time.Now().Add(-2 * time.Minute),
+			"never answered":       {},
+		} {
+			t.Run(string(stale)+" "+name, func(t *testing.T) {
+				t.Parallel()
+
+				r := &recorder{}
+				settings := options(t, r)
+
+				for _, s := range settings.Sources {
+					if s := s.(*source); s.kind == stale {
+						s.at = at
+					}
+				}
+
+				settings.Reap = func(context.Context) error { r.add("reap"); return nil }
+				settings.Admit = func(context.Context) error { r.add("admit"); return nil }
+
+				runOnce(t, settings, func() bool { return slices.Contains(r.seen(), "reap") })
+
+				if slices.Contains(r.seen(), "admit") {
+					t.Errorf("the loop admitted a job on the answer of %s at %v: %v", stale, at,
+						r.seen())
+				}
+			})
+		}
 	}
 }
 
@@ -304,6 +349,15 @@ func TestNewRefusesAnIncompleteLoop(t *testing.T) {
 		"no instruments": func(o *controller.Options) { o.Metrics = nil },
 		"no logger":      func(o *controller.Options) { o.Logger = nil },
 		"no interval":    func(o *controller.Options) { o.Interval = 0 },
+		"no freshness":   func(o *controller.Options) { o.Freshness = 0 },
+		"admission without the inventory": func(o *controller.Options) {
+			o.Admit = func(context.Context) error { return nil }
+			o.Sources = o.Sources[:1]
+		},
+		"admission without the queue": func(o *controller.Options) {
+			o.Admit = func(context.Context) error { return nil }
+			o.Sources = o.Sources[1:]
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			settings := options(t, r)

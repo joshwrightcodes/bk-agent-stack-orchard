@@ -193,6 +193,24 @@ profiles:`, 1)
 	}
 }
 
+func TestLoadRejectsASourceThatIsReadLessOftenThanTheFreshnessLimit(t *testing.T) {
+	for name, change := range map[string]string{
+		"buildkite.pollInterval":      "buildkite:\n  pollInterval: 60s",
+		"buildkite.jobStatesInterval": "buildkite:\n  jobStatesInterval: 90s",
+		"orchard.inventoryInterval":   "orchard:\n  inventoryInterval: 2m",
+	} {
+		t.Run(name, func(t *testing.T) {
+			body := strings.Replace(minimal, strings.SplitN(change, "\n", 2)[0], change, 1)
+
+			_, err := load(t, body, secrets())
+			if err == nil || !strings.Contains(err.Error(), name) ||
+				!strings.Contains(err.Error(), "stateFreshness") {
+				t.Errorf("Load() with %s = %v, want an error naming it and stateFreshness", change, err)
+			}
+		})
+	}
+}
+
 func TestLoadRejectsAMissingSecret(t *testing.T) {
 	none := func(string) string { return "" }
 

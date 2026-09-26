@@ -170,6 +170,7 @@ func (c *Config) validate(environment Environment) error {
 	problems = append(problems, c.validateBuildkite()...)
 	problems = append(problems, c.validateOrchard()...)
 	problems = append(problems, c.validateProfiles()...)
+	problems = append(problems, c.validateFreshness()...)
 	problems = append(problems, c.validateSecrets(environment)...)
 
 	return errors.Join(problems...)
@@ -203,6 +204,31 @@ func (c *Config) validateBuildkite() []error {
 			"buildkite.reservationRenewBefore (%s) must be shorter than buildkite.reservationExpiry (%s), "+
 				"so that a renewal happens before the reservation lapses",
 			c.Buildkite.ReservationRenewBefore, c.Buildkite.ReservationExpiry))
+	}
+
+	return problems
+}
+
+// validateFreshness keeps each source inside the freshness limit. Admission and the reaper act only
+// on an answer newer than stateFreshness, so a source that is read less often than that stops them
+// for good, and the controller would look healthy while it started and removed nothing.
+func (c *Config) validateFreshness() []error {
+	var problems []error
+
+	for _, source := range []struct {
+		name     string
+		interval time.Duration
+	}{
+		{"buildkite.pollInterval", c.Buildkite.PollInterval},
+		{"buildkite.jobStatesInterval", c.Buildkite.JobStatesInterval},
+		{"orchard.inventoryInterval", c.Orchard.InventoryInterval},
+	} {
+		if source.interval >= c.StateFreshness {
+			problems = append(problems, fmt.Errorf(
+				"%s (%s) must be shorter than stateFreshness (%s), so that its answer is fresh "+
+					"when admission and the reaper read it", source.name, source.interval,
+				c.StateFreshness))
+		}
 	}
 
 	return problems
