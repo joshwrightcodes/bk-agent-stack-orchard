@@ -2,11 +2,20 @@ package app_test
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
+
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
+	tracenoop "go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/app"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
@@ -200,5 +209,168 @@ func TestBuildRefusesAnIncompleteController(t *testing.T) {
 				t.Errorf("Build() with %s = nil, want an error", name)
 			}
 		})
+	}
+}
+
+// broken is an Orchard whose calls fail, as one that is not available.
+type broken struct{ fleet }
+
+func (*broken) ListVMs(context.Context) ([]orchard.VM, error) {
+	return nil, errors.New("orchard answered 503 Service Unavailable")
+}
+
+// Every call to either API is counted when it fails: the parts see the APIs only through the
+// counter that app.Build puts in front of them.
+func TestAFailedCallIsCountedAsAnErrorOfItsSystem(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+
+	instruments, err := telemetry.NewMetrics(provider.Meter("test"))
+	if err != nil {
+		t.Fatalf("NewMetrics() = %v, want the instruments", err)
+	}
+
+	loop, err := app.Build(app.Options{
+		Config:    settings(t),
+		Telemetry: &telemetry.Telemetry{Metrics: instruments, Logger: slog.New(slog.DiscardHandler), Tracer: tracenoop.NewTracerProvider().Tracer("")},
+		Stacks:    stacks{},
+		Orchard:   &broken{},
+		Now:       func() time.Time { return clock },
+	})
+	if err != nil {
+		t.Fatalf("Build() = %v, want the loop", err)
+	}
+
+	loop.Tick(t.Context(), clock)
+
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(t.Context(), &collected); err != nil {
+		t.Fatalf("Collect() = %v, want the metrics", err)
+	}
+
+	for _, scope := range collected.ScopeMetrics {
+		for _, m := range scope.Metrics {
+			if m.Name != "cicd.system.errors" {
+				continue
+			}
+
+			for _, point := range m.Data.(metricdata.Sum[int64]).DataPoints {
+				component, _ := point.Attributes.Value("cicd.system.component")
+				kind, _ := point.Attributes.Value("error.type")
+
+				if component.AsString() == "orchard" && kind.AsString() == "_OTHER" && point.Value == 1 {
+					return
+				}
+			}
+		}
+	}
+
+	t.Errorf("the metrics %+v hold no failed Orchard call", collected.ScopeMetrics)
+}
+
+// job.match and job.admit go into the trace of the job once each, however many ticks the job
+// waits, and the tick that wrote them links to them.
+func TestAJobIsMatchedAndAdmittedOnceInItsTrace(t *testing.T) {
+	exporter := tracetest.NewInMemoryExporter()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+
+	quiet := quiet(t)
+
+	loop, err := app.Build(app.Options{
+		Config: settings(t),
+		Telemetry: &telemetry.Telemetry{
+			Metrics: quiet.Metrics, Logger: slog.New(slog.DiscardHandler),
+			Tracer: provider.Tracer("test"),
+		},
+		Stacks:  stacks{},
+		Orchard: &fleet{},
+		Now:     func() time.Time { return clock },
+	})
+	if err != nil {
+		t.Fatalf("Build() = %v, want the loop", err)
+	}
+
+	for i := range 3 {
+		loop.Tick(t.Context(), clock.Add(time.Duration(i)*time.Second))
+	}
+
+	want, err := telemetry.TraceID(waiting)
+	if err != nil {
+		t.Fatalf("TraceID() = %v, want no error", err)
+	}
+
+	count := map[string]int{}
+	var admit trace.SpanID
+
+	for _, span := range exporter.GetSpans() {
+		if span.SpanContext.TraceID() == want {
+			count[span.Name]++
+		}
+
+		if span.Name == "job.admit" {
+			admit = span.SpanContext.SpanID()
+		}
+	}
+
+	if count["job.match"] != 1 || count["job.admit"] != 1 {
+		t.Errorf("the trace of the job holds %v, want job.match and job.admit once each", count)
+	}
+
+	for _, span := range exporter.GetSpans() {
+		if span.Name != "tick.admit" {
+			continue
+		}
+
+		for _, link := range span.Links {
+			if link.SpanContext.SpanID() == admit {
+				return
+			}
+		}
+	}
+
+	t.Error("no tick.admit span links to the job.admit span")
+}
+
+// full is a fleet with no room, so a job waits there tick after tick.
+type full struct{ fleet }
+
+func (*full) ListWorkers(context.Context) ([]orchard.Worker, error) {
+	return []orchard.Worker{{Name: "mac-01", LastSeen: clock, Resources: map[string]uint64{}}}, nil
+}
+
+// A job that waits is matched once, not at each tick: a span each second would bury the trace of
+// a job that waits fifteen minutes.
+func TestAJobThatWaitsIsMatchedOnce(t *testing.T) {
+	exporter := tracetest.NewInMemoryExporter()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+
+	loop, err := app.Build(app.Options{
+		Config: settings(t),
+		Telemetry: &telemetry.Telemetry{
+			Metrics: quiet(t).Metrics, Logger: slog.New(slog.DiscardHandler),
+			Tracer: provider.Tracer("test"),
+		},
+		Stacks:  stacks{},
+		Orchard: &full{},
+		Now:     func() time.Time { return clock },
+	})
+	if err != nil {
+		t.Fatalf("Build() = %v, want the loop", err)
+	}
+
+	for i := range 5 {
+		loop.Tick(t.Context(), clock.Add(time.Duration(i)*time.Second))
+	}
+
+	count := map[string]int{}
+	for _, span := range exporter.GetSpans() {
+		count[span.Name]++
+	}
+
+	if count["job.match"] != 1 || count["job.admit"] != 0 {
+		t.Errorf("five ticks wrote %v, want job.match once and no job.admit", count)
 	}
 }

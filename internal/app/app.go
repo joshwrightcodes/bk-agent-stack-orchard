@@ -13,6 +13,10 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/admission"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/config"
@@ -61,13 +65,23 @@ func Build(options Options) (*controller.Controller, error) {
 		environment = func(string) string { return "" }
 	}
 
-	registration, err := stack.New(options.Stacks)
+	// Each call to either API is counted when it fails, here and nowhere else.
+	stacks := countedStacks{
+		next:    options.Stacks,
+		counter: counter{metrics: recorder.Metrics, component: telemetry.ComponentBuildkite},
+	}
+	machines := countedOrchard{
+		next:    options.Orchard,
+		counter: counter{metrics: recorder.Metrics, component: telemetry.ComponentOrchard},
+	}
+
+	registration, err := stack.New(stacks)
 	if err != nil {
 		return nil, err
 	}
 
 	poller, err := stack.NewPoller(stack.PollerOptions{
-		Stacks:   options.Stacks,
+		Stacks:   stacks,
 		Interval: settings.Buildkite.PollInterval,
 		Now:      now,
 	})
@@ -76,7 +90,7 @@ func Build(options Options) (*controller.Controller, error) {
 	}
 
 	fleet, err := inventory.New(inventory.Options{
-		Orchard:        options.Orchard,
+		Orchard:        machines,
 		ControllerID:   settings.ControllerID,
 		Interval:       settings.Orchard.InventoryInterval,
 		OfflineTimeout: settings.Orchard.WorkerOfflineTimeout,
@@ -87,8 +101,8 @@ func Build(options Options) (*controller.Controller, error) {
 	}
 
 	starter, err := launcher.New(launcher.Options{
-		Stacks:            options.Stacks,
-		Orchard:           options.Orchard,
+		Stacks:            stacks,
+		Orchard:           machines,
 		ControllerID:      settings.ControllerID,
 		Queue:             settings.Buildkite.Queue,
 		ReservationExpiry: settings.Buildkite.ReservationExpiry,
@@ -106,7 +120,7 @@ func Build(options Options) (*controller.Controller, error) {
 	// The job states ask about the machines that the inventory holds, so they follow it in the
 	// sources of the loop, and each tick asks about the machines that it has just read.
 	observed, err := jobstates.New(jobstates.Options{
-		Stacks:   options.Stacks,
+		Stacks:   stacks,
 		Fleet:    fleet,
 		Interval: settings.Buildkite.JobStatesInterval,
 		Now:      now,
@@ -116,11 +130,11 @@ func Build(options Options) (*controller.Controller, error) {
 	}
 
 	reaping, err := reaper.New(reaper.Options{
-		Stacks:       options.Stacks,
+		Stacks:       stacks,
 		States:       observed,
 		Reservations: starter,
 		RenewBefore:  settings.Buildkite.ReservationRenewBefore,
-		Orchard:      options.Orchard,
+		Orchard:      machines,
 		Fleet:        fleet,
 		Profile:      starter.Profile,
 		Profiles:     settings.Profiles,
@@ -142,7 +156,9 @@ func Build(options Options) (*controller.Controller, error) {
 		starter:  starter,
 		logger:   recorder.Logger,
 		metrics:  recorder.Metrics,
+		tracer:   recorder.Tracer,
 		now:      now,
+		seen:     map[job.ID]bool{},
 	}
 
 	return controller.New(controller.Options{
@@ -169,7 +185,12 @@ type admitter struct {
 	starter  *launcher.Launcher
 	logger   *slog.Logger
 	metrics  *telemetry.Metrics
+	tracer   trace.Tracer
 	now      func() time.Time
+
+	// seen holds the jobs of the queue whose job.match span this process wrote. Only the
+	// goroutine of the loop reads and writes it.
+	seen map[job.ID]bool
 
 	mu     sync.Mutex
 	latest admission.Result
@@ -199,6 +220,8 @@ func (a *admitter) admit(ctx context.Context) error {
 		Now:         a.now(),
 	})
 
+	a.trace(ctx, queue.Jobs, result)
+
 	for _, unmatched := range result.Unmatched {
 		a.metrics.Unmatched(ctx)
 		a.logger.WarnContext(ctx, "no profile carries this job",
@@ -212,6 +235,66 @@ func (a *admitter) admit(ctx context.Context) error {
 	a.mu.Unlock()
 
 	return a.starter.Launch(ctx, result, held)
+}
+
+// trace writes job.match for each job that this process sees in the queue for the first time,
+// and job.admit for each job that admission starts. A span at each tick would put a span each
+// second into the trace of a job that waits. A job that comes back to the queue, because its
+// reservation lapsed, is matched again.
+func (a *admitter) trace(ctx context.Context, waiting []buildkite.ScheduledJob,
+	result admission.Result,
+) {
+	profiles := make(map[job.ID]string, len(result.Matched))
+	for _, candidate := range result.Matched {
+		profiles[candidate.Job.ID] = candidate.Profile.Name
+	}
+
+	reasons := make(map[job.ID]string, len(result.Unmatched))
+	for _, unmatched := range result.Unmatched {
+		reasons[unmatched.Job.ID] = unmatched.Reason
+	}
+
+	queued := make(map[job.ID]bool, len(waiting))
+
+	for _, scheduled := range waiting {
+		queued[scheduled.ID] = true
+
+		if a.seen[scheduled.ID] {
+			continue
+		}
+
+		profile, matched := profiles[scheduled.ID]
+		reason, unmatched := reasons[scheduled.ID]
+
+		// A job with a machine is in neither list, and its match is in its trace already.
+		if !matched && !unmatched {
+			continue
+		}
+
+		_, span := telemetry.StartJob(ctx, a.tracer, scheduled.ID, "job.match",
+			trace.WithAttributes(
+				attribute.Bool(telemetry.SpanMatched, matched),
+				attribute.String(telemetry.SpanProfile, profile),
+			))
+		if unmatched {
+			span.SetStatus(codes.Error, reason)
+		}
+		span.End()
+
+		a.seen[scheduled.ID] = true
+	}
+
+	for id := range a.seen {
+		if !queued[id] {
+			delete(a.seen, id)
+		}
+	}
+
+	for _, admitted := range result.Admit {
+		_, span := telemetry.StartJob(ctx, a.tracer, admitted.Job.ID, "job.admit",
+			trace.WithAttributes(attribute.String(telemetry.SpanProfile, admitted.Profile.Name)))
+		span.End()
+	}
 }
 
 // observe gives the instruments what this tick saw.

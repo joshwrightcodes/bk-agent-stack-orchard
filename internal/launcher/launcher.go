@@ -326,7 +326,7 @@ func (l *Launcher) finishUnmatched(ctx context.Context, decision admission.Resul
 			continue
 		}
 
-		ctx, span := l.tracer.Start(telemetry.WithJob(ctx, unmatched.Job.ID), "stacks.finish_job")
+		ctx, span := telemetry.StartJob(ctx, l.tracer, unmatched.Job.ID, "stacks.finish_job")
 
 		err := l.stacks.Finish(ctx, unmatched.Job.ID, unmatchedExitStatus, unmatched.Reason)
 		if err != nil {
@@ -389,8 +389,7 @@ func (l *Launcher) create(ctx context.Context, wanted []admission.Candidate,
 			continue
 		}
 
-		jobCtx, span := l.tracer.Start(telemetry.WithJob(ctx, candidate.Job.ID),
-			"orchard.vm.create")
+		jobCtx, span := telemetry.StartJob(ctx, l.tracer, candidate.Job.ID, "orchard.vm.create")
 
 		if err := l.machine(jobCtx, candidate, token); err != nil {
 			span.RecordError(err)

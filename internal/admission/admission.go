@@ -76,6 +76,10 @@ type Result struct {
 	// Unmatched are the jobs to end with a reason.
 	Unmatched []Unmatched
 
+	// Matched are the jobs that a profile carries and that have no machine yet, in the order of
+	// admission. Admit is the part of them that the fleet has room for.
+	Matched []Candidate
+
 	// Waiting is the jobs of each profile that have no machine yet, which includes the ones that
 	// this decision admits. It is the demand that the fleet faces.
 	Waiting map[string]int64
@@ -108,6 +112,8 @@ func Decide(request Request) Result {
 
 		return a.Job.ScheduledAt.Compare(b.Job.ScheduledAt)
 	})
+
+	result.Matched = candidates
 
 	free := freeResources(request)
 	limit := inFlightLimit(request)

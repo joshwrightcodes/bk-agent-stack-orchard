@@ -42,6 +42,24 @@ func WithJob(ctx context.Context, id job.ID) context.Context {
 	}))
 }
 
+// StartJob starts a span of one job in the trace of that job, and links the span of the context
+// to it. Every span that begins the work of a job starts here.
+//
+// The span of the context is the tick that does the work. A tick is a short trace of its own, and
+// the link is how a person goes from a slow tick to the jobs that it touched (target design,
+// section 10.2).
+func StartJob(ctx context.Context, tracer trace.Tracer, id job.ID, name string,
+	options ...trace.SpanStartOption,
+) (context.Context, trace.Span) {
+	tick := trace.SpanFromContext(ctx)
+
+	ctx, span := tracer.Start(WithJob(ctx, id), name, options...)
+
+	tick.AddLink(trace.Link{SpanContext: span.SpanContext()})
+
+	return ctx, span
+}
+
 // TraceID gives the trace identifier of a job, which is the 128 bits of its Buildkite UUID.
 // Because of this, a person who has the job page can find the trace, and every span of the job
 // is in that one trace.
