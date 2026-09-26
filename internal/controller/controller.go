@@ -60,6 +60,12 @@ type Queue interface {
 // another agent took.
 var admissionRests = []telemetry.Source{telemetry.SourceScheduledJobs, telemetry.SourceInventory}
 
+// admissionFollows is the source that must have answered once before the first admission (target
+// design, section 7.4). After a restart the machines of the last process still run, and a reaper
+// pass with their job states removes the ones whose jobs ended and extends every reservation.
+// Admission comes after that pass, and not before it.
+const admissionFollows = telemetry.SourceJobStates
+
 // step names the part of a tick that a span and a metric carry.
 var step = map[telemetry.Source]string{
 	telemetry.SourceScheduledJobs: "poll",
@@ -154,7 +160,7 @@ func New(options Options) (*Controller, error) {
 	// Without a source, the gate of admission has nothing to measure, and a wiring that left one
 	// out would start jobs on an answer of any age.
 	if options.Admit != nil {
-		for _, rest := range admissionRests {
+		for _, rest := range append(slices.Clone(admissionRests), admissionFollows) {
 			if !slices.ContainsFunc(options.Sources, func(s Source) bool { return s.Source() == rest }) {
 				problems = append(problems, fmt.Errorf("admission rests on the source %s, and the "+
 					"loop does not have it", rest))
@@ -341,6 +347,11 @@ func (c *Controller) mayAdmit(at time.Time) (string, bool) {
 	}
 
 	for _, source := range c.sources {
+		if source.Source() == admissionFollows && source.At().IsZero() {
+			return fmt.Sprintf("the source %s has not answered yet, so no reaper pass has seen "+
+				"the machines of the last process", source.Source()), false
+		}
+
 		if !slices.Contains(admissionRests, source.Source()) {
 			continue
 		}
