@@ -222,3 +222,6 @@ dist/
 # mise local overrides
 mise.local.toml
 .mise.local.toml
+
+# The fail files that rapid writes to replay a failed sequence.
+test/component/testdata/rapid/

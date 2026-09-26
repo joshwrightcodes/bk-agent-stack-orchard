@@ -81,6 +81,7 @@ internal/controller/            the tick loop, which a test can run one tick at 
 internal/telemetry/             OTel meter, tracer, and the slog bridge
 internal/health/                /livez and /readyz
 test/fakestacks/                the fake Stacks API server
+test/component/                 T-020: in-memory fakes of both APIs and random event sequences
 test/integration/               tests against orchard dev --synthetic
 test/load/                      the nightly load test
 deploy/helm/                    the controller chart

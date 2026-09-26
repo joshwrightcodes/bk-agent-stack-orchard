@@ -895,6 +895,10 @@ Each item MUST have its own ADR before implementation:
 * **Configuration dependency:** `github.com/goccy/go-yaml`. It decodes `time.Duration`, it
   refuses a key that the configuration does not declare, and its errors name the line and the
   column. `gopkg.in/yaml.v3` is archived (2025-04-01).
+* **Test dependency:** `pgregory.net/rapid` runs the property-based component suite (T-020). It
+  draws random sequences of events, and it shrinks a sequence that breaks an invariant to a short
+  one. Only tests import it, so the binary does not carry it. It uses the MPL-2.0, which permits
+  use with the AGPL-3.0.
 * **Telemetry dependencies:** the OpenTelemetry Go SDK, its semantic conventions package, the
   OTLP exporters of the three signals, the stdout exporter of the log signal, the `minsev`
   processor, `otelslog`, and `otelhttp`. The CI/CD conventions are a release candidate, so a
