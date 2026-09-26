@@ -82,6 +82,18 @@ func newFleet(t *testing.T, rt *rapid.T, recorder *telemetry.Telemetry) *fleet {
 	// Zero means the slots of the fleet, and three holds the controller below the four slots.
 	maxInFlight := rapid.SampledFrom([]uint64{0, 3}).Draw(rt, "maxInFlight")
 
+	return newFleetWith(t, rt, recorder, maxInFlight)
+}
+
+// fataler is what the world needs of a test: *testing.T and *rapid.T both have it.
+type fataler interface {
+	Fatalf(format string, args ...any)
+}
+
+// newFleetWith builds the world with a limit that the caller chose.
+func newFleetWith(t *testing.T, fatal fataler, recorder *telemetry.Telemetry,
+	maxInFlight uint64,
+) *fleet {
 	f := &fleet{
 		ctx:         t.Context(),
 		recorder:    recorder,
@@ -94,14 +106,14 @@ func newFleet(t *testing.T, rt *rapid.T, recorder *telemetry.Telemetry) *fleet {
 	f.stacks = newStacks(clock, &f.violations)
 	f.orchard = newOrchard(clock, f.settings.Orchard.WorkerOfflineTimeout, 2)
 	f.orchard.created = f.created
-	f.start(rt)
+	f.start(fatal)
 
 	return f
 }
 
 // start builds the controller as the binary does, with the fakes and the clock of the suite. A
 // restart is a second start: the new process knows nothing of the last one.
-func (f *fleet) start(rt *rapid.T) {
+func (f *fleet) start(rt fataler) {
 	loop, err := app.Build(app.Options{
 		Config:    f.settings,
 		Telemetry: f.recorder,

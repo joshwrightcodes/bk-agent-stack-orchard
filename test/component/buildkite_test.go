@@ -47,6 +47,15 @@ type stacksFake struct {
 	order  []job.ID
 	paused bool
 
+	// down is the answer of every call while Buildkite is not available.
+	down error
+
+	// calls holds each call, with the endpoint and the time of the suite, for the request
+	// budget. finished holds each job that a finish call ended, and lines each line of a job page.
+	calls    []call
+	finished []job.ID
+	lines    []buildkite.Notification
+
 	// reported is the state of each job in the last answer that the controller got. A finish of a
 	// job whose last answer showed an agent is a finish after the controller knew of the agent.
 	reported map[job.ID]string
@@ -93,10 +102,27 @@ func (s *stacksFake) violate(format string, args ...any) {
 	*s.violations = append(*s.violations, fmt.Sprintf(format, args...))
 }
 
-func (s *stacksFake) Register(context.Context) error   { return nil }
-func (s *stacksFake) Deregister(context.Context) error { return nil }
+// call is one request of the controller.
+type call struct {
+	endpoint string
+	at       time.Time
+}
+
+// called records a request, and gives the answer of an API that is not available.
+func (s *stacksFake) called(endpoint string) error {
+	s.calls = append(s.calls, call{endpoint: endpoint, at: s.now()})
+
+	return s.down
+}
+
+func (s *stacksFake) Register(context.Context) error   { return s.called("register") }
+func (s *stacksFake) Deregister(context.Context) error { return s.called("deregister") }
 
 func (s *stacksFake) ScheduledJobs(context.Context, string, int) (buildkite.Page, error) {
+	if err := s.called("list"); err != nil {
+		return buildkite.Page{}, err
+	}
+
 	s.lapse()
 
 	page := buildkite.Page{Paused: s.paused}
@@ -119,6 +145,10 @@ func (s *stacksFake) ScheduledJobs(context.Context, string, int) (buildkite.Page
 func (s *stacksFake) Reserve(_ context.Context, ids []job.ID, expiry time.Duration) (
 	buildkite.Reservation, error,
 ) {
+	if err := s.called("reserve"); err != nil {
+		return buildkite.Reservation{}, err
+	}
+
 	s.lapse()
 
 	var answer buildkite.Reservation
@@ -142,6 +172,10 @@ func (s *stacksFake) Reserve(_ context.Context, ids []job.ID, expiry time.Durati
 func (s *stacksFake) Tokens(_ context.Context, ids []job.ID, lifetime time.Duration) (
 	buildkite.Tokens, error,
 ) {
+	if err := s.called("tokens"); err != nil {
+		return buildkite.Tokens{}, err
+	}
+
 	var answer buildkite.Tokens
 
 	for _, id := range ids {
@@ -158,6 +192,10 @@ func (s *stacksFake) Tokens(_ context.Context, ids []job.ID, lifetime time.Durat
 }
 
 func (s *stacksFake) States(_ context.Context, ids []job.ID) (map[job.ID]string, error) {
+	if err := s.called("states"); err != nil {
+		return nil, err
+	}
+
 	s.lapse()
 
 	states := map[job.ID]string{}
@@ -174,6 +212,10 @@ func (s *stacksFake) States(_ context.Context, ids []job.ID) (map[job.ID]string,
 
 // Finish ends a job that no agent took. Buildkite refuses it for any other job.
 func (s *stacksFake) Finish(_ context.Context, id job.ID, _ int, _ string) error {
+	if err := s.called("finish"); err != nil {
+		return err
+	}
+
 	s.lapse()
 
 	// I-5: the controller finishes no job after it learned that an agent took it.
@@ -187,8 +229,17 @@ func (s *stacksFake) Finish(_ context.Context, id job.ID, _ int, _ string) error
 	}
 
 	w.state = stateFinished
+	s.finished = append(s.finished, id)
 
 	return nil
 }
 
-func (s *stacksFake) Notify(context.Context, []buildkite.Notification) error { return nil }
+func (s *stacksFake) Notify(_ context.Context, lines []buildkite.Notification) error {
+	if err := s.called("notify"); err != nil {
+		return err
+	}
+
+	s.lines = append(s.lines, lines...)
+
+	return nil
+}
