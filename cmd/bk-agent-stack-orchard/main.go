@@ -261,6 +261,7 @@ func (a *admitter) admit(ctx context.Context) error {
 		Jobs:        queue.Jobs,
 		Profiles:    a.settings.Profiles,
 		Fleet:       held,
+		Held:        a.starter.Held(held),
 		Eligible:    a.fleet.Eligible,
 		MaxInFlight: a.settings.MaxInFlight,
 		Now:         time.Now(),

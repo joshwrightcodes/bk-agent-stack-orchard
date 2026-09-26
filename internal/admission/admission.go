@@ -16,6 +16,7 @@ import (
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/inventory"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/match"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/profile"
@@ -52,6 +53,12 @@ type Request struct {
 
 	// Eligible decides whether a worker may take a machine of a profile.
 	Eligible Eligible
+
+	// Held are the jobs that this process holds and that Fleet does not show a machine for, each
+	// with the profile of the machine that this process asked for, or empty text when it asked
+	// for none. The inventory learns of a launch only at its next refresh, and without this a job
+	// that this process just started looks like a waiting job with no machine.
+	Held map[job.ID]string
 
 	// MaxInFlight limits the machines of this controller. Zero means the slots of the fleet, so
 	// that the limit follows the hardware and holds no slot empty.
@@ -104,7 +111,7 @@ func Decide(request Request) Result {
 
 	free := freeResources(request)
 	limit := inFlightLimit(request)
-	running := uint64(len(request.Fleet.Owned))
+	running := uint64(len(request.Fleet.Owned)) + uint64(len(requested(request)))
 
 	for _, candidate := range candidates {
 		if running >= limit {
@@ -140,6 +147,12 @@ func sift(request Request, result *Result) []Candidate {
 		// A job that already has a machine is running, or about to. A second machine for it
 		// would be a second agent for one job.
 		if _, has := request.Fleet.Job(waiting.ID); has {
+			continue
+		}
+
+		// A job that this process holds is its own, even when the inventory does not show its
+		// machine yet. A poll that failed keeps an answer that still lists it.
+		if _, held := request.Held[waiting.ID]; held {
 			continue
 		}
 
@@ -200,7 +213,35 @@ func freeResources(request Request) map[string]map[string]uint64 {
 		}
 	}
 
+	// A machine that this process asked for is on its way, and the inventory does not show it
+	// yet. Its room is promised in the same way.
+	for _, chosen := range requested(request) {
+		place(request, free, chosen)
+	}
+
 	return free
+}
+
+// requested gives the profiles of the machines that this process asked for and the inventory does
+// not show yet.
+func requested(request Request) []profile.Profile {
+	var machines []profile.Profile
+
+	for _, name := range request.Held {
+		if name == "" {
+			continue
+		}
+
+		for _, p := range request.Profiles {
+			if p.Name == name {
+				machines = append(machines, p)
+
+				break
+			}
+		}
+	}
+
+	return machines
 }
 
 // place finds the first eligible worker with room for a machine of this profile, and takes the

@@ -348,3 +348,99 @@ func TestTheDemandCarriesTheAgeOfTheOldestJob(t *testing.T) {
 		t.Errorf("the oldest job waited %s, want 20m", got)
 	}
 }
+
+// A job that this process just started still looks like a waiting job with no machine, because
+// the inventory learns of a launch only at its next refresh. Admission must not start it again:
+// a second start is a second reservation, a second token, and a second line on the job page.
+func TestAJobThatThisProcessHoldsIsNotStartedAgain(t *testing.T) {
+	t.Parallel()
+
+	ids := identifiers(1)
+	fleet := inventory.Snapshot{Workers: []orchard.Worker{worker("mac-01", nil)}, At: now}
+
+	settings := request([]buildkite.ScheduledJob{waiting(ids[0], 0, time.Minute)}, fleet)
+	settings.Held = map[job.ID]string{job.ID(ids[0]): pilot.Name}
+
+	result := admission.Decide(settings)
+
+	if len(result.Admit) != 0 {
+		t.Errorf("admission started %+v, want nothing for a job that this process holds",
+			result.Admit)
+	}
+
+	if result.Waiting[pilot.Name] != 0 {
+		t.Errorf("the demand counts %d jobs, want none: the held job is not waiting",
+			result.Waiting[pilot.Name])
+	}
+}
+
+// A machine that this process asked for takes its room before the inventory shows it. Without
+// this, a full fleet starts jobs for room that is already promised.
+func TestAMachineThatThisProcessAskedForTakesItsRoom(t *testing.T) {
+	t.Parallel()
+
+	ids := identifiers(3)
+	fleet := inventory.Snapshot{Workers: []orchard.Worker{worker("mac-01", nil)}, At: now}
+
+	settings := request([]buildkite.ScheduledJob{
+		waiting(ids[1], 0, time.Minute),
+		waiting(ids[2], 0, time.Minute),
+	}, fleet)
+	settings.Held = map[job.ID]string{job.ID(ids[0]): pilot.Name}
+
+	// A limit that does not bind, so that only the room of the worker decides. The machine on its
+	// way also counts against the limit, and a limit of the fleet slots would give the same answer
+	// without proving anything about the room.
+	settings.MaxInFlight = 10
+
+	// The worker has room for two machines, and one of them is already on its way.
+	if result := admission.Decide(settings); len(result.Admit) != 1 {
+		t.Errorf("admission started %d jobs, want the 1 beside the machine on its way",
+			len(result.Admit))
+	}
+}
+
+// A machine that this process asked for counts against the limit, as one that runs does.
+func TestAMachineThatThisProcessAskedForCountsAgainstTheLimit(t *testing.T) {
+	t.Parallel()
+
+	ids := identifiers(2)
+	fleet := inventory.Snapshot{Workers: []orchard.Worker{worker("mac-01", nil)}, At: now}
+
+	settings := request([]buildkite.ScheduledJob{waiting(ids[1], 0, time.Minute)}, fleet)
+	settings.Held = map[job.ID]string{job.ID(ids[0]): pilot.Name}
+	settings.MaxInFlight = 1
+
+	if result := admission.Decide(settings); len(result.Admit) != 0 {
+		t.Errorf("admission started %+v, want nothing beyond the limit of 1", result.Admit)
+	}
+}
+
+// A job that this process reserved without asking for a machine, because Buildkite gave it no
+// token, is still not a candidate. It takes no room, because no machine is on its way.
+func TestAHeldJobWithNoMachineTakesNoRoom(t *testing.T) {
+	t.Parallel()
+
+	ids := identifiers(3)
+	fleet := inventory.Snapshot{Workers: []orchard.Worker{worker("mac-01", nil)}, At: now}
+
+	settings := request([]buildkite.ScheduledJob{
+		waiting(ids[0], 0, time.Minute),
+		waiting(ids[1], 0, time.Minute),
+		waiting(ids[2], 0, time.Minute),
+	}, fleet)
+	settings.Held = map[job.ID]string{job.ID(ids[0]): ""}
+
+	result := admission.Decide(settings)
+
+	if len(result.Admit) != 2 {
+		t.Fatalf("admission started %d jobs, want the 2 that the worker can carry",
+			len(result.Admit))
+	}
+
+	for _, candidate := range result.Admit {
+		if candidate.Job.ID == job.ID(ids[0]) {
+			t.Error("admission started the job that this process holds")
+		}
+	}
+}

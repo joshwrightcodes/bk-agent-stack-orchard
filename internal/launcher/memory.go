@@ -105,3 +105,34 @@ func (m *memory) keep(fleet inventory.Snapshot) {
 		}
 	}
 }
+
+// heldBeyond gives the jobs that this process holds and that a snapshot does not show a machine
+// for, each with the profile of the machine that it asked for, or empty text when it asked for
+// none.
+//
+// A job is held while its reservation lasts, and while a machine that this process asked for has
+// not appeared in a snapshot. Either way the job is this process's own, and the inventory has not
+// caught up with it yet.
+func (m *memory) heldBeyond(fleet inventory.Snapshot, now time.Time) map[job.ID]string {
+	owned := make(map[job.ID]bool, len(fleet.Owned))
+	for _, machine := range fleet.Owned {
+		owned[machine.Job] = true
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	held := map[job.ID]string{}
+
+	for id, entry := range m.jobs {
+		if owned[id] {
+			continue
+		}
+
+		if entry.name != "" || entry.until.After(now) {
+			held[id] = entry.name
+		}
+	}
+
+	return held
+}

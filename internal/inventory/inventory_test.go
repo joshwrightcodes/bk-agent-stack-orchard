@@ -153,8 +153,8 @@ func TestTheInventoryIsTheInventorySource(t *testing.T) {
 		t.Errorf("Source() = %q, want %q", held.Source(), telemetry.SourceInventory)
 	}
 
-	if !held.Due() {
-		t.Error("Due() = false before the first refresh, want true")
+	if held.Interval() != time.Second {
+		t.Errorf("Interval() = %s, want the 1s that the options gave", held.Interval())
 	}
 
 	if !held.At().IsZero() {

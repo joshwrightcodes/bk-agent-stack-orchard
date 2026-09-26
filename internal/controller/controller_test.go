@@ -71,7 +71,7 @@ func (s *registrar) withdrawals() int {
 type source struct {
 	recorder *recorder
 	kind     telemetry.Source
-	due      bool
+	interval time.Duration
 	err      error
 	at       time.Time
 	mu       sync.Mutex
@@ -79,7 +79,7 @@ type source struct {
 }
 
 func (s *source) Source() telemetry.Source { return s.kind }
-func (s *source) Due() bool                { return s.due }
+func (s *source) Interval() time.Duration  { return s.interval }
 func (s *source) At() time.Time            { return s.at }
 
 func (s *source) Refresh(context.Context) error {
@@ -169,7 +169,7 @@ func TestTheStepsOfATickRunInOrder(t *testing.T) {
 	r := &recorder{}
 	settings := options(t, r)
 	settings.Sources = []controller.Source{
-		&source{recorder: r, kind: telemetry.SourceScheduledJobs, due: true, at: time.Now()},
+		&source{recorder: r, kind: telemetry.SourceScheduledJobs, at: time.Now()},
 	}
 	settings.Reap = func(context.Context) error { r.add("reap"); return nil }
 	settings.Admit = func(context.Context) error { r.add("admit"); return nil }
@@ -235,7 +235,7 @@ func TestAStepThatFailsDoesNotStopTheLoop(t *testing.T) {
 	settings := options(t, r)
 	settings.Sources = []controller.Source{
 		&source{
-			recorder: r, kind: telemetry.SourceScheduledJobs, due: true,
+			recorder: r, kind: telemetry.SourceScheduledJobs,
 			err: errors.New("buildkite is not available"),
 		},
 	}
@@ -248,21 +248,22 @@ func TestAStepThatFailsDoesNotStopTheLoop(t *testing.T) {
 	}
 }
 
-// The tick runs more often than a source, so a source that is not due must not be read.
-func TestASourceThatIsNotDueIsNotRead(t *testing.T) {
+// The tick runs more often than a source with a long interval, so such a source is read at the
+// first tick and not again inside its interval.
+func TestASourceIsNotReadAgainInsideItsInterval(t *testing.T) {
 	t.Parallel()
 
 	r := &recorder{}
 	settings := options(t, r)
 
-	idle := &source{recorder: r, kind: telemetry.SourceInventory, due: false}
+	idle := &source{recorder: r, kind: telemetry.SourceInventory, interval: time.Hour}
 	settings.Sources = []controller.Source{idle}
 	settings.Reap = func(context.Context) error { r.add("reap"); return nil }
 
 	runOnce(t, settings, func() bool { return slices.Contains(r.seen(), "reap") })
 
-	if idle.count() != 0 {
-		t.Errorf("the loop read the source %d times, want none while it is not due", idle.count())
+	if idle.count() != 1 {
+		t.Errorf("the loop read the source %d times, want once inside its interval", idle.count())
 	}
 }
 

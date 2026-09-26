@@ -174,6 +174,16 @@ func (l *Launcher) Profile(id job.ID) string {
 	return l.held.profile(id)
 }
 
+// Held gives the jobs that this process holds and whose machines a snapshot does not show yet,
+// each with the profile of the machine that it asked for, or empty text when it asked for none.
+//
+// Admission reads it, because the inventory learns of a launch only at its next refresh. Until
+// then a job that this process just started still looks like a waiting job with no machine, and
+// the room that its machine will take still looks free.
+func (l *Launcher) Held(fleet inventory.Snapshot) map[job.ID]string {
+	return l.held.heldBeyond(fleet, l.now())
+}
+
 // ReservedUntil gives when the reservation of a job ends, for a job that this process reserved.
 func (l *Launcher) ReservedUntil(id job.ID) (time.Time, bool) {
 	return l.held.reservedUntil(id)
