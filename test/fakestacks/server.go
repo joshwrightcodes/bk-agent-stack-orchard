@@ -6,7 +6,7 @@
 // that file also holds a Kubernetes controller: an import puts k8s.io/apimachinery, k8s.io/klog,
 // and an older stacksapi into the module graph of this project for one test helper.
 //
-// This project made five changes, because the original models only what its own controller
+// This project made six changes, because the original models only what its own controller
 // calls. Each one carries a comment that starts with "Change of this project":
 //
 //  1. The stack key is a field. The original writes "test-stack" into every route.
@@ -17,6 +17,8 @@
 //  5. A test can set a job state and read the calls while a controller runs, under the lock of
 //     the server. The original is read after each call returns, and a running controller makes
 //     calls at any moment.
+//  6. A finish call records the exit status and the detail that it sends, which a test of a job
+//     that no profile carries reads. The original records the job UUID only.
 //
 // The fake is not a conformance suite. It answers as its author believed the API answers, so a
 // test against it proves the behaviour of this controller and not the behaviour of Buildkite.
@@ -52,6 +54,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync"
 	"time"
 
@@ -139,6 +142,9 @@ type Server struct {
 
 	// FinishJobCalls records the job UUIDs from each FinishJob call.
 	FinishJobCalls []string
+
+	// Change of this project: the original records the job UUID only.
+	FinishJobRequests []stacksapi.FinishJobRequest
 
 	// FinishJobStatusCode configures the HTTP status code for FinishJob.
 	// Default is 200.
@@ -456,8 +462,19 @@ func (f *Server) handleFinishJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Change of this project: the request carries the exit status and the detail.
+	var req stacksapi.FinishJobRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		f.writeJSON(w, http.StatusBadRequest, map[string]string{"message": "invalid JSON"})
+
+		return
+	}
+
+	req.JobUUID = r.PathValue("uuid")
+
 	f.mu.Lock()
 	f.FinishJobCalls = append(f.FinishJobCalls, r.PathValue("uuid"))
+	f.FinishJobRequests = append(f.FinishJobRequests, req)
 	f.mu.Unlock()
 
 	if f.FinishJobError != "" {
@@ -533,6 +550,16 @@ func (f *Server) Notifications() []stacksapi.StackNotification {
 	}
 
 	return lines
+}
+
+// Finished gives every finish call that the server received, in order.
+//
+// Change of this project: the original records the job UUID only.
+func (f *Server) Finished() []stacksapi.FinishJobRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return slices.Clone(f.FinishJobRequests)
 }
 
 // Deregistrations counts the withdrawals of the stack.
