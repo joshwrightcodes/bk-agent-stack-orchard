@@ -120,7 +120,7 @@ type PollerOptions struct {
 	// PageSize asks for a number of jobs. Zero takes the size that Buildkite chooses.
 	PageSize int
 
-	// Now is for a test. A nil value gives time.Now.
+	// Now is the clock of the part. internal/app gives every part the same one.
 	Now func() time.Time
 }
 
@@ -137,7 +137,7 @@ func NewPoller(options PollerOptions) (*Poller, error) {
 
 	now := options.Now
 	if now == nil {
-		now = time.Now
+		return nil, errors.New("the poller needs a clock")
 	}
 
 	return &Poller{

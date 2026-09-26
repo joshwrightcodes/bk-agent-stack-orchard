@@ -230,6 +230,7 @@ func TestNewRefusesAnIncompleteInventory(t *testing.T) {
 		ControllerID:   controller,
 		Interval:       time.Second,
 		OfflineTimeout: time.Minute,
+		Now:            time.Now,
 	}
 
 	for name, change := range map[string]func(*inventory.Options){
@@ -237,6 +238,7 @@ func TestNewRefusesAnIncompleteInventory(t *testing.T) {
 		"no identifier": func(o *inventory.Options) { o.ControllerID = "" },
 		"no interval":   func(o *inventory.Options) { o.Interval = 0 },
 		"no timeout":    func(o *inventory.Options) { o.OfflineTimeout = 0 },
+		"no clock":      func(o *inventory.Options) { o.Now = nil },
 	} {
 		options := whole
 		change(&options)

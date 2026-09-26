@@ -62,7 +62,8 @@ The layout follows the components of the target design, section 4. Each componen
 with one responsibility, so that the pure functions stay testable without a VM.
 
 ```
-cmd/bk-agent-stack-orchard/     process entry point, flags, signal handling
+cmd/bk-agent-stack-orchard/     process entry point, flags, signal handling, the real clients
+internal/app/                   the wiring: the parts, both APIs, and the one clock
 internal/secret/                a value that no log, metric, or VM specification may carry
 internal/config/                configuration types, loading, and validation
 internal/profile/               profiles, the match map, and the VM size
@@ -76,7 +77,7 @@ internal/inventory/             worker and VM inventory with freshness
 internal/jobstates/             batched job states with observation times
 internal/launcher/              reserve, issue tokens, create VMs, notify
 internal/stack/                 stack registration, the queue poll, and the paused value
-internal/controller/            the tick loop that wires the components
+internal/controller/            the tick loop, which a test can run one tick at a time
 internal/telemetry/             OTel meter, tracer, and the slog bridge
 internal/health/                /livez and /readyz
 test/fakestacks/                the fake Stacks API server
@@ -90,7 +91,8 @@ images/                         the Packer configuration of the pilot image
 
 `internal/buildkite` and `internal/orchard` MUST expose narrow interfaces, and all other packages
 MUST depend on the interfaces only (target design, section 4). Because of this, the in-memory
-fakes of T-020 can replace both suppliers.
+fakes of T-020 can replace both suppliers. `internal/app` wires the parts for the binary and for
+T-020 in the same way, so the suite runs the controller that ships.
 
 ### 3.1 Tool versions and tasks
 

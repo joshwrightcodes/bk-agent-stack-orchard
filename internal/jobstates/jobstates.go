@@ -69,13 +69,17 @@ type Options struct {
 	// Interval is how often Buildkite may be asked. The design states five seconds.
 	Interval time.Duration
 
-	// Now is for a test. A nil value gives time.Now.
+	// Now is the clock of the part. internal/app gives every part the same one.
 	Now func() time.Time
 }
 
 // New builds the states.
 func New(options Options) (*States, error) {
 	var problems []error
+
+	if options.Now == nil {
+		problems = append(problems, errors.New("the job states needs a clock"))
+	}
 
 	if options.Stacks == nil || options.Fleet == nil {
 		problems = append(problems, errors.New("the job states need Buildkite and the fleet"))
@@ -91,9 +95,6 @@ func New(options Options) (*States, error) {
 	}
 
 	now := options.Now
-	if now == nil {
-		now = time.Now
-	}
 
 	return &States{
 		stacks:       options.Stacks,

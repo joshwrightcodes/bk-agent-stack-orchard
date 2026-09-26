@@ -3,6 +3,7 @@ package jobstates_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -258,7 +259,8 @@ func TestTheStatesAreTheJobStatesSource(t *testing.T) {
 func TestNewRefusesIncompleteStates(t *testing.T) {
 	t.Parallel()
 
-	if _, err := jobstates.New(jobstates.Options{}); err == nil {
-		t.Error("New() with nothing = nil, want an error")
+	// The clock is one of the parts: a states without one would read the clock of the machine.
+	if _, err := jobstates.New(jobstates.Options{}); err == nil || !strings.Contains(err.Error(), "needs a clock") {
+		t.Errorf("New() with nothing = %v, want an error that names the clock", err)
 	}
 }

@@ -352,8 +352,9 @@ func (m *Metrics) report(_ context.Context, observer metric.Observer) error {
 			metric.WithAttributes(semconv.CICDWorkerStateKey.String(string(state))))
 	}
 
+	// The age of an answer is its age when the collector reads it, which is real time.
 	for source, at := range observation.Synced {
-		observer.ObserveFloat64(m.staleness, time.Since(at).Seconds(),
+		observer.ObserveFloat64(m.staleness, time.Since(at).Seconds(), //nolint:forbidigo // real age
 			metric.WithAttributes(attribute.String(attributeSource, string(source))))
 	}
 

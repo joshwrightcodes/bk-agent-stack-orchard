@@ -319,8 +319,9 @@ func TestNothingHappensBeforeTheFleetIsRead(t *testing.T) {
 func TestNewRefusesAnIncompleteReaper(t *testing.T) {
 	t.Parallel()
 
-	if _, err := reaper.New(reaper.Options{}); err == nil {
-		t.Error("New() with nothing = nil, want an error")
+	// The clock is one of the parts: a reaper without one would read the clock of the machine.
+	if _, err := reaper.New(reaper.Options{}); err == nil || !strings.Contains(err.Error(), "needs a clock") {
+		t.Errorf("New() with nothing = %v, want an error that names the clock", err)
 	}
 }
 

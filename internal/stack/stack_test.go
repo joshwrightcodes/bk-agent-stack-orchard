@@ -121,8 +121,12 @@ func TestNewRefusesNoClient(t *testing.T) {
 		t.Error("NewPoller() with no client = nil, want an error")
 	}
 
-	if _, err := stack.NewPoller(stack.PollerOptions{Stacks: &fake{}}); err == nil {
+	if _, err := stack.NewPoller(stack.PollerOptions{Stacks: &fake{}, Now: time.Now}); err == nil {
 		t.Error("NewPoller() with no interval = nil, want an error")
+	}
+
+	if _, err := stack.NewPoller(stack.PollerOptions{Stacks: &fake{}, Interval: time.Second}); err == nil {
+		t.Error("NewPoller() with no clock = nil, want an error")
 	}
 }
 
@@ -182,7 +186,7 @@ func TestRefreshReadsOnePage(t *testing.T) {
 
 	api := &fake{page: buildkite.Page{NextCursor: "page-2"}}
 
-	poller, _ := stack.NewPoller(stack.PollerOptions{Stacks: api, Interval: time.Second})
+	poller, _ := stack.NewPoller(stack.PollerOptions{Stacks: api, Interval: time.Second, Now: time.Now})
 
 	if err := poller.Refresh(t.Context()); err != nil {
 		t.Fatalf("Refresh() = %v, want no error", err)
@@ -201,7 +205,7 @@ func TestAFailedRefreshKeepsTheAnswerBeforeIt(t *testing.T) {
 
 	api := &fake{page: buildkite.Page{Jobs: []buildkite.ScheduledJob{{Priority: 1}}}}
 
-	poller, _ := stack.NewPoller(stack.PollerOptions{Stacks: api, Interval: time.Second})
+	poller, _ := stack.NewPoller(stack.PollerOptions{Stacks: api, Interval: time.Second, Now: time.Now})
 	if err := poller.Refresh(t.Context()); err != nil {
 		t.Fatalf("Refresh() = %v, want no error", err)
 	}
@@ -223,7 +227,7 @@ func TestAFailedRefreshKeepsTheAnswerBeforeIt(t *testing.T) {
 func TestThePollerGivesItsInterval(t *testing.T) {
 	t.Parallel()
 
-	poller, _ := stack.NewPoller(stack.PollerOptions{Stacks: &fake{}, Interval: 3 * time.Second})
+	poller, _ := stack.NewPoller(stack.PollerOptions{Stacks: &fake{}, Interval: 3 * time.Second, Now: time.Now})
 
 	if got := poller.Interval(); got != 3*time.Second {
 		t.Errorf("Interval() = %s, want 3s", got)
@@ -233,7 +237,7 @@ func TestThePollerGivesItsInterval(t *testing.T) {
 func TestThePollerIsTheScheduledJobsSource(t *testing.T) {
 	t.Parallel()
 
-	poller, _ := stack.NewPoller(stack.PollerOptions{Stacks: &fake{}, Interval: time.Second})
+	poller, _ := stack.NewPoller(stack.PollerOptions{Stacks: &fake{}, Interval: time.Second, Now: time.Now})
 
 	if poller.Source() != telemetry.SourceScheduledJobs {
 		t.Errorf("Source() = %q, want %q", poller.Source(), telemetry.SourceScheduledJobs)

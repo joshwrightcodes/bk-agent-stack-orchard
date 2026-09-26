@@ -213,7 +213,7 @@ func (c *Controller) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return c.withdraw(ctx)
 		case at := <-ticker.C:
-			c.tick(ctx, at)
+			c.Tick(ctx, at)
 		}
 	}
 }
@@ -234,8 +234,12 @@ func (c *Controller) withdraw(ctx context.Context) error {
 	return nil
 }
 
-// tick runs the steps of one tick, in order. At is the time of the tick.
-func (c *Controller) tick(ctx context.Context, at time.Time) {
+// Tick runs the steps of one tick, in order. At is the time of the tick.
+//
+// Run calls it at each beat of its ticker. The component suite calls it directly, with the time of
+// its own clock, so that it runs the loop one tick at a time without a ticker or a sleep. One
+// goroutine at a time may call it, and never while Run runs.
+func (c *Controller) Tick(ctx context.Context, at time.Time) {
 	// The observation comes last, so that it reports the fleet as this tick left it and not as
 	// this tick found it.
 	defer c.observe()
@@ -297,9 +301,10 @@ func (c *Controller) run(ctx context.Context, name string, work func(context.Con
 	ctx, span := c.tracer.Start(ctx, "tick."+name)
 	defer span.End()
 
-	started := time.Now()
+	// The duration of a step is real time that the step took, whatever clock the parts read.
+	started := time.Now() //nolint:forbidigo // real elapsed time
 	err := work(ctx)
-	c.metrics.Tick(ctx, name, time.Since(started))
+	c.metrics.Tick(ctx, name, time.Since(started)) //nolint:forbidigo // real elapsed time
 
 	if err != nil {
 		span.RecordError(err)
