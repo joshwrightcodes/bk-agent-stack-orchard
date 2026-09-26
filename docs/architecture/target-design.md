@@ -368,7 +368,10 @@ VM for these jobs.
 For the admitted jobs, the Launcher MUST do these steps:
 
 1. Send `PUT batch-reserve` with `reservation_expiry_seconds = reservationExpiry` (300).
-   Continue only with the jobs in the `reserved` list. Record `reservedUntil` in memory.
+   Continue only with the jobs in the `reserved` list. Record `reservedUntil` in memory, counted
+   from the time that the call left. The reservation starts when Buildkite handles the call, which
+   is after the call left, so this end is never later than the true end, and the renewal of row 13
+   comes early and never late.
 2. Send `POST job-acquisition-tokens` for the reserved jobs with
    `token_lifetime_seconds = jobTokenLifetime` (1800). Skip the jobs in `not_issued`. Their
    reservations expire.

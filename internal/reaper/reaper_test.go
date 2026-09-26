@@ -70,6 +70,27 @@ func (p *pages) Notify(_ context.Context, lines []buildkite.Notification) error 
 	return p.notifyErr
 }
 
+// held answers as the launcher: when each reservation ends, and the calls that extend them.
+type held struct {
+	until     map[job.ID]time.Time
+	calls     [][]job.ID
+	extendErr error
+}
+
+func (h *held) ReservedUntil(id job.ID) (time.Time, bool) {
+	until, known := h.until[id]
+
+	return until, known
+}
+
+func (h *held) Extend(_ context.Context, ids []job.ID) error {
+	if len(ids) > 0 {
+		h.calls = append(h.calls, ids)
+	}
+
+	return h.extendErr
+}
+
 // fleet answers as Orchard: it holds the snapshot, and it records the deletions.
 type fleet struct {
 	snapshot  inventory.Snapshot
@@ -153,6 +174,14 @@ func buildWith(t *testing.T, api *observed, machines *fleet, log *decisions,
 ) *reaper.Reaper {
 	t.Helper()
 
+	return buildHolding(t, api, machines, log, jobPages, &held{})
+}
+
+func buildHolding(t *testing.T, api *observed, machines *fleet, log *decisions,
+	jobPages *pages, reservations *held,
+) *reaper.Reaper {
+	t.Helper()
+
 	provider := sdkmetric.NewMeterProvider()
 	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
 
@@ -162,16 +191,18 @@ func buildWith(t *testing.T, api *observed, machines *fleet, log *decisions,
 	}
 
 	built, err := reaper.New(reaper.Options{
-		Stacks:    jobPages,
-		States:    api,
-		Orchard:   machines,
-		Fleet:     machines,
-		Profiles:  []profile.Profile{{Name: "xcode-27"}},
-		Defaults:  limits,
-		Freshness: freshness,
-		Metrics:   instruments,
-		Logger:    slog.New(log),
-		Now:       func() time.Time { return now },
+		Stacks:       jobPages,
+		States:       api,
+		Reservations: reservations,
+		RenewBefore:  120 * time.Second,
+		Orchard:      machines,
+		Fleet:        machines,
+		Profiles:     []profile.Profile{{Name: "xcode-27"}},
+		Defaults:     limits,
+		Freshness:    freshness,
+		Metrics:      instruments,
+		Logger:       slog.New(log),
+		Now:          func() time.Time { return now },
 	})
 	if err != nil {
 		t.Fatalf("New() = %v, want the reaper", err)
@@ -330,16 +361,18 @@ func joined(t *testing.T, api *stacks, machines *fleet, c *clock) (*jobstates.St
 	}
 
 	built, err := reaper.New(reaper.Options{
-		Stacks:    &pages{},
-		States:    states,
-		Orchard:   machines,
-		Fleet:     machines,
-		Profiles:  []profile.Profile{{Name: "xcode-27"}},
-		Defaults:  limits,
-		Freshness: freshness,
-		Metrics:   instruments,
-		Logger:    slog.New(slog.DiscardHandler),
-		Now:       c.now,
+		Stacks:       &pages{},
+		States:       states,
+		Reservations: &held{},
+		RenewBefore:  120 * time.Second,
+		Orchard:      machines,
+		Fleet:        machines,
+		Profiles:     []profile.Profile{{Name: "xcode-27"}},
+		Defaults:     limits,
+		Freshness:    freshness,
+		Metrics:      instruments,
+		Logger:       slog.New(slog.DiscardHandler),
+		Now:          c.now,
 	})
 	if err != nil {
 		t.Fatalf("reaper.New() = %v, want the reaper", err)

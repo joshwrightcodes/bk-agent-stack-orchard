@@ -203,17 +203,19 @@ func assemble(settings *config.Config, recorder *telemetry.Telemetry) (*controll
 	}
 
 	reaping, err := reaper.New(reaper.Options{
-		Stacks:    stacks,
-		States:    observed,
-		Orchard:   machines,
-		Fleet:     fleet,
-		Profile:   starter.Profile,
-		Profiles:  settings.Profiles,
-		Defaults:  settings.Defaults.Timeouts,
-		Freshness: settings.StateFreshness,
-		Metrics:   recorder.Metrics,
-		Logger:    recorder.Logger,
-		Tracer:    recorder.Tracer,
+		Stacks:       stacks,
+		States:       observed,
+		Reservations: starter,
+		RenewBefore:  settings.Buildkite.ReservationRenewBefore,
+		Orchard:      machines,
+		Fleet:        fleet,
+		Profile:      starter.Profile,
+		Profiles:     settings.Profiles,
+		Defaults:     settings.Defaults.Timeouts,
+		Freshness:    settings.StateFreshness,
+		Metrics:      recorder.Metrics,
+		Logger:       recorder.Logger,
+		Tracer:       recorder.Tracer,
 	})
 	if err != nil {
 		return nil, err
