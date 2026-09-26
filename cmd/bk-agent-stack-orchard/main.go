@@ -203,6 +203,7 @@ func assemble(settings *config.Config, recorder *telemetry.Telemetry) (*controll
 	}
 
 	reaping, err := reaper.New(reaper.Options{
+		Stacks:    stacks,
 		States:    observed,
 		Orchard:   machines,
 		Fleet:     fleet,
