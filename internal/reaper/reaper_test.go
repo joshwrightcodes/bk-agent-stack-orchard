@@ -184,9 +184,9 @@ func TestWithoutStatesOnlyTheLifetimeActs(t *testing.T) {
 	}
 }
 
-// A job that Buildkite did not name is not a job that ended. The row for it is not in the table
-// yet, and until it is, the machine stays.
-func TestAJobThatBuildkiteDidNotNameKeepsItsMachine(t *testing.T) {
+// A job that Buildkite does not name is unknown to it, and its machine goes (row 5). A job that
+// the controller has not asked about is a different thing, and the test above keeps its machine.
+func TestAJobThatBuildkiteDoesNotNameLosesItsMachine(t *testing.T) {
 	t.Parallel()
 
 	api := &buildkite{states: map[job.ID]string{}}
@@ -198,8 +198,9 @@ func TestAJobThatBuildkiteDidNotNameKeepsItsMachine(t *testing.T) {
 		t.Fatalf("Reap() = %v, want no error", err)
 	}
 
-	if len(machines.deleted) != 0 {
-		t.Errorf("orchard deleted %v, want nothing", machines.deleted)
+	if len(machines.deleted) != 1 {
+		t.Errorf("orchard deleted %v, want the machine of the job that Buildkite does not know",
+			machines.deleted)
 	}
 }
 

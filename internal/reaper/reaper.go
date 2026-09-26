@@ -157,7 +157,7 @@ func (r *Reaper) Reap(ctx context.Context) error {
 			machine.ObservedAt = observation.At
 		}
 
-		decision := Decide(machine, now, r.freshness)
+		decision := Decide(machine, now, Rules{Freshness: r.freshness})
 		if decision.Action != Delete {
 			continue
 		}
