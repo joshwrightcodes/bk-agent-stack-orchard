@@ -49,12 +49,13 @@ func loop(t *testing.T, source Source) *Controller {
 	}
 
 	built, err := New(Options{
-		Stack:    nothing{},
-		Queue:    unread{},
-		Sources:  []Source{source},
-		Interval: time.Second,
-		Metrics:  instruments,
-		Logger:   slog.New(slog.DiscardHandler),
+		Stack:     nothing{},
+		Queue:     unread{},
+		Sources:   []Source{source},
+		Interval:  time.Second,
+		Freshness: time.Minute,
+		Metrics:   instruments,
+		Logger:    slog.New(slog.DiscardHandler),
 	})
 	if err != nil {
 		t.Fatalf("New() = %v, want the loop", err)

@@ -199,9 +199,19 @@ func freeResources(request Request) map[string]map[string]uint64 {
 	// A machine that Orchard holds and no worker runs will land somewhere. Its resources are
 	// spent even though no worker carries it yet, and an accounting that ignored it would start
 	// jobs for room that is already promised.
-	for _, waiting := range request.Fleet.Unplaced() {
+	//
+	// Orchard takes the machines that wait in the order of their creation, and it puts each one
+	// only on a worker whose labels contain the labels of the machine. The accounting does the
+	// same: a machine counted where Orchard never puts it spends room that stays free, and leaves
+	// the room that it does take looking free.
+	unplaced := request.Fleet.Unplaced()
+	slices.SortStableFunc(unplaced, func(a, b orchard.VM) int {
+		return a.CreatedAt.Compare(b.CreatedAt)
+	})
+
+	for _, waiting := range unplaced {
 		for _, worker := range request.Fleet.Workers {
-			if !request.Eligible(worker, nil) {
+			if !request.Eligible(worker, waiting.Labels) {
 				continue
 			}
 

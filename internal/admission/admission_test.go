@@ -164,6 +164,103 @@ func TestAdmissionCountsTheMachinesThatWaitForAWorker(t *testing.T) {
 	}
 }
 
+// sized gives a worker with room for one machine, and the cores and the labels given.
+func sized(name string, cores uint64, labels map[string]string) orchard.Worker {
+	w := worker(name, labels)
+	w.Resources[orchard.ResourceVMs] = 1
+	w.Resources[orchard.ResourceCores] = cores
+
+	return w
+}
+
+// Orchard puts a machine that waits only on a worker whose labels contain its labels. Counted on
+// another worker, the machine leaves the worker that it will take looking free, and a candidate
+// that needs that worker is admitted into room that Orchard has promised.
+func TestAMachineThatWaitsTakesTheRoomOfTheWorkerThatItsLabelsSelect(t *testing.T) {
+	t.Parallel()
+
+	release := pilot
+	release.WorkerLabels = map[string]string{"pool": "release"}
+
+	promised := machine("someone-elses-release-vm", "")
+	promised.Labels = map[string]string{"pool": "release"}
+
+	fleet := inventory.Snapshot{
+		Workers: []orchard.Worker{
+			sized("mac-01", 16, nil),
+			sized("mac-02", 16, map[string]string{"pool": "release"}),
+		},
+		VMs: []orchard.VM{promised},
+		At:  now,
+	}
+
+	settings := request([]buildkite.ScheduledJob{waiting(identifiers(1)[0], 0, time.Minute)}, fleet)
+	settings.Profiles = []profile.Profile{release}
+
+	if result := admission.Decide(settings); len(result.Admit) != 0 {
+		t.Errorf("admission started %v, want none: the only release worker is promised to the "+
+			"machine that waits", result.Admit)
+	}
+}
+
+// A machine whose labels no worker carries never lands, so it takes no room at all.
+func TestAMachineThatNoWorkerCanTakeTakesNoRoom(t *testing.T) {
+	t.Parallel()
+
+	stranded := machine("someone-elses-gpu-vm", "")
+	stranded.Labels = map[string]string{"pool": "gpu"}
+
+	fleet := inventory.Snapshot{
+		Workers: []orchard.Worker{sized("mac-01", 16, nil)},
+		VMs:     []orchard.VM{stranded},
+		At:      now,
+	}
+
+	result := admission.Decide(request([]buildkite.ScheduledJob{
+		waiting(identifiers(1)[0], 0, time.Minute),
+	}, fleet))
+
+	if len(result.Admit) != 1 {
+		t.Errorf("admission started %d jobs, want 1: no worker can take the machine that waits",
+			len(result.Admit))
+	}
+}
+
+// Orchard takes the machines that wait oldest first. In another order a small machine can take
+// the worker that only the large one fits, and the large one then looks as if it takes nothing.
+func TestTheMachinesThatWaitArePlacedOldestFirst(t *testing.T) {
+	t.Parallel()
+
+	// The list of Orchard is in the order of the names, which is not the order of creation.
+	newer := machine("a-newer-vm", "")
+	newer.CreatedAt = now.Add(-time.Minute)
+
+	older := machine("b-older-vm", "")
+	older.CreatedAt = now.Add(-2 * time.Minute)
+	older.Resources = map[string]uint64{
+		orchard.ResourceVMs:       1,
+		orchard.ResourceCores:     16,
+		orchard.ResourceMemoryMiB: 28672,
+	}
+
+	fleet := inventory.Snapshot{
+		Workers: []orchard.Worker{sized("mac-01", 16, nil), sized("mac-02", 8, nil)},
+		VMs:     []orchard.VM{newer, older},
+		At:      now,
+	}
+
+	// Orchard puts the older machine on mac-01, which is the only worker with 16 cores, and the
+	// newer one on mac-02. Nothing is left.
+	result := admission.Decide(request([]buildkite.ScheduledJob{
+		waiting(identifiers(1)[0], 0, time.Minute),
+	}, fleet))
+
+	if len(result.Admit) != 0 {
+		t.Errorf("admission started %v, want none: the two machines that wait fill both workers",
+			result.Admit)
+	}
+}
+
 // A worker may have room for a smaller machine, so one candidate that does not fit must not stop
 // the candidates after it.
 func TestACandidateThatDoesNotFitDoesNotStopTheOnesAfterIt(t *testing.T) {

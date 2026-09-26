@@ -231,16 +231,17 @@ func assemble(settings *config.Config, recorder *telemetry.Telemetry) (*controll
 	}
 
 	return controller.New(controller.Options{
-		Stack:    registration,
-		Sources:  []controller.Source{poller, fleet, observed},
-		Queue:    poller,
-		Fleet:    decisions.observe,
-		Reap:     reaping.Reap,
-		Admit:    decisions.admit,
-		Interval: settings.Buildkite.PollInterval,
-		Metrics:  recorder.Metrics,
-		Logger:   recorder.Logger,
-		Tracer:   recorder.Tracer,
+		Stack:     registration,
+		Sources:   []controller.Source{poller, fleet, observed},
+		Queue:     poller,
+		Fleet:     decisions.observe,
+		Reap:      reaping.Reap,
+		Admit:     decisions.admit,
+		Interval:  settings.Buildkite.PollInterval,
+		Freshness: settings.StateFreshness,
+		Metrics:   recorder.Metrics,
+		Logger:    recorder.Logger,
+		Tracer:    recorder.Tracer,
 	})
 }
 

@@ -325,6 +325,9 @@ Admission MUST run only when all of these conditions are true:
 * The Inventory data is newer than `stateFreshness` (60 s).
 * The scheduled-jobs list is newer than `stateFreshness`.
 
+A source whose calls fail keeps its last data. The Reaper continues, because its own rules (§7.2)
+decide what old data permits it to do.
+
 Admission does these steps:
 
 1. **Candidates.** Select the matched scheduled jobs that have no owned VM with the same name,
@@ -347,7 +350,9 @@ Admission does these steps:
    Orchard version of §9.2).
 5. **Unplaced VMs.** Give a hypothetical placement to the VMs of all owners that have no worker,
    and to the VMs that this process requested and the Inventory data does not show yet. Use the
-   first eligible worker with sufficient free resources.
+   first eligible worker with sufficient free resources. For a VM of Orchard, a worker is eligible
+   only if its labels contain the labels of the VM, and the VMs go in the order of their creation.
+   The Orchard scheduler does the same. A VM that no worker can take takes no resources.
 6. **Admit.** For each candidate in sequence, find the first eligible worker with sufficient
    free `tart-vms`, `logical-cores`, and `memory-mib`. Subtract the resources. If no worker has
    sufficient resources, skip the candidate. A skipped candidate does not stop the next
@@ -585,6 +590,11 @@ defaults:
     maxVMLifetime: 25h
 profiles: [] # see §5
 ```
+
+The configuration MUST set `pollInterval`, `jobStatesInterval`, and `inventoryInterval` shorter
+than `stateFreshness`. Admission and the Reaper act only on data newer than `stateFreshness`, so a
+source that the controller reads less often stops them permanently. The controller refuses such a
+configuration when it starts.
 
 Each secret belongs to the settings of the component that uses it: the agent token to the
 Buildkite settings, and the Orchard token and certificate to the Orchard settings. A component

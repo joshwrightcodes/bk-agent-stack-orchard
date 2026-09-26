@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
@@ -54,6 +55,11 @@ type Queue interface {
 	Latest() (stack.Queue, bool)
 }
 
+// admissionRests are the sources that a decision to start a job rests on (target design, section
+// 6.3). An old answer of either one can start a job for a slot that is gone, or for a job that
+// another agent took.
+var admissionRests = []telemetry.Source{telemetry.SourceScheduledJobs, telemetry.SourceInventory}
+
 // step names the part of a tick that a span and a metric carry.
 var step = map[telemetry.Source]string{
 	telemetry.SourceScheduledJobs: "poll",
@@ -86,6 +92,10 @@ type Options struct {
 	// Interval is how often the tick runs.
 	Interval time.Duration
 
+	// Freshness is how old the answers that admission rests on may be. An older answer stops
+	// admission, and not the reaper.
+	Freshness time.Duration
+
 	// Metrics, Logger, and Tracer record what the loop did. A nil Tracer records no span.
 	Metrics *telemetry.Metrics
 	Logger  *slog.Logger
@@ -94,16 +104,17 @@ type Options struct {
 
 // Controller runs the tick.
 type Controller struct {
-	stack    Registrar
-	sources  []Source
-	queue    Queue
-	fleet    func() telemetry.Observation
-	reap     func(ctx context.Context) error
-	admit    func(ctx context.Context) error
-	interval time.Duration
-	metrics  *telemetry.Metrics
-	logger   *slog.Logger
-	tracer   trace.Tracer
+	stack     Registrar
+	sources   []Source
+	queue     Queue
+	fleet     func() telemetry.Observation
+	reap      func(ctx context.Context) error
+	admit     func(ctx context.Context) error
+	interval  time.Duration
+	freshness time.Duration
+	metrics   *telemetry.Metrics
+	logger    *slog.Logger
+	tracer    trace.Tracer
 
 	// refreshed holds the tick at which each source was last read. Only the goroutine of the
 	// loop reads and writes it.
@@ -135,6 +146,22 @@ func New(options Options) (*Controller, error) {
 			"than zero", options.Interval))
 	}
 
+	if options.Freshness <= 0 {
+		problems = append(problems, fmt.Errorf("the state freshness is %s, and it must be more "+
+			"than zero", options.Freshness))
+	}
+
+	// Without a source, the gate of admission has nothing to measure, and a wiring that left one
+	// out would start jobs on an answer of any age.
+	if options.Admit != nil {
+		for _, rest := range admissionRests {
+			if !slices.ContainsFunc(options.Sources, func(s Source) bool { return s.Source() == rest }) {
+				problems = append(problems, fmt.Errorf("admission rests on the source %s, and the "+
+					"loop does not have it", rest))
+			}
+		}
+	}
+
 	if len(problems) > 0 {
 		return nil, errors.Join(problems...)
 	}
@@ -152,6 +179,7 @@ func New(options Options) (*Controller, error) {
 		reap:      options.Reap,
 		admit:     options.Admit,
 		interval:  options.Interval,
+		freshness: options.Freshness,
 		metrics:   options.Metrics,
 		logger:    options.Logger,
 		tracer:    tracer,
@@ -210,7 +238,7 @@ func (c *Controller) tick(ctx context.Context, at time.Time) {
 
 	c.run(ctx, "reap", c.reap)
 
-	if reason, ok := c.mayAdmit(); !ok {
+	if reason, ok := c.mayAdmit(at); !ok {
 		c.logger.DebugContext(ctx, "the controller admitted no job", "reason", reason)
 
 		return
@@ -296,11 +324,13 @@ func (c *Controller) observe() {
 	c.metrics.Observe(observation)
 }
 
-// mayAdmit reports whether this tick may start jobs, and why not when it may not.
+// mayAdmit reports whether the tick at may start jobs, and why not when it may not.
 //
 // The controller starts no job while it has not read the queue, because an empty queue and an
-// unread queue look the same, and because a paused queue is an instruction from an operator.
-func (c *Controller) mayAdmit() (string, bool) {
+// unread queue look the same, and because a paused queue is an instruction from an operator. It
+// starts no job on an answer older than the freshness limit either: a source whose calls fail
+// keeps its last answer, and the fleet and the queue move on without it.
+func (c *Controller) mayAdmit(at time.Time) (string, bool) {
 	queue, ok := c.queue.Latest()
 	if !ok {
 		return "the controller has not read the queue yet", false
@@ -308,6 +338,22 @@ func (c *Controller) mayAdmit() (string, bool) {
 
 	if queue.Paused {
 		return "an operator paused the queue", false
+	}
+
+	for _, source := range c.sources {
+		if !slices.Contains(admissionRests, source.Source()) {
+			continue
+		}
+
+		answered := source.At()
+		if answered.IsZero() {
+			return fmt.Sprintf("the source %s has not answered yet", source.Source()), false
+		}
+
+		if age := at.Sub(answered); age > c.freshness {
+			return fmt.Sprintf("the last answer of the source %s is %s old, and admission "+
+				"needs one inside %s", source.Source(), age.Round(time.Second), c.freshness), false
+		}
 	}
 
 	return "", true
