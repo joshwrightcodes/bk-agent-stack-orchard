@@ -13,6 +13,7 @@ import (
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/inventory"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/jobstates"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/profile"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/reaper"
@@ -25,17 +26,23 @@ const (
 	ancient = job.ID("018f3b2c-1c4a-7e5b-9a3d-2f1e4c5b6a72")
 )
 
-// buildkite answers get-states.
+// buildkite holds what the job states say. A state is one that the controller asked for a
+// second ago, and Buildkite named it. A nil map is a controller that has asked about nothing.
 type buildkite struct {
 	states map[job.ID]string
-	err    error
-	calls  int
+	reads  int
 }
 
-func (b *buildkite) States(context.Context, []job.ID) (map[job.ID]string, error) {
-	b.calls++
+func (b *buildkite) Observed(id job.ID) (jobstates.Observation, bool) {
+	b.reads++
 
-	return b.states, b.err
+	if b.states == nil {
+		return jobstates.Observation{}, false
+	}
+
+	state, named := b.states[id]
+
+	return jobstates.Observation{State: state, Named: named, At: now.Add(-time.Second)}, true
 }
 
 // fleet answers as Orchard: it holds the snapshot, and it records the deletions.
@@ -116,7 +123,7 @@ func build(t *testing.T, api *buildkite, machines *fleet, log *decisions) *reape
 	}
 
 	built, err := reaper.New(reaper.Options{
-		Stacks:    api,
+		States:    api,
 		Orchard:   machines,
 		Fleet:     machines,
 		Profiles:  []profile.Profile{{Name: "xcode-27"}},
@@ -157,31 +164,12 @@ func TestTheMachineOfAFinishedJobGoesAndTheOthersStay(t *testing.T) {
 	}
 }
 
-// All the states arrive in one call, because one call for each machine would spend the rate
-// limit of the whole organisation on a busy fleet.
-func TestTheStatesArriveInOneCall(t *testing.T) {
-	t.Parallel()
-
-	api := &buildkite{states: map[job.ID]string{}}
-	machines := &fleet{read: true, snapshot: inventory.Snapshot{
-		Owned: []inventory.Owned{owned(ended, time.Hour), owned(running, time.Hour)},
-	}}
-
-	if err := build(t, api, machines, &decisions{}).Reap(t.Context()); err != nil {
-		t.Fatalf("Reap() = %v, want no error", err)
-	}
-
-	if api.calls != 1 {
-		t.Errorf("the reaper asked Buildkite %d times, want 1", api.calls)
-	}
-}
-
 // A controller that cannot reach Buildkite still removes a machine that outlived its limit, and
 // deletes nothing on a state that it could not read.
 func TestWithoutStatesOnlyTheLifetimeActs(t *testing.T) {
 	t.Parallel()
 
-	api := &buildkite{err: errors.New("buildkite is not available")}
+	api := &buildkite{}
 	machines := &fleet{read: true, snapshot: inventory.Snapshot{
 		Owned: []inventory.Owned{owned(ended, time.Hour), owned(ancient, 26*time.Hour)},
 	}}
@@ -251,7 +239,7 @@ func TestNothingHappensBeforeTheFleetIsRead(t *testing.T) {
 		t.Fatalf("Reap() = %v, want no error", err)
 	}
 
-	if api.calls != 0 || len(machines.deleted) != 0 {
+	if api.reads != 0 || len(machines.deleted) != 0 {
 		t.Error("the reaper acted before the fleet was read")
 	}
 }
@@ -261,5 +249,158 @@ func TestNewRefusesAnIncompleteReaper(t *testing.T) {
 
 	if _, err := reaper.New(reaper.Options{}); err == nil {
 		t.Error("New() with nothing = nil, want an error")
+	}
+}
+
+// clock is one time for the job states and the reaper, which a test moves.
+type clock struct{ at time.Time }
+
+func (c *clock) now() time.Time { return c.at }
+
+// stacks answers get-states for the job states under test.
+type stacks struct {
+	states map[job.ID]string
+	err    error
+}
+
+func (s *stacks) States(context.Context, []job.ID) (map[job.ID]string, error) {
+	return s.states, s.err
+}
+
+// joined builds the real job states and a reaper that reads them, on one clock.
+func joined(t *testing.T, api *stacks, machines *fleet, c *clock) (*jobstates.States,
+	*reaper.Reaper,
+) {
+	t.Helper()
+
+	states, err := jobstates.New(jobstates.Options{
+		Stacks: api, Fleet: machines, Interval: 5 * time.Second, Now: c.now,
+	})
+	if err != nil {
+		t.Fatalf("jobstates.New() = %v, want the states", err)
+	}
+
+	provider := sdkmetric.NewMeterProvider()
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+
+	instruments, err := telemetry.NewMetrics(provider.Meter("test"))
+	if err != nil {
+		t.Fatalf("NewMetrics() = %v, want the instruments", err)
+	}
+
+	built, err := reaper.New(reaper.Options{
+		States:    states,
+		Orchard:   machines,
+		Fleet:     machines,
+		Profiles:  []profile.Profile{{Name: "xcode-27"}},
+		Defaults:  limits,
+		Freshness: freshness,
+		Metrics:   instruments,
+		Logger:    slog.New(slog.DiscardHandler),
+		Now:       c.now,
+	})
+	if err != nil {
+		t.Fatalf("reaper.New() = %v, want the reaper", err)
+	}
+
+	return states, built
+}
+
+// The causal rule, with the job states that the controller runs. A state that the controller asked
+// for before a machine existed describes a job that the machine never saw, such as an earlier
+// machine of the same job, and it must not end this one. The next state, asked for after the
+// machine existed, may.
+func TestTheReaperWaitsForAStateAskedAfterTheMachine(t *testing.T) {
+	t.Parallel()
+
+	c := &clock{at: now}
+	api := &stacks{states: map[job.ID]string{ended: "finished"}}
+	machine := owned(ended, 0)
+	machine.VM.CreatedAt = now.Add(2 * time.Second)
+	machines := &fleet{read: true, snapshot: inventory.Snapshot{
+		Owned: []inventory.Owned{machine},
+	}}
+
+	states, reaping := joined(t, api, machines, c)
+
+	// The controller asks at now, and the machine appears two seconds later.
+	if err := states.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh() = %v, want no error", err)
+	}
+
+	c.at = now.Add(3 * time.Second)
+	if err := reaping.Reap(t.Context()); err != nil {
+		t.Fatalf("Reap() = %v, want no error", err)
+	}
+
+	if len(machines.deleted) != 0 {
+		t.Fatalf("orchard deleted %v on a state from before the machine, want nothing",
+			machines.deleted)
+	}
+
+	// The next refresh asks after the machine existed, and its answer may end the machine.
+	c.at = now.Add(5 * time.Second)
+	if err := states.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh() = %v, want no error", err)
+	}
+
+	if err := reaping.Reap(t.Context()); err != nil {
+		t.Fatalf("Reap() = %v, want no error", err)
+	}
+
+	if len(machines.deleted) != 1 {
+		t.Errorf("orchard deleted %v, want the machine once a state after it said finished",
+			machines.deleted)
+	}
+}
+
+// The stale rule, with the job states that the controller runs. When Buildkite stops answering,
+// the last state grows old, and past the freshness limit it no longer ends a machine. A fresh
+// state that says the same thing may.
+func TestTheReaperStopsActingOnAStateThatGrewStale(t *testing.T) {
+	t.Parallel()
+
+	c := &clock{at: now}
+	api := &stacks{states: map[job.ID]string{ended: "finished"}}
+	machines := &fleet{read: true, snapshot: inventory.Snapshot{
+		Owned: []inventory.Owned{owned(ended, time.Minute)},
+	}}
+
+	states, reaping := joined(t, api, machines, c)
+
+	if err := states.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh() = %v, want no error", err)
+	}
+
+	// Buildkite stops answering, and the reaper runs only after the state is too old.
+	api.err = errors.New("buildkite is not available")
+	c.at = now.Add(freshness + time.Second)
+
+	if err := states.Refresh(t.Context()); err == nil {
+		t.Fatal("Refresh() = nil, want the error of Buildkite")
+	}
+
+	if err := reaping.Reap(t.Context()); err != nil {
+		t.Fatalf("Reap() = %v, want no error", err)
+	}
+
+	if len(machines.deleted) != 0 {
+		t.Fatalf("orchard deleted %v on a stale state, want nothing", machines.deleted)
+	}
+
+	// Buildkite answers again, and the fresh state may end the machine.
+	api.err = nil
+
+	if err := states.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh() = %v, want no error", err)
+	}
+
+	if err := reaping.Reap(t.Context()); err != nil {
+		t.Fatalf("Reap() = %v, want no error", err)
+	}
+
+	if len(machines.deleted) != 1 {
+		t.Errorf("orchard deleted %v, want the machine once a fresh state said finished",
+			machines.deleted)
 	}
 }
