@@ -744,7 +744,10 @@ These rules come from the conventions and MUST hold:
 * **The controller MUST NOT define a metric for its own HTTP calls.** `otelhttp` gives
   `http.client.request.duration` with the attributes of the conventions, and a second instrument
   for the same measurement would disagree with it. A rate limit and a status that the controller
-  cannot use are `cicd.system.errors`.
+  cannot use are `cicd.system.errors`. The controller counts each call to either API that fails,
+  in one place in front of each API, with `error.type` = `unauthorized`, `rate_limited`,
+  `timeout`, or `_OTHER`. An answer about one job, such as a job that ended or a VM that exists,
+  is not an error of the system.
 * **`bkaso.source.staleness` is an age and not a time.** The readiness alert reads a number that
   needs no clock of its own, and the value cannot disagree with the clock of the backend.
 
@@ -764,6 +767,10 @@ tolerance of ±`jobStatesInterval`. Outgoing HTTP clients MUST use `otelhttp`.
   `bkaso.reaper.decision`, `bkaso.reaper.reason`), `stacks.finish_job`, `orchard.vm.delete`.
   Orchard state changes (placement on a worker, `running`) are span events. A span carries
   `cicd.pipeline.task.run.id` for its job, and the HTTP client spans come from `otelhttp`.
+  `job.match` is written once for each job that a process sees in the queue, with
+  `bkaso.job.matched` and `bkaso.profile`, and an error status with the reason when no profile
+  matches. `job.admit` is written when admission starts the job. A span at each tick would put
+  one span each second into the trace of a job that waits.
 * **Tick spans** (`tick.poll`, `tick.inventory`, `tick.job_states`, `tick.reap`, `tick.admit`)
   are separate short traces. They have span links to the job traces that they affect.
 

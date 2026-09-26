@@ -278,7 +278,7 @@ func (r *Reaper) carry(ctx context.Context, machine Machine, decision Decision) 
 	case Delete, FinishAndDelete, NotifyAndDelete:
 	}
 
-	ctx, span := r.tracer.Start(telemetry.WithJob(ctx, machine.Job), "reaper.decide",
+	ctx, span := telemetry.StartJob(ctx, r.tracer, machine.Job, "reaper.decide",
 		trace.WithAttributes(
 			attribute.String(telemetry.SpanVMPhase, string(inventory.Phase(machine.VM))),
 			attribute.String(telemetry.SpanJobState, machine.State),
@@ -337,8 +337,15 @@ func (r *Reaper) finish(ctx context.Context, machine Machine, decision Decision)
 		return nil
 	}
 
-	err := r.stacks.Finish(ctx, machine.Job, failedExitStatus,
-		message(machine, decision, r.script(ctx, machine, decision)))
+	detail := message(machine, decision, r.script(ctx, machine, decision))
+
+	ctx, span := r.tracer.Start(ctx, "stacks.finish_job")
+	defer span.End()
+
+	err := r.stacks.Finish(ctx, machine.Job, failedExitStatus, detail)
+	if err != nil {
+		span.RecordError(err)
+	}
 
 	// Buildkite refuses a finish of a job that already ended or that it does not know. A second
 	// finish after a restart is the common case. The job is done either way, and every further

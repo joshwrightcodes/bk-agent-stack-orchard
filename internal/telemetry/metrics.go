@@ -33,6 +33,12 @@ const (
 	attributeSource       = prefix + "source"
 )
 
+// The attributes of the job.match span: the profile that carries the job, or none.
+const (
+	SpanProfile = prefix + "profile"
+	SpanMatched = prefix + "job.matched"
+)
+
 // The attributes of the reaper.decide span (target design, section 10.2).
 const (
 	SpanVMPhase  = prefix + "vm.phase"

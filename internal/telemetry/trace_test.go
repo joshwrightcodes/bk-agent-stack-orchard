@@ -102,6 +102,45 @@ func TestASpanOfAJobCarriesTheTraceOfThatJob(t *testing.T) {
 	}
 }
 
+// A tick is a short trace of its own, so the link from the tick to the job is the only way from a
+// slow tick to the jobs that it touched (target design, section 10.2).
+func TestAJobSpanIsInTheJobTraceAndTheTickLinksToIt(t *testing.T) {
+	t.Parallel()
+
+	provider, exporter := recorder(t)
+	tracer := provider.Tracer("test")
+
+	ctx, tick := tracer.Start(t.Context(), "tick.reap")
+	_, span := telemetry.StartJob(ctx, tracer, sample, "reaper.decide")
+	span.End()
+	tick.End()
+
+	want, err := telemetry.TraceID(sample)
+	if err != nil {
+		t.Fatalf("TraceID() = %v, want no error", err)
+	}
+
+	recorded := exporter.GetSpans()
+	if len(recorded) != 2 {
+		t.Fatalf("the exporter holds %d spans, want the job span and the tick", len(recorded))
+	}
+
+	job, ticked := recorded[0], recorded[1]
+
+	if job.SpanContext.TraceID() != want {
+		t.Errorf("the job span is in trace %s, want the trace of the job, %s",
+			job.SpanContext.TraceID(), want)
+	}
+
+	if ticked.SpanContext.TraceID() == want {
+		t.Error("the tick is in the trace of the job, want a trace of its own")
+	}
+
+	if len(ticked.Links) != 1 || ticked.Links[0].SpanContext.SpanID() != job.SpanContext.SpanID() {
+		t.Errorf("the tick links to %+v, want the span of the job", ticked.Links)
+	}
+}
+
 // Two processes, which is what a restart makes, must put their spans in one trace and must name
 // one parent, so that the spans of a job meet in one tree.
 func TestTwoProcessesAgreeOnTheTraceAndTheParent(t *testing.T) {
