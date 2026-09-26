@@ -78,3 +78,18 @@ type Notification struct {
 	// At is when the event happened. A zero time means now.
 	At time.Time
 }
+
+// acquired holds the states of a job that an agent owns. From here the lost-agent procedure of
+// Buildkite decides the result of the job, and the controller only removes the machine.
+var acquired = map[string]bool{
+	"assigned":   true,
+	"accepted":   true,
+	"running":    true,
+	"canceling":  true,
+	"timing_out": true,
+}
+
+// Acquired reports a job state in which an agent owns the job.
+func Acquired(state string) bool {
+	return acquired[state]
+}

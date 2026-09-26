@@ -19,6 +19,11 @@ type held struct {
 	// at is when this process last acted on the job. A snapshot of the fleet older than this
 	// cannot say whether the machine exists, because the launch came after it.
 	at time.Time
+
+	// scheduledAt is when Buildkite scheduled the job, and reservedAt is when this process first
+	// reserved it. The phase durations of the job start from them.
+	scheduledAt time.Time
+	reservedAt  time.Time
 }
 
 // memory holds what only this process knows about the jobs that it started.
@@ -48,6 +53,28 @@ func (m *memory) reserved(id job.ID, until, at time.Time) {
 	entry.until = until
 	entry.at = at
 	m.jobs[id] = entry
+}
+
+// admitted records when a job that admission started was scheduled, and when this process
+// reserved it.
+func (m *memory) admitted(id job.ID, scheduledAt, reservedAt time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	entry := m.jobs[id]
+	entry.scheduledAt = scheduledAt
+	entry.reservedAt = reservedAt
+	m.jobs[id] = entry
+}
+
+// timeline gives what this process knows of the start of a job.
+func (m *memory) timeline(id job.ID) (held, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	entry, known := m.jobs[id]
+
+	return entry, known && !entry.reservedAt.IsZero()
 }
 
 // started records the profile that carries a job.

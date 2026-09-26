@@ -111,8 +111,11 @@ func TestOneJobGoesFromScheduledToADeletedMachine(t *testing.T) {
 		return slices.Contains(stacks.Reserved(), carried)
 	})
 
+	var worker string
+
 	eventually(t, "orchard runs the machine of the job", func() bool {
 		machine, found := machineNamed(t, name)
+		worker = machine.Worker
 
 		return found && machine.Status == "running"
 	})
@@ -138,11 +141,12 @@ func TestOneJobGoesFromScheduledToADeletedMachine(t *testing.T) {
 		t.Errorf("the controller reserved %v, want the job once", held)
 	}
 
-	// The job page shows the steps that this increment sends. The steps of the rest of the
-	// machine life arrive with the unit that owns them, and this test grows with it.
-	if !notified(stacks.Notifications(), carried, "VM requested") {
-		t.Errorf("the job page reads %+v, want \"VM requested\"", stacks.Notifications())
-	}
+	// The job page shows each step of the machine, in order (target design, section 10.5).
+	want := []string{"VM requested", "placed on " + worker, "booting", "VM deleted: job_terminal"}
+
+	eventually(t, "the job page shows each step", func() bool {
+		return slices.Equal(lines(stacks.Notifications(), carried), want)
+	})
 
 	stopController(t, process)
 
@@ -406,14 +410,17 @@ func machines(t *testing.T) []machine {
 	return found
 }
 
-func notified(lines []stacksapi.StackNotification, id, detail string) bool {
-	for _, line := range lines {
-		if line.JobUUID == id && line.Detail == detail {
-			return true
+// lines gives the lines of one job page, in order.
+func lines(notifications []stacksapi.StackNotification, id string) []string {
+	var page []string
+
+	for _, line := range notifications {
+		if line.JobUUID == id {
+			page = append(page, line.Detail)
 		}
 	}
 
-	return false
+	return page
 }
 
 // eventually waits for a condition, and fails the test with what it waited for.

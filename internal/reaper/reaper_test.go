@@ -220,13 +220,21 @@ func TestTheMachineOfAFinishedJobGoesAndTheOthersStay(t *testing.T) {
 		Owned: []inventory.Owned{owned(ended, time.Hour), owned(running, time.Hour)},
 	}}
 	log := &decisions{}
+	jobPages := &pages{}
 
-	if err := build(t, api, machines, log).Reap(t.Context()); err != nil {
+	if err := buildWith(t, api, machines, log, jobPages).Reap(t.Context()); err != nil {
 		t.Fatalf("Reap() = %v, want no error", err)
 	}
 
 	if len(machines.deleted) != 1 || machines.deleted[0] != "bk-macos-prod-"+string(ended) {
 		t.Errorf("orchard deleted %v, want only the machine of the finished job", machines.deleted)
+	}
+
+	// The last step on the job page (target design, section 10.5).
+	if len(jobPages.notified) != 1 || jobPages.notified[0].Detail != "VM deleted: job_terminal" ||
+		jobPages.notified[0].JobID != ended {
+		t.Errorf("the job pages got %+v, want the removal on the page of the finished job",
+			jobPages.notified)
 	}
 
 	// The design asks for exactly one decision record for each action.
@@ -595,10 +603,15 @@ func TestAFailedMachineOfAnAcquiredJobGoesWithALineAndNoFinish(t *testing.T) {
 			jobPages.finished)
 	}
 
-	if len(jobPages.notified) != 1 ||
-		!strings.Contains(jobPages.notified[0].Detail, "the image could not be pulled") {
-		t.Errorf("the job page got %+v, want one line with the status of the machine",
-			jobPages.notified)
+	// The two steps of target design, section 10.5: why the machine failed, then its removal.
+	var lines []string
+	for _, line := range jobPages.notified {
+		lines = append(lines, line.Detail)
+	}
+
+	want := []string{"failed: the image could not be pulled", "VM deleted: vm_failed"}
+	if !slices.Equal(lines, want) {
+		t.Errorf("the job page got %q, want %q", lines, want)
 	}
 
 	if len(machines.deleted) != 1 {

@@ -175,6 +175,22 @@ func (l *Launcher) Profile(id job.ID) string {
 	return l.held.profile(id)
 }
 
+// Timeline is what this process knows of the start of a job that it admitted.
+type Timeline struct {
+	Profile     string
+	ScheduledAt time.Time
+	ReservedAt  time.Time
+}
+
+// Timeline gives the start of a job that this process admitted and reserved. A job of the process
+// before a restart has none.
+func (l *Launcher) Timeline(id job.ID) (Timeline, bool) {
+	entry, known := l.held.timeline(id)
+
+	return Timeline{Profile: entry.name, ScheduledAt: entry.scheduledAt, ReservedAt: entry.reservedAt},
+		known
+}
+
 // Held gives the jobs that this process holds and whose machines a snapshot does not show yet,
 // each with the profile of the machine that it asked for, or empty text when it asked for none.
 //
@@ -306,6 +322,18 @@ func (l *Launcher) reserve(ctx context.Context, decision admission.Result) (map[
 		held[id] = true
 
 		l.held.reserved(id, until, sent)
+	}
+
+	// The first phase of a job ends with its reservation. The later phases are what the progress
+	// of its machine shows, and they start from these times.
+	for _, candidate := range decision.Admit {
+		if !held[candidate.Job.ID] {
+			continue
+		}
+
+		l.held.admitted(candidate.Job.ID, candidate.Job.ScheduledAt, sent)
+		l.metrics.JobPhase(ctx, candidate.Profile.Name, telemetry.PhaseScheduledToReserved,
+			sent.Sub(candidate.Job.ScheduledAt))
 	}
 
 	// A job that another stack holds is normal: every stack of the queue reads the same list.

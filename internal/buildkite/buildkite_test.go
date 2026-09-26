@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -596,5 +597,35 @@ func TestTheDetailBudgetIsTheLimitOfTheLibrary(t *testing.T) {
 	if sent := finishWith(t, over); sent == over {
 		t.Errorf("a detail of %d bytes left unchanged, want it cut: the budget is below the "+
 			"limit of the library", buildkite.DetailBudget+1)
+	}
+}
+
+// Buildkite answers a call of several lines with the lines that it did not take, for example a
+// line for a job that ended. That is an answer about a job, and the caller must be able to tell
+// it from an API that failed.
+func TestARefusedLineIsAnAnswerAboutTheJob(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"errors":[{"error":"job is finished","indexes":[0]}]}`))
+	}))
+	t.Cleanup(server.Close)
+
+	client, err := buildkite.New(buildkite.Options{
+		Token:    secret.String("bkct_a-cluster-agent-token"),
+		Endpoint: server.URL,
+		StackKey: "bk-macos-prod",
+		Queue:    "macos-prod",
+	})
+	if err != nil {
+		t.Fatalf("New() = %v, want a client", err)
+	}
+
+	err = client.Notify(t.Context(), []buildkite.Notification{
+		{JobID: first, Detail: "VM deleted: job_terminal", At: time.Now()},
+	})
+	if !errors.Is(err, buildkite.ErrRefused) || !strings.Contains(err.Error(), "job is finished") {
+		t.Errorf("Notify() = %v, want ErrRefused with the reason of Buildkite", err)
 	}
 }

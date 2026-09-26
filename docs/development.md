@@ -43,7 +43,8 @@ The integration tests run against a real Orchard in synthetic mode, at the versi
 pins:
 
 * The skeleton journey (T-060) runs the controller binary with the fake Stacks API server. One job
-  goes from `scheduled` to a deleted VM, and at the end no VM of the controller remains (I-6).
+  goes from `scheduled` to a deleted VM, the job page shows each step, and at the end no VM of the
+  controller remains (I-6).
 * The admission journeys run the controller binary in the same way. In T-061, three jobs wait for
   a worker with two slots: the third job stays `scheduled` until a slot is free. In T-062, a job
   that no profile matches ends with exit status -1 and a message that names the profiles, and no

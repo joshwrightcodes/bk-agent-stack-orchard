@@ -76,6 +76,7 @@ internal/orchard/               the Orchard interface, this project's REST clien
 internal/inventory/             worker and VM inventory with freshness
 internal/jobstates/             batched job states with observation times
 internal/launcher/              reserve, issue tokens, create VMs, notify
+internal/progress/              the steps of each VM: job page lines, span events, phase durations
 internal/stack/                 stack registration, the queue poll, and the paused value
 internal/controller/            the tick loop, which a test can run one tick at a time
 internal/telemetry/             OTel meter, tracer, and the slog bridge

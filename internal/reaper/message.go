@@ -88,6 +88,21 @@ func logLines(events []orchard.Event) []string {
 // eventLogLine is the kind of an Orchard event that holds one line of the startup script.
 const eventLogLine = "log_line"
 
+// Failed gives the line of a machine that stopped while an agent held its job (target design,
+// section 10.5). The status message of Orchard says why, when Orchard gave one.
+func Failed(status string) string {
+	if status == "" {
+		return "failed: the virtual machine stopped"
+	}
+
+	return "failed: " + status
+}
+
+// Deleted gives the last line of a machine: the controller removed it, and why.
+func Deleted(reason string) string {
+	return "VM deleted: " + reason
+}
+
 // withStatus adds the status message of the machine, when Orchard gave one.
 func withStatus(text string, machine Machine) string {
 	if machine.VM.StatusMessage == "" {
