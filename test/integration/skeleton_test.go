@@ -25,6 +25,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -180,8 +181,16 @@ func orchardBinary(t *testing.T) string {
 	return ""
 }
 
-// startOrchard runs `orchard dev` in synthetic mode until the test ends.
+// startOrchard runs `orchard dev` in synthetic mode, with one worker, until the test ends.
 func startOrchard(t *testing.T, binary string) {
+	t.Helper()
+
+	startOrchardWith(t, binary, 1)
+}
+
+// startOrchardWith runs `orchard dev` in synthetic mode with some workers, each with the
+// resources above, until the test ends.
+func startOrchardWith(t *testing.T, binary string, count int) {
 	t.Helper()
 
 	if answered(orchardURL + "/v1/workers") {
@@ -193,7 +202,8 @@ func startOrchard(t *testing.T, binary string) {
 
 	//nolint:gosec // G204: the binary is the Orchard that mise pins, or the one that
 	// ORCHARD_BIN names, and every argument is a constant or a temp dir of this test.
-	command := exec.CommandContext(t.Context(), binary, "dev", "--synthetic", "--workers", "1",
+	command := exec.CommandContext(t.Context(), binary, "dev", "--synthetic", "--workers",
+		strconv.Itoa(count),
 		"--data-dir", filepath.Join(home, "data"), "--resources", resources)
 	graceful(command)
 
@@ -214,8 +224,8 @@ func startOrchard(t *testing.T, binary string) {
 		Runtime string `json:"runtime"`
 	}
 
-	eventually(t, "orchard dev has a worker", func() bool {
-		return decode(orchardURL+"/v1/workers", &workers) == nil && len(workers) > 0
+	eventually(t, "every worker of orchard dev reports", func() bool {
+		return decode(orchardURL+"/v1/workers", &workers) == nil && len(workers) == count
 	})
 
 	// Orchard places a machine only on a worker of the same architecture and the same runtime.

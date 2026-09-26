@@ -399,8 +399,10 @@ func (f *Server) reserve(ids []string) {
 		f.JobStates = map[string]string{}
 	}
 
+	// A scheduled job becomes reserved, as the API documents, whether a test gave it the state
+	// "scheduled" or no state at all. A state that a test set after the reservation stays.
 	for id := range held {
-		if _, known := f.JobStates[id]; !known {
+		if state, known := f.JobStates[id]; !known || state == "scheduled" {
 			f.JobStates[id] = "reserved"
 		}
 	}

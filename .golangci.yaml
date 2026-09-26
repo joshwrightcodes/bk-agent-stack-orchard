@@ -2,9 +2,11 @@ version: "2"
 
 run:
   go: "1.27"
-  # The integration test sits behind a build tag, and the analysis covers all Go code.
+  # The integration tests and the load test sit behind build tags, and the analysis covers all Go
+  # code.
   build-tags:
     - integration
+    - load
 
 linters:
   default: standard
