@@ -126,13 +126,18 @@ carries no release tag, so an import also pins an untagged commit of a Kubernete
 `test/fakestacks` therefore holds the file with its MIT notice and its provenance, and the module
 graph gains only `stacksapi` and the two small libraries that it needs.
 
-The copy carries three changes, because the original models only the calls that its own controller
+The copy carries six changes, because the original models only the calls that its own controller
 makes. Each change carries a comment in the file that starts with "Change of this project":
 
 1. The stack key is a field. The original writes `test-stack` into every route, and the stack key
    of this controller comes from its configuration.
 2. A scheduled-jobs route exists. The original models none, and T-040 asks for an empty page.
 3. A test can set the headers of an answer, which the `Retry-After` case of T-040 needs.
+4. A reserved job leaves the scheduled-jobs list and takes the state `reserved`, as the API
+   states. A test that runs the controller end to end (T-060) needs the list to move.
+5. A test can set a job state and read the calls while the controller runs, under the lock of the
+   server.
+6. A finish call records the exit status and the detail that it sends, which T-062 reads.
 
 The fake is not a conformance suite. Open item O-1 of the test strategy stays: the fixtures of
 T-040 come from recorded responses of a real Buildkite test cluster.
