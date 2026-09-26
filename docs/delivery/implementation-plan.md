@@ -135,8 +135,8 @@ makes. Each change carries a comment in the file that starts with "Change of thi
 3. A test can set the headers of an answer, which the `Retry-After` case of T-040 needs.
 4. A reserved job leaves the scheduled-jobs list and takes the state `reserved`, as the API
    states. A test that runs the controller end to end (T-060) needs the list to move.
-5. A test can set a job state and read the calls while the controller runs, under the lock of the
-   server.
+5. A test can set a job state, schedule a job again as an expired reservation does (T-021), and
+   read the calls while the controller runs, under the lock of the server.
 6. A finish call records the exit status and the detail that it sends, which T-062 reads.
 
 The fake is not a conformance suite. Open item O-1 of the test strategy stays: the fixtures of

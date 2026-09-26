@@ -334,6 +334,7 @@ func stopController(t *testing.T, running *controller) {
 // mistake in the client of this project cannot agree with itself here.
 type machine struct {
 	Name   string `json:"name"`
+	UID    string `json:"uid"`
 	Status string `json:"status"`
 	Worker string `json:"worker"`
 }

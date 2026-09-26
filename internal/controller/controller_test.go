@@ -130,12 +130,13 @@ func options(t *testing.T, r *recorder) controller.Options {
 	}
 }
 
-// fresh gives the sources that admission rests on, each with an answer that has just arrived and
-// an interval that no test outlasts.
+// fresh gives the sources that admission depends on, each with an answer that has just arrived
+// and an interval that no test outlasts.
 func fresh(r *recorder) []controller.Source {
 	return []controller.Source{
 		&source{recorder: r, kind: telemetry.SourceScheduledJobs, interval: time.Hour, at: time.Now()},
 		&source{recorder: r, kind: telemetry.SourceInventory, interval: time.Hour, at: time.Now()},
+		&source{recorder: r, kind: telemetry.SourceJobStates, interval: time.Hour, at: time.Now()},
 	}
 }
 
@@ -185,7 +186,7 @@ func TestTheStepsOfATickRunInOrder(t *testing.T) {
 	runOnce(t, settings, func() bool { return slices.Contains(r.seen(), "admit") })
 
 	seen := r.seen()
-	want := []string{"register", "scheduled_jobs", "inventory", "reap", "admit"}
+	want := []string{"register", "scheduled_jobs", "inventory", "job_states", "reap", "admit"}
 
 	for i, step := range want {
 		if i >= len(seen) || seen[i] != step {
@@ -269,6 +270,38 @@ func TestAnOldAnswerStopsAdmissionAndNotTheReaper(t *testing.T) {
 			})
 		}
 	}
+}
+
+// After a restart the machines of the last process still run. Admission waits for a reaper pass
+// that has seen their job states, which removes the machines of ended jobs and extends every
+// reservation first (target design, section 7.4).
+func TestAdmissionWaitsForTheFirstJobStates(t *testing.T) {
+	t.Parallel()
+
+	r := &recorder{}
+	settings := options(t, r)
+	settings.Sources[2].(*source).at = time.Time{}
+	settings.Reap = func(context.Context) error { r.add("reap"); return nil }
+	settings.Admit = func(context.Context) error { r.add("admit"); return nil }
+
+	runOnce(t, settings, func() bool { return slices.Contains(r.seen(), "reap") })
+
+	if slices.Contains(r.seen(), "admit") {
+		t.Errorf("the loop admitted a job before the job states answered: %v", r.seen())
+	}
+}
+
+// The job states gate only the first admission. Once they have answered, an old answer stops the
+// reaper by its own rules, and admission rests on the queue and the fleet alone (section 6.3).
+func TestAnOldAnswerOfTheJobStatesDoesNotStopAdmission(t *testing.T) {
+	t.Parallel()
+
+	r := &recorder{}
+	settings := options(t, r)
+	settings.Sources[2].(*source).at = time.Now().Add(-time.Hour)
+	settings.Admit = func(context.Context) error { r.add("admit"); return nil }
+
+	runOnce(t, settings, func() bool { return slices.Contains(r.seen(), "admit") })
 }
 
 // Almost every failure here is one call to one API, and the next tick reads the world again. A
@@ -357,6 +390,10 @@ func TestNewRefusesAnIncompleteLoop(t *testing.T) {
 		"admission without the queue": func(o *controller.Options) {
 			o.Admit = func(context.Context) error { return nil }
 			o.Sources = o.Sources[1:]
+		},
+		"admission without the job states": func(o *controller.Options) {
+			o.Admit = func(context.Context) error { return nil }
+			o.Sources = o.Sources[:2]
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

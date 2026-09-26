@@ -14,9 +14,9 @@
 //  3. A test can set the headers of an answer, which a rate-limit test needs for Retry-After.
 //  4. A reserved job leaves the scheduled-jobs list and takes the state "reserved", as the API
 //     states. A test that runs a controller end to end needs the list to move.
-//  5. A test can set a job state and read the calls while a controller runs, under the lock of
-//     the server. The original is read after each call returns, and a running controller makes
-//     calls at any moment.
+//  5. A test can set a job state, schedule a job, and read the calls while a controller runs,
+//     under the lock of the server. The original is read after each call returns, and a running
+//     controller makes calls at any moment.
 //  6. A finish call records the exit status and the detail that it sends, which a test of a job
 //     that no profile carries reads. The original records the job UUID only.
 //
@@ -518,6 +518,25 @@ func (f *Server) SetJobState(id, state string) {
 	}
 
 	f.JobStates[id] = state
+}
+
+// Schedule puts jobs on the scheduled-jobs list in the state "scheduled", as Buildkite does when a
+// reservation expires.
+//
+// Change of this project: a test that runs a controller end to end moves a job while the
+// controller reads it, so the write takes the lock of the server.
+func (f *Server) Schedule(jobs ...stacksapi.ScheduledJob) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.JobStates == nil {
+		f.JobStates = map[string]string{}
+	}
+
+	for _, scheduled := range jobs {
+		f.ScheduledJobs.Jobs = append(f.ScheduledJobs.Jobs, scheduled)
+		f.JobStates[scheduled.ID] = "scheduled"
+	}
 }
 
 // Reserved reports the jobs that the server holds for this stack.
