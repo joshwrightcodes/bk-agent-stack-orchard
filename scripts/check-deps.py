@@ -10,7 +10,9 @@ Checks:
   1. go.mod names no Orchard module, and has no replace directive for one;
   2. no file of the Orchard repository is in the tree;
   3. go.mod declares the Go version that the documents state;
-  4. github.com/buildkite/stacksapi, when go.mod names it, is v1.2.0 or later.
+  4. github.com/buildkite/stacksapi, when go.mod names it, is v1.2.0 or later;
+  5. the Orchard of mise.toml, which the skeleton journey runs, is the minimum Orchard version
+     that the design states, and every platform of it carries a SHA-256.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 GO_MOD = ROOT / "go.mod"
+MISE = ROOT / "mise.toml"
 DESIGN = ROOT / "docs/architecture/target-design.md"
 
 ORCHARD = ("github.com/cirruslabs/orchard", "github.com/openai/orchard")
@@ -35,6 +38,52 @@ def stated_go_version() -> str:
         print("check-deps: the target design no longer states a Go version", file=sys.stderr)
         raise SystemExit(2)
     return match.group(1)
+
+
+def stated_orchard_version() -> str:
+    match = re.search(r"minimum Orchard version MUST be ([0-9.]+)", DESIGN.read_text())
+    if not match:
+        print("check-deps: the target design no longer states a minimum Orchard version",
+              file=sys.stderr)
+        raise SystemExit(2)
+    return match.group(1)
+
+
+def check_orchard_tool() -> None:
+    """The Orchard that the tests run is the Orchard that the design pins.
+
+    A regular expression reads the one table that this rule needs, because the Python of a
+    developer can predate the TOML parser of the standard library.
+    """
+    if not MISE.exists():
+        return
+
+    text = MISE.read_text(encoding="utf-8")
+
+    table = re.search(r'^\[tools\."github:openai/orchard"\]\s*\nversion\s*=\s*"([^"]+)"',
+                      text, re.M)
+    if not table:
+        errors.append("mise.toml pins no Orchard, and the skeleton journey needs one")
+        return
+
+    expected = stated_orchard_version()
+    if table.group(1) != expected:
+        errors.append(
+            f"mise.toml pins Orchard {table.group(1)}, the design states {expected}. The tests "
+            f"must run the Orchard that the fleet runs"
+        )
+
+    platforms = re.findall(r'^([a-z0-9-]+)\s*=\s*\{([^}]*)\}', text.split(
+        '[tools."github:openai/orchard".platforms]', 1)[-1], re.M)
+    if not platforms:
+        errors.append("mise.toml names no platform for Orchard, so no install is verified")
+
+    for platform, options in platforms:
+        if not re.search(r'checksum\s*=\s*"sha256:[0-9a-f]{64}"', options):
+            errors.append(
+                f"mise.toml installs Orchard on {platform} with no SHA-256, so a tag that moves "
+                f"would change the binary without a failed install"
+            )
 
 
 def main() -> int:
@@ -78,6 +127,8 @@ def main() -> int:
             continue
         if path.name in ("orchard.go", "openapi.yaml") and "docs" not in str(path):
             errors.append(f"{path.relative_to(ROOT)} looks like a file of the Orchard repository")
+
+    check_orchard_tool()
 
     if errors:
         print(f"check-deps: {len(errors)} problem(s)\n", file=sys.stderr)

@@ -56,9 +56,10 @@ Buildkite.
 | [System design baseline](docs/architecture/system-design-baseline.md) | Quality scenarios, the assumed demand model, the quality targets, the cost comparison, and the driver register |
 | [Target design](docs/architecture/target-design.md) | Components, job lifecycle, failure handling, configuration, security, observability, deployment, and conventions |
 | [C4 model](docs/architecture/c4.md) | Levels 1 to 3, generated from [`workspace.dsl`](docs/architecture/workspace.dsl) |
-| [Decision records](docs/adrs/README.md) | ADR-0001 to ADR-0009 |
+| [Decision records](docs/adrs/README.md) | ADR-0001 to ADR-0011 |
 | [Test strategy](docs/quality/test-strategy.md) | The risk map, the invariants, and the test obligations with their gates |
-| [Implementation plan](docs/delivery/implementation-plan.md) | Work units W-01 to W-25, their order, and the evidence that ends each one |
+| [Implementation plan](docs/delivery/implementation-plan.md) | Work units W-01 to W-27, their order, and the evidence that ends each one |
+| [Development guide](docs/development.md) | The gates, the skeleton journey, and the self-hosted runner of the journey |
 
 ## Decisions
 
@@ -100,15 +101,19 @@ compiles.
 
 ## Development
 
-Tooling arrives with work unit W-01. After that:
-
 ```sh
-mise install     # install the pinned tool versions
-mise run check   # lint, validate the configuration, and build a snapshot image
+mise install           # install the pinned tool versions, Orchard included
+mise run check         # the gates: documents, commits, dependencies, lint, tests, and an image
+mise run integration   # the skeleton journey against Orchard in synthetic mode
 ```
 
-A development machine needs Docker for the Structurizr validation, and one Apple silicon Mac for
-the end-to-end tests.
+A development machine needs Docker for the Structurizr validation. The skeleton journey needs macOS
+on arm64, because Orchard places a macOS VM only on a worker with the runtime Tart.
+
+In CI the journey runs on a self-hosted runner in a Tart macOS VM while the repository is private,
+and [`scripts/journey-runner.sh`](scripts/journey-runner.sh) starts, stops, and removes it. The
+[development guide](docs/development.md) gives every step, and the step that is necessary before the
+repository is public.
 
 ## Scope
 

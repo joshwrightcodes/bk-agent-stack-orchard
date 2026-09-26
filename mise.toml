@@ -7,6 +7,19 @@ go = "1.27.1"
 golangci-lint = "2.13.2"
 goreleaser = "2.18.2"
 
+# Orchard runs the skeleton journey in synthetic mode, with no Mac and no Tart. The version MUST be
+# the minimum Orchard version of the target design, which scripts/check-deps.py confirms. Each
+# platform names its archive and the SHA-256 that the release publishes, so a tag that moves cannot
+# change the binary without a failed install.
+[tools."github:openai/orchard"]
+version = "0.57.0"
+
+[tools."github:openai/orchard".platforms]
+linux-x64 = { asset_pattern = "orchard-linux-amd64.tar.gz", checksum = "sha256:8e54692d5d38eac228b63fc16f0e801c4d7335287b9f1922743e0ac6e4c382d5" }
+linux-arm64 = { asset_pattern = "orchard-linux-arm64.tar.gz", checksum = "sha256:5c744e2883ff02b3e3e42b9ecaa42922411843653ea708eb7e37ee393c945d1f" }
+macos-x64 = { asset_pattern = "orchard-darwin-amd64.tar.gz", checksum = "sha256:b93202610373e1e0f4342ad7e03820e5d74a7891e92cf7532effce2a16b4d256" }
+macos-arm64 = { asset_pattern = "orchard-darwin-arm64.tar.gz", checksum = "sha256:63b511cb9ba4ecadda947d70763b4a226f9f0d56422e147cbf2a2b9b2eeabd26" }
+
 [tasks.check-docs]
 description = "Check that the document set stays whole"
 run = "python3 scripts/check-docs.py"
@@ -48,6 +61,10 @@ run = "golangci-lint config verify"
 [tasks.test]
 description = "Run the Go tests"
 run = "go test ./..."
+
+[tasks.integration]
+description = "Run the skeleton journey against orchard dev in synthetic mode"
+run = "go test -tags integration -count=1 ./test/integration/..."
 
 [tasks.build]
 description = "Build the binary"
