@@ -42,7 +42,12 @@ jobs:
 
   integration:
     name: skeleton journey
-    runs-on: ubuntu-latest
+    # arm64, and not the default amd64. Orchard gives a machine the architecture arm64 unless the
+    # specification states another, and it places a machine only on a worker of the same
+    # architecture. A synthetic worker takes the architecture of the host that runs it, so on an
+    # amd64 runner Orchard never places the macOS machine of the journey. The fleet is Apple
+    # silicon, so the specification is right, and the runner is what must match it.
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       # mise installs the Orchard that mise.toml pins, and checks it against the SHA-256 there.

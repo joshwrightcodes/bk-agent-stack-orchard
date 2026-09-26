@@ -203,13 +203,23 @@ func startOrchard(t *testing.T, binary string) {
 
 	t.Cleanup(func() { stop(t, command, "orchard dev", log) })
 
-	eventually(t, "orchard dev has a worker", func() bool {
-		var workers []struct {
-			Name string `json:"name"`
-		}
+	var workers []struct {
+		Name string `json:"name"`
+		Arch string `json:"arch"`
+	}
 
+	eventually(t, "orchard dev has a worker", func() bool {
 		return decode(orchardURL+"/v1/workers", &workers) == nil && len(workers) > 0
 	})
+
+	// Orchard gives a machine the architecture arm64 unless the specification states another, and
+	// it places a machine only on a worker of the same architecture. A synthetic worker takes the
+	// architecture of this host. On any other host the journey would wait for a placement that
+	// never comes, so it stops here and says why.
+	if workers[0].Arch != "arm64" {
+		t.Fatalf("the synthetic worker is %s, and Orchard places a macOS machine only on an arm64 "+
+			"worker; run this test on an arm64 host", workers[0].Arch)
+	}
 }
 
 // writeConfig writes the configuration of the controller under test.
