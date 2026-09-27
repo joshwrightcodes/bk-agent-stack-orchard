@@ -14,7 +14,9 @@ Checks:
   5. the Orchard of mise.toml, which the skeleton journey runs, is the minimum Orchard version
      that the design states, and every platform of it carries a SHA-256;
   6. the image of deploy/orchard/image takes the same version and the same SHA-256 of each Linux
-     archive, so the fleet runs the Orchard that the tests run.
+     archive, so the fleet runs the Orchard that the tests run;
+  7. the Mac hosts of deploy/hosts install the same version, with the same SHA-256 of the macOS
+     archive, so the workers run the Orchard that the tests run.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ GO_MOD = ROOT / "go.mod"
 MISE = ROOT / "mise.toml"
 DESIGN = ROOT / "docs/architecture/target-design.md"
 ORCHARD_IMAGE = ROOT / "deploy/orchard/image/Dockerfile"
+HOSTS = ROOT / "deploy/hosts/roles/orchard_worker/defaults/main.yml"
 
 ORCHARD = ("github.com/cirruslabs/orchard", "github.com/openai/orchard")
 MINIMUM_STACKSAPI = (1, 2, 0)
@@ -118,6 +121,34 @@ def check_orchard_image() -> None:
             )
 
 
+def check_orchard_hosts() -> None:
+    """Rule 7: the Orchard of the Mac hosts agrees with the Orchard of mise.toml."""
+    if not HOSTS.exists() or not MISE.exists():
+        return
+
+    hosts = HOSTS.read_text(encoding="utf-8")
+    mise = MISE.read_text(encoding="utf-8")
+
+    version = re.search(r'^orchard_worker_orchard_version: "([^"]+)"$', hosts, re.M)
+    pinned = re.search(r'^\[tools\."github:openai/orchard"\]\s*\nversion\s*=\s*"([^"]+)"',
+                       mise, re.M)
+    if not version or not pinned or version.group(1) != pinned.group(1):
+        errors.append(
+            f"{HOSTS.relative_to(ROOT)} installs Orchard "
+            f"{version.group(1) if version else 'of no version'}, and mise.toml pins "
+            f"{pinned.group(1) if pinned else 'none'}"
+        )
+
+    in_hosts = re.search(r'^orchard_worker_orchard_sha256: "([0-9a-f]{64})"$', hosts, re.M)
+    in_mise = re.search(r'^macos-arm64\s*=\s*\{[^}]*checksum\s*=\s*"sha256:([0-9a-f]{64})"',
+                        mise, re.M)
+    if not in_hosts or not in_mise or in_hosts.group(1) != in_mise.group(1):
+        errors.append(
+            f"{HOSTS.relative_to(ROOT)} checks the macos-arm64 archive against a SHA-256 that is "
+            f"not the one of mise.toml"
+        )
+
+
 def main() -> int:
     if not GO_MOD.exists():
         print("check-deps: no go.mod yet, nothing to check")
@@ -162,6 +193,7 @@ def main() -> int:
 
     check_orchard_tool()
     check_orchard_image()
+    check_orchard_hosts()
 
     if errors:
         print(f"check-deps: {len(errors)} problem(s)\n", file=sys.stderr)

@@ -1,0 +1,21 @@
+# The host holds the image of each profile that it can take: a profile whose workerLabels the
+# labels of the worker contain. A 1 TB host holds only a few Xcode images (SC-09), so it pulls no
+# other image. The images come from the configuration of the controller, so they always agree with
+# the profiles.
+- name: Read the profiles of the controller
+  ansible.builtin.set_fact:
+    orchard_worker_profiles: "{{ (orchard_worker_config.config | default(orchard_worker_config)).profiles | default([], true) }}"
+  vars:
+    orchard_worker_config: "{{ lookup('ansible.builtin.file', orchard_worker_config_file) | from_yaml }}"
+
+- name: Start with no image
+  ansible.builtin.set_fact:
+    orchard_worker_images: []
+
+- name: Choose the images that the worker can run
+  ansible.builtin.set_fact:
+    orchard_worker_images: "{{ orchard_worker_images + [item.image] }}"
+  loop: "{{ orchard_worker_profiles }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: orchard_worker_labels | combine(item.workerLabels | default({})) == orchard_worker_labels

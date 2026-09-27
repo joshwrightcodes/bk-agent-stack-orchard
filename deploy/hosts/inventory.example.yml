@@ -1,0 +1,18 @@
+# An example inventory. Copy it, give the values of the fleet, and keep the token in Ansible Vault.
+workers:
+  hosts:
+    mac-01.hosts.internal:
+    mac-02.hosts.internal:
+  vars:
+    # The user that SSH logs in as, with a key. It is also the user of Tart, which logs in
+    # automatically.
+    ansible_user: admin
+    orchard_worker_controller_url: https://orchard.internal:6120
+    # ca.crt of the orchard-tls Secret.
+    orchard_worker_ca_cert: "{{ lookup('ansible.builtin.file', 'orchard-ca.crt') }}"
+    # worker-token of the orchard-bootstrap Secret, from the vault.
+    orchard_worker_token: "{{ vault_orchard_worker_token }}"
+    orchard_worker_labels: {pool: general}
+    orchard_worker_otlp_endpoint: http://collector.observability.internal:4318
+    # The values of the Helm release of the controller, or its configuration file.
+    orchard_worker_config_file: ../helm/bk-agent-stack-orchard/values-fleet.yaml

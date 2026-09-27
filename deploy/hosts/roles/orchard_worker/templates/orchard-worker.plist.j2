@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- {{ ansible_managed }} -->
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>{{ orchard_worker_label_name }}</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>/usr/local/bin/orchard</string>
+      <string>worker</string>
+      <string>run</string>
+      <string>--user</string>
+      <string>{{ orchard_worker_user | e }}</string>
+      <string>--name</string>
+      <string>{{ orchard_worker_name | e }}</string>
+{% if orchard_worker_labels %}
+      <string>--labels</string>
+      <string>{{ orchard_worker_labels | dictsort | map('join', '=') | join(',') | e }}</string>
+{% endif %}
+      <string>--bootstrap-token-stdin</string>
+      <string>--log-file</string>
+      <string>/var/log/orchard-worker.log</string>
+      <string>{{ orchard_worker_controller_url | e }}</string>
+    </array>
+    <key>StandardInPath</key>
+    <string>{{ orchard_worker_etc }}/bootstrap-token</string>
+    <key>StandardOutPath</key>
+    <string>/var/log/orchard-worker.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/orchard-worker.stdout.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PATH</key>
+      <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+      <key>OTEL_EXPORTER_OTLP_ENDPOINT</key>
+      <string>{{ orchard_worker_otlp_endpoint | e }}</string>
+    </dict>
+    <key>WorkingDirectory</key>
+    <string>/var/empty</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+  </dict>
+</plist>

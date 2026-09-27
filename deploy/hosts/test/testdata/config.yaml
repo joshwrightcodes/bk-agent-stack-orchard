@@ -1,0 +1,5 @@
+# The configuration file of the controller: the profiles are at the top.
+profiles:
+  - name: xcode
+    image: registry.test/xcode@sha256:3333333333333333333333333333333333333333333333333333333333333333
+    workerLabels: {pool: xcode}

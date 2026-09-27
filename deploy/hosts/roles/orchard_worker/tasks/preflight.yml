@@ -1,0 +1,71 @@
+# The play gathers no facts, because Ansible needs Python on the host, and macOS gets Python from
+# the Command Line Tools. raw needs no Python.
+- name: Look for the Command Line Tools
+  ansible.builtin.raw: xcode-select -p
+  register: orchard_worker_clt
+  changed_when: false
+  failed_when: false
+
+- name: Stop when the Command Line Tools are missing
+  ansible.builtin.fail:
+    msg: >-
+      The host has no Command Line Tools, so it has no Python for Ansible. Run
+      "xcode-select --install" on the host, then run the playbook again.
+  when: orchard_worker_clt.rc != 0
+
+- name: Gather the facts
+  ansible.builtin.setup:
+
+- name: Check the inventory
+  ansible.builtin.assert:
+    quiet: true
+    that:
+      - orchard_worker_controller_url is match('https://')
+      - orchard_worker_ca_cert is search('-----BEGIN CERTIFICATE-----')
+      - orchard_worker_token | length > 0
+      - orchard_worker_otlp_endpoint | length > 0
+      - orchard_worker_config_file | length > 0
+    fail_msg: >-
+      The inventory MUST give orchard_worker_controller_url (https), orchard_worker_ca_cert (PEM),
+      orchard_worker_token, orchard_worker_otlp_endpoint, and orchard_worker_config_file.
+
+- name: Check the platform and the macOS version
+  ansible.builtin.assert:
+    quiet: true
+    that:
+      - ansible_facts['system'] == 'Darwin'
+      - ansible_facts['architecture'] == 'arm64'
+      - ansible_facts['distribution_major_version'] | int >= orchard_worker_macos_minimum
+    fail_msg: >-
+      The host runs {{ ansible_facts['system'] }} {{ ansible_facts['distribution_version'] }} on
+      {{ ansible_facts['architecture'] }}. A worker MUST be an Apple silicon Mac with macOS
+      {{ orchard_worker_macos_minimum }} or later, because a macOS guest needs a host of the same version.
+
+- name: Read the hypervisor support
+  ansible.builtin.command: sysctl -n kern.hv_support
+  register: orchard_worker_hv
+  changed_when: false
+
+- name: Check that the host can run VMs
+  ansible.builtin.assert:
+    quiet: true
+    that: orchard_worker_hv.stdout == '1'
+    fail_msg: The host cannot run VMs (kern.hv_support is {{ orchard_worker_hv.stdout }}).
+  when: orchard_worker_require_hypervisor | bool
+
+- name: Read the user that logs in automatically
+  ansible.builtin.command: defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser
+  register: orchard_worker_autologin
+  changed_when: false
+  failed_when: false
+
+# macOS 27 does not accept an automatic login that a script sets (sysadminctl gives error 22, and
+# it ignores a written /etc/kcpassword), so the operator sets it in System Settings.
+- name: Check that the worker user logs in automatically
+  ansible.builtin.assert:
+    quiet: true
+    that: orchard_worker_autologin.stdout == orchard_worker_user
+    fail_msg: >-
+      {{ orchard_worker_user }} MUST log in automatically, because Tart and the registry
+      credentials need its login keychain. Turn it on in System Settings, Users and Groups,
+      "Automatically log in as", then run the playbook again.

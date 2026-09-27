@@ -1,0 +1,12 @@
+# launchd reads a job definition only when it loads the job, so a restart unloads the job and
+# loads it again. bootout returns before the job is gone, and a bootstrap before then fails.
+- name: Restart the worker
+  ansible.builtin.shell: |
+    launchctl bootout system/{{ orchard_worker_label_name }} 2>/dev/null
+    for _ in $(seq 1 30); do
+      launchctl print system/{{ orchard_worker_label_name }} >/dev/null 2>&1 || break
+      sleep 1
+    done
+    launchctl bootstrap system {{ orchard_worker_plist }}
+  changed_when: true
+  become: true
