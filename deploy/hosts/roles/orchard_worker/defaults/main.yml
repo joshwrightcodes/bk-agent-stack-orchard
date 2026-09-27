@@ -43,6 +43,9 @@ orchard_worker_require_hypervisor: true
 # runs out of addresses, so the lease is short, as Tart advises.
 orchard_worker_dhcp_lease_seconds: 600
 
+orchard_worker_pf_label: io.github.joshwrightcodes.bkaso-vm-isolation
+orchard_worker_pf_anchor: com.apple/400.bkaso-vm-isolation
+
 orchard_worker_label_name: io.github.joshwrightcodes.orchard-worker
 orchard_worker_prefix: /usr/local/opt/bkaso
 orchard_worker_etc: /usr/local/etc/orchard-worker

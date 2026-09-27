@@ -4,6 +4,9 @@
 - name: Install Orchard, Tart, and Softnet
   ansible.builtin.import_tasks: install.yml
 
+- name: Keep the VMs away from the host
+  ansible.builtin.import_tasks: isolation.yml
+
 - name: Run the worker
   ansible.builtin.import_tasks: service.yml
 
