@@ -219,6 +219,10 @@ BKASO_TART_IMAGE=bkaso-agent mise run tart-test
 The VM takes one of the two VM slots of the Mac, so the runner VM can run at the same time. CI does
 not run this test, because a VM cannot run a macOS VM.
 
+`mise run failures-test` runs three jobs that cannot start on real VMs: a profile image digest that
+does not exist, an agent that exits, and an agent that runs and acquires nothing. It checks what
+each job page says, and that no VM remains. It takes about five minutes.
+
 `mise run softnet-test` probes the network from a VM of the controller specification: it must reach
 the Internet and DNS, and not the LAN, another VM, or a service of the Mac itself. Softnet alone
 lets a VM reach the Mac through the gateway of the VM network, and the hosts close that with pf
