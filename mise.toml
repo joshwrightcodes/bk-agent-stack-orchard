@@ -118,6 +118,10 @@ run = ["ansible-lint", "ansible-playbook -i localhost, test/select.yml"]
 description = "Run the playbook of the Mac hosts against a Tart VM, with an Orchard controller on this Mac"
 run = "./deploy/hosts/test/vm.sh"
 
+[tasks.tart-test]
+description = "Run one job on a real Tart machine of this Mac through the guest agent (BKASO_TART_IMAGE names the agent image)"
+run = "go test -tags integration,tart -count=1 -timeout 30m -run TestARealMachineRunsTheStartupScript -v ./test/integration/"
+
 [tasks.load]
 description = "Run the load test at the target scale (T-080), about 25 minutes"
 run = "go test -tags integration,load -count=1 -timeout 45m -run TestTheControllerCarriesTheTargetScale -v ./test/integration/"

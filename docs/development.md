@@ -171,17 +171,53 @@ The repository variable `JOURNEY_RUNNER` selects the runner. When it names the l
 
 ### Install Tart
 
-Install Tart from its release, and check the SHA-256 that the release publishes. The formula of
-the `cirruslabs/cli` Homebrew tap fails with the current Homebrew (2026-09-26).
+Tart, Softnet, and Orchard come from the `openai/tools` Homebrew tap
+([openai/homebrew-tools](https://github.com/openai/homebrew-tools#tart-related-projects)). The
+`cirruslabs/cli` tap is no longer where they are published. Homebrew 7 loads a formula from a tap
+that is not official only after the tap is trusted:
 
 ```sh
-gh release download 2.38.0 --repo openai/tart --pattern tart.tar.gz \
-  --pattern tart_2.38.0_checksums.txt
-grep ' tart.tar.gz$' tart_2.38.0_checksums.txt | shasum -a 256 -c -
+brew trust openai/tools
+brew install openai/tools/tart openai/tools/softnet
+```
+
+Homebrew installs `softnet` without the setuid bit, and Tart asks for a sudo password on a
+terminal to set it the first time that a VM uses Softnet. Set it once after each install or
+upgrade of Softnet, because an upgrade replaces the file:
+
+```sh
+softnet_bin=$(realpath "$(brew --prefix)/bin/softnet")
+sudo chown root "$softnet_bin" && sudo chmod u+s "$softnet_bin"
+```
+
+The runner needs only Tart. The Tart test below also needs Softnet, and it needs Tart 2.39.0 or
+later (target design, section 9.2). On 2026-09-27 the tap still gives Tart 2.38.0
+([openai/homebrew-tools#97](https://github.com/openai/homebrew-tools/pull/97) updates it). Until
+then, install Tart from its release, and check the SHA-256 that the release publishes:
+
+```sh
+gh release download 2.39.0 --repo openai/tart --pattern tart.tar.gz \
+  --pattern tart_2.39.0_checksums.txt
+grep ' tart.tar.gz$' tart_2.39.0_checksums.txt | shasum -a 256 -c -
 tar -xzf tart.tar.gz
 mkdir -p ~/Applications && cp -R tart.app ~/Applications/
-ln -sf ~/Applications/tart.app/Contents/MacOS/tart /opt/homebrew/bin/tart
+ln -sf ~/Applications/tart.app/Contents/MacOS/tart "$(brew --prefix)/bin/tart"
 ```
+
+Orchard comes from `mise install` (the version of `mise.toml`), so it needs no formula here.
+
+### The Tart test
+
+`mise run tart-test` runs one job on a real Tart VM of this Mac: the controller, `orchard dev` with
+a real worker, and the agent image. It is the evidence that the Tart guest agent runs the startup
+script (test strategy, open item O-2). Build the image with `mise run agent-image`, and name it:
+
+```sh
+BKASO_TART_IMAGE=bkaso-agent mise run tart-test
+```
+
+The VM takes one of the two VM slots of the Mac, so the runner VM can run at the same time. CI does
+not run this test, because a VM cannot run a macOS VM.
 
 ### Operate the runner
 

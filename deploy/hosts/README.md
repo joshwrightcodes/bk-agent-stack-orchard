@@ -9,9 +9,15 @@ This directory makes each Mac host an Orchard worker (target design, section 11)
 2. It installs Orchard, Tart, and Softnet at pinned versions, from their release archives, checked
    against their SHA-256. Orchard is the version of `mise.toml`, and `scripts/check-deps.py` keeps
    the two in agreement. Softnet gets the setuid bit, because Tart starts it for each VM with root.
-3. It runs `orchard worker run` from launchd, as root, and the worker drops to the worker user.
+   The same tools are in the `openai/tools` Homebrew tap, which a developer Mac uses
+   (`docs/development.md`). A host does not use it: the tap has one version of each tool, an upgrade
+   of Softnet removes its setuid bit, and on 2026-09-27 the tap gives Tart 2.38.0, which the
+   worker cannot use.
+3. It sets the DHCP lease of the VM network to 10 minutes. With the default of one day, a host
+   that starts a VM for each job runs out of addresses.
+4. It runs `orchard worker run` from launchd, as root, and the worker drops to the worker user.
    This is the Orchard workaround for the Local Network permission of macOS.
-4. It pulls the image of each profile that the host can take.
+5. It pulls the image of each profile that the host can take.
 
 ## Before the playbook
 

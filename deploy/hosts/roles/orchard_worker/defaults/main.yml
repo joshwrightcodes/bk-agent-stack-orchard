@@ -38,6 +38,11 @@ orchard_worker_macos_minimum: 27
 # A host MUST run VMs. Only a test on a VM, which cannot run a macOS VM, turns this check off.
 orchard_worker_require_hypervisor: true
 
+# Each VM of a job gets an address from the DHCP server of macOS for the VM network, and the lease
+# of one day holds each address long after the VM is gone. A host that starts a VM for each job
+# runs out of addresses, so the lease is short, as Tart advises.
+orchard_worker_dhcp_lease_seconds: 600
+
 orchard_worker_label_name: io.github.joshwrightcodes.orchard-worker
 orchard_worker_prefix: /usr/local/opt/bkaso
 orchard_worker_etc: /usr/local/etc/orchard-worker
