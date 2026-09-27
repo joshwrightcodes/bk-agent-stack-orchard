@@ -79,11 +79,17 @@ jobs:
     runs-on: ${{ vars.JOURNEY_RUNNER || 'macos-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # A cancelled run leaves `orchard dev` and the controller running on a self-hosted runner,
+      # and every test of the next run then fails on port 6120. The same step at the end runs
+      # even when this run is cancelled.
+      - run: ./scripts/stop-leftovers.sh
       # mise installs the Orchard that mise.toml pins, and checks it against the SHA-256 there.
       # The tests run `orchard dev --synthetic`, so they need no Tart and no virtual machine. CI
       # sets CI=true, and a test then fails instead of skipping when the binary is missing.
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
       - run: mise run integration
+      - if: always()
+        run: ./scripts/stop-leftovers.sh
 
   release:
     name: snapshot release

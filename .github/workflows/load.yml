@@ -31,6 +31,9 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # A run that times out or is cancelled leaves `orchard dev` on a self-hosted runner, and the
+      # next run on it then fails on port 6120 (scripts/stop-leftovers.sh).
+      - run: ./scripts/stop-leftovers.sh
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
       # Open item O-5: the budget of the tick is two times the first p95 that this workflow
       # measures. Until an owner sets the repository variable, the run reports the tick and does
@@ -38,3 +41,5 @@ jobs:
       - run: mise run load
         env:
           LOAD_TICK_BUDGET: ${{ vars.LOAD_TICK_BUDGET }}
+      - if: always()
+        run: ./scripts/stop-leftovers.sh
