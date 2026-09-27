@@ -1,0 +1,23 @@
+#!/bin/bash
+# The environment hook of the image: the artifacts of a job go to the owner-managed storage in
+# the operating country, and never to the storage of Buildkite (PR-032, target design, section
+# 7.6).
+#
+# A pipeline step may name another place in the same storage. An empty destination is the storage
+# of Buildkite, so an image that has no storage sets a destination that buildkite-agent refuses:
+# an upload then fails, and nothing leaves for Buildkite.
+#
+# buildkite-agent sources this file and then reads the environment, so the file sets its values
+# and ends. An exit here would end the wrapper of the agent before it reads them.
+
+bkaso_owner="__ARTIFACT_DESTINATION__"
+
+if [[ -z "$bkaso_owner" ]]; then
+	echo "This image has no owner-managed artifact storage, so an artifact upload fails (PR-032)." >&2
+	export BUILDKITE_ARTIFACT_UPLOAD_DESTINATION="none://artifact-storage-is-not-configured"
+elif [[ "${BUILDKITE_ARTIFACT_UPLOAD_DESTINATION:-}" != "$bkaso_owner" &&
+	"${BUILDKITE_ARTIFACT_UPLOAD_DESTINATION:-}" != "$bkaso_owner"/* ]]; then
+	export BUILDKITE_ARTIFACT_UPLOAD_DESTINATION="${bkaso_owner}/${BUILDKITE_PIPELINE_SLUG}/${BUILDKITE_BUILD_ID}/${BUILDKITE_JOB_ID}"
+fi
+
+unset bkaso_owner

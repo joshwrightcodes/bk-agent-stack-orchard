@@ -87,6 +87,14 @@ run = [
 description = "Deploy the chart and the Orchard base on kind, and wait for readiness and telemetry"
 run = "./scripts/smoke.sh"
 
+[tasks.check-hook]
+description = "Check the environment hook of the agent image, as buildkite-agent runs it"
+run = "./scripts/check-hook.sh"
+
+[tasks.agent-image]
+description = "Build the agent image into a local Tart VM on an Apple silicon Mac (ARTIFACT_DESTINATION names the storage)"
+run = "./images/agent/build.sh"
+
 [tasks.load]
 description = "Run the load test at the target scale (T-080), about 25 minutes"
 run = "go test -tags integration,load -count=1 -timeout 45m -run TestTheControllerCarriesTheTargetScale -v ./test/integration/"

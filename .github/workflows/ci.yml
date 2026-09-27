@@ -47,6 +47,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
       - run: mise run check-deploy
+      - run: mise run check-hook
       # The image of the Orchard controller builds, and its archive matches the SHA-256 of
       # mise.toml. It is not published: the operator builds it for the registry of the fleet.
       - run: mise run orchard-image
