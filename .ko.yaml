@@ -1,0 +1,3 @@
+# The base image of ko, the same one that the release gives the image of the controller in
+# .goreleaser.yaml. The smoke deployment on kind builds with ko directly.
+defaultBaseImage: gcr.io/distroless/static-debian13:nonroot

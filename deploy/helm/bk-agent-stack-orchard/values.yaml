@@ -34,6 +34,9 @@ secret:
 otel:
   # OTEL_EXPORTER_OTLP_ENDPOINT, for example http://collector.observability:4317.
   endpoint: ""
+  # OTEL_EXPORTER_OTLP_PROTOCOL. The SDK defaults to http/protobuf on 4318, and the endpoint above
+  # and the NetworkPolicy use the port of gRPC, 4317, so the chart names the protocol of that port.
+  protocol: grpc
 
 # extraEnv adds environment variables to the controller.
 extraEnv: []

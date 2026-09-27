@@ -1,0 +1,33 @@
+# The chart of the controller in the smoke deployment: the image that ko builds, the fake Stacks
+# API, the Orchard of the orchard namespace, and the collector. The NetworkPolicy stays on, with
+# the ports of the smoke services, and kind enforces it.
+image:
+  repository: ko.local/bk-agent-stack-orchard
+  tag: smoke
+  pullPolicy: Never
+config:
+  controllerID: smoke
+  buildkite:
+    queue: smoke
+    endpoint: http://fakestacks.smoke:8080
+  orchard:
+    url: https://orchard.orchard.svc:6120
+    serviceAccount: bk-agent-stack-orchard
+  profiles:
+    - name: xcode-27
+      match: {xcode: "27"}
+      image: ghcr.io/cirruslabs/macos-golden-gate-vanilla:27.0
+      cpu: 8
+      memoryMiB: 28672
+      diskSizeGB: 150
+secret:
+  name: bk-agent-stack-orchard
+otel:
+  endpoint: http://collector.smoke:4317
+networkPolicy:
+  buildkite:
+    port: 8080
+  orchard:
+    port: 6120
+  collector:
+    port: 4317

@@ -64,6 +64,8 @@ spec:
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ . | quote }}
             {{- end }}
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: {{ .Values.otel.protocol | quote }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
