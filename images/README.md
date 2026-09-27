@@ -31,9 +31,9 @@ automatic login of `admin`, and macOS 27 does not log in automatically after a c
 password (2026-09-27: `sysadminctl -autologin set` gives `SACSetAutoLoginPassword error:22` and
 exits 0, and a written `/etc/kcpassword` is ignored). The image therefore keeps the local password
 and turns off every network path that would accept it: SSH (Remote Login) and Screen Sharing
-(target design, section 9.2). The controller reaches the VM through the guest agent, and
-`tart run --vnc` still shows its screen to a person who debugs it, because Tart serves that screen
-itself.
+(target design, section 9.2). The controller reaches the VM through the guest agent. A person who
+debugs the VM uses the window of `tart run`, or `tart run --vnc-experimental`, because Tart serves
+those screens itself. `tart run --vnc` does not work, because it needs Screen Sharing in the VM.
 
 ### Build
 
