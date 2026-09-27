@@ -6,6 +6,24 @@
 apiVersion: v1
 kind: Service
 metadata:
+  name: orchard-headless
+  labels:
+    app.kubernetes.io/name: orchard
+spec:
+  # The governing Service of the StatefulSet, which gives the pod a stable name in DNS. The load
+  # balancer below is how the Mac hosts and the controller of this project reach Orchard.
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: orchard
+  ports:
+    - name: api
+      port: 6120
+      targetPort: api
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
   name: orchard
   labels:
     app.kubernetes.io/name: orchard

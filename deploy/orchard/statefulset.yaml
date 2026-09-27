@@ -1,6 +1,12 @@
 # One Orchard controller. Its data is in /data. The loss of the data is recoverable: the workers
 # register again, and the controller of this project removes the VMs of its jobs (target design,
 # section 11), so there is no backup.
+#
+# A StatefulSet, because Orchard keeps its state in an embedded database on /data and runs one
+# scheduler, with no leader election: at most one pod may write to /data. A StatefulSet starts no
+# replacement until the old pod is gone, also when a node fails. A Deployment could start a second
+# pod while the first is Unknown, and only the attach lock of the volume would stand between two
+# writers.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -9,7 +15,11 @@ metadata:
     app.kubernetes.io/name: orchard
 spec:
   replicas: 1
-  serviceName: orchard
+  serviceName: orchard-headless
+  # A deletion or a scale-down of the StatefulSet leaves the data. The operator deletes the PVC.
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
   selector:
     matchLabels:
       app.kubernetes.io/name: orchard

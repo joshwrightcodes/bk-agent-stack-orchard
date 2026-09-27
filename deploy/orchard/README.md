@@ -71,10 +71,14 @@ configMapGenerator:
 
 ## What it runs
 
-- `statefulset.yaml`: one Orchard controller, with a PVC at `/data`. The loss of the PVC is
-  recoverable, because the workers register again and the controller of this project removes the
-  VMs of its jobs, so there is no backup.
-- `service.yaml`: a load balancer on 6120 that the Mac hosts reach. The overlay makes it internal.
+- `statefulset.yaml`: one Orchard controller, with a PVC at `/data`. Orchard keeps its state in an
+  embedded database and runs one scheduler with no leader election, so at most one pod may write
+  to `/data`. A StatefulSet starts no replacement until the old pod is gone, also when a node
+  fails, which a Deployment does not promise. A deletion of the StatefulSet leaves the PVC. The
+  loss of the PVC is recoverable, because the workers register again and the controller of this
+  project removes the VMs of its jobs, so there is no backup.
+- `service.yaml`: the headless governing Service of the StatefulSet, and a load balancer on 6120
+  that the Mac hosts and the controller reach. The overlay makes the load balancer internal.
 - `bootstrap-job.yaml`: sets the accounts `bk-agent-stack-orchard` and `worker`, each with
   `compute:read` and `compute:write` only, through the REST API of Orchard. It replaces an account
   that exists and creates one that does not, so a run after a rotation of a token sets the new
