@@ -244,6 +244,13 @@ GitHub shows the runner offline. The service of the runner has `KeepAlive`, so l
 runner again within 30 s, when the clock of the VM is right again. `create` and `start` set it, and
 `restart` starts a runner at once.
 
+A cancelled or timed-out job does not stop the processes that its tests started: the runner stops
+`go test`, and `orchard dev` and the controller continue in the VM. The next run then finds port
+6120 in use, and each test fails with "something already answers at http://127.0.0.1:6120". The
+integration and load jobs run `scripts/stop-leftovers.sh` before and after their tests, even when
+a run is cancelled, so a new run starts clean. The script stops only those two processes, and it
+fails with the name of any other process that holds the port.
+
 The runner takes a job only while the VM runs and the Mac is awake. A job that finds no runner waits
 in the queue, and GitHub cancels it after 24 hours. While jobs are expected, `caffeinate -i` keeps
 the Mac awake.
