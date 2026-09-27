@@ -129,7 +129,7 @@ carries no release tag, so an import also pins an untagged commit of a Kubernete
 `test/fakestacks` therefore holds the file with its MIT notice and its provenance, and the module
 graph gains only `stacksapi` and the two small libraries that it needs.
 
-The copy carries seven changes, because the original models only the calls that its own controller
+The copy carries eight changes, because the original models only the calls that its own controller
 makes. Each change carries a comment in the file that starts with "Change of this project":
 
 1. The stack key is a field. The original writes `test-stack` into every route, and the stack key
@@ -143,6 +143,8 @@ makes. Each change carries a comment in the file that starts with "Change of thi
 6. A finish call records the exit status and the detail that it sends, which T-062 reads.
 7. A test can revoke the token while the controller runs, and every call then gets HTTP 401
    (T-063).
+8. The routes are a handler that a test program serves itself, for the smoke deployment on
+   Kubernetes (W-21).
 
 The fake is not a conformance suite. Open item O-1 of the test strategy stays: the fixtures of
 T-040 come from recorded responses of a real Buildkite test cluster.

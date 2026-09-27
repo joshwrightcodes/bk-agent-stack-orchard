@@ -40,7 +40,10 @@
     },
     "otel": {
       "type": "object",
-      "properties": {"endpoint": {"type": "string"}}
+      "properties": {
+        "endpoint": {"type": "string"},
+        "protocol": {"enum": ["grpc", "http/protobuf"]}
+      }
     },
     "networkPolicy": {
       "type": "object",

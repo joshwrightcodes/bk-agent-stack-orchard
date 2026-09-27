@@ -25,8 +25,31 @@ against the Kubernetes schemas:
 mise run check-deploy
 ```
 
-A values schema refuses a release without a `controllerID`, a queue, an Orchard URL, or the name
-of the Secret of the tokens. The chart creates no Secret.
+CI validates against the schemas of Kubernetes 1.37. A values schema refuses a release without a
+`controllerID`, a queue, an Orchard URL, or the name of the Secret of the tokens. The chart creates
+no Secret.
+
+## The smoke deployment
+
+`scripts/smoke.sh` deploys the chart and the Orchard base of `deploy/orchard` on a kind cluster,
+with the fake Stacks API and an OpenTelemetry collector, as an operator deploys them:
+
+* ko builds the image of the controller and of the fake, and `deploy/orchard/image` the image of
+  Orchard; kind loads all three.
+* An authority that the test makes signs the certificate of Orchard, and the controller trusts it
+  through `BK_AGENT_STACK_ORCHARD_ORCHARD_CA_CERT`.
+* The bootstrap Job of Orchard sets the service accounts, and the controller uses its token.
+* The NetworkPolicy of the chart stays on, and kind enforces it.
+
+It passes when the controller becomes ready through its gRPC readiness probe, and the collector
+receives its metrics and its spans. On a failure it shows the pods, the events, and the logs.
+
+```sh
+mise run smoke
+KEEP=1 mise run smoke   # keep the cluster to look at it
+```
+
+CI runs it on each pull request. It needs Docker.
 
 ## The component suite
 

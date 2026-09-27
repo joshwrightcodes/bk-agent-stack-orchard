@@ -11,6 +11,10 @@ goreleaser = "2.18.2"
 helm = "4.3.0"
 kubeconform = "0.8.0"
 kustomize = "5.8.1"
+# The smoke deployment on kind builds the images with ko and loads them into the cluster.
+kind = "0.33.0"
+ko = "0.19.1"
+kubectl = "1.37.1"
 
 # Orchard runs the skeleton journey in synthetic mode, with no Mac and no Tart. The version MUST be
 # the minimum Orchard version of the target design, which scripts/check-deps.py confirms. Each
@@ -75,9 +79,13 @@ run = "go test -tags integration -count=1 ./test/integration/..."
 description = "Lint the Helm chart, and validate the chart and the Orchard manifests against the Kubernetes schemas"
 run = [
   "helm lint deploy/helm/bk-agent-stack-orchard -f deploy/helm/bk-agent-stack-orchard/ci/values.yaml --strict",
-  "helm template bkaso deploy/helm/bk-agent-stack-orchard -f deploy/helm/bk-agent-stack-orchard/ci/values.yaml | kubeconform -strict -summary -kubernetes-version 1.34.0 -",
-  "kustomize build deploy/orchard | kubeconform -strict -summary -kubernetes-version 1.34.0 -",
+  "helm template bkaso deploy/helm/bk-agent-stack-orchard -f deploy/helm/bk-agent-stack-orchard/ci/values.yaml | kubeconform -strict -summary -kubernetes-version 1.37.0 -",
+  "kustomize build deploy/orchard | kubeconform -strict -summary -kubernetes-version 1.37.0 -",
 ]
+
+[tasks.smoke]
+description = "Deploy the chart and the Orchard base on kind, and wait for readiness and telemetry"
+run = "./scripts/smoke.sh"
 
 [tasks.load]
 description = "Run the load test at the target scale (T-080), about 25 minutes"

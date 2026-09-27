@@ -1,0 +1,65 @@
+# An OpenTelemetry collector that writes what it receives to its log, where the smoke test reads
+# the telemetry of the controller.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: collector
+  namespace: smoke
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+    exporters:
+      debug:
+        verbosity: detailed
+    service:
+      pipelines:
+        traces: {receivers: [otlp], exporters: [debug]}
+        metrics: {receivers: [otlp], exporters: [debug]}
+        logs: {receivers: [otlp], exporters: [debug]}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: collector
+  namespace: smoke
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: collector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: collector
+    spec:
+      containers:
+        - name: collector
+          image: otel/opentelemetry-collector:0.161.0@sha256:b6d2b9a85b1029d05b5ad913150c1f014eed4ae99be81a1813ca5ade4a191913
+          args: ["--config=/etc/collector/config.yaml"]
+          ports:
+            - name: otlp
+              containerPort: 4317
+          volumeMounts:
+            - name: config
+              mountPath: /etc/collector
+      volumes:
+        - name: config
+          configMap:
+            name: collector
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: collector
+  namespace: smoke
+spec:
+  selector:
+    app.kubernetes.io/name: collector
+  ports:
+    - name: otlp
+      port: 4317
+      targetPort: otlp

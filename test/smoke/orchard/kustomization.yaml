@@ -1,0 +1,18 @@
+# The Orchard base of deploy/orchard, as an operator deploys it, with the image that the smoke
+# test builds and loads into kind, and the collector of the smoke namespace.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: orchard
+resources:
+  - ../../../deploy/orchard
+images:
+  - name: orchard
+    newName: orchard
+    newTag: smoke
+configMapGenerator:
+  - name: orchard-telemetry
+    behavior: replace
+    literals:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://collector.smoke:4317
+      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+      - OTEL_SERVICE_NAME=orchard

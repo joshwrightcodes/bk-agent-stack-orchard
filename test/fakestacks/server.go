@@ -6,7 +6,7 @@
 // that file also holds a Kubernetes controller: an import puts k8s.io/apimachinery, k8s.io/klog,
 // and an older stacksapi into the module graph of this project for one test helper.
 //
-// This project made seven changes, because the original models only what its own controller
+// This project made eight changes, because the original models only what its own controller
 // calls. Each one carries a comment that starts with "Change of this project":
 //
 //  1. The stack key is a field. The original writes "test-stack" into every route.
@@ -21,6 +21,8 @@
 //     that no profile carries reads. The original records the job UUID only.
 //  7. A test can revoke the token while a controller runs, and every call then gets HTTP 401.
 //     The original models no credential.
+//  8. The routes are a handler that a test program can serve itself, which the smoke deployment
+//     on Kubernetes needs. The original serves only through httptest.
 //
 // The fake is not a conformance suite. It answers as its author believed the API answers, so a
 // test against it proves the behaviour of this controller and not the behaviour of Buildkite.
@@ -71,6 +73,9 @@ const DefaultStackKey = "test-stack"
 type Server struct {
 	server *httptest.Server
 	mu     sync.Mutex
+
+	// handler holds the routes, which the httptest server serves, and Handler gives.
+	handler http.Handler
 
 	// revoked answers every call with HTTP 401, as Buildkite does for a token that an owner
 	// revoked.
@@ -194,9 +199,18 @@ func New() *Server {
 	mux.HandleFunc("POST /stacks/{key}/jobs/get-states", fake.handleGetJobStates)
 	mux.HandleFunc("POST /stacks/{key}/jobs/{uuid}/finish", fake.handleFinishJob)
 
+	fake.handler = mux
 	fake.server = httptest.NewServer(mux)
 
 	return fake
+}
+
+// Handler gives the routes, for a server that a test program runs itself, such as the fake of
+// the smoke deployment on Kubernetes.
+//
+// Change of this project: the original serves only through httptest.
+func (f *Server) Handler() http.Handler {
+	return f.handler
 }
 
 // URL returns the base URL of the fake server.
