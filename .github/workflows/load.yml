@@ -1,0 +1,40 @@
+name: load
+
+# T-080: the controller at the target scale, 50 synthetic workers and 500 jobs in the pattern of
+# the demand model. It is a diagnostic: it writes its measurements to the summary of its run, and
+# no branch protection requires it, so it blocks no merge.
+#
+# It runs each night, on demand, and on a pull request that changes it. It needs macOS on arm64
+# for the same reason as the integration tests, and it takes about 25 minutes.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - test/integration/load_test.go
+      - .github/workflows/load.yml
+
+permissions:
+  contents: read
+
+# One run at a time: two runs on one runner would both need the port of `orchard dev`.
+concurrency:
+  group: load
+  cancel-in-progress: false
+
+jobs:
+  load:
+    name: load test
+    runs-on: ${{ vars.JOURNEY_RUNNER || 'macos-latest' }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+      # Open item O-5: the budget of the tick is two times the first p95 that this workflow
+      # measures. Until an owner sets the repository variable, the run reports the tick and does
+      # not judge it.
+      - run: mise run load
+        env:
+          LOAD_TICK_BUDGET: ${{ vars.LOAD_TICK_BUDGET }}

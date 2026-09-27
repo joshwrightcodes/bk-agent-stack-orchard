@@ -83,8 +83,7 @@ internal/telemetry/             OTel meter, tracer, and the slog bridge
 internal/health/                the gRPC health service: liveness and readiness
 test/fakestacks/                the fake Stacks API server
 test/component/                 T-020: in-memory fakes of both APIs and random event sequences
-test/integration/               tests against orchard dev --synthetic
-test/load/                      the nightly load test
+test/integration/               tests against orchard dev --synthetic, and the load test (tag load)
 deploy/helm/                    the controller chart
 deploy/orchard/                 the Orchard StatefulSet and its bootstrap job
 deploy/hosts/                   Ansible for the Mac hosts

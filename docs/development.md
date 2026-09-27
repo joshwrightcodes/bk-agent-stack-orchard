@@ -55,6 +55,34 @@ A wider search, for example after a change to the Reaper or to admission:
 go test ./test/component/ -rapid.checks=10000 -rapid.steps=200
 ```
 
+## The load test
+
+The load test (T-080) runs the controller at the target scale: `orchard dev` with 50 synthetic
+workers of two slots each, and 500 jobs that arrive in the pattern of the demand model of the
+system design baseline, section 4.2. The demand model runs fifteen times faster than a workday, so
+the test takes about 25 minutes. The test is also the agents: it takes each job whose VM runs, and
+ends it after its duration.
+
+```sh
+mise run load
+```
+
+It reports the tick duration, the busiest second of each Stacks API endpoint, the most VMs at one
+time, and the wait for a VM, in its log and in the summary of the `load` workflow. It fails on a
+broken invariant (I-1, I-2, I-6) or on a second above the limits of the Stacks API. It judges the
+tick only when `LOAD_TICK_BUDGET` is set (open item O-5).
+
+`LOAD_JOBS` runs fewer jobs, for example `LOAD_JOBS=60`, while you work on the test. The test
+writes a progress line each minute, and on a failure it shows the end of the controller log.
+
+The host MUST stay awake for the whole run. A Mac that sleeps pauses the run, and the synthetic
+workers go offline, so the result is not a measurement. Run it with `caffeinate -dims` and the lid
+open.
+
+The `load` workflow runs it each night, on demand, and on a pull request that changes it, on the
+same runner as the integration tests. No branch protection requires it. While the runner is a VM
+on a laptop, a night on which the laptop sleeps gives no result.
+
 ## The integration tests
 
 The integration tests run against a real Orchard in synthetic mode, at the version that `mise.toml`
