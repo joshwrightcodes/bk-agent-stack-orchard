@@ -22,6 +22,24 @@ updates:
       go-minor-and-patch:
         update-types: [minor, patch]
 
+  # The base images of the Orchard image, and the image of its bootstrap Job. Each is pinned by its
+  # tag and its digest, and a pin that nothing updates grows old.
+  - package-ecosystem: docker
+    directories: ["/deploy/orchard/image", "/deploy/orchard"]
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Australia/Sydney
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build
+      include: scope
+    labels: [dependencies]
+    groups:
+      images:
+        update-types: [major, minor, patch]
+
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
