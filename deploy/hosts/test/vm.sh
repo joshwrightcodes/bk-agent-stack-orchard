@@ -186,16 +186,26 @@ grep -Eq "^$VM +: ok=[0-9]+ +changed=0 +unreachable=0 +failed=0" "$WORK/playbook
   fail "the second run changed the host"
 
 log "restarting the host"
-tart exec "$VM" /bin/sh -c 'sudo shutdown -r now' >/dev/null 2>&1 || true
+booted=$(tart exec "$VM" /usr/sbin/sysctl -n kern.boottime)
+# shutdown is in /sbin, which is not on the PATH of the guest agent.
+tart exec "$VM" /bin/sh -c 'sudo /sbin/shutdown -r now' >/dev/null 2>&1 || true
 # The worker can report once more while macOS stops, so the check counts only reports after the
-# guest agent stops answering.
+# guest agent stops answering. A guest that never stops answering did not restart.
+stopped=0
 for _ in $(seq 1 60); do
-  bounded 5 tart exec "$VM" true >/dev/null 2>&1 || break
+  if ! bounded 5 tart exec "$VM" true >/dev/null 2>&1; then
+    stopped=1
+    break
+  fi
   sleep 1
 done
+((stopped)) || fail "the host did not restart: its guest agent answered for 60 s after the restart"
 restarted=$(date +%s)
 wait_for_worker "$restarted"
-log "the worker registered again after the restart"
+for _ in $(seq 1 60); do bounded 8 tart exec "$VM" true >/dev/null 2>&1 && break; sleep 2; done
+[[ "$(tart exec "$VM" /usr/sbin/sysctl -n kern.boottime)" != "$booted" ]] ||
+  fail "the host did not restart: its boot time is the same"
+log "the host restarted, and the worker registered again"
 
 # launchd loads the pf rules at each start, and the pfctl job of macOS loads /etc/pf.conf, so the
 # rules must survive a restart whatever the order of the two jobs.
