@@ -17,10 +17,11 @@ ko = "0.19.1"
 kubectl = "1.37.1"
 # The Mac hosts are set up with Ansible (deploy/hosts). The pypi backend installs each one in its
 # own environment with uv, and ansible-lint gets the same ansible-core. ansible-core 2.21 needs
-# Python 3.12 or later on this side, and 3.9 or later on a host.
+# Python 3.12 or later on this side, and 3.9 or later on a host. uv otherwise takes the oldest
+# Python that the tool itself allows, which is 3.10 for ansible-lint, so each names its Python.
 uv = "0.12.19"
-"pypi:ansible-core" = "2.21.4"
-"pypi:ansible-lint" = { version = "26.9.0", with = ["ansible-core==2.21.4"] }
+"pypi:ansible-core" = { version = "2.21.4", uvx_args = "--python 3.13" }
+"pypi:ansible-lint" = { version = "26.9.0", with = ["ansible-core==2.21.4"], uvx_args = "--python 3.13" }
 
 # Orchard runs the skeleton journey in synthetic mode, with no Mac and no Tart. The version MUST be
 # the minimum Orchard version of the target design, which scripts/check-deps.py confirms. Each
