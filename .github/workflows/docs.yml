@@ -33,6 +33,9 @@ jobs:
         with:
           fetch-depth: 0
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+      # The rules of the checker have tests of their own, with real messages, such as one from
+      # Dependabot.
+      - run: mise run test-scripts
       - env:
           # Event data never reaches the shell directly, even when it is a commit SHA.
           BASE_SHA: ${{ github.event.pull_request.base.sha }}

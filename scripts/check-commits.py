@@ -67,7 +67,9 @@ def check(rev: str, message: str, author: str = "") -> list[str]:
         description = match.group("description")
         if len(subject) > subject_limit:
             problems.append(f"subject is {len(subject)} characters, the limit is {subject_limit}")
-        if description[0].isupper():
+        # Dependabot writes "Bump …" with a capital letter, and its configuration sets only the
+        # type and the scope, so the case of the description is a rule for people.
+        if description[0].isupper() and author not in BOTS:
             problems.append("description starts with a capital letter")
         if description.endswith("."):
             problems.append("description ends with a full stop")

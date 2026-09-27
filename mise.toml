@@ -37,6 +37,10 @@ run = "python3 scripts/check-docs.py"
 description = "Check the commit messages of this branch"
 run = "python3 scripts/check-commits.py"
 
+[tasks.test-scripts]
+description = "Test the check scripts"
+run = "python3 -m unittest discover -s scripts -p 'test_*.py'"
+
 [tasks.check-c4]
 description = "Validate the C4 workspace and the generated views"
 run = "./scripts/check-c4.sh"
