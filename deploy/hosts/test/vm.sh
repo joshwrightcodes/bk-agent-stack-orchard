@@ -3,7 +3,7 @@
 # as the fleet uses it:
 #
 #   - the worker registers with the labels of the inventory, through TLS with the CA in the token;
-#   - the token is in no process listing, and softnet has the setuid bit;
+#   - the token is in no process listing, softnet has the setuid bit, and the DHCP lease is short;
 #   - a second run of the playbook changes nothing;
 #   - the worker registers again after a restart of the host.
 #
@@ -158,6 +158,7 @@ check=$(guest <<'EOF'
 echo "token_in_ps=$(ps axww -o command | grep -c '[o]rchard-bootstrap-token' || true)"
 echo "token_mode=$(sudo stat -f '%Su %Mp%Lp' /usr/local/etc/orchard-worker/bootstrap-token)"
 echo "softnet=$(stat -f '%Su %Mp%Lp' /usr/local/bin/softnet)"
+echo "dhcp_lease=$(/usr/libexec/PlistBuddy -c 'Print :bootpd:DHCPLeaseTimeSecs' /Library/Preferences/SystemConfiguration/com.apple.InternetSharing.default.plist 2>/dev/null)"
 echo "worker_user=$(ps axo user,command | awk '$2 ~ /orchard$/ && $3 == "worker" {print $1}' | sort -u | tr '\n' ' ')"
 EOF
 )
@@ -165,6 +166,7 @@ echo "$check"
 grep -qx "token_in_ps=0" <<<"$check" || fail "the token is in a process listing"
 grep -qx "token_mode=root 0600" <<<"$check" || fail "the token file is not root 0600"
 grep -qx "softnet=root 4755" <<<"$check" || fail "softnet has no setuid bit"
+grep -qx "dhcp_lease=600" <<<"$check" || fail "the DHCP lease of the VM network is not 600 s"
 grep -q "worker_user=.*admin" <<<"$check" || fail "no worker process runs as admin"
 
 log "running the playbook again, which must change nothing"
