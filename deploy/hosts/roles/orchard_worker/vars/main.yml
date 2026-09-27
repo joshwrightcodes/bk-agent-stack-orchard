@@ -1,0 +1,27 @@
+orchard_worker_tools:
+  - name: orchard
+    version: "{{ orchard_worker_orchard_version }}"
+    sha256: "{{ orchard_worker_orchard_sha256 }}"
+    url: "https://github.com/openai/orchard/releases/download/{{ orchard_worker_orchard_version }}/orchard-darwin-arm64.tar.gz"
+    creates: orchard
+  - name: tart
+    version: "{{ orchard_worker_tart_version }}"
+    sha256: "{{ orchard_worker_tart_sha256 }}"
+    url: "https://github.com/cirruslabs/tart/releases/download/{{ orchard_worker_tart_version }}/tart.tar.gz"
+    creates: tart.app/Contents/MacOS/tart
+  - name: softnet
+    version: "{{ orchard_worker_softnet_version }}"
+    sha256: "{{ orchard_worker_softnet_sha256 }}"
+    url: "https://github.com/cirruslabs/softnet/releases/download/{{ orchard_worker_softnet_version }}/softnet.tar.gz"
+    creates: softnet
+
+# The bootstrap token of Orchard: "orchard-bootstrap-token-v0", then the account, the token, and a
+# PEM certificate, each in unpadded URL-safe base64, joined by dots. The worker trusts only that
+# certificate as its root, so the token carries the CA of the controller: a host needs no change
+# of its trust settings, and a new certificate of the same CA does not need a new token.
+orchard_worker_bootstrap_token: >-
+  {{ (['orchard-bootstrap-token-v0'] + ([orchard_worker_account, orchard_worker_token, orchard_worker_ca_cert]
+  | map('b64encode') | map('replace', '+', '-') | map('replace', '/', '_')
+  | map('regex_replace', '=+$', '') | list)) | join('.') }}
+
+orchard_worker_plist: "/Library/LaunchDaemons/{{ orchard_worker_label_name }}.plist"

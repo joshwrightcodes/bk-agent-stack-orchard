@@ -1,0 +1,102 @@
+# Each tool goes into a directory of its version, from its release archive, checked against its
+# SHA-256. The unarchive module needs GNU tar, which macOS does not have, so tar runs directly.
+- name: Make the directory of the tools
+  ansible.builtin.file:
+    path: "{{ orchard_worker_prefix }}/downloads"
+    state: directory
+    owner: root
+    group: wheel
+    mode: "0755"
+  become: true
+
+- name: Download the archives
+  ansible.builtin.get_url:
+    url: "{{ item.url }}"
+    dest: "{{ orchard_worker_prefix }}/downloads/{{ item.name }}-{{ item.version }}.tar.gz"
+    checksum: "sha256:{{ item.sha256 }}"
+    owner: root
+    group: wheel
+    mode: "0644"
+  become: true
+  loop: "{{ orchard_worker_tools }}"
+  loop_control:
+    label: "{{ item.name }} {{ item.version }}"
+
+- name: Make the directory of each version
+  ansible.builtin.file:
+    path: "{{ orchard_worker_prefix }}/{{ item.name }}-{{ item.version }}"
+    state: directory
+    owner: root
+    group: wheel
+    mode: "0755"
+  become: true
+  loop: "{{ orchard_worker_tools }}"
+  loop_control:
+    label: "{{ item.name }} {{ item.version }}"
+
+- name: Unpack the archives # noqa: command-instead-of-module (unarchive needs GNU tar)
+  ansible.builtin.command:
+    cmd: >-
+      tar -xzf {{ orchard_worker_prefix }}/downloads/{{ item.name }}-{{ item.version }}.tar.gz
+      -C {{ orchard_worker_prefix }}/{{ item.name }}-{{ item.version }}
+    creates: "{{ orchard_worker_prefix }}/{{ item.name }}-{{ item.version }}/{{ item.creates }}"
+  become: true
+  loop: "{{ orchard_worker_tools }}"
+  loop_control:
+    label: "{{ item.name }} {{ item.version }}"
+
+- name: Link orchard
+  ansible.builtin.file:
+    src: "{{ orchard_worker_prefix }}/orchard-{{ orchard_worker_orchard_version }}/orchard"
+    dest: /usr/local/bin/orchard
+    state: link
+    force: true
+  become: true
+  notify: Restart the worker
+
+# Tart runs from its application bundle, which carries its entitlements, as the Homebrew formula
+# runs it.
+- name: Install the tart command
+  ansible.builtin.copy:
+    dest: /usr/local/bin/tart
+    content: |
+      #!/bin/sh
+      exec "{{ orchard_worker_prefix }}/tart-{{ orchard_worker_tart_version }}/tart.app/Contents/MacOS/tart" "$@"
+    owner: root
+    group: wheel
+    mode: "0755"
+  become: true
+  notify: Restart the worker
+
+# Tart starts Softnet for each VM, and Softnet needs root. Without the setuid bit, Tart asks for
+# a sudo password on a terminal, which a worker does not have.
+- name: Install softnet with the setuid bit
+  ansible.builtin.copy:
+    src: "{{ orchard_worker_prefix }}/softnet-{{ orchard_worker_softnet_version }}/softnet"
+    dest: /usr/local/bin/softnet
+    remote_src: true
+    owner: root
+    group: wheel
+    mode: "04755"
+  become: true
+  notify: Restart the worker
+
+- name: Read the installed versions
+  ansible.builtin.command: "{{ item }} --version"
+  register: orchard_worker_versions
+  changed_when: false
+  loop:
+    - /usr/local/bin/orchard
+    - /usr/local/bin/tart
+  become: true
+
+- name: Check the installed versions
+  ansible.builtin.assert:
+    quiet: true
+    that:
+      - orchard_worker_versions.results[0].stdout is search(orchard_worker_orchard_version)
+      - orchard_worker_versions.results[1].stdout is search(orchard_worker_tart_version)
+    fail_msg: >-
+      orchard gives "{{ orchard_worker_versions.results[0].stdout }}" and tart gives
+      "{{ orchard_worker_versions.results[1].stdout }}", not {{ orchard_worker_orchard_version }} and
+      {{ orchard_worker_tart_version }}.

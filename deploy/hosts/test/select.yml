@@ -1,0 +1,57 @@
+# Checks the choice of the images that a host pulls, with no host: a host pulls the image of each
+# profile whose workerLabels its labels contain, and no other.
+- name: The images of the profiles
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: A general worker takes the general profiles and the profiles without labels
+      ansible.builtin.include_role:
+        name: orchard_worker
+        tasks_from: select
+      vars:
+        orchard_worker_labels: {pool: general}
+        orchard_worker_config_file: "{{ playbook_dir }}/testdata/values.yaml"
+
+    - name: Check the general worker
+      ansible.builtin.assert:
+        that: orchard_worker_images | unique == [general, anywhere]
+      vars:
+        general: registry.test/general@sha256:1111111111111111111111111111111111111111111111111111111111111111
+        anywhere: registry.test/anywhere@sha256:2222222222222222222222222222222222222222222222222222222222222222
+
+    - name: A worker with more labels also takes the profile that needs them
+      ansible.builtin.include_role:
+        name: orchard_worker
+        tasks_from: select
+      vars:
+        orchard_worker_labels: {pool: general, size: large}
+        orchard_worker_config_file: "{{ playbook_dir }}/testdata/values.yaml"
+
+    - name: Check the large worker
+      ansible.builtin.assert:
+        that: orchard_worker_images | unique | length == 3 and orchard_worker_images is search('registry.test/large')
+
+    - name: A worker without labels takes only the profiles without labels
+      ansible.builtin.include_role:
+        name: orchard_worker
+        tasks_from: select
+      vars:
+        orchard_worker_labels: {}
+        orchard_worker_config_file: "{{ playbook_dir }}/testdata/values.yaml"
+
+    - name: Check the worker without labels
+      ansible.builtin.assert:
+        that: orchard_worker_images == ['registry.test/anywhere@sha256:2222222222222222222222222222222222222222222222222222222222222222']
+
+    - name: The configuration file of the controller gives the profiles too
+      ansible.builtin.include_role:
+        name: orchard_worker
+        tasks_from: select
+      vars:
+        orchard_worker_labels: {pool: xcode}
+        orchard_worker_config_file: "{{ playbook_dir }}/testdata/config.yaml"
+
+    - name: Check the xcode worker
+      ansible.builtin.assert:
+        that: orchard_worker_images == ['registry.test/xcode@sha256:3333333333333333333333333333333333333333333333333333333333333333']

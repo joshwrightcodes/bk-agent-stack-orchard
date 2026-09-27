@@ -1,0 +1,43 @@
+# The pinned versions. Orchard MUST be the version of mise.toml, which the tests run, and
+# scripts/check-deps.py keeps the two in agreement.
+orchard_worker_orchard_version: "0.57.0"
+orchard_worker_orchard_sha256: "63b511cb9ba4ecadda947d70763b4a226f9f0d56422e147cbf2a2b9b2eeabd26"
+orchard_worker_tart_version: "2.39.0"
+orchard_worker_tart_sha256: "cd17a1cb48fbdb72972a4f4cd467c0ed681f1225b3c0ce3c318c41c229e0dd42"
+orchard_worker_softnet_version: "0.23.0"
+orchard_worker_softnet_sha256: "b5daa4e5efaef3c2716f872dcda3961a35b2bddcdf03fe630ac3db0ab8156f3e"
+
+# The controller. The inventory MUST give the URL, the CA certificate (ca.crt of the orchard-tls
+# Secret, as PEM), and the token of the worker account (worker-token of orchard-bootstrap).
+orchard_worker_controller_url: ""
+orchard_worker_ca_cert: ""
+orchard_worker_account: worker
+orchard_worker_token: ""
+
+# The macOS user that runs Tart and owns the VMs. The worker starts as root and drops to this user,
+# which is the workaround of Orchard for the Local Network permission. The user MUST log in
+# automatically, because Tart and the registry credentials need its login keychain.
+orchard_worker_user: "{{ ansible_user }}"
+orchard_worker_name: "{{ ansible_facts['hostname'] }}"
+# The labels of the worker. A profile goes only to a worker whose labels contain its workerLabels.
+orchard_worker_labels: {}
+
+# Each Orchard process MUST have an explicit OTLP endpoint (target design, section 11).
+orchard_worker_otlp_endpoint: ""
+
+# The configuration file of the controller, or the values of its Helm chart, on the machine that
+# runs Ansible. The host pulls the image of each profile that it can take, so that the images
+# always agree with the profiles.
+orchard_worker_config_file: ""
+# The credentials of the registry for the pull, when it needs them.
+orchard_worker_registry_username: ""
+orchard_worker_registry_password: ""
+
+# A macOS 27 guest needs a macOS 27 host (CO-07).
+orchard_worker_macos_minimum: 27
+# A host MUST run VMs. Only a test on a VM, which cannot run a macOS VM, turns this check off.
+orchard_worker_require_hypervisor: true
+
+orchard_worker_label_name: io.github.joshwrightcodes.orchard-worker
+orchard_worker_prefix: /usr/local/opt/bkaso
+orchard_worker_etc: /usr/local/etc/orchard-worker

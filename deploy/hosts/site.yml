@@ -1,0 +1,9 @@
+# Makes each Mac host an Orchard worker. The play gathers no facts at first, because a host without
+# the Command Line Tools has no Python, and the role checks that before anything else.
+- name: Orchard workers
+  hosts: workers
+  gather_facts: false
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+  roles:
+    - orchard_worker

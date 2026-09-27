@@ -1,0 +1,45 @@
+# launchd gives the token to the worker on its standard input, so the token is in no plist, no
+# argument list, and no process listing.
+- name: Make the directory of the token
+  ansible.builtin.file:
+    path: "{{ orchard_worker_etc }}"
+    state: directory
+    owner: root
+    group: wheel
+    mode: "0700"
+  become: true
+
+- name: Write the bootstrap token
+  ansible.builtin.copy:
+    dest: "{{ orchard_worker_etc }}/bootstrap-token"
+    content: "{{ orchard_worker_bootstrap_token }}"
+    owner: root
+    group: wheel
+    mode: "0600"
+  become: true
+  no_log: true
+  notify: Restart the worker
+
+- name: Write the launchd job
+  ansible.builtin.template:
+    src: orchard-worker.plist.j2
+    dest: "{{ orchard_worker_plist }}"
+    owner: root
+    group: wheel
+    mode: "0644"
+    validate: plutil -lint %s
+  become: true
+  notify: Restart the worker
+
+- name: Look for the launchd job
+  ansible.builtin.command: launchctl print system/{{ orchard_worker_label_name }}
+  register: orchard_worker_loaded
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Start the launchd job
+  ansible.builtin.command: launchctl bootstrap system {{ orchard_worker_plist }}
+  when: orchard_worker_loaded.rc != 0
+  changed_when: true
+  become: true

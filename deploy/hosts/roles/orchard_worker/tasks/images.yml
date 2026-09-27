@@ -1,0 +1,18 @@
+- name: Choose the images of the profiles
+  ansible.builtin.import_tasks: select.yml
+
+# Tart keeps an image at ~/.tart/cache/OCIs/<repository>/<digest or tag>. A profile names its image
+# by digest, so an image in the cache is the image of the profile.
+- name: Pull the images
+  ansible.builtin.command:
+    cmd: tart pull {{ item }}
+    creates: "/Users/{{ orchard_worker_user }}/.tart/cache/OCIs/{{ item | regex_replace('@', '/') }}"
+  loop: "{{ orchard_worker_images | unique }}"
+  environment: "{{ orchard_worker_registry_env }}"
+  become: true
+  become_user: "{{ orchard_worker_user }}"
+  vars:
+    orchard_worker_registry_env: >-
+      {{ {'TART_REGISTRY_USERNAME': orchard_worker_registry_username,
+          'TART_REGISTRY_PASSWORD': orchard_worker_registry_password}
+         if orchard_worker_registry_username | length > 0 else {} }}

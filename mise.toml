@@ -15,6 +15,12 @@ kustomize = "5.8.1"
 kind = "0.33.0"
 ko = "0.19.1"
 kubectl = "1.37.1"
+# The Mac hosts are set up with Ansible (deploy/hosts). The pypi backend installs each one in its
+# own environment with uv, and ansible-lint gets the same ansible-core. ansible-core 2.21 needs
+# Python 3.12 or later on this side, and 3.9 or later on a host.
+uv = "0.12.19"
+"pypi:ansible-core" = "2.21.4"
+"pypi:ansible-lint" = { version = "26.9.0", with = ["ansible-core==2.21.4"] }
 
 # Orchard runs the skeleton journey in synthetic mode, with no Mac and no Tart. The version MUST be
 # the minimum Orchard version of the target design, which scripts/check-deps.py confirms. Each
@@ -98,6 +104,15 @@ run = "./scripts/check-hook.sh"
 [tasks.agent-image]
 description = "Build the agent image into a local Tart VM on an Apple silicon Mac (ARTIFACT_DESTINATION names the storage)"
 run = "./images/agent/build.sh"
+
+[tasks.check-hosts]
+description = "Lint the playbook of the Mac hosts, and check the images that each host pulls"
+dir = "deploy/hosts"
+run = ["ansible-lint", "ansible-playbook -i localhost, test/select.yml"]
+
+[tasks.hosts-test]
+description = "Run the playbook of the Mac hosts against a Tart VM, with an Orchard controller on this Mac"
+run = "./deploy/hosts/test/vm.sh"
 
 [tasks.load]
 description = "Run the load test at the target scale (T-080), about 25 minutes"
