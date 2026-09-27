@@ -14,7 +14,11 @@ This directory makes each Mac host an Orchard worker (target design, section 11)
    of Softnet removes its setuid bit, and on 2026-09-27 the tap gives Tart 2.38.0, which the
    worker cannot use.
 3. It sets the DHCP lease of the VM network to 10 minutes. With the default of one day, a host
-   that starts a VM for each job runs out of addresses.
+   that starts a VM for each job runs out of addresses. It loads pf rules that keep the VMs away
+   from the host, except for DHCP and DNS (`files/vm-isolation.pf`): Softnet lets a VM reach the
+   gateway of the VM network on every port, and the gateway is the host. A launchd job loads the
+   rules into the anchor `com.apple/400.bkaso-vm-isolation` and enables pf at each start of the
+   host, so `/etc/pf.conf` stays as macOS ships it.
 4. It runs `orchard worker run` from launchd, as root, and the worker drops to the worker user.
    This is the Orchard workaround for the Local Network permission of macOS.
 5. It pulls the image of each profile that the host can take.
@@ -76,7 +80,8 @@ labels. CI runs it.
 
 `mise run hosts-test` runs the playbook against a Tart VM on an Apple silicon Mac, with an Orchard
 controller on the Mac and a certificate from a test CA. It checks that the worker registers with
-its labels, that the token is in no process listing, that Softnet has the setuid bit, that a second
-run changes nothing, and that the worker registers again after a restart. A VM cannot run a macOS
+its labels, that the token is in no process listing, that Softnet has the setuid bit, that pf has
+the rules, that a second run changes nothing, and that the worker and the rules come back after a
+restart. A VM cannot run a macOS
 VM, so the test does not check the hypervisor, and it cannot start a VM of the pilot image. A real
 host does that.

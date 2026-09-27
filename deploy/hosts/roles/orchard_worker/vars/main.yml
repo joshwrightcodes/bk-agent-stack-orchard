@@ -25,3 +25,5 @@ orchard_worker_bootstrap_token: >-
   | map('regex_replace', '=+$', '') | list)) | join('.') }}
 
 orchard_worker_plist: "/Library/LaunchDaemons/{{ orchard_worker_label_name }}.plist"
+orchard_worker_pf_rules: /etc/pf.anchors/{{ orchard_worker_pf_label }}
+orchard_worker_pf_plist: "/Library/LaunchDaemons/{{ orchard_worker_pf_label }}.plist"

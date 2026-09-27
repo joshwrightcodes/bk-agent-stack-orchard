@@ -1,0 +1,89 @@
+# pf keeps the job VMs away from the host: Softnet lets a VM reach the gateway of the VM network,
+# which is the host, on every port (files/vm-isolation.pf).
+#
+# macOS evaluates every anchor under com.apple/ from /etc/pf.conf, so the rules go into one of
+# those, and /etc/pf.conf, which a macOS update can replace, stays as it is. A launchd job loads
+# them and enables pf at each start of the host.
+- name: Read the address of the VM network
+  ansible.builtin.command: >-
+    defaults read /Library/Preferences/SystemConfiguration/com.apple.vmnet Shared_Net_Address
+  register: orchard_worker_vmnet_address
+  changed_when: false
+  failed_when: false
+
+- name: Check that the VM network is the one of the pf rules
+  ansible.builtin.assert:
+    quiet: true
+    that: >-
+      orchard_worker_vmnet_address.rc != 0 or
+      orchard_worker_vmnet_address.stdout == '192.168.64.1'
+    fail_msg: >-
+      The VM network of this host starts at {{ orchard_worker_vmnet_address.stdout }}, and the pf
+      rules of files/vm-isolation.pf name 192.168.64.0/24, the default of vmnet.
+
+- name: Install the pf rules
+  ansible.builtin.copy:
+    src: vm-isolation.pf
+    dest: "{{ orchard_worker_pf_rules }}"
+    owner: root
+    group: wheel
+    mode: "0644"
+    validate: /sbin/pfctl -n -f %s
+  become: true
+  register: orchard_worker_pf_rules_file
+
+- name: Write the launchd job that loads the pf rules
+  ansible.builtin.template:
+    src: vm-isolation.plist.j2
+    dest: "{{ orchard_worker_pf_plist }}"
+    owner: root
+    group: wheel
+    mode: "0644"
+    validate: plutil -lint %s
+  become: true
+  register: orchard_worker_pf_plist_file
+
+- name: Look for the launchd job of the pf rules
+  ansible.builtin.command: launchctl print system/{{ orchard_worker_pf_label }}
+  register: orchard_worker_pf_loaded
+  changed_when: false
+  failed_when: false
+  become: true
+
+# The job loads the rules, enables pf, and ends. launchd reads a job definition only when it loads
+# the job, so a change unloads the job and loads it again, which runs it.
+- name: Load the pf rules
+  ansible.builtin.shell: |
+    launchctl bootout system/{{ orchard_worker_pf_label }} 2>/dev/null
+    for _ in $(seq 1 30); do
+      launchctl print system/{{ orchard_worker_pf_label }} >/dev/null 2>&1 || break
+      sleep 1
+    done
+    launchctl bootstrap system {{ orchard_worker_pf_plist }}
+  when: >-
+    orchard_worker_pf_rules_file.changed or orchard_worker_pf_plist_file.changed or
+    orchard_worker_pf_loaded.rc != 0
+  changed_when: true
+  become: true
+
+- name: Read the pf rules that are active
+  ansible.builtin.command: /sbin/pfctl -a {{ orchard_worker_pf_anchor }} -s rules
+  register: orchard_worker_pf_rules_active
+  changed_when: false
+  become: true
+
+- name: Read the state of pf
+  ansible.builtin.command: /sbin/pfctl -s info
+  register: orchard_worker_pf_info
+  changed_when: false
+  become: true
+
+- name: Check that pf keeps the VMs away from the host
+  ansible.builtin.assert:
+    quiet: true
+    that:
+      - orchard_worker_pf_rules_active.stdout is search('block drop in quick inet from 192.168.64.0/24')
+      - orchard_worker_pf_info.stdout is search('Status:\s+Enabled')
+    fail_msg: >-
+      pf is not enabled, or the anchor {{ orchard_worker_pf_anchor }} has no block rule, so a job
+      VM can reach every service of this host.

@@ -3,7 +3,8 @@
 # as the fleet uses it:
 #
 #   - the worker registers with the labels of the inventory, through TLS with the CA in the token;
-#   - the token is in no process listing, softnet has the setuid bit, and the DHCP lease is short;
+#   - the token is in no process listing, softnet has the setuid bit, the DHCP lease is short, and
+#     pf keeps the VMs away from the host, also after a restart;
 #   - a second run of the playbook changes nothing;
 #   - the worker registers again after a restart of the host.
 #
@@ -116,6 +117,12 @@ for _ in $(seq 1 30); do api GET /v1/workers >/dev/null 2>&1 && break; sleep 1; 
 api POST /v1/service-accounts \
   "{\"name\":\"worker\",\"token\":\"$WORKER_TOKEN\",\"roles\":[\"compute:read\",\"compute:write\"]}" >/dev/null
 
+# The pf rules of the hosts, loaded on this Mac for the Softnet test, block the VM from this Mac,
+# and so from the controller of this test.
+bounded 10 tart exec "$VM" /usr/bin/nc -z -G 5 "$gateway" "$PORT" >/dev/null 2>&1 ||
+  fail "the VM cannot reach the controller at $gateway:$PORT; if the pf rules of the hosts are
+loaded on this Mac, remove them first: sudo pfctl -a com.apple/400.bkaso-vm-isolation -F all"
+
 log "giving Ansible a key for admin"
 ssh-keygen -q -t ed25519 -N "" -f "$WORK/id" -C hosts-test
 guest <<EOF
@@ -158,6 +165,8 @@ check=$(guest <<'EOF'
 echo "token_in_ps=$(ps axww -o command | grep -c '[o]rchard-bootstrap-token' || true)"
 echo "token_mode=$(sudo stat -f '%Su %Mp%Lp' /usr/local/etc/orchard-worker/bootstrap-token)"
 echo "softnet=$(stat -f '%Su %Mp%Lp' /usr/local/bin/softnet)"
+echo "pf_block=$(sudo /sbin/pfctl -a com.apple/400.bkaso-vm-isolation -s rules 2>/dev/null | grep -c 'block drop in quick')"
+echo "pf_enabled=$(sudo /sbin/pfctl -s info 2>/dev/null | grep -c 'Status: Enabled')"
 echo "dhcp_lease=$(/usr/libexec/PlistBuddy -c 'Print :bootpd:DHCPLeaseTimeSecs' /Library/Preferences/SystemConfiguration/com.apple.InternetSharing.default.plist 2>/dev/null)"
 echo "worker_user=$(ps axo user,command | awk '$2 ~ /orchard$/ && $3 == "worker" {print $1}' | sort -u | tr '\n' ' ')"
 EOF
@@ -167,6 +176,8 @@ grep -qx "token_in_ps=0" <<<"$check" || fail "the token is in a process listing"
 grep -qx "token_mode=root 0600" <<<"$check" || fail "the token file is not root 0600"
 grep -qx "softnet=root 4755" <<<"$check" || fail "softnet has no setuid bit"
 grep -qx "dhcp_lease=600" <<<"$check" || fail "the DHCP lease of the VM network is not 600 s"
+grep -Eqx "pf_block=[1-9][0-9]*" <<<"$check" || fail "pf has no rule that keeps the VMs away from the host"
+grep -qx "pf_enabled=1" <<<"$check" || fail "pf is not enabled"
 grep -q "worker_user=.*admin" <<<"$check" || fail "no worker process runs as admin"
 
 log "running the playbook again, which must change nothing"
@@ -186,4 +197,15 @@ restarted=$(date +%s)
 wait_for_worker "$restarted"
 log "the worker registered again after the restart"
 
-log "PASS: the worker registers, the token stays secret, the playbook is idempotent, and the worker survives a restart"
+# launchd loads the pf rules at each start, and the pfctl job of macOS loads /etc/pf.conf, so the
+# rules must survive a restart whatever the order of the two jobs.
+after=$(guest <<'EOF'
+echo "pf_block=$(sudo /sbin/pfctl -a com.apple/400.bkaso-vm-isolation -s rules 2>/dev/null | grep -c 'block drop in quick')"
+echo "pf_enabled=$(sudo /sbin/pfctl -s info 2>/dev/null | grep -c 'Status: Enabled')"
+EOF
+)
+echo "$after"
+grep -Eqx "pf_block=[1-9][0-9]*" <<<"$after" || fail "the pf rules did not survive the restart"
+grep -qx "pf_enabled=1" <<<"$after" || fail "pf is not enabled after the restart"
+
+log "PASS: the worker registers, the token stays secret, the playbook is idempotent, and the worker and the pf rules survive a restart"

@@ -219,6 +219,21 @@ BKASO_TART_IMAGE=bkaso-agent mise run tart-test
 The VM takes one of the two VM slots of the Mac, so the runner VM can run at the same time. CI does
 not run this test, because a VM cannot run a macOS VM.
 
+`mise run softnet-test` probes the network from a VM of the controller specification: it must reach
+the Internet and DNS, and not the LAN, another VM, or a service of the Mac itself. Softnet alone
+lets a VM reach the Mac through the gateway of the VM network, and the hosts close that with pf
+(`deploy/hosts`). Load the same rules on the Mac before the test. They go when the Mac restarts, or
+with `sudo pfctl -a com.apple/400.bkaso-vm-isolation -F all`:
+
+```sh
+sudo pfctl -E
+sudo pfctl -a com.apple/400.bkaso-vm-isolation -f deploy/hosts/roles/orchard_worker/files/vm-isolation.pf
+BKASO_TART_IMAGE=bkaso-agent mise run softnet-test
+```
+
+`mise run hosts-test` needs the opposite: its test VM reaches an Orchard controller on the Mac,
+which the rules block, so remove them before it.
+
 ### Operate the runner
 
 `scripts/journey-runner.sh` does each step. It needs `tart`, and `gh` signed in with an account that

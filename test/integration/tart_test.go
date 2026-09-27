@@ -3,6 +3,7 @@
 package integration_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -128,7 +129,11 @@ func TestARealMachineRunsTheStartupScript(t *testing.T) {
 func tartHolds(t *testing.T, prefix string) bool {
 	t.Helper()
 
-	out, err := exec.CommandContext(t.Context(), "tart", "list", "--source", "local",
+	// A cleanup calls this too, after the context of the test has ended.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	out, err := exec.CommandContext(ctx, "tart", "list", "--source", "local",
 		"--format", "json").Output()
 	if err != nil {
 		t.Fatalf("listing the machines of Tart: %v", err)
