@@ -470,7 +470,7 @@ The Reaper MUST examine each owned VM at each tick. The first row that matches a
 | 6 | Any | `scheduled` (the reservation expired) | Delete the VM. | `reservation_lapsed` |
 | 7 | `failed` | An agent owns the job: `assigned`, `accepted`, `running`, `canceling`, `timing_out` | Send a notification with `status_message`. Delete the VM. | `vm_failed` |
 | 8 | Not `failed` | An agent owns the job | No action. | — |
-| 9 | `failed` | `reserved` | Finish the job (`-1`, `status_message`). Delete the VM. | `vm_failed` |
+| 9 | `failed` | `reserved` | Finish the job (`-1`, `status_message`, and the last 50 startup-script log lines when the script wrote any). Delete the VM. | `vm_failed` |
 | 10 | `pending`, no worker, and the age since `createdAt` is more than `unplaced` (2 min) | `reserved` | Delete the VM. Do not extend the reservation. The job becomes `scheduled` again, and Admission starts it again. | `unplaced_timeout` |
 | 11 | `pending`, a worker is set, and the age since `scheduled_at` is more than `boot` (15 min) | `reserved` | Finish the job (`-1`, `status_message`). Delete the VM. | `boot_timeout` |
 | 12 | `running`, and the age since `started_at` is more than `acquire` (5 min) | `reserved` | Finish the job (`-1`, the last 50 startup-script log lines from `GET /v1/vms/{name}/events`). Delete the VM. | `acquire_timeout` |

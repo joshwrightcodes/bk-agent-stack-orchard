@@ -17,12 +17,14 @@ const scriptLines = 50
 // machine. It says what happened in the words of the pipeline author, and the status of the
 // machine as Orchard gave it.
 //
-// Lines are the log lines of the startup script, which only an acquire timeout reads. A nil value
-// means that Orchard could not give them, and the message says so.
+// Lines are the log lines of the startup script, which an acquire timeout and a failed machine
+// read. For an acquire timeout, a nil value means that Orchard could not give them, and the message
+// says so. A failed machine shows its lines when it has some: an agent that cannot start usually
+// exits, and its status then says only how the script ended.
 func message(machine Machine, decision Decision, lines []string) string {
 	switch decision.Reason {
 	case ReasonVMFailed:
-		return withStatus("the virtual machine of this job failed", machine)
+		return withLines(withStatus("the virtual machine of this job failed", machine), lines)
 	case ReasonBootTimeout:
 		return withStatus(fmt.Sprintf("the virtual machine of this job did not start within %s",
 			machine.Timeouts.Boot), machine)
@@ -35,11 +37,6 @@ func message(machine Machine, decision Decision, lines []string) string {
 }
 
 // acquireTimeout gives the message of an acquire timeout, with the end of the startup script.
-//
-// The end of the script is the part that matters, because it holds the reason that the agent did
-// not start. The library that sends a finish cuts a long detail at its end, which would remove
-// exactly those lines. A message that is too long therefore loses its oldest lines here, and
-// never its newest, so that the library has nothing to cut.
 func acquireTimeout(machine Machine, lines []string) string {
 	head := fmt.Sprintf("no agent acquired this job within %s of the start of its virtual machine",
 		machine.Timeouts.Acquire)
@@ -50,6 +47,20 @@ func acquireTimeout(machine Machine, lines []string) string {
 
 	if len(lines) == 0 {
 		return head + ". Its startup script wrote nothing."
+	}
+
+	return withLines(head, lines)
+}
+
+// withLines adds the last lines of the startup script to a message, when there are any.
+//
+// The end of the script is the part that matters, because it holds the reason that the agent did
+// not start. The library that sends a finish cuts a long detail at its end, which would remove
+// exactly those lines. A message that is too long therefore loses its oldest lines here, and
+// never its newest, so that the library has nothing to cut.
+func withLines(head string, lines []string) string {
+	if len(lines) == 0 {
+		return head
 	}
 
 	if len(lines) > scriptLines {

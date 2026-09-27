@@ -66,10 +66,11 @@ running() { pgrep -f "tart run( .*)? ${VM}\$" >/dev/null; }
 
 # shut_down stops the VM from inside: macOS writes its caches to the disk and powers off, and Tart
 # then ends. tart stop does not wait for that, and a file that the build wrote just before it is
-# lost. tart stop is the last resort, for a VM that does not power off.
+# lost. tart stop is the last resort, for a VM that does not power off. shutdown is in /sbin,
+# which is not on the PATH of the guest agent.
 shut_down() {
 	running || return 0
-	bounded 30 tart exec "$VM" /bin/sh -c 'sync; sudo shutdown -h now' >/dev/null 2>&1 || true
+	bounded 30 tart exec "$VM" /bin/sh -c 'sync; sudo /sbin/shutdown -h now' >/dev/null 2>&1 || true
 	for _ in $(seq 1 90); do
 		running || return 0
 		sleep 2

@@ -369,11 +369,11 @@ func (r *Reaper) finish(ctx context.Context, machine Machine, decision Decision)
 	return nil
 }
 
-// script gives the lines of the startup script for an acquire timeout, and nothing for any other
-// reason. Lines that Orchard cannot give do not stop the finish: the job still fails, and its
-// message says that the lines were not available.
+// script gives the lines of the startup script for an acquire timeout and a failed machine, and
+// nothing for any other reason. Lines that Orchard cannot give do not stop the finish: the job
+// still fails, with the message that it has without them.
 func (r *Reaper) script(ctx context.Context, machine Machine, decision Decision) []string {
-	if decision.Reason != ReasonAcquireTimeout {
+	if decision.Reason != ReasonAcquireTimeout && decision.Reason != ReasonVMFailed {
 		return nil
 	}
 

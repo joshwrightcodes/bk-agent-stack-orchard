@@ -133,10 +133,14 @@ func tartHolds(t *testing.T, prefix string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	// tart list can fail while the worker deletes a machine, so a failed list counts as a machine
+	// that is still there, and the wait goes on.
 	out, err := exec.CommandContext(ctx, "tart", "list", "--source", "local",
 		"--format", "json").Output()
 	if err != nil {
-		t.Fatalf("listing the machines of Tart: %v", err)
+		t.Logf("listing the machines of Tart: %v", err)
+
+		return true
 	}
 
 	var local []tartMachine
@@ -233,6 +237,15 @@ func startRealOrchard(t *testing.T, binary string) {
 func writeTartConfig(t *testing.T, endpoint, image string) string {
 	t.Helper()
 
+	return writeTartConfigWith(t, endpoint, image, 10*time.Minute, 5*time.Minute)
+}
+
+// writeTartConfigWith writes a configuration with one profile for an image, and its boot and
+// acquire timeouts.
+func writeTartConfigWith(t *testing.T, endpoint, image string, boot, acquire time.Duration,
+) string {
+	t.Helper()
+
 	body := fmt.Sprintf(`controllerID: %s
 healthAddress: %s
 buildkite:
@@ -249,9 +262,9 @@ profiles:
     memoryMiB: 8192
     diskSizeGB: 50
     timeouts:
-      boot: 10m
-      acquire: 5m
-`, controllerID, freeAddress(t), queue, endpoint, orchardURL, image)
+      boot: %s
+      acquire: %s
+`, controllerID, freeAddress(t), queue, endpoint, orchardURL, image, boot, acquire)
 
 	path := filepath.Join(t.TempDir(), "config.yaml")
 

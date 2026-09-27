@@ -150,3 +150,61 @@ func TestABootTimeoutShowsTheStatusOfTheMachine(t *testing.T) {
 		t.Errorf("the message reads %q, want the status of the machine", detail)
 	}
 }
+
+// T-103. An agent that cannot start usually exits, and the machine then fails with a status that
+// says only how the startup script ended. The job page shows the last lines of the script after
+// the status, because they say why.
+func TestAFailedMachineShowsTheLastLinesOfItsScript(t *testing.T) {
+	t.Parallel()
+
+	machine := failing(ended)
+	machine.VM.StatusMessage = "VM failed: failed to run startup script: process exited with status 1"
+
+	detail := finished(t, &fleet{
+		read: true, snapshot: inventory.Snapshot{Owned: []inventory.Owned{machine}},
+		events: script(60, line),
+	})
+
+	for _, want := range []string{"process exited with status 1", line(11), line(60)} {
+		if !strings.Contains(detail, want) {
+			t.Errorf("the message reads %q, want %q in it", detail, want)
+		}
+	}
+
+	if strings.Contains(detail, line(10)+"\n") {
+		t.Errorf("the message holds more than the last fifty lines:\n%s", detail)
+	}
+
+	if !strings.HasSuffix(detail, line(60)) {
+		t.Errorf("the message does not end with the newest line:\n%s", detail)
+	}
+}
+
+// A machine that failed before its startup script ran, as a machine whose image cannot be pulled
+// does, has no lines to show, and its message is the status alone.
+func TestAFailedMachineWithoutLinesShowsItsStatus(t *testing.T) {
+	t.Parallel()
+
+	for name, machines := range map[string]*fleet{
+		"no lines": {
+			read: true, snapshot: inventory.Snapshot{Owned: []inventory.Owned{failing(ended)}},
+		},
+		"no events": {
+			read: true, snapshot: inventory.Snapshot{Owned: []inventory.Owned{failing(ended)}},
+			eventsErr: errors.New("orchard is not available"),
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			detail := finished(t, machines)
+			if strings.Contains(detail, "startup script") {
+				t.Errorf("the message reads %q, want the status of the machine alone", detail)
+			}
+
+			if !strings.Contains(detail, "the image could not be pulled") {
+				t.Errorf("the message reads %q, want the status of the machine", detail)
+			}
+		})
+	}
+}
