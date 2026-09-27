@@ -16,7 +16,8 @@ Checks:
   6. the image of deploy/orchard/image takes the same version and the same SHA-256 of each Linux
      archive, so the fleet runs the Orchard that the tests run;
   7. the Mac hosts of deploy/hosts install the same version, with the same SHA-256 of the macOS
-     archive, so the workers run the Orchard that the tests run.
+     archive, so the workers run the Orchard that the tests run;
+  8. the Mac hosts install at least the minimum Tart version that the design states.
 """
 
 from __future__ import annotations
@@ -149,6 +150,29 @@ def check_orchard_hosts() -> None:
         )
 
 
+def check_tart_hosts() -> None:
+    """Rule 8: the Tart of the Mac hosts is at least the minimum of the design."""
+    if not HOSTS.exists():
+        return
+
+    minimum = re.search(r"^\*\*Tart version\.\*\* The minimum Tart version on a worker MUST be "
+                        r"([0-9.]+) ", DESIGN.read_text(encoding="utf-8"), re.M)
+    installed = re.search(r'^orchard_worker_tart_version: "([0-9.]+)"$',
+                          HOSTS.read_text(encoding="utf-8"), re.M)
+    if not minimum or not installed:
+        errors.append("the design states no minimum Tart version, or deploy/hosts pins none")
+        return
+
+    def version(text: str) -> tuple[int, ...]:
+        return tuple(int(part) for part in text.split("."))
+
+    if version(installed.group(1)) < version(minimum.group(1)):
+        errors.append(
+            f"{HOSTS.relative_to(ROOT)} installs Tart {installed.group(1)}, and the design needs "
+            f"{minimum.group(1)} or later"
+        )
+
+
 def main() -> int:
     if not GO_MOD.exists():
         print("check-deps: no go.mod yet, nothing to check")
@@ -194,6 +218,7 @@ def main() -> int:
     check_orchard_tool()
     check_orchard_image()
     check_orchard_hosts()
+    check_tart_hosts()
 
     if errors:
         print(f"check-deps: {len(errors)} problem(s)\n", file=sys.stderr)

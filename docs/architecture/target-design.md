@@ -675,6 +675,13 @@ request #465 makes the worker wait for VM shutdown before it releases capacity. 
 corrects an overcommit problem. Orchard 0.57.0 contains both. The controller, the workers, and CI
 MUST use the same Orchard version.
 
+**Tart version.** The minimum Tart version on a worker MUST be 2.39.0 (released 2026-09-26). The
+macOS 27 images have ASIF disks, and before 2.39.0 `tart list` fails while a VM with an ASIF disk
+runs, because the disk is locked
+([openai/tart#1344](https://github.com/openai/tart/issues/1344), corrected by pull request #1349).
+The Orchard worker lists its VMs with `tart list`, so a worker with an older Tart fails as soon as
+one VM runs (2026-09-27, Tart 2.38.0 with Orchard 0.57.0).
+
 **Startup-script transport.** The controller MUST use the `tart-guest-agent` transport for
 startup scripts (ADR-0009). Orchard 0.57.0 contains this transport
 ([pull request #490](https://github.com/openai/orchard/pull/490), merged 2026-09-09). The VM

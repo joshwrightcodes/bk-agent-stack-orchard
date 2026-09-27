@@ -7,12 +7,12 @@ orchard_worker_tools:
   - name: tart
     version: "{{ orchard_worker_tart_version }}"
     sha256: "{{ orchard_worker_tart_sha256 }}"
-    url: "https://github.com/cirruslabs/tart/releases/download/{{ orchard_worker_tart_version }}/tart.tar.gz"
+    url: "https://github.com/openai/tart/releases/download/{{ orchard_worker_tart_version }}/tart.tar.gz"
     creates: tart.app/Contents/MacOS/tart
   - name: softnet
     version: "{{ orchard_worker_softnet_version }}"
     sha256: "{{ orchard_worker_softnet_sha256 }}"
-    url: "https://github.com/cirruslabs/softnet/releases/download/{{ orchard_worker_softnet_version }}/softnet.tar.gz"
+    url: "https://github.com/openai/softnet/releases/download/{{ orchard_worker_softnet_version }}/softnet.tar.gz"
     creates: softnet
 
 # The bootstrap token of Orchard: "orchard-bootstrap-token-v0", then the account, the token, and a

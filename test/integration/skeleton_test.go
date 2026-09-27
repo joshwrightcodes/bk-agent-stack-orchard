@@ -11,6 +11,9 @@
 // Run it with the orchard binary on PATH or in ORCHARD_BIN:
 //
 //	go test -tags integration -count=1 ./test/integration/...
+//
+// The tart tag adds one test that runs a real machine with Tart on an Apple silicon Mac
+// (tart_test.go), and the load tag adds the load test.
 package integration_test
 
 import (
