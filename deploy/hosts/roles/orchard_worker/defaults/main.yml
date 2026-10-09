@@ -2,10 +2,10 @@
 # scripts/check-deps.py keeps the two in agreement.
 orchard_worker_orchard_version: "0.57.0"
 orchard_worker_orchard_sha256: "63b511cb9ba4ecadda947d70763b4a226f9f0d56422e147cbf2a2b9b2eeabd26"
-orchard_worker_tart_version: "2.39.0"
-orchard_worker_tart_sha256: "cd17a1cb48fbdb72972a4f4cd467c0ed681f1225b3c0ce3c318c41c229e0dd42"
-orchard_worker_softnet_version: "0.23.0"
-orchard_worker_softnet_sha256: "b5daa4e5efaef3c2716f872dcda3961a35b2bddcdf03fe630ac3db0ab8156f3e"
+orchard_worker_tart_version: "2.40.1"
+orchard_worker_tart_sha256: "363e2701154a8155cbc1bb6d845430c9b42697d2a186bc49574471ca2877db46"
+orchard_worker_softnet_version: "0.24.1"
+orchard_worker_softnet_sha256: "8ff8ff099c2b5ac1b1128e7999c4a730ac85f486c8a4cb0239eb98432859a0f7"
 
 # The controller. The inventory MUST give the URL, the CA certificate (ca.crt of the orchard-tls
 # Secret, as PEM), and the token of the worker account (worker-token of orchard-bootstrap).
@@ -38,10 +38,11 @@ orchard_worker_macos_minimum: 27
 # A host MUST run VMs. Only a test on a VM, which cannot run a macOS VM, turns this check off.
 orchard_worker_require_hypervisor: true
 
-# Each VM of a job gets an address from the DHCP server of macOS for the VM network, and the lease
-# of one day holds each address long after the VM is gone. A host that starts a VM for each job
-# runs out of addresses, so the lease is short, as Tart advises.
-orchard_worker_dhcp_lease_seconds: 600
+# The interfaces through which the operator reaches the host, for example with SSH. pf passes all of
+# their traffic; from any other interface, a VM network included, the host is reachable only for
+# DHCP and DNS.
+orchard_worker_admin_interfaces:
+  - "{{ ansible_facts['default_ipv4']['interface'] | default('en0') }}"
 
 orchard_worker_pf_label: io.github.joshwrightcodes.bkaso-vm-isolation
 orchard_worker_pf_anchor: com.apple/400.bkaso-vm-isolation

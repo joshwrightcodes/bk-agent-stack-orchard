@@ -1,5 +1,5 @@
-# Checks the choice of the images that a host pulls, with no host: a host pulls the image of each
-# profile whose workerLabels its labels contain, and no other.
+# Checks the choice of the profiles of a host, with no host: a host pulls the image of each profile
+# whose workerLabels its labels contain, and permits their softnetAllow, and no other.
 - name: The images of the profiles
   hosts: localhost
   connection: local
@@ -15,7 +15,10 @@
 
     - name: Check the general worker
       ansible.builtin.assert:
-        that: orchard_worker_images | unique == [general, anywhere]
+        that:
+          - orchard_worker_images | unique == [general, anywhere]
+          # The private addresses of its own profiles, once, and not those of the xcode profile.
+          - orchard_worker_softnet_allow == ['10.20.30.40/32']
       vars:
         general: registry.test/general@sha256:1111111111111111111111111111111111111111111111111111111111111111
         anywhere: registry.test/anywhere@sha256:2222222222222222222222222222222222222222222222222222222222222222
@@ -42,7 +45,9 @@
 
     - name: Check the worker without labels
       ansible.builtin.assert:
-        that: orchard_worker_images == ['registry.test/anywhere@sha256:2222222222222222222222222222222222222222222222222222222222222222']
+        that:
+          - orchard_worker_images == ['registry.test/anywhere@sha256:2222222222222222222222222222222222222222222222222222222222222222']
+          - orchard_worker_softnet_allow == []
 
     - name: The configuration file of the controller gives the profiles too
       ansible.builtin.include_role:

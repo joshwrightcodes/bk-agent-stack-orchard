@@ -1,29 +1,12 @@
-# pf keeps the job VMs away from the host: Softnet lets a VM reach the gateway of the VM network,
-# which is the host, on every port (files/vm-isolation.pf).
+# pf keeps the job VMs away from the host: Softnet lets a VM reach the gateway of its network,
+# which is the host, on every port (templates/vm-isolation.pf.j2).
 #
 # macOS evaluates every anchor under com.apple/ from /etc/pf.conf, so the rules go into one of
 # those, and /etc/pf.conf, which a macOS update can replace, stays as it is. A launchd job loads
 # them and enables pf at each start of the host.
-- name: Read the address of the VM network
-  ansible.builtin.command: >-
-    defaults read /Library/Preferences/SystemConfiguration/com.apple.vmnet Shared_Net_Address
-  register: orchard_worker_vmnet_address
-  changed_when: false
-  failed_when: false
-
-- name: Check that the VM network is the one of the pf rules
-  ansible.builtin.assert:
-    quiet: true
-    that: >-
-      orchard_worker_vmnet_address.rc != 0 or
-      orchard_worker_vmnet_address.stdout == '192.168.64.1'
-    fail_msg: >-
-      The VM network of this host starts at {{ orchard_worker_vmnet_address.stdout }}, and the pf
-      rules of files/vm-isolation.pf name 192.168.64.0/24, the default of vmnet.
-
-- name: Install the pf rules
-  ansible.builtin.copy:
-    src: vm-isolation.pf
+- name: Write the pf rules
+  ansible.builtin.template:
+    src: vm-isolation.pf.j2
     dest: "{{ orchard_worker_pf_rules }}"
     owner: root
     group: wheel
@@ -82,7 +65,7 @@
   ansible.builtin.assert:
     quiet: true
     that:
-      - orchard_worker_pf_rules_active.stdout is search('block drop in quick inet from 192.168.64.0/24')
+      - orchard_worker_pf_rules_active.stdout is search('block drop in quick inet from any to 10.0.0.0/8')
       - orchard_worker_pf_info.stdout is search('Status:\s+Enabled')
     fail_msg: >-
       pf is not enabled, or the anchor {{ orchard_worker_pf_anchor }} has no block rule, so a job

@@ -1,6 +1,3 @@
-- name: Choose the images of the profiles
-  ansible.builtin.import_tasks: select.yml
-
 # Tart keeps an image at ~/.tart/cache/OCIs/<repository>/<digest or tag>. A profile names its image
 # by digest, so an image in the cache is the image of the profile.
 - name: Pull the images

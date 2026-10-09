@@ -3,8 +3,8 @@
 # as the fleet uses it:
 #
 #   - the worker registers with the labels of the inventory, through TLS with the CA in the token;
-#   - the token is in no process listing, softnet has the setuid bit, the DHCP lease is short, and
-#     pf keeps the VMs away from the host, also after a restart;
+#   - the token is in no process listing, softnet has the setuid bit, and pf keeps the VMs away
+#     from the host, also after a restart;
 #   - a second run of the playbook changes nothing;
 #   - the worker registers again after a restart of the host.
 #
@@ -167,7 +167,6 @@ echo "token_mode=$(sudo stat -f '%Su %Mp%Lp' /usr/local/etc/orchard-worker/boots
 echo "softnet=$(stat -f '%Su %Mp%Lp' /usr/local/bin/softnet)"
 echo "pf_block=$(sudo /sbin/pfctl -a com.apple/400.bkaso-vm-isolation -s rules 2>/dev/null | grep -c 'block drop in quick')"
 echo "pf_enabled=$(sudo /sbin/pfctl -s info 2>/dev/null | grep -c 'Status: Enabled')"
-echo "dhcp_lease=$(/usr/libexec/PlistBuddy -c 'Print :bootpd:DHCPLeaseTimeSecs' /Library/Preferences/SystemConfiguration/com.apple.InternetSharing.default.plist 2>/dev/null)"
 echo "worker_user=$(ps axo user,command | awk '$2 ~ /orchard$/ && $3 == "worker" {print $1}' | sort -u | tr '\n' ' ')"
 EOF
 )
@@ -175,7 +174,6 @@ echo "$check"
 grep -qx "token_in_ps=0" <<<"$check" || fail "the token is in a process listing"
 grep -qx "token_mode=root 0600" <<<"$check" || fail "the token file is not root 0600"
 grep -qx "softnet=root 4755" <<<"$check" || fail "softnet has no setuid bit"
-grep -qx "dhcp_lease=600" <<<"$check" || fail "the DHCP lease of the VM network is not 600 s"
 grep -Eqx "pf_block=[1-9][0-9]*" <<<"$check" || fail "pf has no rule that keeps the VMs away from the host"
 grep -qx "pf_enabled=1" <<<"$check" || fail "pf is not enabled"
 grep -q "worker_user=.*admin" <<<"$check" || fail "no worker process runs as admin"
@@ -187,24 +185,23 @@ grep -Eq "^$VM +: ok=[0-9]+ +changed=0 +unreachable=0 +failed=0" "$WORK/playbook
 
 log "restarting the host"
 booted=$(tart exec "$VM" /usr/sbin/sysctl -n kern.boottime)
-# shutdown is in /sbin, which is not on the PATH of the guest agent.
-tart exec "$VM" /bin/sh -c 'sudo /sbin/shutdown -r now' >/dev/null 2>&1 || true
-# The worker can report once more while macOS stops, so the check counts only reports after the
-# guest agent stops answering. A guest that never stops answering did not restart.
-stopped=0
-for _ in $(seq 1 60); do
-  if ! bounded 5 tart exec "$VM" true >/dev/null 2>&1; then
-    stopped=1
+# shutdown is in /sbin, which is not on the PATH of the guest agent. The call to the guest can stay
+# open after the guest has gone, so it has a limit.
+bounded 10 tart exec "$VM" /bin/sh -c 'sudo /sbin/shutdown -r now' >/dev/null 2>&1 || true
+# The host restarted when its boot time changed. The guest agent can answer again before a poll
+# sees it stop, so the boot time, not a pause of the guest agent, proves the restart.
+restarted=""
+for _ in $(seq 1 150); do
+  now=$(bounded 8 tart exec "$VM" /usr/sbin/sysctl -n kern.boottime 2>/dev/null || true)
+  if [[ -n "$now" && "$now" != "$booted" ]]; then
+    restarted=$(date +%s)
     break
   fi
-  sleep 1
+  sleep 2
 done
-((stopped)) || fail "the host did not restart: its guest agent answered for 60 s after the restart"
-restarted=$(date +%s)
+[[ -n "$restarted" ]] || fail "the host did not restart: its boot time did not change in 5 minutes"
+# The worker reports after its own start, which follows the boot of the host.
 wait_for_worker "$restarted"
-for _ in $(seq 1 60); do bounded 8 tart exec "$VM" true >/dev/null 2>&1 && break; sleep 2; done
-[[ "$(tart exec "$VM" /usr/sbin/sysctl -n kern.boottime)" != "$booted" ]] ||
-  fail "the host did not restart: its boot time is the same"
 log "the host restarted, and the worker registered again"
 
 # launchd loads the pf rules at each start, and the pfctl job of macOS loads /etc/pf.conf, so the

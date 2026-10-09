@@ -4,14 +4,17 @@ config:
     - name: general
       image: registry.test/general@sha256:1111111111111111111111111111111111111111111111111111111111111111
       workerLabels: {pool: general}
+      softnetAllow: ["10.20.30.40/32"]
     - name: anywhere
       image: registry.test/anywhere@sha256:2222222222222222222222222222222222222222222222222222222222222222
     - name: xcode
       image: registry.test/xcode@sha256:3333333333333333333333333333333333333333333333333333333333333333
       workerLabels: {pool: xcode}
+      softnetAllow: ["10.9.9.9/32"]
     - name: general-large
       image: registry.test/large@sha256:4444444444444444444444444444444444444444444444444444444444444444
       workerLabels: {pool: general, size: large}
     - name: general-again
       image: registry.test/general@sha256:1111111111111111111111111111111111111111111111111111111111111111
       workerLabels: {pool: general}
+      softnetAllow: ["10.20.30.40/32"]
