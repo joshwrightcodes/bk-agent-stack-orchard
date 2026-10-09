@@ -81,23 +81,6 @@
   become: true
   notify: Restart the worker
 
-- name: Read the DHCP lease time of the VM network
-  ansible.builtin.command: >-
-    /usr/libexec/PlistBuddy -c "Print :bootpd:DHCPLeaseTimeSecs"
-    /Library/Preferences/SystemConfiguration/com.apple.InternetSharing.default.plist
-  register: orchard_worker_dhcp_lease
-  changed_when: false
-  failed_when: false
-
-- name: Shorten the DHCP lease of the VM network
-  ansible.builtin.command: >-
-    defaults write
-    /Library/Preferences/SystemConfiguration/com.apple.InternetSharing.default.plist
-    bootpd -dict DHCPLeaseTimeSecs -int {{ orchard_worker_dhcp_lease_seconds }}
-  when: orchard_worker_dhcp_lease.stdout != orchard_worker_dhcp_lease_seconds | string
-  changed_when: true
-  become: true
-
 - name: Read the installed versions
   ansible.builtin.command: "{{ item }} --version"
   register: orchard_worker_versions

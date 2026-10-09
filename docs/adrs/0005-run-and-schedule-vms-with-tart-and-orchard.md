@@ -48,13 +48,14 @@ Non-goals:
 ## Options considered
 
 **Tart and Orchard.** Tart runs macOS VMs with Apple Virtualization.framework. Orchard schedules
-Tart VMs on a cluster of hosts. The latest releases are Tart 2.37.0 (2026-09-09) and Orchard 0.57.0
-(2026-09-15). Since 2026-06-05, both use the FSL-1.1-ALv2 licence, which permits this use without
-cost. The Orchard REST API creates, lists, and deletes VMs, and workers report their resources.
-Softnet blocks access to the host and to private ranges. `orchard dev --synthetic` runs workers
-with in-memory VMs, and Orchard has a Go client. However, the Orchard controller is one instance
-with an embedded database. Orchard releases before 0.57.0 can release worker capacity before a VM
-stops, and Orchard does not delete failed VMs.
+Tart VMs on a cluster of hosts. The latest releases are Tart 2.40.1 (2026-09-30) and Orchard 0.57.0
+(2026-09-15), checked 2026-10-10. Since 2026-06-05, both use the FSL-1.1-ALv2 licence, which permits
+this use without cost. The Orchard REST API creates, lists, and deletes VMs, and workers report
+their resources. Softnet blocks access to private ranges and to the other VMs. It lets a VM reach
+the gateway of its network, which is the host, so the hosts add pf rules (target design, §9.1).
+`orchard dev --synthetic` runs workers with in-memory VMs, and Orchard has a Go client. However, the
+Orchard controller is one instance with an embedded database. Orchard releases before 0.57.0 can
+release worker capacity before a VM stops, and Orchard does not delete failed VMs.
 
 **Tart without an orchestrator.** The controller runs `tart` commands on each host through SSH.
 There is no orchestrator to operate. However, the controller must implement host inventory,

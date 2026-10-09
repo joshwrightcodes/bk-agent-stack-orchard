@@ -1,0 +1,38 @@
+# {{ ansible_managed }}
+#
+# Keeps the job VMs of this host away from the host (target design, section 9.1).
+#
+# Softnet blocks a VM from the private ranges and from the other VMs, but it lets the VM reach the
+# gateway of its network on every port, and the gateway is this host. A Softnet block of the
+# gateway also blocks DNS, because the gateway is the DNS server of the VM.
+#
+# Softnet 0.24 gives each VM a network of its own, with an address of the host in a private range
+# that it picks when the VM starts. pf on macOS has no interface groups, and "(self)" matches
+# nothing, so these rules cannot name those interfaces or addresses (2026-10-10, tested on a VM).
+# They block by destination instead: from anything but the admin interfaces, the host is reachable
+# only for DHCP and DNS, and the private ranges only where a profile permits them.
+
+admin_ifs = "{ {{ orchard_worker_admin_interfaces | join(', ') }} }"
+private = "{ 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, fc00::/7, fe80::/10 }"
+
+# The private addresses that the profiles of this host permit (softnetAllow).
+table <bkaso_softnet_allow> persist{% if orchard_worker_softnet_allow %} { {{ orchard_worker_softnet_allow | join(', ') }} }{% endif %}
+
+
+# Connections that the host opens, to a VM or anywhere, keep their replies.
+pass out quick all keep state
+
+pass in quick on lo0 all
+pass in quick on $admin_ifs all
+
+# From any other interface, a VM network included: DHCP, for a VM on the shared network of Tart,
+# and DNS, which the gateway of each VM network serves.
+pass in quick proto udp from any port 68 to any port 67
+pass in quick proto { udp, tcp } from any to $private port 53
+
+# Not the addresses of the host that it has when the rules load, even when a profile permits them.
+block in quick from any to self
+
+# The private addresses that a profile permits, and no other.
+pass in quick from any to <bkaso_softnet_allow>
+block in quick from any to $private

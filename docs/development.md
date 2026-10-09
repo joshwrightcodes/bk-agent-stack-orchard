@@ -225,14 +225,18 @@ each job page says, and that no VM remains. It takes about five minutes.
 
 `mise run softnet-test` probes the network from a VM of the controller specification: it must reach
 the Internet and DNS, and not the LAN, another VM, or a service of the Mac itself. Softnet alone
-lets a VM reach the Mac through the gateway of the VM network, and the hosts close that with pf
-(`deploy/hosts`). Load the same rules on the Mac before the test. They go when the Mac restarts, or
-with `sudo pfctl -a com.apple/400.bkaso-vm-isolation -F all`:
+lets a VM reach the Mac through the gateway of its network, and the hosts close that with pf
+(`deploy/hosts`). `deploy/hosts/test/pf.sh` loads the same rules on the Mac from the template of
+the role, and needs `ansible` (from `mise install`) and sudo. The control of the test permits the
+router of the LAN, so the rules permit it too. While the rules are loaded, the Mac accepts
+connections only on the interface of its default route and on loopback; from anything else,
+AirDrop and VPN tunnels included, only DNS and DHCP. They go when the Mac restarts, or with
+`pf.sh unload`:
 
 ```sh
-sudo pfctl -E
-sudo pfctl -a com.apple/400.bkaso-vm-isolation -f deploy/hosts/roles/orchard_worker/files/vm-isolation.pf
+deploy/hosts/test/pf.sh load "$(route -n get default | awk '/gateway:/ {print $2}')/32"
 BKASO_TART_IMAGE=bkaso-agent mise run softnet-test
+deploy/hosts/test/pf.sh unload
 ```
 
 `mise run hosts-test` needs the opposite: its test VM reaches an Orchard controller on the Mac,

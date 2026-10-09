@@ -40,13 +40,12 @@ echo "probe done"
 // that the controller specifies reaches the Internet, and not the host, another machine, or a
 // private address. softnetAllow opens exactly the addresses that it names.
 //
-// Softnet lets a machine reach the gateway of the machine network on every port, and the gateway
-// is the host, so the pf rules of the hosts close it (deploy/hosts, files/vm-isolation.pf). This
-// test checks the host that runs it, so that Mac needs the same rules:
+// Softnet lets a machine reach the gateway of its network on every port, and the gateway is the
+// host, so the pf rules of the hosts close it (deploy/hosts, templates/vm-isolation.pf.j2). This
+// test checks the host that runs it, so that Mac needs the same rules, with the router of the LAN
+// as the private address that the profile of the control permits:
 //
-//	sudo pfctl -E
-//	sudo pfctl -a com.apple/400.bkaso-vm-isolation \
-//	    -f deploy/hosts/roles/orchard_worker/files/vm-isolation.pf
+//	deploy/hosts/test/pf.sh load "$(route -n get default | awk '/gateway:/ {print $2}')/32"
 func TestSoftnetKeepsABuildAwayFromTheHostAndThePrivateNetwork(t *testing.T) {
 	image := os.Getenv("BKASO_TART_IMAGE")
 	if image == "" {
@@ -97,12 +96,13 @@ func TestSoftnetKeepsABuildAwayFromTheHostAndThePrivateNetwork(t *testing.T) {
 
 	if closed["host-gateway"] == "ok" {
 		t.Error("the machine reaches a service of the host through the gateway: load the pf " +
-			"rules of deploy/hosts on this Mac, as the comment of this test shows")
+			"rules of the hosts on this Mac with deploy/hosts/test/pf.sh, as the comment of this " +
+			"test shows")
 	}
 
-	// The control: the LAN device answers when the profile permits it, so its block above was the
-	// work of Softnet, not a device that does not answer. The host stays blocked: pf blocks every
-	// address of the host, whatever Softnet permits.
+	// The control: the LAN device answers when the profile permits it, in Softnet and in the pf
+	// rules, so its block above was real, not a device that does not answer. The host stays
+	// blocked: pf blocks every address of the host, whatever a profile permits.
 	allow := []string{device + "/32", lan + "/32"}
 
 	opened := probeFrom(t, image, "018f3b2c-1c4a-7e5b-9a3d-2f1e4c5b6a71", allow, env)

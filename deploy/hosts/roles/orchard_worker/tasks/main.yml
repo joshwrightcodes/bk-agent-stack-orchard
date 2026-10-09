@@ -1,6 +1,9 @@
 - name: Check the host
   ansible.builtin.import_tasks: preflight.yml
 
+- name: Choose the profiles of the worker
+  ansible.builtin.import_tasks: select.yml
+
 - name: Install Orchard, Tart, and Softnet
   ansible.builtin.import_tasks: install.yml
 
