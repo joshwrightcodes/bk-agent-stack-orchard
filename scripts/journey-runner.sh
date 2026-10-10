@@ -133,23 +133,36 @@ start() {
 # GitHub shows it offline until someone starts it. KeepAlive starts it again, and the throttle waits
 # 30 s between the starts, by which time the clock of the VM is right again.
 #
-# A service that already keeps the runner alive is left as it is, so that a start does not stop a
-# job that the runner has just taken.
+# A loaded service that already keeps the runner alive is left as it is, so that a start does not
+# stop a job that the runner has just taken. The service file can lose the setting when the runner
+# installs its service again, and a failed load leaves the setting with no service, so each start
+# checks both.
 keepalive() {
 	tart exec "$VM" /bin/sh -c '
 		set -e
 		plist=$(ls ~/Library/LaunchAgents/actions.runner.*.plist)
 		buddy=/usr/libexec/PlistBuddy
-		if [ "$($buddy -c "Print :KeepAlive" "$plist" 2>/dev/null)" = "true" ]; then
+		label=$($buddy -c "Print :Label" "$plist")
+		if [ "$($buddy -c "Print :KeepAlive" "$plist" 2>/dev/null)" = "true" ] &&
+			launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1; then
 			exit 0
 		fi
-		label=$($buddy -c "Print :Label" "$plist")
 		$buddy -c "Delete :KeepAlive" "$plist" 2>/dev/null || true
 		$buddy -c "Add :KeepAlive bool true" "$plist"
 		$buddy -c "Delete :ThrottleInterval" "$plist" 2>/dev/null || true
 		$buddy -c "Add :ThrottleInterval integer 30" "$plist"
+		# bootout returns before the service is gone, and a bootstrap before then fails with
+		# "5: Input/output error" and leaves no service, so the runner would not start.
 		launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
+		for _ in $(seq 1 30); do
+			launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1 || break
+			sleep 1
+		done
 		launchctl bootstrap "gui/$(id -u)" "$plist"
+		launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1 || {
+			echo "journey-runner: launchd did not load $label" >&2
+			exit 1
+		}
 		echo "journey-runner: launchd now starts the runner again whenever it stops"
 	'
 }
