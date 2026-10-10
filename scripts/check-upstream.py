@@ -122,18 +122,23 @@ def main() -> int:
         moved = normalise(current) > normalise(expected)
         rows.append((name, expected, current, moved))
 
-    # The bases of the job VM images, pinned by digest in images/build.sh. A new digest of the tag
-    # that a base follows is a new macOS release, or a new set of tools, to build and test against.
-    for name, image, tag in (
-        ("agent", "cirruslabs/macos-golden-gate-vanilla", "latest"),
-        ("pilot", "cirruslabs/macos-golden-gate-xcode", "27"),
+    # The tools that images/build.sh adds to the images, pinned by version.
+    for name, repo, variable in (
+        ("Tart guest agent", "openai/tart-guest-agent", "GUEST_AGENT_VERSION"),
+        ("Homebrew", "Homebrew/brew", "HOMEBREW_VERSION"),
     ):
-        pinned = stated(IMAGE_BUILD,
-                        rf'{name}\) BASE="ghcr.io/{re.escape(image)}@(sha256:[0-9a-f]{{64}})"',
-                        f"the base of the {name} image")
-        current = ghcr_digest(image, tag) or "unknown"
-        rows.append((f"{image.split('/')[1]}:{tag}", pinned[:19], current[:19],
-                     current not in ("unknown", pinned)))
+        expected = stated(IMAGE_BUILD, rf'(?m)^{variable}="([0-9.]+)"', f"the {name} version")
+        current = latest_release(repo) or "unknown"
+        rows.append((name, expected, current, normalise(current) > normalise(expected)))
+
+    # The base of the job VM images, pinned by digest in images/build.sh. A new digest of the tag
+    # that it follows is a new macOS release to build and test against.
+    image, tag = "cirruslabs/macos-golden-gate-vanilla", "latest"
+    pinned = stated(IMAGE_BUILD, rf'(?m)^BASE="ghcr.io/{re.escape(image)}@(sha256:[0-9a-f]{{64}})"',
+                    "the base of the images")
+    current = ghcr_digest(image, tag) or "unknown"
+    rows.append((f"{image.split('/')[1]}:{tag}", pinned[:19], current[:19],
+                 current not in ("unknown", pinned)))
 
     moved = [row for row in rows if row[3]]
 

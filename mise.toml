@@ -110,7 +110,7 @@ description = "Build the agent image (no Xcode) into a local Tart VM on an Apple
 run = "./images/build.sh agent"
 
 [tasks.pilot-image]
-description = "Build the pilot image (Xcode 27) into a local Tart VM, about 160 GB of disk (ARTIFACT_DESTINATION, IMAGE_REGISTRY)"
+description = "Build the pilot image (Xcode 27) into a local Tart VM, from the Xcode archive in ~/XcodesCache (ARTIFACT_DESTINATION, XCODE_ARCHIVE, XCODE_URL, IMAGE_REGISTRY)"
 run = "./images/build.sh pilot"
 
 [tasks.check-hosts]

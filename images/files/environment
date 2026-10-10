@@ -10,6 +10,13 @@
 # buildkite-agent sources this file and then reads the environment, so the file sets its values
 # and ends. An exit here would end the wrapper of the agent before it reads them.
 
+# The guest agent starts buildkite-agent with a PATH that lacks Homebrew, so a job of the pilot
+# finds its formulae through this hook. fastlane and CocoaPods need a UTF-8 locale.
+if [[ -x /opt/homebrew/bin/brew ]]; then
+	eval "$(/opt/homebrew/bin/brew shellenv)"
+	export LANG="${LANG:-en_US.UTF-8}"
+fi
+
 bkaso_owner="__ARTIFACT_DESTINATION__"
 
 if [[ -z "$bkaso_owner" ]]; then
