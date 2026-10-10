@@ -2,8 +2,8 @@
 """Report an upstream release that the documents must answer.
 
 Several accepted facts in this project carry a version and a date: the minimum Orchard version,
-the Tart version, the Buildkite agent line, the Stacks API client, and the published macOS
-images. This script compares those facts with the current upstream state and writes a report.
+the Tart version, the Buildkite agent line, the Stacks API client, and the macOS images that the
+job VM images build on. This script compares those facts with the current upstream state and writes a report.
 
 It reports only. A version change can need a decision, so it changes no document.
 
@@ -33,6 +33,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 DESIGN = ROOT / "docs/architecture/target-design.md"
 BASELINE = ROOT / "docs/architecture/system-design-baseline.md"
 ADR_TART = ROOT / "docs/adrs/0005-run-and-schedule-vms-with-tart-and-orchard.md"
+IMAGE_BUILD = ROOT / "images/build.sh"
 
 TIMEOUT = 20
 
@@ -82,6 +83,21 @@ def normalise(version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in re.findall(r"\d+", version))
 
 
+def ghcr_digest(image: str, tag: str) -> str | None:
+    """The digest of a tag of a public image in the GitHub container registry, or None."""
+    token_url = f"https://ghcr.io/token?scope=repository:{image}:pull&service=ghcr.io"
+    try:
+        token = get_json(token_url)["token"]
+        request = urllib.request.Request(
+            f"https://ghcr.io/v2/{image}/manifests/{tag}", method="HEAD",
+            headers={"Authorization": f"Bearer {token}",
+                     "Accept": "application/vnd.oci.image.manifest.v1+json"})
+        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+            return response.headers.get("Docker-Content-Digest")
+    except urllib.error.HTTPError:
+        return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=pathlib.Path)
@@ -106,22 +122,18 @@ def main() -> int:
         moved = normalise(current) > normalise(expected)
         rows.append((name, expected, current, moved))
 
-    # A published image with Xcode 27 removes the image build from the pilot.
-    golden_gate = ghcr_tags("cirruslabs/macos-golden-gate-xcode")
-    rows.append((
-        "macos-golden-gate-xcode",
-        "no published image",
-        ", ".join(sorted(golden_gate)[:5]) if golden_gate else "still none",
-        bool(golden_gate),
-    ))
-
-    tahoe = [t for t in ghcr_tags("cirruslabs/macos-tahoe-xcode") if re.fullmatch(r"27(\.\d+)?", t)]
-    rows.append((
-        "macos-tahoe-xcode:27",
-        "no released tag",
-        ", ".join(sorted(tahoe)) if tahoe else "still none",
-        bool(tahoe),
-    ))
+    # The bases of the job VM images, pinned by digest in images/build.sh. A new digest of the tag
+    # that a base follows is a new macOS or guest agent release to build and test against.
+    for name, image, tag in (
+        ("agent", "cirruslabs/macos-golden-gate-base", "latest"),
+        ("pilot", "cirruslabs/macos-golden-gate-xcode", "27"),
+    ):
+        pinned = stated(IMAGE_BUILD,
+                        rf'{name}\) BASE="ghcr.io/{re.escape(image)}@(sha256:[0-9a-f]{{64}})"',
+                        f"the base of the {name} image")
+        current = ghcr_digest(image, tag) or "unknown"
+        rows.append((f"{image.split('/')[1]}:{tag}", pinned[:19], current[:19],
+                     current not in ("unknown", pinned)))
 
     moved = [row for row in rows if row[3]]
 
