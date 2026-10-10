@@ -21,8 +21,8 @@ DESTINATION="${ARTIFACT_DESTINATION:-}"
 BASE="ghcr.io/cirruslabs/macos-golden-gate-base@sha256:9a2f20d179d6418a128dcb76c593588ea85a263dbfa286e757db63f3d949af7c"
 
 # buildkite-agent, and the SHA-256 that its release publishes.
-AGENT_VERSION="4.0.6"
-AGENT_SHA256="afbfd73b214a3b4e0db2a6eee5932fc5b4af0d4dd05f57053bb4aa6a018af097"
+AGENT_VERSION="4.3.0"
+AGENT_SHA256="f6b6278bb8c2dfa193e51e971cdc260e7a6e419c94b2b77c409fe28ea279e81d"
 
 say() { printf 'agent-image: %s\n' "$*"; }
 die() { printf 'agent-image: %s\n' "$*" >&2; exit 1; }
