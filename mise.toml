@@ -106,8 +106,12 @@ description = "Check the environment hook of the agent image, as buildkite-agent
 run = "./scripts/check-hook.sh"
 
 [tasks.agent-image]
-description = "Build the agent image into a local Tart VM on an Apple silicon Mac (ARTIFACT_DESTINATION names the storage)"
-run = "./images/agent/build.sh"
+description = "Build the agent image (no Xcode) into a local Tart VM on an Apple silicon Mac (ARTIFACT_DESTINATION names the storage)"
+run = "./images/build.sh agent"
+
+[tasks.pilot-image]
+description = "Build the pilot image (Xcode 27) into a local Tart VM, about 160 GB of disk (ARTIFACT_DESTINATION, IMAGE_REGISTRY)"
+run = "./images/build.sh pilot"
 
 [tasks.check-hosts]
 description = "Lint the playbook of the Mac hosts, and check the images that each host pulls"

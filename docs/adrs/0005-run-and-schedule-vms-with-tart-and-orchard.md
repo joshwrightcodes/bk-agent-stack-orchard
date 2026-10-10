@@ -113,8 +113,8 @@ Bad:
   adds a Tart Guest Agent transport that removes this need.
 * The controller needs the Orchard `compute:write` role, and this role also permits the creation
   and deletion of workers. Orchard 0.57.0 has no narrower role.
-* Each Xcode image needs a 140 GB disk, and each host has 1 TB storage. A host can hold only a few
-  images (SC-07, SC-09).
+* Each Xcode image needs a disk of 85 to 140 GB, and each host has 1 TB storage. A host can hold
+  only a few images (SC-07, SC-09).
 
 Review trigger:
 

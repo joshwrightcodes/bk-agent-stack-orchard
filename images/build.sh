@@ -1,31 +1,55 @@
 #!/usr/bin/env bash
-# Builds the agent image of the fleet, without Xcode (W-23, part 1): macOS Golden Gate with
-# buildkite-agent v4, its hooks, and the Tart guest agent of the base image. It lets every
-# end-to-end scenario run except the iOS build, which needs the image with Xcode.
+# Builds a job VM image of the fleet into a local Tart VM, and pushes it when a registry is given.
 #
-# The build drives the VM with tart exec, through the Tart guest agent, and not with SSH. Tart is
-# the only program that reaches the VM, so the build needs no Local Network permission of macOS and
-# no password. It needs an Apple silicon Mac itself: a macOS VM cannot run another macOS VM.
+#   images/build.sh agent   macOS Golden Gate without Xcode: every scenario but the iOS build
+#   images/build.sh pilot   macOS Golden Gate with Xcode 27: the image of the pilot (PR-026)
 #
-# Usage: ARTIFACT_DESTINATION=s3://<bucket>/<prefix> images/agent/build.sh
+# Both add buildkite-agent v4 and the environment hook to a published Cirrus Labs base, close SSH
+# and Screen Sharing, and check the result in a second boot. The base carries Homebrew, the Tart
+# guest agent, and admin with passwordless sudo.
 #
-# VM_NAME names the local Tart VM that the build makes (bkaso-agent by default).
+# The build drives the VM with tart exec, through the Tart guest agent, and not with SSH. It needs
+# an Apple silicon Mac with Tart: a macOS VM cannot run another macOS VM, so a hosted GitHub runner,
+# which is a VM, cannot run it. The pilot needs about 160 GB of free disk.
+#
+# Environment:
+#   ARTIFACT_DESTINATION  s3://, gs://, rt://, or an Azure blob URL: the owner-managed storage of
+#                         the artifacts (PR-032). Without it, the hook makes every upload fail.
+#   VM_NAME               the local Tart VM that the build makes (bkaso-<image> by default).
+#   IMAGE_REGISTRY        a registry and namespace, for example ghcr.io/joshwrightcodes. With it,
+#                         the build pushes bkaso-<image>:<tag> there. TART_REGISTRY_USERNAME and
+#                         TART_REGISTRY_PASSWORD give the credentials.
+#   IMAGE_TAG             the tag of the push (the commit of this repository by default).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-VM="${VM_NAME:-bkaso-agent}"
+IMAGE="${1:-}"
+
+# The bases, pinned by digest. pilot is the agent base with Xcode 27 and its simulator runtimes,
+# built by templates/xcode.pkr.hcl of cirruslabs/macos-image-templates (2026-09-22).
+case "$IMAGE" in
+agent) BASE="ghcr.io/cirruslabs/macos-golden-gate-base@sha256:9a2f20d179d6418a128dcb76c593588ea85a263dbfa286e757db63f3d949af7c" ;;
+pilot) BASE="ghcr.io/cirruslabs/macos-golden-gate-xcode@sha256:324ea5656dee8ab9b0a0df70fda2cfed8912051ad0eca3b1b883bf6ddac88fab" ;;
+*)
+	printf 'usage: %s agent|pilot\n' "$0" >&2
+	exit 2
+	;;
+esac
+
+VM="${VM_NAME:-bkaso-${IMAGE}}"
 DESTINATION="${ARTIFACT_DESTINATION:-}"
+REGISTRY="${IMAGE_REGISTRY:-}"
+TAG="${IMAGE_TAG:-$(git -C "$HERE" rev-parse --short=12 HEAD 2>/dev/null || date -u +%Y%m%d%H%M%S)}"
 
-# The base image, pinned by digest. It carries Homebrew, the Tart guest agent, and admin with
-# passwordless sudo.
-BASE="ghcr.io/cirruslabs/macos-golden-gate-base@sha256:9a2f20d179d6418a128dcb76c593588ea85a263dbfa286e757db63f3d949af7c"
-
-# buildkite-agent, and the SHA-256 that its release publishes.
+# buildkite-agent, and the SHA-256 that its release publishes in its SHA256SUMS.
 AGENT_VERSION="4.3.0"
 AGENT_SHA256="f6b6278bb8c2dfa193e51e971cdc260e7a6e419c94b2b77c409fe28ea279e81d"
 
-say() { printf 'agent-image: %s\n' "$*"; }
-die() { printf 'agent-image: %s\n' "$*" >&2; exit 1; }
+say() { printf '%s-image: %s\n' "$IMAGE" "$*"; }
+die() {
+	printf '%s-image: %s\n' "$IMAGE" "$*" >&2
+	exit 1
+}
 
 # The destinations that buildkite-agent accepts. An empty one is the storage of Buildkite, which
 # the hook replaces with one that the agent refuses.
@@ -79,7 +103,7 @@ shut_down() {
 }
 trap shut_down EXIT
 
-# tart list fails while any VM runs, so the build reads the directory of the VM.
+# tart list can fail while a VM runs, so the build reads the directory of the VM.
 if [[ -f "${TART_HOME:-${HOME}/.tart}/vms/${VM}/config.json" ]]; then
 	tart stop "$VM" >/dev/null 2>&1 || true
 	tart delete "$VM"
@@ -119,8 +143,8 @@ sed "s|__ARTIFACT_DESTINATION__|${DESTINATION}|" "$HERE/files/environment" |
 # guest agent needs the automatic login of admin, and macOS 27 does not log in automatically after a
 # change of the password, so the image keeps admin/admin for the local login and closes every
 # network path that would accept it: SSH (Remote Login) and Screen Sharing. The controller reaches
-# the VM through the guest agent (ADR-0009), and tart run --vnc still shows the screen of a VM for
-# a person who debugs it, because Tart serves that screen itself.
+# the VM through the guest agent (ADR-0009). A person who debugs a VM uses the window of tart run,
+# or tart run --vnc-experimental, which Tart serves itself.
 say "turning off SSH and Screen Sharing"
 run <<'SCRIPT'
 set -euo pipefail
@@ -140,9 +164,10 @@ printf 'user=%s\n' "$(whoami)"
 printf 'agent=%s %s\n' "$(command -v buildkite-agent)" "$(buildkite-agent --version | head -1)"
 [[ -e /opt/homebrew/bin/buildkite-agent || -e /opt/homebrew/etc/buildkite-agent ]] && printf 'v3=present\n' || printf 'v3=absent\n'
 BUILDKITE_PIPELINE_SLUG=p BUILDKITE_BUILD_ID=b BUILDKITE_JOB_ID=j bash -c '. ~/.buildkite-agent/hooks/environment 2>/dev/null; printf "hook=%s\n" "$BUILDKITE_ARTIFACT_UPLOAD_DESTINATION"'
+printf 'xcode=%s\n' "$(/usr/bin/xcodebuild -version 2>/dev/null | head -1)"
 SCRIPT
 )
-printf '%s\n' "$check" | sed 's/^/agent-image:   /'
+printf '%s\n' "$check" | sed "s/^/${IMAGE}-image:   /"
 
 want_hook="none://artifact-storage-is-not-configured"
 [[ -n "$DESTINATION" ]] && want_hook="${DESTINATION}/p/b/j"
@@ -152,7 +177,12 @@ grep -q "^agent=/usr/local/bin/buildkite-agent buildkite-agent version ${AGENT_V
 	die "the VM does not run buildkite-agent ${AGENT_VERSION} from /usr/local/bin"
 grep -qx "v3=absent" <<<"$check" || die "the buildkite-agent@3 of the base image remains"
 grep -qx "hook=${want_hook}" <<<"$check" || die "the environment hook does not set ${want_hook}"
+if [[ "$IMAGE" == pilot ]]; then
+	grep -q "^xcode=Xcode 27" <<<"$check" || die "the pilot image does not select Xcode 27"
+fi
 
+# The ports are checked from this Mac, as the network sees the VM. A process that reaches a VM
+# needs the Local Network permission of macOS, which a CI runner gets in System Settings.
 ip="$(tart ip "$VM")"
 for port in 22 5900; do
 	if nc -z -G 3 "$ip" "$port" 2>/dev/null; then
@@ -163,4 +193,12 @@ say "the guest agent answers as admin, the hook holds, and ports 22 and 5900 are
 
 say "shutting down $VM"
 shut_down
+
+if [[ -n "$REGISTRY" ]]; then
+	ref="${REGISTRY}/bkaso-${IMAGE}:${TAG}"
+	say "pushing $ref"
+	tart push "$VM" "$ref"
+	say "pushed $ref; a profile names it by the digest that the registry gives"
+fi
+
 say "the image is the local Tart VM $VM"

@@ -1,30 +1,36 @@
 # The images of the job VMs
 
-## `agent`: the agent image without Xcode
+`images/build.sh` builds the image of a job VM into a local Tart VM (W-23):
 
-`images/agent` builds the image of a job VM with everything but Xcode (W-23, part 1). A job that
-needs no Xcode runs on it, and so does every end-to-end scenario of W-24 except the iOS build.
+| Image | Base, pinned by digest | Use |
+|---|---|---|
+| `agent` | `ghcr.io/cirruslabs/macos-golden-gate-base` (macOS 27) | A job that needs no Xcode, every end-to-end scenario of W-24 except the iOS build, and the real-VM tests of this repository |
+| `pilot` | `ghcr.io/cirruslabs/macos-golden-gate-xcode:27` (macOS 27, Xcode 27 and its simulator runtimes) | The pilot profile (PR-026) |
+
+Both bases come from [cirruslabs/macos-image-templates](https://github.com/cirruslabs/macos-image-templates).
+The Xcode base is the agent base with Xcode 27 (`templates/xcode.pkr.hcl`), so the image needs no
+Xcode build of its own. Each base carries Homebrew, the Tart guest agent, and `admin` with
+passwordless sudo. The build adds:
 
 | Part | Source |
 |---|---|
-| macOS Golden Gate, Homebrew, and the Tart guest agent | `ghcr.io/cirruslabs/macos-golden-gate-base`, pinned by digest |
-| `buildkite-agent` 4.3.0 | Its release, checked against its SHA-256, in `/usr/local/bin`. The `buildkite-agent@3` (3.138.0) of the base image, and its configuration, are removed |
+| `buildkite-agent` 4.3.0 | Its release, checked against the SHA-256 of its `SHA256SUMS`, in `/usr/local/bin`. The `buildkite-agent@3` of the base, and its configuration, are removed |
 | The configuration of the agent | `files/buildkite-agent.cfg`: the build, hooks, and plugins paths. The startup script of the controller gives the token, the job, the name, and the tags |
 | The `environment` hook | `files/environment`: the artifacts of a job go to the owner-managed storage (PR-032) |
 
 The controller starts `buildkite-agent start` in the VM through the Tart guest agent (ADR-0009),
 which runs it as `admin`, with `/usr/local/bin` on its `PATH`.
 
-### The artifact storage
+## The artifact storage
 
-The build takes the owner-managed storage in the operating country as `artifact_destination`,
-for example `s3://<bucket>/<prefix>`. The hook sends the artifacts of each job to
+The build takes the owner-managed storage in the operating country as `ARTIFACT_DESTINATION`, for
+example `s3://<bucket>/<prefix>`. The hook sends the artifacts of each job to
 `<destination>/<pipeline>/<build>/<job>`, and a step may name another place inside the same
 storage. An empty destination is the storage of Buildkite for `buildkite-agent`, so an image built
 without a destination sets one that the agent refuses: an artifact upload fails, and nothing
 reaches Buildkite. `scripts/check-hook.sh` checks these cases.
 
-### No well-known credentials over the network
+## No well-known credentials over the network
 
 The base image has the account `admin/admin`. The Tart guest agent runs in the session of the
 automatic login of `admin`, and macOS 27 does not log in automatically after a change of the
@@ -35,25 +41,35 @@ and turns off every network path that would accept it: SSH (Remote Login) and Sc
 debugs the VM uses the window of `tart run`, or `tart run --vnc-experimental`, because Tart serves
 those screens itself. `tart run --vnc` does not work, because it needs Screen Sharing in the VM.
 
-### Build
+## Build
 
-`build.sh` drives the VM with `tart exec`, through the guest agent, and not with SSH. Tart is the
-only program that reaches the VM, so the build needs no Local Network permission of macOS and no
-password. It needs an Apple silicon Mac itself: a macOS VM cannot run another macOS VM, so neither
-a hosted macOS runner of GitHub nor the runner VM of this repository can build it.
+`build.sh` drives the VM with `tart exec`, through the guest agent, and not with SSH, so it needs
+no password. It needs an Apple silicon Mac with Tart 2.40.1 or later: a macOS VM cannot run another
+macOS VM, and a hosted GitHub macOS runner is a VM with 14 GB of disk (2026-10-10), so neither a
+hosted runner nor the runner VM of this repository can build it.
 
 The build shuts the VM down from inside, because `tart stop` does not wait for macOS to write its
 caches, and a file written just before it is lost. It then starts the VM again and checks it as a
 job VM finds it: the guest agent answers as `admin`, `buildkite-agent` 4.3.0 runs from
-`/usr/local/bin`, the `buildkite-agent@3` of the base image is gone, the hook sets the destination,
-and ports 22 and 5900 are closed. A check that fails fails the build.
-
-About 10 minutes on an Apple silicon Mac that has the base image, with a 50 GB disk:
+`/usr/local/bin`, the `buildkite-agent@3` of the base is gone, the hook sets the destination, ports
+22 and 5900 are closed, and the pilot selects Xcode 27. A check that fails fails the build. The
+ports are checked from the Mac, so the program that runs the build needs the Local Network
+permission of macOS (System Settings › Privacy & Security › Local Network).
 
 ```sh
-ARTIFACT_DESTINATION=s3://<bucket>/<prefix> mise run agent-image
-tart run bkaso-agent   # look at it
+mise run agent-image   # about 10 minutes, with the base in the cache
+ARTIFACT_DESTINATION=s3://<bucket>/<prefix> mise run pilot-image   # about 160 GB of disk
+tart run bkaso-pilot   # look at it
 ```
 
-The build makes the local Tart VM `bkaso-agent`. The push to the registry of the fleet, and the
-image with Xcode, are part 2 of W-23.
+The build makes the local Tart VM `bkaso-<image>` (`VM_NAME` changes it). With `IMAGE_REGISTRY`, for
+example `ghcr.io/joshwrightcodes`, it pushes `<registry>/bkaso-<image>:<tag>` (`IMAGE_TAG`, the
+commit by default), with the credentials in `TART_REGISTRY_USERNAME` and `TART_REGISTRY_PASSWORD`.
+A profile names the image by the digest that the registry gives.
+
+## Open decisions
+
+* The Xcode base also installs OpenJDK 17, the Android SDK tools, `codex`, Claude Code, and
+  Amazon Q. The build keeps them. A CI image may not want tools that the jobs do not use.
+* The `agent` base is the digest of 2026-09-22, with which the real-VM tests pass. Upstream
+  published a newer `macos-golden-gate-base` on 2026-10-03.
