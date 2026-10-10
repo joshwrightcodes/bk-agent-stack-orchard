@@ -4,7 +4,7 @@
 
 | Image | Base, pinned by digest | Use |
 |---|---|---|
-| `agent` | `ghcr.io/cirruslabs/macos-golden-gate-base` (macOS 27) | A job that needs no Xcode, every end-to-end scenario of W-24 except the iOS build, and the real-VM tests of this repository |
+| `agent` | `ghcr.io/cirruslabs/macos-golden-gate-base` (macOS 27, the release of 2026-10-03) | A job that needs no Xcode, every end-to-end scenario of W-24 except the iOS build, and the real-VM tests of this repository |
 | `pilot` | `ghcr.io/cirruslabs/macos-golden-gate-xcode:27` (macOS 27, Xcode 27 and its simulator runtimes) | The pilot profile (PR-026) |
 
 Both bases come from [cirruslabs/macos-image-templates](https://github.com/cirruslabs/macos-image-templates).
@@ -67,9 +67,15 @@ example `ghcr.io/joshwrightcodes`, it pushes `<registry>/bkaso-<image>:<tag>` (`
 commit by default), with the credentials in `TART_REGISTRY_USERNAME` and `TART_REGISTRY_PASSWORD`.
 A profile names the image by the digest that the registry gives.
 
-## Open decisions
+## What the image keeps
 
-* The Xcode base also installs OpenJDK 17, the Android SDK tools, `codex`, Claude Code, and
-  Amazon Q. The build keeps them. A CI image may not want tools that the jobs do not use.
-* The `agent` base is the digest of 2026-09-22, with which the real-VM tests pass. Upstream
-  published a newer `macos-golden-gate-base` on 2026-10-03.
+A job VM runs Buildkite jobs, and the pilot builds, tests, and publishes iOS and macOS apps, so the
+build removes what the bases install for other uses (2026-10-10):
+
+| Image | Removed | Kept |
+|---|---|---|
+| Both | The GitHub Actions runner (`~/actions-runner`) and `gitlab-runner`, the agents of other CI systems; `codex`, Claude Code, and Amazon Q | The build tools of the base: git, git-lfs, jq, yq, gh, Node, Ruby, mise, awscli, cmake, and the like |
+| `pilot` | OpenJDK 17, the Android SDK, Flutter, `xcodes`, and their lines in `~/.zprofile` | Xcode 27 and its simulator runtimes, the Apple WWDR certificates, fastlane, CocoaPods, Carthage, Tuist, Mint, xcbeautify, xcpretty, SwiftLint, SwiftFormat, SwiftGen, LicensePlist, applesimutils, libimobiledevice, ios-deploy, GnuPG, ImageMagick |
+
+The second boot checks that the removed tools are gone, and that the pilot still has fastlane,
+CocoaPods, Carthage, xcbeautify, and SwiftLint.

@@ -25,10 +25,11 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 IMAGE="${1:-}"
 
-# The bases, pinned by digest. pilot is the agent base with Xcode 27 and its simulator runtimes,
-# built by templates/xcode.pkr.hcl of cirruslabs/macos-image-templates (2026-09-22).
+# The bases, pinned by digest: agent is macos-golden-gate-base of 2026-10-03, and pilot is the
+# Golden Gate base with Xcode 27 and its simulator runtimes, built by templates/xcode.pkr.hcl of
+# cirruslabs/macos-image-templates (2026-09-22).
 case "$IMAGE" in
-agent) BASE="ghcr.io/cirruslabs/macos-golden-gate-base@sha256:9a2f20d179d6418a128dcb76c593588ea85a263dbfa286e757db63f3d949af7c" ;;
+agent) BASE="ghcr.io/cirruslabs/macos-golden-gate-base@sha256:5302a9ea6cd68c059d00fa253fe75c8ebdf4e0dc8c45d4e136ecc6e7a4c02b70" ;;
 pilot) BASE="ghcr.io/cirruslabs/macos-golden-gate-xcode@sha256:324ea5656dee8ab9b0a0df70fda2cfed8912051ad0eca3b1b883bf6ddac88fab" ;;
 *)
 	printf 'usage: %s agent|pilot\n' "$0" >&2
@@ -134,6 +135,24 @@ rm -f agent.tar.gz buildkite-agent
 mkdir -p ~/.buildkite-agent/hooks ~/buildkite/builds ~/buildkite/plugins
 SCRIPT
 
+# A job VM runs Buildkite jobs, and a pilot VM builds, tests, and publishes iOS and macOS apps, so the
+# image keeps nothing else that the base installs: the agents of other CI systems and AI assistants
+# in both, and in the pilot the Java, Android, and Flutter of the Xcode template.
+say "removing what a job does not need"
+run <<SCRIPT
+set -euo pipefail
+eval "\$(/opt/homebrew/bin/brew shellenv)"
+brew uninstall --force gitlab-runner codex >/dev/null 2>&1 || true
+brew uninstall --cask --force claude-code amazon-q >/dev/null 2>&1 || true
+rm -rf ~/actions-runner
+if [[ "${IMAGE}" == pilot ]]; then
+	brew uninstall --force openjdk@17 xcodes >/dev/null 2>&1 || true
+	rm -rf ~/android-sdk ~/flutter
+	sed -i '' -e '/openjdk@17/d' -e '/ANDROID_HOME/d' -e '/ANDROID_SDK_ROOT/d' -e '/FLUTTER_HOME/d' -e '/flutter/d' ~/.zprofile
+fi
+brew cleanup --prune=all >/dev/null 2>&1 || true
+SCRIPT
+
 say "installing the configuration and the environment hook"
 tart exec -i "$VM" /bin/sh -c 'cat > ~/.buildkite-agent/buildkite-agent.cfg' <"$HERE/files/buildkite-agent.cfg"
 sed "s|__ARTIFACT_DESTINATION__|${DESTINATION}|" "$HERE/files/environment" |
@@ -165,6 +184,23 @@ printf 'agent=%s %s\n' "$(command -v buildkite-agent)" "$(buildkite-agent --vers
 [[ -e /opt/homebrew/bin/buildkite-agent || -e /opt/homebrew/etc/buildkite-agent ]] && printf 'v3=present\n' || printf 'v3=absent\n'
 BUILDKITE_PIPELINE_SLUG=p BUILDKITE_BUILD_ID=b BUILDKITE_JOB_ID=j bash -c '. ~/.buildkite-agent/hooks/environment 2>/dev/null; printf "hook=%s\n" "$BUILDKITE_ARTIFACT_UPLOAD_DESTINATION"'
 printf 'xcode=%s\n' "$(/usr/bin/xcodebuild -version 2>/dev/null | head -1)"
+eval "$(/opt/homebrew/bin/brew shellenv)"
+source ~/.zprofile 2>/dev/null || true
+extra=""
+for tool in gitlab-runner codex claude q sdkmanager flutter xcodes; do
+	command -v "$tool" >/dev/null 2>&1 && extra="$extra $tool"
+done
+# macOS has a /usr/bin/java that only offers to install Java; java_home finds a real JDK.
+/usr/libexec/java_home >/dev/null 2>&1 && extra="$extra java"
+for dir in ~/actions-runner ~/android-sdk ~/flutter; do
+	[[ -e "$dir" ]] && extra="$extra $dir"
+done
+printf 'extra=%s\n' "${extra# }"
+app=""
+for tool in fastlane pod carthage xcbeautify swiftlint; do
+	command -v "$tool" >/dev/null 2>&1 && app="$app $tool"
+done
+printf 'app=%s\n' "${app# }"
 SCRIPT
 )
 printf '%s\n' "$check" | sed "s/^/${IMAGE}-image:   /"
@@ -177,8 +213,11 @@ grep -q "^agent=/usr/local/bin/buildkite-agent buildkite-agent version ${AGENT_V
 	die "the VM does not run buildkite-agent ${AGENT_VERSION} from /usr/local/bin"
 grep -qx "v3=absent" <<<"$check" || die "the buildkite-agent@3 of the base image remains"
 grep -qx "hook=${want_hook}" <<<"$check" || die "the environment hook does not set ${want_hook}"
+grep -qx "extra=" <<<"$check" || die "the image keeps what a job does not need: $(grep '^extra=' <<<"$check")"
 if [[ "$IMAGE" == pilot ]]; then
 	grep -q "^xcode=Xcode 27" <<<"$check" || die "the pilot image does not select Xcode 27"
+	grep -qx "app=fastlane pod carthage xcbeautify swiftlint" <<<"$check" ||
+		die "the pilot image lacks a tool to build or publish an app: $(grep '^app=' <<<"$check")"
 fi
 
 # The ports are checked from this Mac, as the network sees the VM. A process that reaches a VM
