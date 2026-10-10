@@ -223,6 +223,10 @@ not run this test, because a VM cannot run a macOS VM.
 does not exist, an agent that exits, and an agent that runs and acquires nothing. It checks what
 each job page says, and that no VM remains. It takes about five minutes.
 
+`mise run restart-test` crashes the controller while the agent of a job runs in a real VM: the VM
+must continue, and the next process must take it over without a second VM, and delete it when the
+job ends.
+
 `mise run softnet-test` probes the network from a VM of the controller specification: it must reach
 the Internet and DNS, and not the LAN, another VM, or a service of the Mac itself. Softnet alone
 lets a VM reach the Mac through the gateway of its network, and the hosts close that with pf

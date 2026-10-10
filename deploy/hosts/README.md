@@ -13,7 +13,10 @@ This directory makes each Mac host an Orchard worker (target design, section 11)
    (`docs/development.md`). A host does not use it: the tap has one version of each tool, an upgrade
    of Softnet removes its setuid bit, and on 2026-09-27 the tap gives Tart 2.38.0, which the
    worker cannot use.
-3. It loads pf rules that keep the VMs away from the host (`templates/vm-isolation.pf.j2`).
+3. It turns off the sleep of the system and the disks, and makes the host start again after a power
+   failure and on a packet of the network (`pmset`). Orchard fails the VMs of a worker that does
+   not report for 3 minutes, so a host that sleeps fails the jobs on it.
+4. It loads pf rules that keep the VMs away from the host (`templates/vm-isolation.pf.j2`).
    Softnet lets a VM reach the gateway of its network on every port, and the gateway is the host.
    Softnet 0.24 gives each VM a network of its own, and pf on macOS can name neither those
    interfaces nor the addresses that they bring, so the rules block by destination: from anything
@@ -22,9 +25,9 @@ This directory makes each Mac host an Orchard worker (target design, section 11)
    host permits them (`softnetAllow`). A launchd job loads the rules into the anchor
    `com.apple/400.bkaso-vm-isolation` and enables pf at each start of the host, so `/etc/pf.conf`
    stays as macOS ships it.
-4. It runs `orchard worker run` from launchd, as root, and the worker drops to the worker user.
+5. It runs `orchard worker run` from launchd, as root, and the worker drops to the worker user.
    This is the Orchard workaround for the Local Network permission of macOS.
-5. It pulls the image of each profile that the host can take.
+6. It pulls the image of each profile that the host can take.
 
 ## Before the playbook
 

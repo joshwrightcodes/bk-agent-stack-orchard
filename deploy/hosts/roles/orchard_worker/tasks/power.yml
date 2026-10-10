@@ -1,0 +1,22 @@
+# A host never sleeps, and starts again after a power failure. Orchard fails the VMs of a worker
+# that does not report for its offline timeout (3 min), so a host that sleeps fails every job that
+# runs on it (2026-09-27, a development Mac that slept during a test).
+- name: Read the power settings
+  ansible.builtin.command: pmset -g
+  register: orchard_worker_power
+  changed_when: false
+
+# A setting that the Mac does not have, such as autorestart on a VM, is not in the list, and stays
+# as it is.
+- name: Keep the host awake, and start it again after a power failure
+  ansible.builtin.command: pmset -a {{ item.key }} {{ item.value }}
+  loop: "{{ orchard_worker_power_settings | dict2items }}"
+  loop_control:
+    label: "{{ item.key }} {{ item.value }}"
+  when:
+    - item.key in orchard_worker_power_now
+    - orchard_worker_power_now[item.key] != item.value | string
+  changed_when: true
+  become: true
+  vars:
+    orchard_worker_power_now: "{{ dict(orchard_worker_power.stdout | regex_findall('(?m)^ (\\w+)\\s+(\\d+)')) }}"
