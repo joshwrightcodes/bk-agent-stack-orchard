@@ -151,8 +151,9 @@ can permit a smaller fleet at peak. The pilot must measure the real arrival rate
   own image with `templates/xcode.pkr.hcl` and `macos_version = golden-gate`. This template uses
   `macos-golden-gate-base:latest` as its base, and its default disk is 140 GB (as of 2026-09-19).
   Since 2026-09-22, Cirrus Labs publishes `macos-golden-gate-xcode:27` from that template: 68.9 GB
-  compressed and an 85.4 GB disk (checked 2026-10-10). The pilot image builds on it, so the fleet
-  builds no Xcode image.
+  compressed and an 85.4 GB disk (checked 2026-10-10). Since 2026-10-10, the pilot image builds
+  from `macos-golden-gate-vanilla` and an Xcode archive instead (ADR-0012): a 104 GB disk, 59 GB on
+  the host, and 33 GB free in the VM.
 * **Host storage:** each host has 1 TB storage, so the number of images that a host can hold is
   limited. The limit is `UNKNOWN` (SC-09).
 
@@ -251,9 +252,9 @@ can permit a smaller fleet at peak. The pilot must measure the real arrival rate
 | SC-04 | Scale | Host model | APPLICABLE | DRIVER | CONFIRMED | Mac mini, M5 Pro: 18-core CPU, 20-core GPU, 16-core Neural Engine; 64 GB; 1 TB; 10 Gb Ethernet; AU$5,099.00 pre-order (2026-09-14 21:00 AEST); ships 2026-09-22 | Owner answers Q-P1 (2026-09-14); Apple (2026-09-14) | New host model |
 | SC-05 | Demand | Job arrival rate and peak concurrency | APPLICABLE | DRIVER | ASSUMED | 880 jobs each workday; peak 38.7 concurrent VMs (section 4.2) | Demand model; owner answer Q-A1 | Pilot telemetry |
 | SC-06 | Demand | Job duration and longest job | APPLICABLE | SUPPORTING | ASSUMED | Mean 15 min; longest 60 min; safety limit `maxVMLifetime` 25 h | Demand model (section 4.2) | Pilot telemetry |
-| SC-07 | Data | Image size | APPLICABLE | SUPPORTING | CONFIRMED | `macos-golden-gate-base`: 30.6 GiB compressed, 39.9 GB disk. Xcode images: 64.1 GiB compressed and 140 GB disk for `macos-tahoe-xcode:26.5`; the template disk is 140 GB; `macos-golden-gate-xcode:27`, the base of the pilot image: 68.9 GB compressed and 85.4 GB disk | `ghcr.io` manifests; `cirruslabs/macos-image-templates` (2026-09-19, 2026-10-10) | A new base of the pilot image |
+| SC-07 | Data | Image size | APPLICABLE | SUPPORTING | CONFIRMED | `macos-golden-gate-base`: 30.6 GiB compressed, 39.9 GB disk. Xcode images: 64.1 GiB compressed and 140 GB disk for `macos-tahoe-xcode:26.5`; the template disk is 140 GB; `macos-golden-gate-xcode:27`: 68.9 GB compressed and 85.4 GB disk. The pilot image, `images/build.sh pilot` on `macos-golden-gate-vanilla`: 104 GB disk, 59 GB on the host | `ghcr.io` manifests; `cirruslabs/macos-image-templates` (2026-09-19, 2026-10-10); the pilot build (2026-10-10) | A new Xcode or vanilla image |
 | SC-08 | Data | VM size | APPLICABLE | SUPPORTING | ASSUMED | Half of a host: approximately 9 CPU cores, 32 GB memory | Inference from SC-02 and SC-04 | Pilot measurements |
-| SC-09 | Data | Host storage for images | APPLICABLE | SUPPORTING | UNKNOWN | 1 TB for each host; disk of the pilot image 85.4 GB (SC-07); number of images for each host not measured | SC-04; SC-07 | Pilot measurement |
+| SC-09 | Data | Host storage for images | APPLICABLE | SUPPORTING | UNKNOWN | 1 TB for each host; disk of the pilot image 104 GB, 59 GB on the host (SC-07); number of images for each host not measured | SC-04; SC-07 | Pilot measurement |
 | QA-01 | Quality | Start time, `scheduled` to `accepted` | APPLICABLE | DRIVER | CONFIRMED | 60 s or less, image on the host; 95th percentile (`ASSUMED`) | Owner answer Q-P2 | Measured start time exceeds the target |
 | QA-02 | Quality | Wait time when all slots are in use | APPLICABLE | DRIVER | CONFIRMED | 15 min or less, at planned capacity | Owner answer Q-P3 | Sustained waits over 15 min |
 | QA-03 | Quality | Recovery time | APPLICABLE | DRIVER | CONFIRMED | Less than 15 min for the controller and Orchard; no high availability | Owner answer Q-A3 | A recovery takes 15 min or more |
@@ -284,7 +285,7 @@ can permit a smaller fleet at peak. The pilot must measure the real arrival rate
 | CO-02 | Constraint | Orchard | APPLICABLE | SUPPORTING | CONFIRMED | One controller; minimum server version 0.57.0, which contains pull requests #465 and #470 (2026-09-15); FSL-1.1-ALv2, so the controller contains no Orchard code | ADR-0005; ADR-0010 | Orchard release |
 | CO-03 | Constraint | Host scaling | NOT_APPLICABLE | — | CONFIRMED | The host pool is fixed | Product requirements, section 3 | Cloud Macs become necessary |
 | CO-04 | Constraint | Implementation conventions | APPLICABLE | INFORMATIONAL | CONFIRMED | Go 1.27; `mise` for tool versions and tasks; GoReleaser and ko; distroless image; golangci-lint; AGPL-3.0 | Owner comments (2026-09-13 and 2026-09-14) | — |
-| CO-05 | Constraint | macOS and Xcode | APPLICABLE | SUPPORTING | CONFIRMED | Pilot: macOS 27 (Golden Gate) with Xcode 27, Apple silicon only, iOS 27 SDK; the fleet builds the Xcode image from `macos-golden-gate-base` | Owner comments (2026-09-19); Apple Developer; `ghcr.io` (2026-09-19) | A published macOS 27 image with Xcode, or a new Xcode version |
+| CO-05 | Constraint | macOS and Xcode | APPLICABLE | SUPPORTING | CONFIRMED | Pilot: macOS 27 (Golden Gate) with Xcode 27, Apple silicon only, iOS 27 SDK; the fleet builds the Xcode image from `macos-golden-gate-vanilla` and an Xcode archive that the owner downloads (ADR-0012) | Owner comments (2026-09-19, 2026-10-10); Apple Developer; `ghcr.io` (2026-09-19) | A published macOS 27 image with Xcode, or a new Xcode version |
 | CO-06 | Constraint | Buildkite agent | APPLICABLE | SUPPORTING | CONFIRMED | Agent v4 in the VM image; v4.0.0 stable 2026-09-01, v4.3.0 current (2026-10-08, checked 2026-10-10); v4 rejects unknown flags and removes the OpenTracing and Datadog backends | Owner comment (2026-09-19); `buildkite/agent` releases (2026-09-19) | A v5 release line |
 | CO-07 | Constraint | Host macOS version | APPLICABLE | SUPPORTING | ASSUMED | A host runs a macOS version that can host the guest version. For a macOS 27 guest, the assumption is a macOS 27 host | Inference from Apple Virtualization; `vanilla-golden-gate.pkr.hcl` states macOS 27 for its build step (2026-09-19) | Apple or Tart states the host rule, or a macOS 27 guest starts on an older host |
 

@@ -93,9 +93,9 @@ compiles.
 |---|---|---|
 | Go | 1.27 | Module `github.com/joshwrightcodes/bk-agent-stack-orchard` |
 | [Orchard](https://github.com/openai/orchard) | 0.57.0 or later | VM scheduling across the Mac hosts |
-| [Tart](https://github.com/openai/tart) | 2.37.0 | macOS VMs on Apple Virtualization |
+| [Tart](https://github.com/openai/tart) | 2.40.1 | macOS VMs on Apple Virtualization |
 | `buildkite-agent` | v4 | In the VM image |
-| Pilot image | macOS 27, Xcode 27 | Built from `macos-golden-gate-base` |
+| Pilot image | macOS 27, Xcode 27 | Built from `macos-golden-gate-vanilla` (ADR-0012) |
 | Telemetry | OpenTelemetry (OTLP only) | No Prometheus endpoint |
 | Licence | AGPL-3.0-or-later | The controller holds no third-party code with a use restriction |
 | Tools and tasks | `mise` | Pins Go, golangci-lint, GoReleaser, Packer, and Ansible |

@@ -260,11 +260,12 @@ profiles:
     image: %s
     cpu: 4
     memoryMiB: 8192
-    diskSizeGB: 50
+    diskSizeGB: %d
     timeouts:
       boot: %s
       acquire: %s
-`, controllerID, freeAddress(t), queue, endpoint, orchardURL, image, boot, acquire)
+`, controllerID, freeAddress(t), queue, endpoint, orchardURL, image, imageDiskGB(t, image), boot,
+		acquire)
 
 	path := filepath.Join(t.TempDir(), "config.yaml")
 
@@ -274,6 +275,31 @@ profiles:
 	}
 
 	return path
+}
+
+// imageDiskGB gives the disk size of a local image, and at least 50 GB: a machine cannot have a
+// smaller disk than its image, so a profile of the 104 GB pilot image needs 104 GB. An image that
+// Tart does not have, which a failure test names, gets 50 GB.
+func imageDiskGB(t *testing.T, image string) int {
+	t.Helper()
+
+	const least = 50
+
+	//nolint:gosec // G204: the argument is the image of the test, from BKASO_TART_IMAGE.
+	out, err := exec.CommandContext(t.Context(), "tart", "get", image, "--format", "json").Output()
+	if err != nil {
+		return least
+	}
+
+	var vm struct {
+		Disk int `json:"Disk"`
+	}
+
+	if err := json.Unmarshal(out, &vm); err != nil {
+		t.Fatalf("reading the disk size of %s: %v", image, err)
+	}
+
+	return max(vm.Disk, least)
 }
 
 // scriptLog gives the lines of the startup script that Orchard holds for a machine.
