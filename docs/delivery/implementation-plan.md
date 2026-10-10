@@ -87,7 +87,7 @@ test/integration/               tests against orchard dev --synthetic, and the l
 deploy/helm/                    the controller chart
 deploy/orchard/                 the Orchard StatefulSet and its bootstrap job
 deploy/hosts/                   Ansible for the Mac hosts
-images/                         the builds of the job VM images (agent: tart and the guest agent)
+images/                         the builds of the job VM images (agent and pilot: tart and the guest agent)
 ```
 
 `internal/buildkite` and `internal/orchard` MUST expose narrow interfaces, and all other packages

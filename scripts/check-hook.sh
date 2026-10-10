@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Checks the environment hook of the agent image (images/agent/files/environment) the way
+# Checks the environment hook of the agent image (images/files/environment) the way
 # buildkite-agent runs it: the agent sources the hook, and then reads the environment. The hook
 # keeps the artifacts of a job in the owner-managed storage, and never sends them to the storage of
 # Buildkite (PR-032).
 set -euo pipefail
 
-HOOK="$(git rev-parse --show-toplevel)/images/agent/files/environment"
+HOOK="$(git rev-parse --show-toplevel)/images/files/environment"
 failures=0
 
 # destination gives what the hook leaves in BUILDKITE_ARTIFACT_UPLOAD_DESTINATION, for the storage
