@@ -123,9 +123,9 @@ def main() -> int:
         rows.append((name, expected, current, moved))
 
     # The bases of the job VM images, pinned by digest in images/build.sh. A new digest of the tag
-    # that a base follows is a new macOS or guest agent release to build and test against.
+    # that a base follows is a new macOS release, or a new set of tools, to build and test against.
     for name, image, tag in (
-        ("agent", "cirruslabs/macos-golden-gate-base", "latest"),
+        ("agent", "cirruslabs/macos-golden-gate-vanilla", "latest"),
         ("pilot", "cirruslabs/macos-golden-gate-xcode", "27"),
     ):
         pinned = stated(IMAGE_BUILD,
