@@ -95,8 +95,8 @@ Build each job VM image from a vanilla macOS image, and check it against an expl
 * The build installs the Tart guest agent, then the software of the list: for the pilot, Xcode from
   an archive that the owner downloads with an Apple ID, its simulator runtimes, and the tools to
   build, test, sign, and publish an iOS or macOS app.
-* The build checks the image against the list: an installed Homebrew formula or cask, an
-  application, a launchd job, or a Ruby gem that the list does not name fails the build.
+* The build checks the image against the list: an application in `/Applications`, a launchd job,
+  a program in `/usr/local/bin`, or a Homebrew that the list does not name fails the build.
 * Until the build on the vanilla image works, the images build on the full bases with the removals
   and checks of 2026-10-10, as an interim.
 
@@ -126,9 +126,9 @@ Review trigger:
 
 ## Confirmation
 
-* The build of each image fails when the image contains a Homebrew formula or cask, an
-  application in `/Applications`, a launchd job, or a Ruby gem that the list in the images README
-  does not name.
+* The build of each image on a vanilla image fails when the image contains an application in
+  `/Applications`, a launchd job, a program in `/usr/local/bin`, or a Homebrew that the list in the
+  images README does not name.
 * The base of each image is a vanilla image, pinned by digest in `images/build.sh`, and the upstream
   watch reports a new digest.
 * The pilot image reports Xcode 27 from `xcodebuild -version`, and the real-VM tests pass on the
