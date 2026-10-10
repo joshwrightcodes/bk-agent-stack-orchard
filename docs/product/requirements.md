@@ -365,7 +365,8 @@ Dependencies:
 * The Buildkite Stacks API and job acquisition tokens operate as their documentation states (as
   of 2026-09-13).
 * The VM image contains `buildkite-agent` v4. Buildkite made v4 the stable line on 2026-09-01, and
-  v4.0.4 is current (2026-09-18). Agent v4 stops immediately when a flag is not defined.
+  v4.3.0 is current (2026-10-08, checked 2026-10-10). Agent v4 stops immediately when a flag is not
+  defined.
 * The VM image runs the Tart guest agent, which the startup-script transport needs (ADR-0009).
 * Orchard 0.57.0 or later is in use. This release contains pull requests #465 and #470
   (2026-09-15).

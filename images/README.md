@@ -8,7 +8,7 @@ needs no Xcode runs on it, and so does every end-to-end scenario of W-24 except 
 | Part | Source |
 |---|---|
 | macOS Golden Gate, Homebrew, and the Tart guest agent | `ghcr.io/cirruslabs/macos-golden-gate-base`, pinned by digest |
-| `buildkite-agent` 4.0.6 | Its release, checked against its SHA-256, in `/usr/local/bin`. The `buildkite-agent@3` (3.138.0) of the base image, and its configuration, are removed |
+| `buildkite-agent` 4.3.0 | Its release, checked against its SHA-256, in `/usr/local/bin`. The `buildkite-agent@3` (3.138.0) of the base image, and its configuration, are removed |
 | The configuration of the agent | `files/buildkite-agent.cfg`: the build, hooks, and plugins paths. The startup script of the controller gives the token, the job, the name, and the tags |
 | The `environment` hook | `files/environment`: the artifacts of a job go to the owner-managed storage (PR-032) |
 
@@ -44,7 +44,7 @@ a hosted macOS runner of GitHub nor the runner VM of this repository can build i
 
 The build shuts the VM down from inside, because `tart stop` does not wait for macOS to write its
 caches, and a file written just before it is lost. It then starts the VM again and checks it as a
-job VM finds it: the guest agent answers as `admin`, `buildkite-agent` 4.0.6 runs from
+job VM finds it: the guest agent answers as `admin`, `buildkite-agent` 4.3.0 runs from
 `/usr/local/bin`, the `buildkite-agent@3` of the base image is gone, the hook sets the destination,
 and ports 22 and 5900 are closed. A check that fails fails the build.
 
