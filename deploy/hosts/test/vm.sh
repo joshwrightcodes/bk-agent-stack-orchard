@@ -3,8 +3,8 @@
 # as the fleet uses it:
 #
 #   - the worker registers with the labels of the inventory, through TLS with the CA in the token;
-#   - the token is in no process listing, softnet has the setuid bit, and pf keeps the VMs away
-#     from the host, also after a restart;
+#   - the token is in no process listing, softnet has the setuid bit, the host does not sleep, and
+#     pf keeps the VMs away from the host, also after a restart;
 #   - a second run of the playbook changes nothing;
 #   - the worker registers again after a restart of the host.
 #
@@ -168,6 +168,7 @@ echo "softnet=$(stat -f '%Su %Mp%Lp' /usr/local/bin/softnet)"
 echo "pf_block=$(sudo /sbin/pfctl -a com.apple/400.bkaso-vm-isolation -s rules 2>/dev/null | grep -c 'block drop in quick')"
 echo "pf_enabled=$(sudo /sbin/pfctl -s info 2>/dev/null | grep -c 'Status: Enabled')"
 echo "worker_user=$(ps axo user,command | awk '$2 ~ /orchard$/ && $3 == "worker" {print $1}' | sort -u | tr '\n' ' ')"
+echo "sleep=$(/usr/bin/pmset -g | awk '$1 == "sleep" || $1 == "disksleep" {print $1 "=" $2}' | sort | tr '\n' ' ')"
 EOF
 )
 echo "$check"
@@ -176,6 +177,7 @@ grep -qx "token_mode=root 0600" <<<"$check" || fail "the token file is not root 
 grep -qx "softnet=root 4755" <<<"$check" || fail "softnet has no setuid bit"
 grep -Eqx "pf_block=[1-9][0-9]*" <<<"$check" || fail "pf has no rule that keeps the VMs away from the host"
 grep -qx "pf_enabled=1" <<<"$check" || fail "pf is not enabled"
+grep -qx "sleep=disksleep=0 sleep=0 " <<<"$check" || fail "the host can sleep"
 grep -q "worker_user=.*admin" <<<"$check" || fail "no worker process runs as admin"
 
 log "running the playbook again, which must change nothing"

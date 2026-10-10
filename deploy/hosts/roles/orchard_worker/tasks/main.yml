@@ -7,6 +7,9 @@
 - name: Install Orchard, Tart, and Softnet
   ansible.builtin.import_tasks: install.yml
 
+- name: Keep the host awake
+  ansible.builtin.import_tasks: power.yml
+
 - name: Keep the VMs away from the host
   ansible.builtin.import_tasks: isolation.yml
 

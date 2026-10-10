@@ -44,6 +44,14 @@ orchard_worker_require_hypervisor: true
 orchard_worker_admin_interfaces:
   - "{{ ansible_facts['default_ipv4']['interface'] | default('en0') }}"
 
+# The power settings of a host: no sleep of the system or the disks, and a start after a power
+# failure and on a packet of the network.
+orchard_worker_power_settings:
+  sleep: 0
+  disksleep: 0
+  autorestart: 1
+  womp: 1
+
 orchard_worker_pf_label: io.github.joshwrightcodes.bkaso-vm-isolation
 orchard_worker_pf_anchor: com.apple/400.bkaso-vm-isolation
 
