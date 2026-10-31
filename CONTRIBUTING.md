@@ -128,6 +128,32 @@ CI checks every commit of a pull request with `scripts/check-commits.py`, and a 
 not follow these rules fails the gate. Run `mise run check` before you open a pull request, which
 also checks the documents and the C4 model.
 
+## Versioning and releases
+
+The project uses [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html). The binary,
+the container image, and the Helm chart have the same version. The Git tag is the only source of
+that version.
+
+* A release tag has the form `vMAJOR.MINOR.PATCH`, for example `v0.3.1`. A release candidate adds
+  a suffix, for example `v0.4.0-rc.1`.
+* The major version is 0. It MUST stay 0 until the maintainer decides that the project is stable.
+  Only the maintainer starts version 1.0.0, and a pull request MUST NOT set a major version of 1
+  or more.
+* Only the maintainer creates a release tag. The tag is an annotated tag on a commit of `main`.
+* A published tag never moves, and the repository rules block the deletion of a tag. To correct a
+  bad release, publish a new version.
+
+While the major version is 0, the commits since the last release select the next version:
+
+| The commits since the last release contain | Next version |
+|---|---|
+| A breaking change (`!` in the subject) | Next minor version, for example `v0.3.1` to `v0.4.0` |
+| A `feat` commit | Next minor version |
+| Only `fix` and `perf` commits, and commits that change no behaviour | Next patch version, for example `v0.3.1` to `v0.3.2` |
+| Only `docs`, `test`, `ci`, `build`, `chore`, or `refactor` commits | No release is necessary |
+
+The release notes identify each breaking change, and they tell an operator what to change.
+
 ## Licence of contributions
 
 This project uses the [GNU AGPL-3.0-or-later](LICENSE). A contribution enters the project under
