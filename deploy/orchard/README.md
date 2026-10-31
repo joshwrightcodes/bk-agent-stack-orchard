@@ -17,8 +17,8 @@ the SHA-256 that `mise.toml` pins, and `scripts/check-deps.py` keeps the two in 
 
 ```sh
 mise run orchard-image
-docker tag orchard:0.57.0 <registry of the fleet>/orchard:0.57.0
-docker push <registry of the fleet>/orchard:0.57.0
+docker tag orchard:0.58.0 <registry of the fleet>/orchard:0.58.0
+docker push <registry of the fleet>/orchard:0.58.0
 ```
 
 The image carries the licence of Orchard, FSL-1.1-ALv2, in `/usr/share/doc/orchard/LICENSE`. It is
@@ -54,7 +54,7 @@ resources:
 images:
   - name: orchard
     newName: <registry of the fleet>/orchard
-    newTag: 0.57.0
+    newTag: 0.58.0
 patches:
   - target: {kind: Service, name: orchard}
     patch: |
