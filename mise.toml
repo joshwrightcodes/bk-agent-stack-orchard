@@ -6,6 +6,9 @@
 go = "1.27.1"
 golangci-lint = "2.13.2"
 goreleaser = "2.18.2"
+# The release signs with cosign and makes the SBOMs with syft (ADR-0013).
+cosign = "3.1.4"
+syft = "1.55.0"
 # The manifests of deploy are checked with these. The aqua backend of mise checks the checksum
 # that each release publishes.
 helm = "4.3.0"
@@ -153,7 +156,13 @@ run = "go build ./..."
 
 [tasks.snapshot]
 description = "Build the release artifacts and the image, without publishing"
-run = ["goreleaser check", "goreleaser release --snapshot --clean", "./scripts/check-image.sh"]
+# A snapshot has no OIDC token to sign with, so it skips the signatures and builds the rest,
+# the SBOMs included.
+run = [
+  "goreleaser check",
+  "goreleaser release --snapshot --clean --skip=sign",
+  "./scripts/check-image.sh",
+]
 
 [tasks.check]
 description = "Run every gate that this repository has"

@@ -63,8 +63,8 @@ The content of an accepted ADR does not change. To replace a decision:
 
 ## Index
 
-The decision-maker accepted every decision below on 2026-09-20. The content of an accepted ADR
-does not change: a new ADR supersedes it.
+The status column gives the state of each decision, and the front matter of each ADR gives its
+date. The content of an accepted ADR does not change: a new ADR supersedes it.
 
 | ADR | Decision | Status |
 |---|---|---|
@@ -80,3 +80,5 @@ does not change: a new ADR supersedes it.
 | [ADR-0010](0010-call-the-orchard-api-with-a-client-of-this-project.md) | Call the Orchard API with a client of this project | accepted |
 | [ADR-0011](0011-generate-the-orchard-wire-types.md) | Generate the Orchard wire types from the pinned version | accepted |
 | [ADR-0012](0012-build-the-job-vm-images-from-a-vanilla-macos-image.md) | Build the job VM images from a vanilla macOS image | accepted |
+| [ADR-0013](0013-sign-releases-with-keyless-cosign-signatures.md) | Sign releases with keyless cosign signatures | proposed |
+| [ADR-0014](0014-calculate-releases-with-release-please.md) | Calculate releases with release-please | proposed |

@@ -932,7 +932,7 @@ Each item MUST have its own ADR before implementation:
 * **Go version:** 1.27.
 * **Dependency updates:** Renovate proposes the Go module, the image, and the action updates each
   week, after a release is three days old. Its commit messages use the conventional types of the
-  contributing guide.
+  contributing guide. A Go module update is a `fix`, because it changes the release artifacts.
 * **Tool versions:** one `mise.toml` file pins Go, golangci-lint, GoReleaser, Packer, and
   Ansible. A developer and CI use the same versions. CI runs `mise install` before each task.
   The golangci-lint documentation gives `mise` as an installation method, and it states that
@@ -1001,9 +1001,9 @@ release later than the pinned version. The integration tests against a real Orch
 behaviour, and they are the only layer that can.
 
 **Build and release.** GoReleaser (v2.18 or later) MUST build the release binaries, the
-archives, the checksums, and the container image. GoReleaser MUST use ko through its `kos`
-section to build the image. The image MUST be distroless. The repository MUST NOT have a
-`.ko.yaml` file, because GoReleaser sets all ko options.
+archives, the SBOMs of the archives, the checksums, and the container image. GoReleaser MUST use
+ko through its `kos` section to build the image. The image MUST be distroless. The repository
+MUST NOT have a `.ko.yaml` file, because GoReleaser sets all ko options.
 
 The `.goreleaser.yaml` file MUST contain this configuration. `goreleaser check` validates it.
 
@@ -1034,22 +1034,52 @@ archives:
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
+# Each archive gets an SPDX SBOM from syft. The checksums cover the archives and the SBOMs, and one
+# keyless cosign signature covers the checksums (ADR-0013). The chart is not here: it carries the
+# digest of the image, so the release workflow packages it after the image exists.
+sboms:
+  - artifacts: archive
+
+changelog:
+  disable: true
+
 checksum:
   name_template: checksums.txt
+
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args: ["sign-blob", "--bundle=${signature}", "${artifact}", "--yes"]
+    artifacts: checksum
+
+# release-please creates the release as a draft, with its changelog as the notes. GoReleaser
+# uploads the assets to that draft and keeps the notes. The workflow publishes the draft after it
+# has verified each signature, because the repository makes a published release immutable.
+release:
+  draft: true
+  use_existing_draft: true
+  mode: keep-existing
+  # A run that fails after the upload can run again on the same draft.
+  replace_existing_artifacts: true
+  prerelease: auto
 
 kos:
   - id: bk-agent-stack-orchard
     build: bk-agent-stack-orchard
-    base_image: gcr.io/distroless/static-debian13:nonroot
+    base_image: gcr.io/distroless/static-debian13:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99
     repositories: [ghcr.io/joshwrightcodes/bk-agent-stack-orchard]
     platforms: [linux/amd64, linux/arm64]
+    # No latest tag: it would move before the workflow signs the image, and an operator pins a
+    # version. The chart refers to the image by its digest.
     tags:
       - "{{ .Tag }}"
-      - "{{ if not .Prerelease }}latest{{ end }}"
+      - "{{ .Version }}"
     bare: true
     creation_time: "{{ .CommitTimestamp }}"
     ko_data_creation_time: "{{ .CommitTimestamp }}"
-    sbom: spdx
+    # The release workflow attests an SBOM of each platform image with syft and cosign. The SBOM
+    # of ko has no signature, so it is off.
+    sbom: none
 ```
 
 These rules apply to the configuration:
@@ -1063,13 +1093,60 @@ These rules apply to the configuration:
   controller needs for TLS and for timestamps. Its version tags are public, so the build can pin a
   digest. The GoReleaser default is `cgr.dev/chainguard/static`, and the free Chainguard catalogue
   gives only the `latest` tag. Version tags need a paid subscription (Chainguard, 2026-09-19).
-  Because of this, the configuration MUST set `base_image`.
+  Because of this, the configuration MUST set `base_image`. It MUST pin the digest, and Renovate
+  updates the digest.
+* The image has the tags `v<version>` and `<version>`. It has no `latest` tag, because that tag
+  would move before the workflow signs the image.
 * In `--snapshot` mode, GoReleaser loads the image into the local Docker daemon as
   `goreleaser.ko.local`. It does not push the image. Use `goreleaser release --snapshot --clean`
   to build the image locally.
 * In release mode, GoReleaser pushes the image to
   `ghcr.io/joshwrightcodes/bk-agent-stack-orchard`. The push needs a registry login, for
   example `docker login ghcr.io`.
+* `--snapshot` mode MUST skip the signatures (`--skip=sign`), because a snapshot has no OIDC
+  token. It still builds the SBOMs.
+* `changelog` is off, because release-please writes the release notes.
+
+**Release versions.** release-please calculates each version from the Conventional Commits on
+`main`, with the 0.x rules of the contributing guide (`release-please-config.json`). It keeps one
+release pull request that collects the changes and writes `CHANGELOG.md` and both versions in
+`Chart.yaml`. When the maintainer merges it, release-please creates a draft release with the
+changelog, and the tag `v<version>` at once. It uses the token of a GitHub App, because GitHub
+starts no workflow for a tag that `GITHUB_TOKEN` creates. The private key of the App MUST be a
+secret of the `release-please` environment, which permits only `main`.
+
+**Release signatures.** A tag that matches `v*` starts `.github/workflows/release.yml` in the
+`release` environment. The environment permits only `v*` tags, and it MUST need the approval of
+the maintainer. The commit of the tag MUST be on `main`, and the version in `Chart.yaml` MUST be
+the version of the tag. The workflow checks both before it builds anything, and then does these
+steps in this order:
+
+1. GoReleaser builds the archives, an SPDX JSON SBOM of each archive (syft), and `checksums.txt`,
+   which covers the archives and the SBOMs. cosign signs `checksums.txt` into the bundle
+   `checksums.txt.sigstore.json`. GoReleaser pushes the image, and uploads the assets to the
+   draft release of release-please. It keeps the notes of the draft, and it replaces an asset that
+   a failed run left.
+2. `scripts/release-publish.sh` reads the digest of the image from the record of GoReleaser
+   (`dist/artifacts.json`). It MUST NOT get the digest from a tag, because another workflow can
+   push to the tag. It signs the image index and each platform image by that digest. It makes an
+   SPDX JSON SBOM of each platform image with syft, and attaches it with `cosign attest --type
+   spdxjson`. The image has no SBOM from ko, because that SBOM has no signature.
+3. The same script packages the chart with `image.digest` set to that digest, signs the package
+   into its own bundle, pushes it to `oci://ghcr.io/joshwrightcodes/charts`, signs it there by
+   digest, and uploads the package and its bundle to the draft.
+4. `scripts/verify-release.sh` verifies each signature and each attestation, and checks that the
+   tags in the registry give the digests that step 2 and step 3 signed.
+5. `scripts/release-finish.sh` checks that exactly one release has the tag, and that the assets of
+   the draft are the verified files, by name and SHA-256. Then it publishes the draft. The
+   repository makes a published release immutable, so a changed asset would stay.
+
+Each signature MUST be keyless. cosign gets a short-lived certificate from Sigstore for the OIDC
+token of the workflow, and records the signature in the Rekor transparency log. A verification
+MUST require the certificate identity
+`https://github.com/joshwrightcodes/bk-agent-stack-orchard/.github/workflows/release.yml@refs/tags/<tag>`
+and the issuer `https://token.actions.githubusercontent.com`. The workflow MUST NOT restore a
+cache, and only its job has `id-token: write`, `packages: write`, and `contents: write`.
+`mise.toml` pins cosign and syft.
 
 **Static analysis.** golangci-lint (v2.13 or later) MUST examine all Go code. In CI the analysis
 MUST report each finding as an annotation on the line that carries it, so that a person reads the
@@ -1128,6 +1205,11 @@ commands reports a problem.
 * `openai/tart` — https://github.com/openai/tart
 * GoReleaser — https://goreleaser.com
 * GoReleaser ko integration — https://goreleaser.com/customization/package/ko/
+* GoReleaser signing and SBOMs — https://goreleaser.com/customization/sign/ and
+  https://goreleaser.com/customization/sbom/
+* Sigstore cosign — https://docs.sigstore.dev/cosign/
+* release-please — https://github.com/googleapis/release-please
+* syft — https://github.com/anchore/syft
 * ko — https://ko.build
 * golangci-lint — https://golangci-lint.run
 * Distroless images — https://github.com/GoogleContainerTools/distroless

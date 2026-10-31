@@ -1,0 +1,45 @@
+name: release-please
+
+# release-please keeps one release pull request open. Each merge to main that changes behaviour
+# updates it: the next version from the Conventional Commits since the last release, the changelog,
+# and the version of the chart. A merge of the release pull request is the decision to release.
+# release-please then creates a draft release and its tag, and the tag starts release.yml.
+#
+# The token comes from a GitHub App, not GITHUB_TOKEN. GitHub starts no workflow for a pull request
+# or a tag that GITHUB_TOKEN creates, so with it the release pull request would get no CI, and the
+# tag would start no release.
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: release pull request
+    runs-on: ubuntu-latest
+    # The private key of the App is a secret of this environment, which permits only main. A
+    # workflow on another branch cannot read it.
+    environment: release-please
+    # Until the owner creates the App and its credentials, the job does nothing.
+    if: vars.RELEASE_APP_CLIENT_ID != ''
+    steps:
+      - id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ steps.app.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

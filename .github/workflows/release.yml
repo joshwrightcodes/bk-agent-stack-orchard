@@ -1,0 +1,102 @@
+name: release
+
+# A release tag publishes the archives, the image, and the chart, each signed with a keyless cosign
+# signature, with an SBOM for each archive and each platform image (ADR-0013). release-please
+# creates the tag and a draft release when the maintainer merges its release pull request
+# (release-please.yml, ADR-0014). The certificate of each signature names this file and the tag,
+# which is what scripts/verify-release.sh checks.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions: {}
+
+# One run for each tag. A shared group would cancel a run that waits for approval when a later tag
+# starts.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    # The environment permits only a v* tag, and it waits for the approval of the maintainer.
+    environment: release
+    permissions:
+      # The GitHub release and its assets.
+      contents: write
+      # The image and the chart in ghcr.io.
+      packages: write
+      # The OIDC token that Sigstore exchanges for a signing certificate.
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # GoReleaser reads the tags, and the check below reads main.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          # A fixed version of mise, which the action checks against the signed checksums of the
+          # mise release. A cache that another run wrote must not reach the tools that sign.
+          version: 2026.10.24
+          cache: false
+
+      - name: log in to ghcr.io
+        env:
+          ACTOR: ${{ github.actor }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$TOKEN" | docker login ghcr.io --username "$ACTOR" --password-stdin
+          printf '%s' "$TOKEN" | helm registry login ghcr.io --username "$ACTOR" --password-stdin
+
+      # release-please wrote the version of the tag into the chart, on a commit of main. This
+      # refuses a tag on another commit only while that commit holds this check: the tag rules and
+      # the approval of the environment are the controls. The approver compares the SHA of the
+      # tag with the merge of the release pull request.
+      - name: check the tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "release: $TAG is not on main" >&2
+            exit 1
+          fi
+          chart="$(helm show chart deploy/helm/bk-agent-stack-orchard | awk '$1 == "version:" {print $2}')"
+          if [ "v$chart" != "$TAG" ]; then
+            echo "release: the chart has version $chart, and the tag is $TAG" >&2
+            exit 1
+          fi
+
+      - name: build, sign, and upload to the draft release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: goreleaser release --clean
+
+      - name: sign the image, and package, sign, and upload the chart
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: ./scripts/release-publish.sh "$TAG"
+
+      - name: verify the signatures
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          set -a
+          . build/release.env
+          set +a
+          cp build/chart/* dist/
+          ./scripts/verify-release.sh "$TAG" dist
+
+      - name: check the assets and publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: ./scripts/release-finish.sh "$TAG"
