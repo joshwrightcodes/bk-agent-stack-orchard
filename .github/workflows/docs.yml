@@ -34,7 +34,7 @@ jobs:
           fetch-depth: 0
       - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
       # The rules of the checker have tests of their own, with real messages, such as one from
-      # Dependabot.
+      # Dependabot and one from Renovate.
       - run: mise run test-scripts
       - env:
           # Event data never reaches the shell directly, even when it is a commit SHA.

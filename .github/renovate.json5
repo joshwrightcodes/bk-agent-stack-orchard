@@ -1,0 +1,66 @@
+// The project pins its dependencies and its actions, and the upstream watch reports only the
+// tools that the documents name. Renovate keeps the rest current: the Go modules, the images of
+// the Orchard deployment, and the actions. The tools in mise.toml, the Helm chart, and the host
+// roles stay out, because a document states each of their versions (upstream.yml).
+//
+// Its commit messages use the conventional types of CONTRIBUTING.md, so the commit gate accepts
+// them.
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: ["config:recommended"],
+
+  enabledManagers: ["gomod", "dockerfile", "kubernetes", "github-actions"],
+  kubernetes: {
+    // The image of the bootstrap Job of Orchard. No other manifest pins an image.
+    managerFilePatterns: ["/^deploy/orchard/bootstrap-job\\.yaml$/"],
+  },
+
+  timezone: "Australia/Sydney",
+  schedule: ["* 6-9 * * 1"],
+  prConcurrentLimit: 5,
+  labels: ["dependencies"],
+
+  // A release must be three days old before a pull request proposes it, so that a release that
+  // its registry withdraws never reaches the review. A security update does not wait.
+  minimumReleaseAge: "3 days",
+  internalChecksFilter: "strict",
+
+  semanticCommits: "enabled",
+  semanticCommitScope: "deps",
+
+  postUpdateOptions: ["gomodTidy"],
+
+  packageRules: [
+    {
+      matchManagers: ["gomod"],
+      semanticCommitType: "build",
+    },
+    {
+      // mise.toml pins the Go version, and target design section 15 states it.
+      matchManagers: ["gomod"],
+      matchDepTypes: ["golang", "toolchain"],
+      enabled: false,
+    },
+    {
+      // One pull request for the patch and minor updates keeps the review small.
+      matchManagers: ["gomod"],
+      matchUpdateTypes: ["minor", "patch", "digest"],
+      groupName: "go minor and patch",
+    },
+    {
+      // Each image is pinned by its tag and its digest, and a pin that nothing updates grows old.
+      matchManagers: ["dockerfile", "kubernetes"],
+      semanticCommitType: "build",
+      groupName: "images",
+    },
+    {
+      matchManagers: ["github-actions"],
+      semanticCommitType: "ci",
+      groupName: "actions",
+    },
+  ],
+
+  vulnerabilityAlerts: {
+    labels: ["dependencies", "security"],
+  },
+}

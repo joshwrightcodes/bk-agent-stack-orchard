@@ -46,7 +46,7 @@ def commits(base: str) -> list[tuple[str, str, str]]:
     return out
 
 
-BOTS = ("dependabot[bot]", "github-actions[bot]")
+BOTS = ("dependabot[bot]", "renovate[bot]", "github-actions[bot]")
 
 
 def check(rev: str, message: str, author: str = "") -> list[str]:
@@ -68,7 +68,8 @@ def check(rev: str, message: str, author: str = "") -> list[str]:
         if len(subject) > subject_limit:
             problems.append(f"subject is {len(subject)} characters, the limit is {subject_limit}")
         # Dependabot writes "Bump …" with a capital letter, and its configuration sets only the
-        # type and the scope, so the case of the description is a rule for people.
+        # type and the scope, so the case of the description is a rule for people. Dependabot
+        # still opens the security updates that GitHub gives it.
         if description[0].isupper() and author not in BOTS:
             problems.append("description starts with a capital letter")
         if description.endswith("."):
