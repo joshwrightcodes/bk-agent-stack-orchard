@@ -86,12 +86,16 @@ However, it needs a token that starts workflows, which means a GitHub App and it
 Calculate releases with release-please, and release when the maintainer merges its release pull
 request.
 
-* release-please runs on each push to `main`, with `bump-minor-pre-major`. It writes the version
-  into `CHANGELOG.md` and into both versions of `Chart.yaml`.
+* release-please runs on each push to `main`, with `bump-minor-pre-major` and an initial version
+  of 0.1.0. Without the initial version, its first release is 1.0.0. It writes the version into
+  `CHANGELOG.md` and into both versions of `Chart.yaml`.
 * It creates the release as a draft with the changelog, and it creates the tag at once. The tag
   starts the release workflow of ADR-0013, which adds the assets and publishes the draft.
 * It uses a token of a GitHub App with contents, pull requests, and issues write access. The private
   key MUST be a secret of the `release-please` environment, which permits only `main`.
+* The tag rules permit only the maintainer and the App to create a `v*` tag, and nobody can move or
+  delete one. release-please ignores a refused tag, so without the App in the tag rules, a merge
+  gives a draft with no tag and no release.
 * The release workflow MUST run in the `release` environment, which permits only `v*` tags and
   needs the approval of the maintainer. It MUST check that the version in `Chart.yaml` is the
   version of the tag.
@@ -107,7 +111,10 @@ Good:
 * The version follows the rules, and the release pull request shows it before the release.
 * Many changes go into one release, and the maintainer selects the time.
 * The changelog and the chart version need no manual step.
-* The tag check of the release workflow refuses a tag that release-please did not prepare.
+* The tag rules and the approval of the environment stop a tag that release-please did not
+  create. The tag check of the workflow also refuses a tag outside `main`, or with another chart
+  version. That check is in the workflow at the commit of the tag, so it does not replace the
+  other two controls.
 
 Bad:
 
@@ -115,7 +122,8 @@ Bad:
   to protect and to rotate.
 * The release pull request adds commits from the App, and the maintainer must review them.
 * The release has two approvals: the merge of the release pull request, and the deployment to the
-  `release` environment.
+  `release` environment. With one maintainer, the same person gives both. The approver compares
+  the SHA of the tag with the merge commit of the release pull request.
 * A release candidate or a major version needs a change of the configuration, and a second change
   to remove it.
 

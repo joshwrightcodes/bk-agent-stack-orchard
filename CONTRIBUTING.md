@@ -150,7 +150,7 @@ last release:
 |---|---|
 | A breaking change (`!` in the subject) | Next minor version, for example `v0.3.1` to `v0.4.0` |
 | A `feat` commit | Next minor version |
-| Only `fix` and `perf` commits, and commits that change no behaviour | Next patch version, for example `v0.3.1` to `v0.3.2` |
+| Only `fix`, `perf`, and `revert` commits, and commits that change no behaviour | Next patch version, for example `v0.3.1` to `v0.3.2` |
 | Only `docs`, `test`, `ci`, `build`, `chore`, or `refactor` commits | No release |
 
 A breaking change has `!` in its subject, and a `BREAKING CHANGE:` footer that tells an operator
@@ -165,16 +165,20 @@ version in `Chart.yaml`. The pull request collects all changes until the maintai
 1. Read the release pull request. Make sure that the version and the changelog are correct.
 2. Merge the release pull request. release-please creates the tag and a draft release with the
    changelog.
-3. The tag starts the release workflow in the `release` environment. Approve the deployment.
-   The workflow builds and signs the artifacts, verifies the signatures, and then publishes the
-   release ([ADR-0013](docs/adrs/0013-sign-releases-with-keyless-cosign-signatures.md)).
+3. The tag starts the release workflow in the `release` environment. Make sure that the SHA of the
+   tag is the merge commit of the release pull request, and then approve the deployment. The
+   workflow builds and signs the artifacts, verifies the signatures and the assets, and then
+   publishes the release
+   ([ADR-0013](docs/adrs/0013-sign-releases-with-keyless-cosign-signatures.md)).
 
 To set a version that the commits do not give, for example a release candidate such as
 `0.4.0-rc.1`, or `1.0.0`, add `"release-as": "<version>"` to `release-please-config.json` in a
 pull request. Remove it in the next pull request after the release.
 
-If the workflow fails before it publishes, the release stays a draft. Delete the draft, correct
-the cause, and make a new release.
+If the workflow fails before it publishes, the release stays a draft. If the cause is outside the
+repository, for example an outage of Sigstore, run the workflow again: it replaces the assets on
+the draft. If the cause needs a change in the repository, the version is lost, because the tag
+cannot move. Delete the draft, merge the correction, and release the next version.
 
 ## Licence of contributions
 

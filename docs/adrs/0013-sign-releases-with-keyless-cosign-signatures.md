@@ -52,7 +52,7 @@ Non-goals:
 
 * Signatures on the job VM images. The fleet builds them (ADR-0012), and they are not release
   artifacts.
-* Signed commits and tags, which the repository rules control.
+* Signed commits, which the repository rules require on `main`. The tags are not signed.
 * A SLSA level. The workflow gives provenance through the certificate identity, and a later
   decision can add a SLSA provenance attestation.
 
@@ -88,17 +88,21 @@ read it than read a cosign signature.
 Sign each release artifact with a keyless cosign signature from the release workflow, and publish
 an SPDX SBOM for each archive and each platform image.
 
-* syft makes an SPDX JSON SBOM for each archive. The checksum file covers the archives, their
-  SBOMs, and the chart package, and one cosign bundle (`checksums.txt.sigstore.json`) signs the
-  checksum file.
-* cosign signs the image index and each platform image by digest. syft makes an SPDX JSON SBOM of
-  each platform image, and cosign attaches it as a signed attestation of type `spdxjson`.
-* The chart goes to `ghcr.io/joshwrightcodes/charts` as an OCI artifact, and cosign signs it by
-  digest.
+* syft makes an SPDX JSON SBOM for each archive. The checksum file covers the archives and their
+  SBOMs, and one cosign bundle (`checksums.txt.sigstore.json`) signs the checksum file.
+* cosign signs the image index and each platform image by digest. The digest MUST be the one that
+  the build recorded when it pushed the image, not the result of a lookup of a tag. syft makes an
+  SPDX JSON SBOM of each platform image, and cosign attaches it as a signed attestation of type
+  `spdxjson`.
+* The image has the tags `v<version>` and `<version>`, and no `latest` tag.
+* The chart refers to the image by that digest. The chart package on the release has its own
+  cosign bundle. The chart also goes to `ghcr.io/joshwrightcodes/charts` as an OCI artifact, and
+  cosign signs it by digest.
 * The certificate identity MUST be the release workflow of this repository at the release tag,
   from the OIDC issuer of GitHub Actions. A verification MUST check both values.
-* The release stays a draft until the workflow has verified every signature. The repository makes
-  a published release immutable.
+* The release stays a draft until the workflow has verified every signature, and until the assets
+  of the draft are the files that it verified. The repository makes a published release
+  immutable.
 
 ## Consequences
 
@@ -113,7 +117,7 @@ Good:
 Bad:
 
 * A release needs Fulcio and Rekor. During an outage of Sigstore, the release fails, and the owner
-  runs the workflow again later.
+  runs the workflow again later. A run again replaces the assets on the draft.
 * Each signature is in a public transparency log. The repository is public, so this discloses
   nothing new.
 * The workflow file name is part of the identity. A rename of `release.yml` changes the identity
@@ -126,6 +130,7 @@ Bad:
 * `scripts/verify-release.sh <tag> dist` passes in the release workflow before the release is
   published. It verifies the checksum bundle, each image signature, each SBOM attestation, and the
   chart signature against the identity of the release workflow at that tag.
-* The snapshot gate in CI builds an SBOM for each archive and a checksum file that names the
-  chart package.
+* The snapshot gate in CI builds an SBOM for each archive and a checksum file that names them.
+* `scripts/release-finish.sh` publishes the draft only when its assets are the verified files, by
+  name and SHA-256.
 * `.goreleaser.yaml` signs `checksums.txt` with cosign, and `mise.toml` pins cosign and syft.

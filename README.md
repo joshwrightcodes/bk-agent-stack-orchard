@@ -109,8 +109,8 @@ workflow of this repository
 | Artifact | Where | Signature | SBOM |
 |---|---|---|---|
 | Archives | The GitHub release | `checksums.txt.sigstore.json` signs `checksums.txt`, which names each archive | `<archive>.sbom.json` (SPDX), in `checksums.txt` |
-| Image | `ghcr.io/joshwrightcodes/bk-agent-stack-orchard` | On the index and on each platform image | An attestation of type `spdxjson` on each platform image |
-| Chart | `oci://ghcr.io/joshwrightcodes/charts/bk-agent-stack-orchard` | On the chart | None |
+| Image | `ghcr.io/joshwrightcodes/bk-agent-stack-orchard`, tags `v<version>` and `<version>` | On the index and on each platform image | An attestation of type `spdxjson` on each platform image |
+| Chart | `oci://ghcr.io/joshwrightcodes/charts/bk-agent-stack-orchard`, and the GitHub release | On the chart in the registry, and `<chart>.tgz.sigstore.json` on the release | None. The chart refers to the image by its digest |
 
 To verify all artifacts of a release, put the downloaded files in one directory, and run this
 command:

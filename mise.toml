@@ -157,10 +157,9 @@ run = "go build ./..."
 [tasks.snapshot]
 description = "Build the release artifacts and the image, without publishing"
 # A snapshot has no OIDC token to sign with, so it skips the signatures and builds the rest,
-# the SBOMs and the chart package included.
+# the SBOMs included.
 run = [
   "goreleaser check",
-  "./scripts/release-chart.sh",
   "goreleaser release --snapshot --clean --skip=sign",
   "./scripts/check-image.sh",
 ]

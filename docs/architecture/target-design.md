@@ -1034,8 +1034,9 @@ archives:
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
-# Each archive gets an SPDX SBOM from syft. The checksums cover the archives, the SBOMs, and the
-# chart package, and one keyless cosign signature covers the checksums (ADR-0013).
+# Each archive gets an SPDX SBOM from syft. The checksums cover the archives and the SBOMs, and one
+# keyless cosign signature covers the checksums (ADR-0013). The chart is not here: it carries the
+# digest of the image, so the release workflow packages it after the image exists.
 sboms:
   - artifacts: archive
 
@@ -1044,8 +1045,6 @@ changelog:
 
 checksum:
   name_template: checksums.txt
-  extra_files:
-    - glob: build/chart/*.tgz
 
 signs:
   - cmd: cosign
@@ -1060,19 +1059,21 @@ release:
   draft: true
   use_existing_draft: true
   mode: keep-existing
+  # A run that fails after the upload can run again on the same draft.
+  replace_existing_artifacts: true
   prerelease: auto
-  extra_files:
-    - glob: build/chart/*.tgz
 
 kos:
   - id: bk-agent-stack-orchard
     build: bk-agent-stack-orchard
-    base_image: gcr.io/distroless/static-debian13:nonroot
+    base_image: gcr.io/distroless/static-debian13:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99
     repositories: [ghcr.io/joshwrightcodes/bk-agent-stack-orchard]
     platforms: [linux/amd64, linux/arm64]
+    # No latest tag: it would move before the workflow signs the image, and an operator pins a
+    # version. The chart refers to the image by its digest.
     tags:
       - "{{ .Tag }}"
-      - "{{ if not .Prerelease }}latest{{ end }}"
+      - "{{ .Version }}"
     bare: true
     creation_time: "{{ .CommitTimestamp }}"
     ko_data_creation_time: "{{ .CommitTimestamp }}"
@@ -1092,7 +1093,10 @@ These rules apply to the configuration:
   controller needs for TLS and for timestamps. Its version tags are public, so the build can pin a
   digest. The GoReleaser default is `cgr.dev/chainguard/static`, and the free Chainguard catalogue
   gives only the `latest` tag. Version tags need a paid subscription (Chainguard, 2026-09-19).
-  Because of this, the configuration MUST set `base_image`.
+  Because of this, the configuration MUST set `base_image`. It MUST pin the digest, and Renovate
+  updates the digest.
+* The image has the tags `v<version>` and `<version>`. It has no `latest` tag, because that tag
+  would move before the workflow signs the image.
 * In `--snapshot` mode, GoReleaser loads the image into the local Docker daemon as
   `goreleaser.ko.local`. It does not push the image. Use `goreleaser release --snapshot --clean`
   to build the image locally.
@@ -1100,7 +1104,7 @@ These rules apply to the configuration:
   `ghcr.io/joshwrightcodes/bk-agent-stack-orchard`. The push needs a registry login, for
   example `docker login ghcr.io`.
 * `--snapshot` mode MUST skip the signatures (`--skip=sign`), because a snapshot has no OIDC
-  token. It still builds the SBOMs, and the checksums still name the chart package.
+  token. It still builds the SBOMs.
 * `changelog` is off, because release-please writes the release notes.
 
 **Release versions.** release-please calculates each version from the Conventional Commits on
@@ -1117,18 +1121,24 @@ the maintainer. The commit of the tag MUST be on `main`, and the version in `Cha
 the version of the tag. The workflow checks both before it builds anything, and then does these
 steps in this order:
 
-1. `scripts/release-chart.sh` packages the chart into `build/chart`.
-2. GoReleaser builds the archives, an SPDX JSON SBOM of each archive (syft), and `checksums.txt`.
-   The checksums cover the archives, the SBOMs, and the chart package. cosign signs
-   `checksums.txt` into the bundle `checksums.txt.sigstore.json`. GoReleaser pushes the image
-   and uploads the assets to the draft release of release-please, and keeps its notes.
-3. `scripts/release-publish.sh` signs the image index and each platform image by digest. It makes
-   an SPDX JSON SBOM of each platform image with syft, and attaches it with `cosign attest
-   --type spdxjson`. It pushes the chart to `oci://ghcr.io/joshwrightcodes/charts`, and signs the
-   chart by digest. The image has no SBOM from ko, because that SBOM has no signature.
-4. `scripts/verify-release.sh` verifies each signature and each attestation. Then the workflow
-   checks that exactly one release has the tag, and publishes it. The repository makes a
-   published release immutable, so every asset MUST be on the draft before the publication.
+1. GoReleaser builds the archives, an SPDX JSON SBOM of each archive (syft), and `checksums.txt`,
+   which covers the archives and the SBOMs. cosign signs `checksums.txt` into the bundle
+   `checksums.txt.sigstore.json`. GoReleaser pushes the image, and uploads the assets to the
+   draft release of release-please. It keeps the notes of the draft, and it replaces an asset that
+   a failed run left.
+2. `scripts/release-publish.sh` reads the digest of the image from the record of GoReleaser
+   (`dist/artifacts.json`). It MUST NOT get the digest from a tag, because another workflow can
+   push to the tag. It signs the image index and each platform image by that digest. It makes an
+   SPDX JSON SBOM of each platform image with syft, and attaches it with `cosign attest --type
+   spdxjson`. The image has no SBOM from ko, because that SBOM has no signature.
+3. The same script packages the chart with `image.digest` set to that digest, signs the package
+   into its own bundle, pushes it to `oci://ghcr.io/joshwrightcodes/charts`, signs it there by
+   digest, and uploads the package and its bundle to the draft.
+4. `scripts/verify-release.sh` verifies each signature and each attestation, and checks that the
+   tags in the registry give the digests that step 2 and step 3 signed.
+5. `scripts/release-finish.sh` checks that exactly one release has the tag, and that the assets of
+   the draft are the verified files, by name and SHA-256. Then it publishes the draft. The
+   repository makes a published release immutable, so a changed asset would stay.
 
 Each signature MUST be keyless. cosign gets a short-lived certificate from Sigstore for the OIDC
 token of the workflow, and records the signature in the Rekor transparency log. A verification
