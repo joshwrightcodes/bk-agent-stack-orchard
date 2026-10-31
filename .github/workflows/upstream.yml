@@ -33,7 +33,7 @@ jobs:
 
       # The client of this project is not generated, so this reports when a field that it uses
       # moves in the version that the documents pin.
-      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
 
       - name: orchard contract
         env:
