@@ -108,9 +108,10 @@ Rules for the subject line:
 Rules for the rest of the message:
 
 * The body says why the change is necessary, and it wraps at 72 characters.
-* A commit from Dependabot keeps the type and the shape, but its subject may pass 72 characters,
-  because the module path belongs in the subject, and its description starts with a capital
-  letter ("Bump …"), because its configuration sets only the type and the scope.
+* A commit from Renovate or Dependabot keeps the type and the shape, but its subject may pass 72
+  characters, because the module path belongs in the subject. A description from Dependabot
+  starts with a capital letter ("Bump …"), because its configuration sets only the type and the
+  scope.
 * A breaking change has `!` before the colon, and a `BREAKING CHANGE:` footer that says what
   a user of the project must do.
 * Footers name the source identifiers, for example `Refs: W-06, PR-001` and `Evidence: T-041`.

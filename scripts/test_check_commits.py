@@ -38,9 +38,25 @@ updated-dependencies:
 Signed-off-by: dependabot[bot] <support@github.com>"""
 
 
+RENOVATE = "renovate[bot]"
+
+# The shape of a Renovate message for one module: a lowercase description, and a subject that the
+# module path makes longer than 72 characters.
+RENOVATE_MESSAGE = (
+    "build(deps): update module go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
+    " to v1.40.0")
+
+
 class CheckTest(unittest.TestCase):
     def test_a_message_of_dependabot_passes(self) -> None:
         self.assertEqual(check_commits.check("r", DEPENDABOT_MESSAGE, DEPENDABOT), [])
+
+    def test_a_message_of_renovate_passes(self) -> None:
+        self.assertEqual(check_commits.check("r", RENOVATE_MESSAGE, RENOVATE), [])
+
+    def test_a_person_keeps_the_subject_inside_the_limit(self) -> None:
+        problems = check_commits.check("r", RENOVATE_MESSAGE, "Josh")
+        self.assertTrue(any("subject is" in p for p in problems), problems)
 
     def test_a_person_writes_the_description_in_lower_case(self) -> None:
         problems = check_commits.check("r", "fix(orchard): Trust the certificate", "Josh")
