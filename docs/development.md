@@ -1,7 +1,7 @@
 # Development
 
-This guide tells a developer how to run the gates and the integration tests, and how to operate the
-self-hosted runner that the integration tests use in CI while the repository is private.
+This guide tells a developer how to run the gates and the integration tests, and how to operate a
+self-hosted runner for the integration tests in a private copy of the repository.
 
 ## Tools
 
@@ -158,13 +158,23 @@ These conditions also apply:
   into `$HOME/.orchard/orchard.yml`. The Orchard configuration of the developer does not change.
 * Without `mise`, `ORCHARD_BIN` can name an Orchard binary. It MUST be the version that `mise.toml`
   pins.
+* The macOS binary of Orchard 0.56.0 and later fails its own signature check
+  ([openai/orchard#456](https://github.com/openai/orchard/issues/456), checked 2026-10-31). macOS 26
+  kills it at launch, before it writes any output, so each test waits for workers that never
+  report. `mise run integration` and `mise run load` start with `scripts/sign-orchard.sh`, which
+  gives the binary an ad hoc signature when its own signature fails. mise checks the SHA-256 of
+  the archive first.
 
 ## The CI runner of the integration tests
 
-CI runs the integration tests on macOS on arm64 for the same reason. A hosted macOS runner costs
-ten times the minutes of a Linux runner in a private repository, so the job runs on a self-hosted
-runner while the repository is private. The runner is inside a Tart macOS VM on an Apple silicon
-Mac, so the jobs do not reach the files of the Mac.
+CI runs the integration tests on macOS on arm64 for the same reason. The repository is public, so
+the job runs on a hosted macOS runner, which costs nothing. `JOURNEY_RUNNER` MUST stay unset,
+because a self-hosted runner MUST NOT serve a public repository.
+
+In a private copy of the repository, a hosted macOS runner costs ten times the minutes of a Linux
+runner, so the job can run on a self-hosted runner. The rest of this section describes that runner.
+It is inside a Tart macOS VM on an Apple silicon Mac, so the jobs do not reach the files of the
+Mac.
 
 The repository variable `JOURNEY_RUNNER` selects the runner. When it names the label
 `bk-orchard-mac`, the job runs on the VM. When it is empty, the job runs on a hosted macOS runner.
