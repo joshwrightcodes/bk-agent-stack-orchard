@@ -5,8 +5,8 @@ maintainer decides what the project accepts.
 
 ## Workflow
 
-Work is tracked in the [project](https://github.com/users/joshwrightcodes/projects/1). Each item
-is a work unit of the [implementation plan](docs/delivery/implementation-plan.md).
+The maintainer tracks work in a GitHub project. Each item is a work unit of the
+[implementation plan](docs/delivery/implementation-plan.md).
 
 1. **Assign the item** to its owner before any work starts. An unassigned item is not in
    progress.
