@@ -152,7 +152,21 @@ While the major version is 0, the commits since the last release select the next
 | Only `fix` and `perf` commits, and commits that change no behaviour | Next patch version, for example `v0.3.1` to `v0.3.2` |
 | Only `docs`, `test`, `ci`, `build`, `chore`, or `refactor` commits | No release is necessary |
 
-The release notes identify each breaking change, and they tell an operator what to change.
+A breaking change has `!` in its subject, and a `BREAKING CHANGE:` footer that tells an operator
+what to change. GoReleaser writes the release notes from the commit subjects, so each breaking
+change shows its `!`, with a link to its commit.
+
+To make a release, the maintainer does these steps:
+
+1. Select the next version from the table above.
+2. Create a signed, annotated tag on the commit of `main`, for example
+   `git tag --sign v0.4.0 --message v0.4.0`.
+3. Push the tag. The release workflow checks the tag, builds and signs the artifacts, verifies the
+   signatures, and then publishes the release
+   ([ADR-0013](docs/adrs/0013-sign-releases-with-keyless-cosign-signatures.md)).
+
+If the workflow fails before it publishes, the release stays a draft. Delete the draft, correct
+the cause, and publish a new version.
 
 ## Licence of contributions
 

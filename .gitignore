@@ -225,3 +225,6 @@ mise.local.toml
 
 # The fail files that rapid writes to replay a failed sequence.
 test/component/testdata/rapid/
+
+# The chart package and the SBOMs that the release scripts write.
+/build/

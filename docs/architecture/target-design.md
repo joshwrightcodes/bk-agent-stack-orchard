@@ -1001,9 +1001,9 @@ release later than the pinned version. The integration tests against a real Orch
 behaviour, and they are the only layer that can.
 
 **Build and release.** GoReleaser (v2.18 or later) MUST build the release binaries, the
-archives, the checksums, and the container image. GoReleaser MUST use ko through its `kos`
-section to build the image. The image MUST be distroless. The repository MUST NOT have a
-`.ko.yaml` file, because GoReleaser sets all ko options.
+archives, the SBOMs of the archives, the checksums, and the container image. GoReleaser MUST use
+ko through its `kos` section to build the image. The image MUST be distroless. The repository
+MUST NOT have a `.ko.yaml` file, because GoReleaser sets all ko options.
 
 The `.goreleaser.yaml` file MUST contain this configuration. `goreleaser check` validates it.
 
@@ -1034,8 +1034,29 @@ archives:
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
+# Each archive gets an SPDX SBOM from syft. The checksums cover the archives, the SBOMs, and the
+# chart package, and one keyless cosign signature covers the checksums (ADR-0013).
+sboms:
+  - artifacts: archive
+
 checksum:
   name_template: checksums.txt
+  extra_files:
+    - glob: build/chart/*.tgz
+
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args: ["sign-blob", "--bundle=${signature}", "${artifact}", "--yes"]
+    artifacts: checksum
+
+# The release is a draft until the workflow has verified each signature. The repository makes a
+# published release immutable, so GoReleaser must upload every asset before the publication.
+release:
+  draft: true
+  prerelease: auto
+  extra_files:
+    - glob: build/chart/*.tgz
 
 kos:
   - id: bk-agent-stack-orchard
@@ -1049,7 +1070,9 @@ kos:
     bare: true
     creation_time: "{{ .CommitTimestamp }}"
     ko_data_creation_time: "{{ .CommitTimestamp }}"
-    sbom: spdx
+    # The release workflow attests an SBOM of each platform image with syft and cosign. The SBOM
+    # of ko has no signature, so it is off.
+    sbom: none
 ```
 
 These rules apply to the configuration:
@@ -1070,6 +1093,35 @@ These rules apply to the configuration:
 * In release mode, GoReleaser pushes the image to
   `ghcr.io/joshwrightcodes/bk-agent-stack-orchard`. The push needs a registry login, for
   example `docker login ghcr.io`.
+* `--snapshot` mode MUST skip the signatures (`--skip=sign`), because a snapshot has no OIDC
+  token. It still builds the SBOMs, and the checksums still name the chart package.
+
+**Release signatures.** A tag that matches `v*` starts `.github/workflows/release.yml`. The tag
+MUST follow the version rules of the contributing guide, and its commit MUST be on `main`.
+`scripts/check-release-tag.py` checks the tag before the workflow builds anything. The workflow
+does these steps in this order:
+
+1. `scripts/release-chart.sh` packages the chart into `build/chart`, with the version of the tag
+   as the chart version and as the app version. The version in `Chart.yaml` is a placeholder.
+2. GoReleaser builds the archives, an SPDX JSON SBOM of each archive (syft), and `checksums.txt`.
+   The checksums cover the archives, the SBOMs, and the chart package. cosign signs
+   `checksums.txt` into the bundle `checksums.txt.sigstore.json`. GoReleaser pushes the image
+   and uploads the assets to a draft release.
+3. `scripts/release-publish.sh` signs the image index and each platform image by digest. It makes
+   an SPDX JSON SBOM of each platform image with syft, and attaches it with `cosign attest
+   --type spdxjson`. It pushes the chart to `oci://ghcr.io/joshwrightcodes/charts`, and signs the
+   chart by digest. The image has no SBOM from ko, because that SBOM has no signature.
+4. `scripts/verify-release.sh` verifies each signature and each attestation. Only then does the
+   workflow publish the draft. The repository makes a published release immutable, so every
+   asset MUST be on the draft before the publication.
+
+Each signature MUST be keyless. cosign gets a short-lived certificate from Sigstore for the OIDC
+token of the workflow, and records the signature in the Rekor transparency log. A verification
+MUST require the certificate identity
+`https://github.com/joshwrightcodes/bk-agent-stack-orchard/.github/workflows/release.yml@refs/tags/<tag>`
+and the issuer `https://token.actions.githubusercontent.com`. The workflow MUST NOT restore a
+cache, and only its job has `id-token: write`, `packages: write`, and `contents: write`.
+`mise.toml` pins cosign and syft.
 
 **Static analysis.** golangci-lint (v2.13 or later) MUST examine all Go code. In CI the analysis
 MUST report each finding as an annotation on the line that carries it, so that a person reads the
@@ -1128,6 +1180,10 @@ commands reports a problem.
 * `openai/tart` — https://github.com/openai/tart
 * GoReleaser — https://goreleaser.com
 * GoReleaser ko integration — https://goreleaser.com/customization/package/ko/
+* GoReleaser signing and SBOMs — https://goreleaser.com/customization/sign/ and
+  https://goreleaser.com/customization/sbom/
+* Sigstore cosign — https://docs.sigstore.dev/cosign/
+* syft — https://github.com/anchore/syft
 * ko — https://ko.build
 * golangci-lint — https://golangci-lint.run
 * Distroless images — https://github.com/GoogleContainerTools/distroless

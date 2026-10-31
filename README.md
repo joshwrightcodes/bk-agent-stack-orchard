@@ -97,6 +97,38 @@ mise run snapshot  # build the release archives and the image, without publishin
 The image is `goreleaser.ko.local` in the local Docker daemon. Push it to your registry, and set
 `image.repository` and `image.digest` in the values of the chart.
 
+After the first release, use the published artifacts, and [verify](#verify-a-release) them before
+you deploy them.
+
+## Verify a release
+
+Each release has a keyless [cosign](https://docs.sigstore.dev/cosign/) signature from the release
+workflow of this repository
+([ADR-0013](docs/adrs/0013-sign-releases-with-keyless-cosign-signatures.md)):
+
+| Artifact | Where | Signature | SBOM |
+|---|---|---|---|
+| Archives | The GitHub release | `checksums.txt.sigstore.json` signs `checksums.txt`, which names each archive | `<archive>.sbom.json` (SPDX), in `checksums.txt` |
+| Image | `ghcr.io/joshwrightcodes/bk-agent-stack-orchard` | On the index and on each platform image | An attestation of type `spdxjson` on each platform image |
+| Chart | `oci://ghcr.io/joshwrightcodes/charts/bk-agent-stack-orchard` | On the chart | None |
+
+To verify all artifacts of a release, put the downloaded files in one directory, and run this
+command:
+
+```sh
+scripts/verify-release.sh v0.1.0 ./downloads
+```
+
+The script needs cosign, docker with buildx, and jq. To verify one artifact, require the identity
+of the release workflow at the tag:
+
+```sh
+cosign verify \
+  --certificate-identity "https://github.com/joshwrightcodes/bk-agent-stack-orchard/.github/workflows/release.yml@refs/tags/v0.1.0" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  ghcr.io/joshwrightcodes/bk-agent-stack-orchard:v0.1.0
+```
+
 ## Versioning
 
 The project uses [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html). A release tag
@@ -121,7 +153,7 @@ version.
 | [System design baseline](docs/architecture/system-design-baseline.md) | Quality scenarios, the assumed demand model, the quality targets, the cost comparison, and the driver register |
 | [Target design](docs/architecture/target-design.md) | Components, job lifecycle, failure handling, configuration, security, observability, deployment, and conventions |
 | [C4 model](docs/architecture/c4.md) | Levels 1 to 3, generated from [`workspace.dsl`](docs/architecture/workspace.dsl) |
-| [Decision records](docs/adrs/README.md) | ADR-0001 to ADR-0012 |
+| [Decision records](docs/adrs/README.md) | ADR-0001 to ADR-0013 |
 | [Test strategy](docs/quality/test-strategy.md) | The risk map, the invariants, and the test obligations with their gates |
 | [Implementation plan](docs/delivery/implementation-plan.md) | Work units W-01 to W-27, their order, and the evidence that ends each work unit |
 | [Development guide](docs/development.md) | The gates, the integration tests, and the real-VM tests |
@@ -143,6 +175,7 @@ version.
 | [0010](docs/adrs/0010-call-the-orchard-api-with-a-client-of-this-project.md) | Call the Orchard API with a client of this project |
 | [0011](docs/adrs/0011-generate-the-orchard-wire-types.md) | Generate the Orchard wire types |
 | [0012](docs/adrs/0012-build-the-job-vm-images-from-a-vanilla-macos-image.md) | Build the job VM images from a vanilla macOS image |
+| [0013](docs/adrs/0013-sign-releases-with-keyless-cosign-signatures.md) | Sign releases with keyless cosign signatures (proposed) |
 
 ## Stack
 

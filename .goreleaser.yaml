@@ -24,8 +24,29 @@ archives:
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
+# Each archive gets an SPDX SBOM from syft. The checksums cover the archives, the SBOMs, and the
+# chart package, and one keyless cosign signature covers the checksums (ADR-0013).
+sboms:
+  - artifacts: archive
+
 checksum:
   name_template: checksums.txt
+  extra_files:
+    - glob: build/chart/*.tgz
+
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args: ["sign-blob", "--bundle=${signature}", "${artifact}", "--yes"]
+    artifacts: checksum
+
+# The release is a draft until the workflow has verified each signature. The repository makes a
+# published release immutable, so GoReleaser must upload every asset before the publication.
+release:
+  draft: true
+  prerelease: auto
+  extra_files:
+    - glob: build/chart/*.tgz
 
 kos:
   - id: bk-agent-stack-orchard
@@ -39,4 +60,6 @@ kos:
     bare: true
     creation_time: "{{ .CommitTimestamp }}"
     ko_data_creation_time: "{{ .CommitTimestamp }}"
-    sbom: spdx
+    # The release workflow attests an SBOM of each platform image with syft and cosign. The SBOM
+    # of ko has no signature, so it is off.
+    sbom: none
