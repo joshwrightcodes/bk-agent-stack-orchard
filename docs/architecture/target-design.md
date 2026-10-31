@@ -932,7 +932,7 @@ Each item MUST have its own ADR before implementation:
 * **Go version:** 1.27.
 * **Dependency updates:** Renovate proposes the Go module, the image, and the action updates each
   week, after a release is three days old. Its commit messages use the conventional types of the
-  contributing guide.
+  contributing guide. A Go module update is a `fix`, because it changes the release artifacts.
 * **Tool versions:** one `mise.toml` file pins Go, golangci-lint, GoReleaser, Packer, and
   Ansible. A developer and CI use the same versions. CI runs `mise install` before each task.
   The golangci-lint documentation gives `mise` as an installation method, and it states that
@@ -1039,6 +1039,9 @@ archives:
 sboms:
   - artifacts: archive
 
+changelog:
+  disable: true
+
 checksum:
   name_template: checksums.txt
   extra_files:
@@ -1050,10 +1053,13 @@ signs:
     args: ["sign-blob", "--bundle=${signature}", "${artifact}", "--yes"]
     artifacts: checksum
 
-# The release is a draft until the workflow has verified each signature. The repository makes a
-# published release immutable, so GoReleaser must upload every asset before the publication.
+# release-please creates the release as a draft, with its changelog as the notes. GoReleaser
+# uploads the assets to that draft and keeps the notes. The workflow publishes the draft after it
+# has verified each signature, because the repository makes a published release immutable.
 release:
   draft: true
+  use_existing_draft: true
+  mode: keep-existing
   prerelease: auto
   extra_files:
     - glob: build/chart/*.tgz
@@ -1095,25 +1101,34 @@ These rules apply to the configuration:
   example `docker login ghcr.io`.
 * `--snapshot` mode MUST skip the signatures (`--skip=sign`), because a snapshot has no OIDC
   token. It still builds the SBOMs, and the checksums still name the chart package.
+* `changelog` is off, because release-please writes the release notes.
 
-**Release signatures.** A tag that matches `v*` starts `.github/workflows/release.yml`. The tag
-MUST follow the version rules of the contributing guide, and its commit MUST be on `main`.
-`scripts/check-release-tag.py` checks the tag before the workflow builds anything. The workflow
-does these steps in this order:
+**Release versions.** release-please calculates each version from the Conventional Commits on
+`main`, with the 0.x rules of the contributing guide (`release-please-config.json`). It keeps one
+release pull request that collects the changes and writes `CHANGELOG.md` and both versions in
+`Chart.yaml`. When the maintainer merges it, release-please creates a draft release with the
+changelog, and the tag `v<version>` at once. It uses the token of a GitHub App, because GitHub
+starts no workflow for a tag that `GITHUB_TOKEN` creates. The private key of the App MUST be a
+secret of the `release-please` environment, which permits only `main`.
 
-1. `scripts/release-chart.sh` packages the chart into `build/chart`, with the version of the tag
-   as the chart version and as the app version. The version in `Chart.yaml` is a placeholder.
+**Release signatures.** A tag that matches `v*` starts `.github/workflows/release.yml` in the
+`release` environment. The environment permits only `v*` tags, and it MUST need the approval of
+the maintainer. The commit of the tag MUST be on `main`, and the version in `Chart.yaml` MUST be
+the version of the tag. The workflow checks both before it builds anything, and then does these
+steps in this order:
+
+1. `scripts/release-chart.sh` packages the chart into `build/chart`.
 2. GoReleaser builds the archives, an SPDX JSON SBOM of each archive (syft), and `checksums.txt`.
    The checksums cover the archives, the SBOMs, and the chart package. cosign signs
    `checksums.txt` into the bundle `checksums.txt.sigstore.json`. GoReleaser pushes the image
-   and uploads the assets to a draft release.
+   and uploads the assets to the draft release of release-please, and keeps its notes.
 3. `scripts/release-publish.sh` signs the image index and each platform image by digest. It makes
    an SPDX JSON SBOM of each platform image with syft, and attaches it with `cosign attest
    --type spdxjson`. It pushes the chart to `oci://ghcr.io/joshwrightcodes/charts`, and signs the
    chart by digest. The image has no SBOM from ko, because that SBOM has no signature.
-4. `scripts/verify-release.sh` verifies each signature and each attestation. Only then does the
-   workflow publish the draft. The repository makes a published release immutable, so every
-   asset MUST be on the draft before the publication.
+4. `scripts/verify-release.sh` verifies each signature and each attestation. Then the workflow
+   checks that exactly one release has the tag, and publishes it. The repository makes a
+   published release immutable, so every asset MUST be on the draft before the publication.
 
 Each signature MUST be keyless. cosign gets a short-lived certificate from Sigstore for the OIDC
 token of the workflow, and records the signature in the Rekor transparency log. A verification
@@ -1183,6 +1198,7 @@ commands reports a problem.
 * GoReleaser signing and SBOMs — https://goreleaser.com/customization/sign/ and
   https://goreleaser.com/customization/sbom/
 * Sigstore cosign — https://docs.sigstore.dev/cosign/
+* release-please — https://github.com/googleapis/release-please
 * syft — https://github.com/anchore/syft
 * ko — https://ko.build
 * golangci-lint — https://golangci-lint.run

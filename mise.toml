@@ -160,7 +160,7 @@ description = "Build the release artifacts and the image, without publishing"
 # the SBOMs and the chart package included.
 run = [
   "goreleaser check",
-  "./scripts/release-chart.sh 0.0.0-snapshot",
+  "./scripts/release-chart.sh",
   "goreleaser release --snapshot --clean --skip=sign",
   "./scripts/check-image.sh",
 ]

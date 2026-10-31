@@ -81,3 +81,4 @@ date. The content of an accepted ADR does not change: a new ADR supersedes it.
 | [ADR-0011](0011-generate-the-orchard-wire-types.md) | Generate the Orchard wire types from the pinned version | accepted |
 | [ADR-0012](0012-build-the-job-vm-images-from-a-vanilla-macos-image.md) | Build the job VM images from a vanilla macOS image | accepted |
 | [ADR-0013](0013-sign-releases-with-keyless-cosign-signatures.md) | Sign releases with keyless cosign signatures | proposed |
+| [ADR-0014](0014-calculate-releases-with-release-please.md) | Calculate releases with release-please | proposed |

@@ -1,9 +1,10 @@
 name: release
 
 # A release tag publishes the archives, the image, and the chart, each signed with a keyless cosign
-# signature, with an SBOM for each archive and each platform image (ADR-0013). CONTRIBUTING.md
-# gives the version rules, and only the maintainer creates a release tag. The certificate of each
-# signature names this file and the tag, which is what scripts/verify-release.sh checks.
+# signature, with an SBOM for each archive and each platform image (ADR-0013). release-please
+# creates the tag and a draft release when the maintainer merges its release pull request
+# (release-please.yml, ADR-0014). The certificate of each signature names this file and the tag,
+# which is what scripts/verify-release.sh checks.
 
 on:
   push:
@@ -19,6 +20,8 @@ jobs:
   release:
     name: release
     runs-on: ubuntu-latest
+    # The environment permits only a v* tag, and it waits for the approval of the maintainer.
+    environment: release
     permissions:
       # The GitHub release and its assets.
       contents: write
@@ -29,22 +32,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # GoReleaser reads the tags for the release notes, and the check below reads main.
+          # GoReleaser reads the tags, and the check below reads main.
           fetch-depth: 0
           persist-credentials: false
-
-      - id: tag
-        name: check the tag
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          version="$(python3 scripts/check-release-tag.py "$TAG")"
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "release: $TAG is not on main" >&2
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
         with:
@@ -60,12 +50,27 @@ jobs:
           printf '%s' "$TOKEN" | docker login ghcr.io --username "$ACTOR" --password-stdin
           printf '%s' "$TOKEN" | helm registry login ghcr.io --username "$ACTOR" --password-stdin
 
-      - name: package the chart
+      # release-please wrote the version of the tag into the chart, on a commit of main. A tag
+      # that something else created fails here.
+      - name: check the tag
         env:
-          VERSION: ${{ steps.tag.outputs.version }}
-        run: ./scripts/release-chart.sh "$VERSION"
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "release: $TAG is not on main" >&2
+            exit 1
+          fi
+          chart="$(helm show chart deploy/helm/bk-agent-stack-orchard | awk '$1 == "version:" {print $2}')"
+          if [ "v$chart" != "$TAG" ]; then
+            echo "release: the chart has version $chart, and the tag is $TAG" >&2
+            exit 1
+          fi
 
-      - name: build, sign, and upload to a draft release
+      - name: package the chart
+        run: ./scripts/release-chart.sh
+
+      - name: build, sign, and upload to the draft release
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: goreleaser release --clean
@@ -80,8 +85,19 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: ./scripts/verify-release.sh "$TAG" dist
 
+      # GoReleaser makes a second draft if it does not find the draft of release-please, and
+      # then the notes are on one draft and the assets on the other.
       - name: publish the release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release edit "$TAG" --draft=false
+        run: |
+          set -euo pipefail
+          # --slurp joins the pages, and the tag reaches jq as data, not as part of the filter.
+          drafts="$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate |
+            jq --slurp --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)] | length')"
+          if [ "$drafts" != "1" ]; then
+            echo "release: $drafts releases have the tag $TAG, and one is necessary" >&2
+            exit 1
+          fi
+          gh release edit "$TAG" --draft=false

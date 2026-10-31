@@ -118,8 +118,8 @@ Bad:
   nothing new.
 * The workflow file name is part of the identity. A rename of `release.yml` changes the identity
   that operators check.
-* The release workflow has `id-token: write`, `packages: write`, and `contents: write`. Only the
-  maintainer can create a release tag, which limits who can start it.
+* The release workflow has `id-token: write`, `packages: write`, and `contents: write`. It runs only
+  for a `v*` tag, in an environment that needs the approval of the maintainer.
 
 ## Confirmation
 

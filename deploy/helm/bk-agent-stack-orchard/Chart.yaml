@@ -4,9 +4,10 @@ description: >-
   A Buildkite custom stack that runs one temporary macOS VM for each job through Orchard.
 type: application
 # The chart and the controller release together, so the version of the chart is the version of
-# the controller that it deploys.
-version: 0.1.0
-appVersion: "0.1.0"
+# the controller that it deploys. release-please writes both versions in its release pull request,
+# from the marker at the end of each line. 0.0.0 means that no release exists yet.
+version: 0.0.0 # x-release-please-version
+appVersion: "0.0.0" # x-release-please-version
 home: https://github.com/joshwrightcodes/bk-agent-stack-orchard
 sources:
   - https://github.com/joshwrightcodes/bk-agent-stack-orchard

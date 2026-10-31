@@ -29,6 +29,9 @@ archives:
 sboms:
   - artifacts: archive
 
+changelog:
+  disable: true
+
 checksum:
   name_template: checksums.txt
   extra_files:
@@ -40,10 +43,13 @@ signs:
     args: ["sign-blob", "--bundle=${signature}", "${artifact}", "--yes"]
     artifacts: checksum
 
-# The release is a draft until the workflow has verified each signature. The repository makes a
-# published release immutable, so GoReleaser must upload every asset before the publication.
+# release-please creates the release as a draft, with its changelog as the notes. GoReleaser
+# uploads the assets to that draft and keeps the notes. The workflow publishes the draft after it
+# has verified each signature, because the repository makes a published release immutable.
 release:
   draft: true
+  use_existing_draft: true
+  mode: keep-existing
   prerelease: auto
   extra_files:
     - glob: build/chart/*.tgz

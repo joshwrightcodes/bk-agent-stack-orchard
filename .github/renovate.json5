@@ -32,8 +32,10 @@
 
   packageRules: [
     {
+      // A module update changes the binary and the image, so it is a fix, and release-please
+      // proposes a patch release for it. The images and the actions change no release artifact.
       matchManagers: ["gomod"],
-      semanticCommitType: "build",
+      semanticCommitType: "fix",
     },
     {
       // mise.toml pins the Go version, and target design section 15 states it.
