@@ -31,3 +31,5 @@ CONTRIBUTING.md gives the types, the scopes, and the rules.
 - [ ] No secret, token, or customer source code is in the diff or in the test data.
 - [ ] No code with a field-of-use restriction entered the repository, and `go.mod` has no Orchard
       dependency (ADR-0010).
+- [ ] I have the right to give this contribution under the AGPL-3.0-or-later, as CONTRIBUTING.md
+      states in "Licence of contributions".

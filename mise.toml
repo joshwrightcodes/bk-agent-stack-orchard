@@ -114,6 +114,19 @@ run = "go test ./..."
 description = "Report known vulnerabilities that the code can reach (govulncheck)"
 run = "govulncheck ./..."
 
+# go test runs the seed inputs of each fuzz test with the other tests. This task fuzzes each target
+# in turn, for FUZZTIME each. go test can fuzz one target of one package at a time.
+[tasks.fuzz]
+description = "Fuzz each fuzz test of the module, for FUZZTIME each (default 1m)"
+run = '''
+set -eu
+for package in $(go list ./...); do
+  for target in $(go test -list '^Fuzz' "$package" | grep '^Fuzz' || true); do
+    go test "$package" -run '^$' -fuzz "^${target}\$" -fuzztime "${FUZZTIME:-1m}"
+  done
+done
+'''
+
 [tasks.integration]
 description = "Run the integration tests against orchard dev in synthetic mode"
 run = "go test -tags integration -count=1 ./test/integration/..."
