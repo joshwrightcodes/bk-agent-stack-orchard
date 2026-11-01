@@ -454,3 +454,49 @@ func TestLoadRefusesAPlainHTTPAgentTelemetryEndpoint(t *testing.T) {
 		}
 	}
 }
+
+// The controller pod holds other secrets than its own, such as a proxy URL with a password. Only a
+// variable that the operator marks for the VM with the VM_ prefix may go into a machine.
+func TestLoadRefusesAProfileVariableThatIsNotForTheVM(t *testing.T) {
+	for _, name := range []string{
+		"HTTPS_PROXY", "OTEL_EXPORTER_OTLP_TRACES_HEADERS", "MY_SECRET", "vm_password",
+	} {
+		t.Run(name, func(t *testing.T) {
+			body := minimal + `    otel: {enabled: true, endpoint: "https://otel.example.com", headersEnv: ` + name + `}
+`
+			_, err := load(t, body, func(string) string { return "x" })
+			if err == nil {
+				t.Fatalf("Load() with headersEnv %s = nil, want an error", name)
+			}
+			for _, want := range []string{`profile "xcode-27"`, "otel.headersEnv", name, "VM_"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("Load() = %q, want it to contain %q", err, want)
+				}
+			}
+		})
+	}
+}
+
+func TestLoadAcceptsAVMVariableForEachField(t *testing.T) {
+	body := minimal + `    startupTransport: ssh
+    vmCredentials: {usernameEnv: VM_USER, passwordEnv: VM_PASSWORD}
+    otel: {enabled: true, endpoint: "https://otel.example.com", headersEnv: VM_OTEL_HEADERS}
+`
+
+	if _, err := load(t, body, func(string) string { return "x" }); err != nil {
+		t.Fatalf("Load() = %v, want no error", err)
+	}
+}
+
+// The most specific message wins: a controller secret is a controller secret, not only a name
+// without the prefix.
+func TestLoadNamesTheControllerSecretBeforeTheVMPrefixRule(t *testing.T) {
+	body := minimal + `    otel: {enabled: true, endpoint: "https://otel.example.com", headersEnv: BK_AGENT_STACK_ORCHARD_TOKEN}
+`
+
+	_, err := load(t, body, secrets())
+	if err == nil || !strings.Contains(err.Error(), "belongs to the controller") ||
+		strings.Contains(err.Error(), "must start with") {
+		t.Errorf("Load() = %v, want only the controller secret message", err)
+	}
+}

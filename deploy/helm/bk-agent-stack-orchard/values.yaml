@@ -38,7 +38,9 @@ otel:
   # and the NetworkPolicy use the port of gRPC, 4317, so the chart names the protocol of that port.
   protocol: grpc
 
-# extraEnv adds environment variables to the controller.
+# extraEnv adds environment variables to the controller. A profile can send only a variable whose
+# name starts with VM_ (vmCredentials.usernameEnv, vmCredentials.passwordEnv, otel.headersEnv) to
+# a VM, so give such a variable that name here.
 extraEnv: []
 
 resources:

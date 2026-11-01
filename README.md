@@ -133,7 +133,10 @@ release exists. Each release has a signed Helm chart in an OCI registry.
    The [target design](docs/architecture/target-design.md) (section 8) lists all keys.
 3. Write a values file. `config.controllerID`, `config.buildkite.queue`, `config.orchard.url`, and
    `secret.name` are required. Add at least one entry to `config.profiles`. The chart documents
-   all values in `values.yaml`, and `values.schema.json` rejects a wrong value.
+   all values in `values.yaml`, and `values.schema.json` rejects a wrong value. A profile field
+   that names an environment variable (`vmCredentials.usernameEnv`, `vmCredentials.passwordEnv`,
+   and `otel.headersEnv`) must name one that starts with `VM_`. Add it through `extraEnv`. The
+   controller pod holds other secrets, and only a `VM_` variable may go into a VM.
 4. Install the chart. Use an exact version, and replace `<version>` with it:
 
    ```sh

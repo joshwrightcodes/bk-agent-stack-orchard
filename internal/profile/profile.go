@@ -113,32 +113,48 @@ func (p Profile) Validate() error {
 	return join(p.Name, problems)
 }
 
-// controllerVariablePrefix starts the name of every variable that the controller reads for itself.
-const controllerVariablePrefix = "BK_AGENT_STACK_ORCHARD_"
+// ControllerVariablePrefix starts the name of every variable that the controller reads for
+// itself.
+const ControllerVariablePrefix = "BK_AGENT_STACK_ORCHARD_"
 
-// collectorHeadersVariable holds the credential of the collector of the controller. The agent in
-// a machine uses a variable of this name, so a profile that names it would send that credential.
-//
-//nolint:gosec // G101: this is the name of a variable, not a credential.
-const collectorHeadersVariable = "OTEL_EXPORTER_OTLP_HEADERS"
+// vmVariablePrefix marks a variable of the controller pod that the operator provides for the
+// virtual machines of the profiles.
+const vmVariablePrefix = "VM_"
 
-// validateVMVariables refuses a profile that names a variable of the controller. The values of
-// the variables that a profile names go into its machines, and a job runs untrusted code there.
+// otelVariablePrefix starts the name of every OpenTelemetry SDK variable. The controller reads
+// them for its own export, and the agent in a machine reads the same names.
+const otelVariablePrefix = "OTEL_"
+
+// variableField is a profile field that names an environment variable.
+type variableField struct{ field, name string }
+
+// validateVMVariables keeps the variables of the controller out of the virtual machines. The values
+// of the variables that a profile names go into its machines, and a job runs untrusted code there.
+// The pod of the controller holds other secrets, so only a variable that the operator marks with
+// the VM_ prefix may go there. The names of the controller stay refused with their own message.
 func (p Profile) validateVMVariables() []error {
 	var problems []error
 
-	named := []struct{ field, name string }{{"otel.headersEnv", p.OTel.HeadersEnv}}
+	named := []variableField{{"otel.headersEnv", p.OTel.HeadersEnv}}
 	if p.VMCredentials != nil {
 		named = append(named,
-			struct{ field, name string }{"vmCredentials.usernameEnv", p.VMCredentials.UsernameEnv},
-			struct{ field, name string }{"vmCredentials.passwordEnv", p.VMCredentials.PasswordEnv})
+			variableField{"vmCredentials.usernameEnv", p.VMCredentials.UsernameEnv},
+			variableField{"vmCredentials.passwordEnv", p.VMCredentials.PasswordEnv})
 	}
 
 	for _, n := range named {
-		if strings.HasPrefix(n.name, controllerVariablePrefix) || n.name == collectorHeadersVariable {
+		switch {
+		case n.name == "":
+		case strings.HasPrefix(n.name, ControllerVariablePrefix), strings.HasPrefix(n.name, otelVariablePrefix):
 			problems = append(problems, fmt.Errorf(
 				"%s names the variable %s, which belongs to the controller, and its value must "+
-					"not go into a virtual machine", n.field, n.name))
+					"not go into a virtual machine, so name a variable that starts with %s instead", n.field,
+				n.name, vmVariablePrefix))
+		case !strings.HasPrefix(n.name, vmVariablePrefix):
+			problems = append(problems, fmt.Errorf(
+				"%s names the variable %s, which must start with %s, because only a variable "+
+					"that the operator marks for the virtual machines may go into one", n.field,
+				n.name, vmVariablePrefix))
 		}
 	}
 

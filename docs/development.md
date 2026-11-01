@@ -178,6 +178,8 @@ in order, because the documents decide the behaviour (CONTRIBUTING, section "Bef
    field, its default, its validation, and its place in the VM specification (sections 5 and 6.4).
 3. Write the failing test first. Add the field to `internal/profile/profile.go` with its
    validation, and test the validation in `internal/profile`.
+   A field that names an environment variable goes into `validateVMVariables`, so that it accepts
+   only a name that starts with `VM_`. The controller pod holds other secrets.
 4. Map the field to the specification in `internal/vmspec/vmspec.go`, and test it in
    `internal/vmspec/vmspec_test.go`.
 5. Add the field to the specification test (T-064, `test/integration/specification_test.go`), so

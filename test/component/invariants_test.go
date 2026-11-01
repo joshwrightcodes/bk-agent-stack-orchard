@@ -69,12 +69,20 @@ func TestRandomEventsHoldTheInvariants(t *testing.T) {
 
 // I-3. Whatever variables a profile names, a configuration that loads gives no machine the value
 // of a controller secret. A profile that names one of the secrets does not load.
+//
+// Configurations with refused names never load, so the tests of the configuration prove the
+// refusal, and this property proves that no configuration that loads leaks a secret. The names
+// include some that the rules refuse and some that they accept, with a value for each, so that a
+// loosened rule shows as a leak.
 func TestNoControllerSecretReachesAnyVMSpecification(t *testing.T) {
 	recorder := quiet(t)
 	names := append([]string{
 		"VM_USER", "VM_PASSWORD", "VM_OTEL_HEADERS", "BK_AGENT_STACK_ORCHARD_OTHER",
 		"bk_agent_stack_orchard_orchard_token", "otel_exporter_otlp_headers",
+		"OTEL_EXPORTER_OTLP_TRACES_HEADERS", "HTTPS_PROXY",
 	}, controllerSecrets...)
+
+	loads := 0
 
 	rapid.Check(t, func(rt *rapid.T) {
 		name := rapid.SampledFrom(names)
@@ -94,6 +102,8 @@ func TestNoControllerSecretReachesAnyVMSpecification(t *testing.T) {
 			return
 		}
 
+		loads++
+
 		fleet := newFleetOf(t, rt, recorder, loaded, environment)
 		fleet.ArriveMatched(rt)
 		fleet.Wait(rt)
@@ -103,6 +113,10 @@ func TestNoControllerSecretReachesAnyVMSpecification(t *testing.T) {
 			rt.Fatalf("no machine was created, so the property proved nothing")
 		}
 	})
+
+	if loads == 0 {
+		t.Error("no drawn configuration loaded, so the property proved nothing")
+	}
 }
 
 // fleet is the world of one sequence: Buildkite, Orchard, the clock, and the controller.
@@ -212,8 +226,8 @@ func (f *fleet) created(spec orchard.VM) {
 		f.violate("I-3: the specification of %s does not encode: %v", spec.Name, err)
 	}
 
-	for _, name := range controllerSecrets {
-		if strings.Contains(string(encoded), f.environment[name]) {
+	for name, value := range f.environment {
+		if !strings.HasPrefix(name, "VM_") && strings.Contains(string(encoded), value) {
 			f.violate("I-3: the specification of %s holds the value of %s", spec.Name, name)
 		}
 	}
@@ -478,6 +492,14 @@ profiles:
 		"VM_USER":                                      "image-user",
 		"VM_PASSWORD":                                  "image-password",
 		"VM_OTEL_HEADERS":                              "authorization=agent_component",
+
+		// Look-alikes and other variables of the pod hold a value, so a rule that lets one
+		// through would leak it.
+		"BK_AGENT_STACK_ORCHARD_OTHER":         "other_component",
+		"bk_agent_stack_orchard_orchard_token": "lower_token_component",
+		"otel_exporter_otlp_headers":           "lower_headers_component",
+		"OTEL_EXPORTER_OTLP_TRACES_HEADERS":    "traces_component",
+		"HTTPS_PROXY":                          "https://user:proxy_component@proxy.internal",
 	}
 
 	loaded, err := config.Load(path, func(name string) string { return environment[name] })

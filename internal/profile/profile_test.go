@@ -86,7 +86,7 @@ func TestValidateRejectsAnUnknownTransport(t *testing.T) {
 func TestValidateEnforcesTheCredentialRuleOfEachTransport(t *testing.T) {
 	withCredentials := valid()
 	withCredentials.StartupTransport = profile.TransportGuestAgent
-	withCredentials.VMCredentials = &profile.Credentials{UsernameEnv: "U", PasswordEnv: "P"}
+	withCredentials.VMCredentials = &profile.Credentials{UsernameEnv: "VM_U", PasswordEnv: "VM_P"}
 
 	if err := withCredentials.Validate(); err == nil {
 		t.Error("Validate() with the guest agent and credentials = nil, want an error")
@@ -101,7 +101,7 @@ func TestValidateEnforcesTheCredentialRuleOfEachTransport(t *testing.T) {
 
 	ssh := valid()
 	ssh.StartupTransport = profile.TransportSSH
-	ssh.VMCredentials = &profile.Credentials{UsernameEnv: "U", PasswordEnv: "P"}
+	ssh.VMCredentials = &profile.Credentials{UsernameEnv: "VM_U", PasswordEnv: "VM_P"}
 
 	if err := ssh.Validate(); err != nil {
 		t.Errorf("Validate() with SSH and credentials = %v, want no error", err)
