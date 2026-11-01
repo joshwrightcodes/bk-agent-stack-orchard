@@ -104,6 +104,21 @@
       enabled: false,
     },
     {
+      // golangci-lint reads the export data of the Go that compiles the code, and an older
+      // golangci-lint cannot read the format of a newer Go: 2.13.2 failed on Go 1.27.3. It
+      // follows Go, so its patch and minor releases arrive too.
+      matchManagers: ["mise"],
+      matchDepNames: ["golangci-lint"],
+      enabled: true,
+      semanticCommitType: "build",
+    },
+    {
+      matchManagers: ["mise"],
+      matchDepNames: ["golangci-lint"],
+      matchUpdateTypes: ["major"],
+      enabled: false,
+    },
+    {
       matchManagers: ["github-actions"],
       semanticCommitType: "ci",
       groupName: "actions",
