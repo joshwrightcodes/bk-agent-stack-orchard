@@ -85,6 +85,8 @@ func FuzzATagReachesTheEnvironmentAndNeverTheScript(f *testing.F) {
 	f.Add("x", "a\nb")
 	f.Add("x", "\"; rm -rf /; \"")
 	f.Add("", "")
+	f.Add("x", " y")
+	f.Add("profile", "z")
 
 	f.Fuzz(func(t *testing.T, key, value string) {
 		vm, err := vmspec.Build(vmspec.Request{
@@ -104,6 +106,16 @@ func FuzzATagReachesTheEnvironmentAndNeverTheScript(f *testing.F) {
 
 		if script := vm.StartupScript.ScriptContent; script != "buildkite-agent start" {
 			t.Fatalf("Build() with the tag %q=%q gave the script %q", key, value, script)
+		}
+
+		// The agent trims each tag and keeps its first '=' as the divide, so a tag that Build
+		// accepts must equal the rule of the job as the agent registers it.
+		if strings.TrimSpace(key) != key || strings.TrimSpace(value) != value {
+			t.Fatalf("Build() accepted the padded tag %q=%q", key, value)
+		}
+		switch key {
+		case "queue", "agent-stack", "profile":
+			t.Fatalf("Build() accepted the reserved tag %q", key)
 		}
 
 		list := vm.StartupScript.Env["BUILDKITE_AGENT_TAGS"]

@@ -20,11 +20,22 @@ import (
 // queueKey selects the fleet, not the profile, so it takes no part in the comparison.
 const queueKey = "queue"
 
+// agentStackKey and profileKey are tags that the controller sets on every agent. A job rule must
+// not set them.
+const (
+	agentStackKey = "agent-stack"
+	profileKey    = "profile"
+)
+
 // Reasons that a job has no profile.
 const (
 	// ReasonRuleNotLiteral is a rule that is not `key=literal`: a wildcard, a negation, or a
 	// rule with another shape.
 	ReasonRuleNotLiteral = "a rule is not a literal tag"
+
+	// ReasonReservedTag is a rule that sets a tag which the controller sets on every agent. A
+	// second value would give the agent two values for one tag.
+	ReasonReservedTag = "a rule names a tag that the controller sets"
 
 	// ReasonNoProfile is a job whose tags equal the match map of no profile.
 	ReasonNoProfile = "no profile has these tags"
@@ -100,7 +111,9 @@ const unsafeInTagList = ",\n\r\"'"
 // A rule must be `key=literal`. A wildcard, a negation, or another shape gives a mismatch,
 // because such a rule can select more than one profile or none. A key or a value with a comma, a
 // newline, or a quote also gives a mismatch, because the agent of the job carries these tags in
-// one comma-separated list.
+// one comma-separated list. The agent trims each tag, so a key or a value with leading or trailing
+// white space also gives a mismatch. A rule for `agent-stack` or `profile` gives a mismatch with
+// ReasonReservedTag, because the controller sets both tags.
 func Tags(rules []string) (map[string]string, error) {
 	tags := make(map[string]string, len(rules))
 
@@ -113,6 +126,10 @@ func Tags(rules []string) (map[string]string, error) {
 			return nil, &Mismatch{Reason: ReasonRuleNotLiteral, Rule: rule}
 		case strings.ContainsAny(key, unsafeInTagList), strings.ContainsAny(value, unsafeInTagList):
 			return nil, &Mismatch{Reason: ReasonRuleNotLiteral, Rule: rule}
+		case strings.TrimSpace(key) != key, strings.TrimSpace(value) != value:
+			return nil, &Mismatch{Reason: ReasonRuleNotLiteral, Rule: rule}
+		case key == agentStackKey, key == profileKey:
+			return nil, &Mismatch{Reason: ReasonReservedTag, Rule: rule}
 		}
 
 		if previous, seen := tags[key]; seen && previous != value {

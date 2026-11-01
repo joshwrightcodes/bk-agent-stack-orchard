@@ -676,6 +676,55 @@ func TestAnUnmatchedJobEndsWithItsTagsAndTheProfiles(t *testing.T) {
 	}
 }
 
+// A job whose rules the matcher refuses goes the path of an unmatched job: the controller
+// reserves it, finishes it with the message, and starts no machine for it. The profile of each
+// case has exactly the tags of the refused rule, so only the refusal keeps the job from it.
+func TestAJobWithARefusedRuleEndsUnmatchedAndStartsNoMachine(t *testing.T) {
+	t.Parallel()
+
+	for name, c := range map[string]struct{ rule, key, value string }{
+		"a reserved tag": {"profile=other", "profile", "other"},
+		"a comma":        {"xcode=27,gpu=yes", "xcode", "27,gpu=yes"},
+		"a padded value": {"xcode= 27", "xcode", " 27"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			api, fleet := &stacks{}, &machines{}
+			started := build(t, api, fleet)
+
+			carrier := pilot
+			carrier.Match = map[string]string{c.key: c.value}
+
+			decision := admission.Decide(admission.Request{
+				Jobs: []buildkite.ScheduledJob{{
+					ID: second, Rules: []string{"queue=macos-prod", c.rule},
+				}},
+				Profiles: []profile.Profile{carrier},
+				Now:      time.Now(),
+			})
+
+			if len(decision.Admit) != 0 || len(decision.Unmatched) != 1 {
+				t.Fatalf("Decide() admitted %d and left %d unmatched, want 0 and 1",
+					len(decision.Admit), len(decision.Unmatched))
+			}
+
+			if err := started.Launch(t.Context(), decision, inventory.Snapshot{}); err != nil {
+				t.Fatalf("Launch() = %v, want no error", err)
+			}
+
+			if len(fleet.created) != 0 {
+				t.Errorf("orchard saw %d machines, want none", len(fleet.created))
+			}
+
+			if len(api.details) != 1 || !strings.Contains(api.details[0], c.rule) {
+				t.Errorf("the job page reads %q, want one finish that names %q", api.details,
+					c.rule)
+			}
+		})
+	}
+}
+
 // buildAt gives a launcher that reads a clock that the test holds.
 func buildAt(t *testing.T, api *stacks, fleet launcher.Machines, clock *time.Time) *launcher.Launcher {
 	t.Helper()

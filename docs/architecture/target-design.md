@@ -248,7 +248,11 @@ other than `queue`.
 * A rule does not have the format `key=literal`. Wildcards, negations, and rules with an
   incorrect format are in this group. A rule whose key or value has a comma, a newline, a
   carriage return, or a quote (`"` or `'`) is in this group also, because the agent of the job
-  reads its tags as one comma-separated list (§5, VM specification).
+  reads its tags as one comma-separated list (§5, VM specification). A key or a value with
+  white space at an end is in this group also, because the agent trims each tag. A rule for
+  `agent-stack` or `profile` is in this group with its own reason, because the controller sets
+  both tags on every agent. The `queue` rule is not in this group: the matcher reads it and
+  takes it out of the tags.
 
 The controller MUST reserve an unmatched job and finish it immediately with
 `exit_status: -1`. The detail message MUST list the job tags and the `match` maps of all
@@ -446,8 +450,16 @@ For the admitted jobs, the Launcher MUST do these steps:
 A `409 Conflict` response means that a VM with the same name exists. The Launcher MUST treat
 this response as a successful launch.
 
-Orchard adds `set -e` before the script, and one `export` line for each `env` entry. Because of
-this, a non-zero agent exit status is also the script exit status.
+Orchard adds `set -e` before the script, and one `export NAME=value` line for each `env` entry.
+Because of this, a non-zero agent exit status is also the script exit status. The worker refuses
+a name that is not a valid shell name, and it quotes each value with `syntax.Quote` of
+`mvdan.cc/sh/v3/syntax`, in the zsh dialect for a `darwin` VM. A value that the function cannot
+quote (a value with a NUL byte) fails the VM with an error, and it never becomes script text.
+The function wraps a value in single quotes, or in `$'...'` with escapes when the value has a
+character that cannot be printed (`syntax/quote.go` of `mvdan/sh`, read on 2026-11-01). Both
+transports use the same script (`internal/worker/vmmanager/base/base.go` of Orchard 0.58.0, read
+through the GitHub API on 2026-11-01). The order of the `export` lines is the order of a Go map,
+so it is not stable, and no value can depend on another.
 
 The transport is `tart-guest-agent` (ADR-0009). With this transport, the Orchard worker uses the
 VM control socket, and the VM specification contains no credentials. A profile with
@@ -460,7 +472,8 @@ the literal tags of the job, without the `queue` tag, sorted by key. A comma joi
 The agent reads `BUILDKITE_AGENT_TAGS` as the source of its `--tags` option (`buildkite/agent`,
 `clicommand/agent_start.go` at v4.9.0, checked 2026-11-01). Because of this, the startup script
 has no tag text, and no tag value is ever part of shell text. The controller MUST refuse a tag
-whose key or value is empty, or has a comma, a newline, a carriage return, or a quote. The
+whose key or value is empty, has white space at an end, or has a comma, a newline, a carriage
+return, or a quote, and a tag named `queue`, `agent-stack`, or `profile`. The
 matcher refuses these tags first (§5, unmatched jobs), and the VM specification builder refuses
 them again.
 

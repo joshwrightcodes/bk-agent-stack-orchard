@@ -206,9 +206,13 @@ func (r Request) validate() error {
 	}
 
 	for key, value := range r.Tags {
-		if key == "" || value == "" || strings.ContainsAny(key+value, unsafeInTagList) {
+		switch {
+		case key == "", value == "", strings.ContainsAny(key+value, unsafeInTagList),
+			strings.TrimSpace(key) != key, strings.TrimSpace(value) != value:
 			problems = append(problems, fmt.Errorf("the tag %q=%q is empty, or it has a comma, "+
-				"a newline, or a quote", key, value))
+				"a newline, a quote, or white space at an end", key, value))
+		case key == "queue", key == "agent-stack", key == "profile":
+			problems = append(problems, fmt.Errorf("the tag %q is one that the controller sets", key))
 		}
 	}
 

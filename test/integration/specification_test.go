@@ -60,8 +60,8 @@ func TestOrchardKeepsEveryFieldOfTheSpecification(t *testing.T) {
 
 			if c.credentials != nil {
 				spec.VMCredentials = &profile.Credentials{
-					UsernameEnv: "BK_IMAGE_USERNAME",
-					PasswordEnv: "BK_IMAGE_PASSWORD",
+					UsernameEnv: "VM_USERNAME",
+					PasswordEnv: "VM_PASSWORD",
 				}
 			}
 

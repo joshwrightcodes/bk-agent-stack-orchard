@@ -141,6 +141,51 @@ func TestTagsRefuseAKeyOrAValueThatWouldBreakTheAgentTagList(t *testing.T) {
 	}
 }
 
+// The agent trims each tag of its list, so a tag with padding would register as another tag than
+// the one that the job asked for.
+func TestTagsRefuseAKeyOrAValueWithPadding(t *testing.T) {
+	cases := map[string][]string{
+		"a leading space in the value":  {"queue=macos", "xcode= 27"},
+		"a trailing space in the value": {"queue=macos", "xcode=27 "},
+		"a leading space in the key":    {"queue=macos", " xcode=27"},
+		"a trailing tab in the key":     {"queue=macos", "xcode\t=27"},
+		"a padded queue value":          {"queue=macos ", "xcode=27"},
+	}
+
+	for name, rules := range cases {
+		_, err := match.Tags(rules)
+
+		var mismatch *match.Mismatch
+		if !errors.As(err, &mismatch) {
+			t.Errorf("Tags(%s) = %v, want a mismatch", name, err)
+		}
+	}
+}
+
+// The controller gives every agent the tags agent-stack and profile, so a rule that sets either
+// one would give the agent two values for it. The queue rule is not here, because Tags takes it
+// out of the result.
+func TestTagsRefuseARuleThatNamesATagTheControllerSets(t *testing.T) {
+	for _, rule := range []string{"agent-stack=orchard", "agent-stack=other", "profile=xcode-27"} {
+		_, err := match.Tags([]string{"queue=macos", rule})
+
+		var mismatch *match.Mismatch
+		if !errors.As(err, &mismatch) {
+			t.Errorf("Tags(%q) = %v, want a mismatch", rule, err)
+
+			continue
+		}
+		if mismatch.Reason != match.ReasonReservedTag || mismatch.Rule != rule {
+			t.Errorf("Tags(%q) gave the reason %q for %q, want %q for the rule", rule,
+				mismatch.Reason, mismatch.Rule, match.ReasonReservedTag)
+		}
+	}
+
+	if _, err := match.Tags([]string{"queue=macos", "xcode=27"}); err != nil {
+		t.Errorf("Tags() with a queue rule = %v, want no error", err)
+	}
+}
+
 func TestMatchRefusesTheSameTagTwiceWithTwoValues(t *testing.T) {
 	if _, err := match.Match([]string{"queue=macos", "xcode=27", "xcode=26"}, profiles()); err == nil {
 		t.Error("Match() with two values for one tag = nil, want a mismatch")

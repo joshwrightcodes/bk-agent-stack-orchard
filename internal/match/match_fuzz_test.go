@@ -54,6 +54,10 @@ func FuzzTagsGiveOnlyLiteralRules(f *testing.F) {
 				t.Fatalf("Tags(%q) gave the pattern %q=%q", rules, key, value)
 			case strings.ContainsAny(key, ",\n\r\"'"), strings.ContainsAny(value, ",\n\r\"'"):
 				t.Fatalf("Tags(%q) gave %q=%q, which would break the agent tag list", rules, key, value)
+			case strings.TrimSpace(key) != key, strings.TrimSpace(value) != value:
+				t.Fatalf("Tags(%q) gave the padded pair %q=%q", rules, key, value)
+			case key == "agent-stack", key == "profile":
+				t.Fatalf("Tags(%q) gave the reserved tag %q", rules, key)
 			case key == "queue":
 				t.Fatalf("Tags(%q) kept the queue rule", rules)
 			case !slices.Contains(rules, key+"="+value):
