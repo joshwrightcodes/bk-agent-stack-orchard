@@ -35,11 +35,12 @@
     that:
       - ansible_facts['system'] == 'Darwin'
       - ansible_facts['architecture'] == 'arm64'
-      - ansible_facts['distribution_major_version'] | int >= orchard_worker_macos_minimum
+      - ansible_facts['distribution_version'] is version(orchard_worker_macos_minimum | string, '>=')
     fail_msg: >-
       The host runs {{ ansible_facts['system'] }} {{ ansible_facts['distribution_version'] }} on
       {{ ansible_facts['architecture'] }}. A worker MUST be an Apple silicon Mac with macOS
-      {{ orchard_worker_macos_minimum }} or later, because a macOS guest needs a host of the same version.
+      {{ orchard_worker_macos_minimum }} or later, because the job VMs run that version and a macOS
+      guest needs a host of the same version or later.
 
 - name: Read the hypervisor support
   ansible.builtin.command: sysctl -n kern.hv_support

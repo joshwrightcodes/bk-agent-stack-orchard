@@ -42,8 +42,8 @@ esac
 
 # The base, pinned by digest: the vanilla image of Cirrus Labs, which is the restore image of Apple
 # with the setup assistant done, admin/admin with passwordless sudo, automatic login, and SSH, and
-# nothing else (ADR-0012).
-BASE="ghcr.io/cirruslabs/macos-golden-gate-vanilla@sha256:b78a521145ebef24e9916c0b3999e165bb12b587d11524c5fa3ba4fe7bf79bb9"
+# nothing else (ADR-0012). This digest is tag 27.2, macOS 27.2, uploaded 2026-10-31.
+BASE="ghcr.io/cirruslabs/macos-golden-gate-vanilla@sha256:b35695ce30453bcc1db961a476740be72a44c2a2e464b73ece1ff0fcac12a873"
 
 VM="${VM_NAME:-bkaso-${IMAGE}}"
 DESTINATION="${ARTIFACT_DESTINATION:-}"
@@ -51,8 +51,8 @@ REGISTRY="${IMAGE_REGISTRY:-}"
 TAG="${IMAGE_TAG:-$(git -C "$HERE" rev-parse --short=12 HEAD 2>/dev/null || date -u +%Y%m%d%H%M%S)}"
 
 # buildkite-agent, and the SHA-256 that its release publishes in its SHA256SUMS.
-AGENT_VERSION="4.3.0"
-AGENT_SHA256="f6b6278bb8c2dfa193e51e971cdc260e7a6e419c94b2b77c409fe28ea279e81d"
+AGENT_VERSION="4.9.0"
+AGENT_SHA256="faaf0084edf08a92a877253620604fbd6ce496d2851a7ae5126dd19f27429e76"
 
 # The Tart guest agent, and the SHA-256 that its release publishes. The vanilla image has none.
 GUEST_AGENT_VERSION="0.15.0"
@@ -66,8 +66,8 @@ XCODE_SHA256="6a270c53a5a0c5e0ac78125342d44c3cfff2716ec390373cd5e30834d80a67c3"
 XCODE_ARCHIVE="${XCODE_ARCHIVE:-${HOME}/XcodesCache/Xcode_${XCODE_VERSION}.xip}"
 
 # Homebrew, from the package of its release, and the SHA-256 that GitHub gives for it.
-HOMEBREW_VERSION="7.0.9"
-HOMEBREW_SHA256="e021295947a4a9b7ca1a8eff310c9ea1db14d923c5acf7d79e325b60a81f1a15"
+HOMEBREW_VERSION="7.0.11"
+HOMEBREW_SHA256="c780771227420177a6b19bd778e351976c2b5064d114f499ca94c0f01e31e8e8"
 
 # The disk of the pilot: Xcode, its iOS simulator runtime, and the formulae need about 50 GB beside
 # macOS, and a job needs room for its build. Tart rounds a disk up to whole 4 KiB blocks, and then

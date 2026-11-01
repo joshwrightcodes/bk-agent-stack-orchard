@@ -4,7 +4,8 @@ This directory makes each Mac host an Orchard worker (target design, section 11)
 `orchard_worker`, does these steps on each host:
 
 1. It checks the host: the Command Line Tools, which give Python to Ansible; an Apple silicon Mac;
-   macOS 27 or later, because a macOS 27 guest needs a macOS 27 host (CO-07); the hypervisor; and
+   macOS 27.2 or later, because the job VMs run macOS 27.2 and a macOS guest needs a host of the
+   same version or later (CO-07); the hypervisor; and
    the automatic login of the worker user.
 2. It installs Orchard, Tart, and Softnet at pinned versions, from their release archives, checked
    against their SHA-256. Orchard is the version of `mise.toml`, and `scripts/check-deps.py` keeps

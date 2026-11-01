@@ -286,8 +286,8 @@ can permit a smaller fleet at peak. The pilot must measure the real arrival rate
 | CO-03 | Constraint | Host scaling | NOT_APPLICABLE | — | CONFIRMED | The host pool is fixed | Product requirements, section 3 | Cloud Macs become necessary |
 | CO-04 | Constraint | Implementation conventions | APPLICABLE | INFORMATIONAL | CONFIRMED | Go 1.27; `mise` for tool versions and tasks; GoReleaser and ko; distroless image; golangci-lint; AGPL-3.0 | Owner comments (2026-09-13 and 2026-09-14) | — |
 | CO-05 | Constraint | macOS and Xcode | APPLICABLE | SUPPORTING | CONFIRMED | Pilot: macOS 27 (Golden Gate) with Xcode 27, Apple silicon only, iOS 27 SDK; the fleet builds the Xcode image from `macos-golden-gate-vanilla` and an Xcode archive that the owner downloads (ADR-0012) | Owner comments (2026-09-19, 2026-10-10); Apple Developer; `ghcr.io` (2026-09-19) | A published macOS 27 image with Xcode, or a new Xcode version |
-| CO-06 | Constraint | Buildkite agent | APPLICABLE | SUPPORTING | CONFIRMED | Agent v4 in the VM image; v4.0.0 stable 2026-09-01, v4.3.0 current (2026-10-08, checked 2026-10-10); v4 rejects unknown flags and removes the OpenTracing and Datadog backends | Owner comment (2026-09-19); `buildkite/agent` releases (2026-09-19) | A v5 release line |
-| CO-07 | Constraint | Host macOS version | APPLICABLE | SUPPORTING | ASSUMED | A host runs a macOS version that can host the guest version. For a macOS 27 guest, the assumption is a macOS 27 host | Inference from Apple Virtualization; `vanilla-golden-gate.pkr.hcl` states macOS 27 for its build step (2026-09-19) | Apple or Tart states the host rule, or a macOS 27 guest starts on an older host |
+| CO-06 | Constraint | Buildkite agent | APPLICABLE | SUPPORTING | CONFIRMED | Agent v4 in the VM image; v4.0.0 stable 2026-09-01, v4.9.0 current (2026-10-30, checked 2026-11-01); v4.7.0 and later reject compromised eMudhra certificate chains (CVE-2026-111943); v4 rejects unknown flags and removes the OpenTracing and Datadog backends | Owner comment (2026-09-19); `buildkite/agent` releases (2026-09-19) | A v5 release line |
+| CO-07 | Constraint | Host macOS version | APPLICABLE | SUPPORTING | ASSUMED | A host runs a macOS version that can host the guest version. The guests run macOS 27.2, and the hosts run macOS 27.2 or later (owner decision, 2026-11-01) | Inference from Apple Virtualization; `vanilla-golden-gate.pkr.hcl` states macOS 27 for its build step (2026-09-19) | Apple or Tart states the host rule, or a macOS 27 guest starts on an older host |
 
 ## 11. Assumptions and questions
 
@@ -298,7 +298,7 @@ Assumptions:
 * Each VM uses half of a host (SC-08).
 * The start-time target applies to the 95th percentile (QA-01).
 * The hosts are co-located with the controllers, in the operating country (OP-03).
-* A macOS 27 guest needs a macOS 27 host (CO-07). The pilot confirms this value.
+* A macOS 27.2 guest needs a host on macOS 27.2 or later (CO-07). The pilot confirms this value.
 
 Answered questions (2026-09-14):
 

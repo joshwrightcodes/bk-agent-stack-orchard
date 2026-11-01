@@ -188,7 +188,7 @@ version.
 |---|---|---|
 | Go | 1.27 | Module `github.com/joshwrightcodes/bk-agent-stack-orchard` |
 | [Orchard](https://github.com/openai/orchard) | 0.58.0 or later | Schedules the VMs on the Mac hosts |
-| [Tart](https://github.com/openai/tart) | 2.40.1 | Runs macOS VMs on Apple Virtualization |
+| [Tart](https://github.com/openai/tart) | 2.41.1 | Runs macOS VMs on Apple Virtualization |
 | `buildkite-agent` | v4 | In the VM image |
 | Pilot image | macOS 27, Xcode 27 | Built from `macos-golden-gate-vanilla` (ADR-0012) |
 | Telemetry | OpenTelemetry (OTLP only) | No Prometheus endpoint |
