@@ -426,7 +426,12 @@ Admission does these steps:
 4. **Free resources of each worker.** Subtract the resources of all VMs on the worker from the
    resources that the worker advertises. Include the VMs of all owners. Count the VMs in the
    same way as the Orchard scheduler (`internal/controller/scheduler/scheduler.go` at the minimum
-   Orchard version of §9.2).
+   Orchard version of §9.2). A VM holds resources only when it is scheduled. The controller reads
+   the `scheduled` condition of the VM, as `IsScheduled` of `pkg/resource/v1/v1.go` does. When
+   the VM has no `scheduled` condition, the VM is scheduled if, and only if, it has a worker.
+   Orchard sets the condition to `false` for a VM that reached a terminal state, and the VM keeps
+   its worker name. Such a VM holds no resources (Orchard 0.58.0, commit 22bd63c34674, checked
+   2026-11-01).
 5. **Unplaced VMs.** Give a hypothetical placement to the VMs of all owners that have no worker,
    and to the VMs that this process requested and the Inventory data does not show yet. Use the
    first eligible worker with sufficient free resources. For a VM of Orchard, a worker is eligible

@@ -313,3 +313,18 @@ func writeJSON(t *testing.T, w http.ResponseWriter, body any) {
 		t.Errorf("writing the response: %v", err)
 	}
 }
+
+// A body over the limit must fail. A cut body can still decode, so the client must not cut it.
+func TestTheClientRefusesAResponseBodyOverTheLimit(t *testing.T) {
+	const limit = 16 << 20
+
+	client, _ := server(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("[]"))
+		_, _ = w.Write([]byte(strings.Repeat(" ", limit)))
+	})
+
+	_, err := client.ListVMs(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "limit") {
+		t.Errorf("ListVMs() = %v, want an error that names the limit", err)
+	}
+}

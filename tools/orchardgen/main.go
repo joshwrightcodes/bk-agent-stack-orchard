@@ -50,11 +50,15 @@ var wanted = []struct {
 	fields   []string // the Go names of the upstream fields, which are the only ones written
 }{
 	{"VM", "VM", "VM is one virtual machine of the fleet, as Orchard holds it.", []string{
-		"CPU", "CreatedAt", "DiskSize", "Headless", "HostDirs", "Image", "ImagePullPolicy",
+		"CPU", "Conditions", "CreatedAt", "DiskSize", "Headless", "HostDirs", "Image", "ImagePullPolicy",
 		"Labels", "Memory", "Name", "NetSoftnet", "NetSoftnetAllow", "OS", "Password",
 		"RandomSerial", "Resources", "RestartPolicy", "ScheduledAt", "StartedAt",
 		"StartupScript", "Status", "StatusMessage", "Username", "Worker",
 	}},
+	{
+		"Condition", "Condition", "Condition is one fact about a machine, such as that it is scheduled.",
+		[]string{"State", "Type"},
+	},
 	{
 		"VMScript", "Script", "Script is the startup script that the worker runs in the guest.",
 		[]string{"Env", "ScriptContent", "Transport"},
@@ -87,6 +91,7 @@ var sources = []string{
 	"pkg/resource/v1/image_pull_policy.go",
 	"pkg/resource/v1/restart_policy.go",
 	"pkg/resource/v1/host_dir.go",
+	"pkg/resource/v1/vm_condition.go",
 }
 
 func main() {

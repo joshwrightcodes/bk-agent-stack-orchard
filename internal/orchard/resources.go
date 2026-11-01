@@ -19,18 +19,29 @@ const (
 	ResourceMemoryMiB = "org.cirruslabs.memory-mib"
 )
 
-// Placed reports a machine that Orchard gave to a worker. The resources of such a machine are
+// Placed reports a machine that Orchard has scheduled. The resources of such a machine are
 // spent, and the resources of one that waits are not.
 //
-// Orchard decides the same way, except that it reads a scheduling condition first when the
-// machine carries one. This client does not read the conditions of a machine, so it uses the
-// answer that Orchard falls back to. The difference can make this accounting believe that a
-// worker has room for one more machine than it has, and the cost of that is one machine that
-// waits a little longer: Orchard makes the real placement, and this accounting only decides how
-// many jobs to start.
+// Orchard decides in the same way. When the machine carries a scheduled condition, the state of
+// that condition is the answer. Only when the machine carries none does the worker name decide.
+// The difference matters because Orchard keeps the worker name of a machine that failed or
+// stopped, and sets its scheduled condition to false to free the resources. Orchard 0.58.0 does
+// this in IsScheduled of pkg/resource/v1/v1.go, and in the health check of its scheduler.
 func (v VM) Placed() bool {
+	for _, condition := range v.Conditions {
+		if condition.Type == conditionScheduled {
+			return condition.State == conditionTrue
+		}
+	}
+
 	return v.Worker != ""
 }
+
+// The scheduled condition of Orchard, and the state that means true.
+const (
+	conditionScheduled = "scheduled"
+	conditionTrue      = "true"
+)
 
 // Free gives what a worker has left, after the machines that it already carries.
 //
