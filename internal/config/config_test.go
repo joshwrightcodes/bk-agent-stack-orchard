@@ -288,6 +288,19 @@ func TestLoadWarnsAboutAnImageWithoutADigest(t *testing.T) {
 	}
 }
 
+func TestLoadWarnsThatASoftnetAllowReachesEveryPipelineOnTheQueue(t *testing.T) {
+	body := strings.Replace(minimal, "    image: ghcr.io/acme/macos-golden-gate-xcode@sha256:abc",
+		"    image: ghcr.io/acme/macos-golden-gate-xcode@sha256:abc\n    softnetAllow: [\"10.20.30.40/32\"]", 1)
+
+	cfg, err := load(t, body, secrets())
+	if err != nil {
+		t.Fatalf("Load() = %v, want no error, because the allow is a warning", err)
+	}
+	if len(cfg.Warnings) != 1 || !strings.Contains(cfg.Warnings[0], "every pipeline on the queue") {
+		t.Errorf("Warnings = %v, want one warning about every pipeline", cfg.Warnings)
+	}
+}
+
 func TestLoadReportsEveryProblemAtOnce(t *testing.T) {
 	body := strings.Replace(minimal, "controllerID: macos-prod", "controllerID: MacOS", 1)
 	body = strings.Replace(body, "name: xcode-27", "name: Xcode_27", 1)

@@ -184,7 +184,6 @@ func TestValidateRefusesASoftnetAllowThatIsNotACIDR(t *testing.T) {
 		"an empty entry":          "",
 		"an address with a zone":  "fe80::1%en0/64",
 		"a prefix with host bits": "10.0.0.1/16",
-		"an IPv4-mapped prefix":   "::ffff:10.0.0.0/112",
 		"a prefix too long":       "10.0.0.0/33",
 	}
 
@@ -219,8 +218,7 @@ func TestValidateRefusesTheDefaultRoute(t *testing.T) {
 }
 
 func TestValidateRefusesARangeWiderThanSlash16(t *testing.T) {
-	refused := []string{"10.0.0.0/15", "10.0.0.0/8", "128.0.0.0/1", "2001:db8::/47", "2000::/3"}
-	for _, entry := range refused {
+	for _, entry := range []string{"10.0.0.0/15", "10.0.0.0/8", "128.0.0.0/1"} {
 		p := valid()
 		p.SoftnetAllow = []string{entry}
 
@@ -229,15 +227,38 @@ func TestValidateRefusesARangeWiderThanSlash16(t *testing.T) {
 		}
 	}
 
-	accepted := []string{
-		"10.20.0.0/16", "10.20.30.0/24", "10.20.30.40/32", "2001:db8::/48",
-		"2001:db8:1:2::/64", "2001:db8::1/128",
-	}
+	accepted := []string{"10.20.0.0/16", "10.20.30.0/24", "10.20.30.40/32"}
 	p := valid()
 	p.SoftnetAllow = accepted
 
 	if err := p.Validate(); err != nil {
 		t.Errorf("Validate() with softnetAllow %v = %v, want no error", accepted, err)
+	}
+}
+
+// Softnet reads each allow entry as an IPv4 CIDR, so an IPv6 prefix, in any form, cannot work.
+func TestValidateRefusesAnIPv6PrefixInSoftnetAllow(t *testing.T) {
+	for _, entry := range []string{"2001:db8::/48", "2001:db8::1/128", "::/0", "::ffff:10.0.0.0/112"} {
+		p := valid()
+		p.SoftnetAllow = []string{entry}
+
+		if err := p.Validate(); err == nil || !strings.Contains(err.Error(), "IPv4") {
+			t.Errorf("Validate() with softnetAllow %q = %v, want an error that says IPv4 only", entry, err)
+		}
+	}
+}
+
+// Softnet also takes @host and @peers. The first opens the Mac host to the build, and the second
+// opens the other virtual machines, so the controller refuses both and says why.
+func TestValidateRefusesTheSoftnetTargetsHostAndPeers(t *testing.T) {
+	for _, entry := range []string{"@host", "@peers"} {
+		p := valid()
+		p.SoftnetAllow = []string{entry}
+
+		err := p.Validate()
+		if err == nil || !strings.Contains(err.Error(), "@host and @peers") {
+			t.Errorf("Validate() with softnetAllow %q = %v, want an error that explains the refusal", entry, err)
+		}
 	}
 }
 

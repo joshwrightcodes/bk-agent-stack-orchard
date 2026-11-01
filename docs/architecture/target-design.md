@@ -271,14 +271,17 @@ finish unmatched jobs.
   `OTEL_` (the collector credential and the per-signal headers variables), with a message that
   names the controller, as a second defence. The error names the profile, the field, and the
   variable.
-* Each `softnetAllow` entry is a CIDR range with a prefix length (`10.20.30.40/32`). The
-  controller refuses a bare address, an entry with host bits set (`10.0.0.1/16`, where the
-  error gives the written form `10.0.0.0/16`), an IPv4-mapped IPv6 range, a default route
-  (`0.0.0.0/0` and `::/0`), an IPv4 range wider than /16, an IPv6 range wider than /48, and a
-  duplicate. The CIDRs go unchanged into the VM specification and into the pf rules of the
-  hosts, so the controller does not correct an entry, and an error names the profile and the
-  entry. Source: `net/netip.ParsePrefix`, checked 2026-11-01. The bounds are a project choice.
-  Softnet and Tart accept more, and the project does not test a bare address.
+* Each `softnetAllow` entry is an IPv4 CIDR range with a prefix length (`10.20.30.40/32`).
+  Softnet takes IPv4 CIDRs only: it reads each `--allow` value as a rule that it builds with
+  `ipnet::Ipv4Net` (Softnet `src/main.rs` and `lib/proxy/rule.rs`, read 2026-11-01), so the
+  controller refuses every IPv6 prefix, including an IPv4-mapped one. The controller also
+  refuses a bare address, an entry with host bits set (`10.0.0.1/16`, where the error gives the
+  written form `10.0.0.0/16`), a default route (`0.0.0.0/0`), a range wider than /16, and a
+  duplicate. It refuses the Softnet targets `@host` and `@peers` on purpose: `@host` opens the
+  Mac host to the build, and `@peers` opens the other VMs, and §9.1 closes both. The CIDRs go
+  unchanged into the VM specification and into the pf rules of the hosts, so the controller does
+  not correct an entry, and an error names the profile and the entry. The /16 bound is a project
+  choice, and the project does not test a bare address.
 * When `profile.otel.enabled` is true, `profile.otel.endpoint` uses `https`. Plain HTTP is
   acceptable only on a loopback address (§10.4).
 * For each profile, `unplaced + boot + acquire ≤ jobTokenLifetime` (§7.3).

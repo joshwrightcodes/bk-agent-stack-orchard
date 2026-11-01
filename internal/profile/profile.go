@@ -163,43 +163,47 @@ func (p Profile) validateVMVariables() []error {
 	return problems
 }
 
-// The widest range that softnetAllow may open. The VM specification passes each entry to Softnet,
-// and the pf rules of the hosts open the same entries to every VM of the profile, so a wide range
-// would open a whole private network. An IPv6 site gets a /48, so that is the widest IPv6 range.
-const (
-	widestIPv4Allow = 16
-	widestIPv6Allow = 48
-)
+// widestAllow is the widest IPv4 range that softnetAllow may open. The VM specification passes
+// each entry to Softnet, and the pf rules of the hosts open the same entries to every VM of the
+// profile, so a wide range would open a whole private network.
+const widestAllow = 16
 
-// validateSoftnetAllow keeps each softnetAllow entry to one narrow range that is written in
-// full: a bare address, a prefix with host bits set, a default route, and a duplicate are all
-// refused, because each of them hides what the profile opens.
+// validateSoftnetAllow keeps each softnetAllow entry to one narrow IPv4 range that is written in
+// full. Softnet reads each entry as an IPv4 CIDR, so an IPv6 prefix cannot work. A bare address, a
+// prefix with host bits set, a default route, and a duplicate are refused, because each of them
+// hides what the profile opens. The Softnet targets @host and @peers are refused on purpose: the
+// first opens the Mac host to the build, and the second opens the other virtual machines.
 func (p Profile) validateSoftnetAllow() []error {
 	var problems []error
 
 	seen := make(map[netip.Prefix]bool, len(p.SoftnetAllow))
 	for _, entry := range p.SoftnetAllow {
+		if entry == "@host" || entry == "@peers" {
+			problems = append(problems, fmt.Errorf(
+				"softnetAllow entry %q is refused: the Softnet targets @host and @peers are not "+
+					"allowed, because @host opens the Mac host to the build and @peers opens the "+
+					"other virtual machines", entry))
+			continue
+		}
+
 		prefix, err := netip.ParsePrefix(entry)
 		switch {
 		case err != nil:
 			problems = append(problems, fmt.Errorf(
-				"softnetAllow entry %q must be a CIDR range with a prefix length, such as 10.20.30.40/32: %w",
+				"softnetAllow entry %q must be an IPv4 CIDR range with a prefix length, such as 10.20.30.40/32: %w",
 				entry, err))
-		case prefix.Addr().Is4In6():
+		case !prefix.Addr().Is4():
 			problems = append(problems, fmt.Errorf(
-				"softnetAllow entry %q must be an IPv4 range written as IPv4, not as an IPv4-mapped IPv6 range",
-				entry))
+				"softnetAllow entry %q must be an IPv4 range, because Softnet takes IPv4 CIDRs only", entry))
 		case prefix.Bits() == 0:
 			problems = append(problems, fmt.Errorf(
 				"softnetAllow entry %q is a default route, which opens every address", entry))
 		case prefix != prefix.Masked():
 			problems = append(problems, fmt.Errorf(
 				"softnetAllow entry %q has host bits set, so write %s", entry, prefix.Masked()))
-		case prefix.Addr().Is4() && prefix.Bits() < widestIPv4Allow,
-			prefix.Addr().Is6() && prefix.Bits() < widestIPv6Allow:
+		case prefix.Bits() < widestAllow:
 			problems = append(problems, fmt.Errorf(
-				"softnetAllow entry %q is too wide: the widest IPv4 range is /%d and the widest IPv6 range is /%d",
-				entry, widestIPv4Allow, widestIPv6Allow))
+				"softnetAllow entry %q is too wide: the widest range is /%d", entry, widestAllow))
 		case seen[prefix]:
 			problems = append(problems, fmt.Errorf("softnetAllow lists %s twice", prefix))
 		default:
