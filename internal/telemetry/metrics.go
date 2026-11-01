@@ -172,6 +172,7 @@ type Metrics struct {
 	workers     metric.Int64ObservableUpDownCounter
 	staleness   metric.Float64ObservableGauge
 	unmatched   metric.Int64Counter
+	truncated   metric.Int64Counter
 	failed      metric.Int64Counter
 	deletions   metric.Int64Counter
 	errors      metric.Int64Counter
@@ -265,6 +266,14 @@ func (m *Metrics) synchronous(meter metric.Meter) error {
 		metric.WithDescription("Jobs of the queue that no profile matches."))
 	if err != nil {
 		return fmt.Errorf("building the instrument of the unmatched jobs: %w", err)
+	}
+
+	m.truncated, err = meter.Int64Counter(prefix+"queue.truncated",
+		metric.WithUnit("{read}"),
+		metric.WithDescription("Reads of the queue that stopped at the page cap with a page left, "+
+			"so that jobs behind the pages may be hidden."))
+	if err != nil {
+		return fmt.Errorf("building the instrument of the truncated reads: %w", err)
 	}
 
 	m.failed, err = meter.Int64Counter(prefix+"job.failed",
@@ -382,6 +391,11 @@ func pool(name string) string {
 // Unmatched counts one job of the queue that no profile matches.
 func (m *Metrics) Unmatched(ctx context.Context) {
 	m.unmatched.Add(ctx, 1)
+}
+
+// QueueTruncated counts one read of the queue that stopped at the page cap with a page left.
+func (m *Metrics) QueueTruncated(ctx context.Context) {
+	m.truncated.Add(ctx, 1)
 }
 
 // Failed counts one job that the controller ended. The cause is the value of error.type, so it

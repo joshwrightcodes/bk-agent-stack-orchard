@@ -235,7 +235,10 @@ func (c *Config) validateBuildkite() []error {
 				int(MaxAPILifetime.Seconds())))
 		case value > 0 && value < time.Second:
 			problems = append(problems, fmt.Errorf(
-				"%s is %s, and the Stacks API needs at least 1 s, in whole seconds", name, value))
+				"%s is %s, and the Stacks API needs at least 1 s", name, value))
+		case value%time.Second != 0:
+			problems = append(problems, fmt.Errorf(
+				"%s is %s, and the Stacks API takes whole seconds", name, value))
 		}
 	}
 

@@ -71,12 +71,12 @@ The design depends on these facts. Each fact was verified against source code or
 |---|---|---|
 | The Stacks API accepts only a cluster agent token (`bkct_`). | Buildkite docs, `apis/agent_api/stacks.md` | The controller keeps a cluster agent token (§9.2). |
 | The scheduled-jobs list gives all jobs in the queue. It does not filter by other tags. It does not include reserved jobs. | Stacks API docs | The controller does the tag match (§5). |
-| The scheduled-jobs call takes `limit` (page size) and `after` (a cursor). The answer has `page_info.has_next_page` and `page_info.end_cursor`. A call returns one page, and the library does not read the next page. | `buildkite/stacksapi` v1.2.0 `scheduled_jobs.go` (checked 2026-11-01) | The Poller sets `limit` to 3 × the machine slots of the fleet. It reads at most 3 pages in one tick, from the head of the list (§6.3). |
+| The scheduled-jobs call takes `limit` (page size, maximum 1000) and `after` (a cursor). The answer has `page_info.has_next_page` and `page_info.end_cursor`. The API orders the jobs by `scheduled_at`, oldest first. A call returns one page, and the library does not read the next page. Paging does not cover a snapshot: new jobs can appear behind the cursor. The documentation advises to read the first few pages only, and to reserve the jobs. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01); `buildkite/stacksapi` v1.2.0 `scheduled_jobs.go` | The Poller asks for 1000 jobs in each call, and it reads at most 3 pages in one tick, from the head of the list (§6.3). |
 | A reservation lasts 900 s by default and 3600 s maximum. A second reserve call extends it. When a reservation expires, the job becomes `scheduled` again. | Stacks API docs | The controller uses short reservations. It extends them while a VM starts (§6, §7). |
 | A job acquisition token (`bkjat_`) connects an agent to one reserved job. The token expires early if the reservation expires. At agent registration, Buildkite applies the expiry and the allowed IP addresses of the agent token that issued the JAT. | `buildkite/stacksapi` v1.2.0 `IssueJobAcquisitionTokens`; `buildkite/docs` `pages/agent/self_hosted/job_acquisition_tokens.md` (2026-08-26) | Only a job acquisition token goes into a VM (§9.1). The agent token allowlist MUST contain the job VM egress addresses (§9.2). |
 | `token_lifetime_seconds` of a job acquisition token has a minimum of 1, a maximum of 3600, and a default of 900. `reservation_expiry_seconds` has a default of 900 and a maximum of 3600. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The limits of 3600 s are the limits of the API. The controller refuses `reservationExpiry` and `jobTokenLifetime` values that are more than 3600 s or less than 1 s, so that the refusal comes at start-up and not at the first job (§8). |
 | The `detail` of a stack notification must not be empty and cannot exceed 256 characters. The unit is characters. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The controller cuts a detail to 256 characters, counted as runes and cut between characters, and ends a cut detail with an ellipsis. It sends "(no detail)" in place of an empty detail (§10.5). |
-| The `detail` of a finish request has a maximum of 4 KB. `exit_status` defaults to -1. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The controller shortens the detail to the budget before it finishes a job (§6). |
+| The `detail` of a finish request has a maximum of 4 KB. The documentation does not state the unit. `exit_status` defaults to -1. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The controller counts the 4 KB in bytes, which is never more than a count in characters, and it shortens the detail to the budget before it finishes a job (§6). |
 | The finish request has no `signal_reason` field, so the controller cannot set it. The Buildkite platform generates a `signal_reason` of `stack_error` for such a job. Pipeline authors use `signal_reason: stack_error` with `limit: 0` in their automatic retry rules. Whether the platform generates `stack_error` for every job that the controller finishes is `UNKNOWN` (owner: the maintainer; trigger: the first runs of T-100 to T-105). | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01); `buildkite/stacksapi` v1.2.0 `finish.go` | The controller finishes a failed job with exit status -1 and a detail (§7.6). |
 | `maxVMLifetime` is 25 h by default. The Reaper deletes a VM that is older than this, for any job state (row 2 of §7.2). A job that still runs at 25 h loses its VM and its agent. After the agent acquired the job, the Buildkite lost-agent procedure controls the result, and the controller does not finish the job (§7.1, rule 5). The job result that Buildkite gives in this case is `UNKNOWN` (owner: the maintainer; trigger: the first end-to-end run of a job that outlives `maxVMLifetime`). | Derived from `internal/reaper/decide.go` and §7.2, §7.1 (checked 2026-11-01) | A pipeline step with a run time near 25 h MUST set a lower job timeout. The default of 25 h is the safety limit in SC-06, not a job limit. |
 | `buildkite-agent start --acquire-job` exits with code 27 if the job is already taken, cancelled, or complete (HTTP 422). | `buildkite/agent` v4.0.3 release notes (2026-09-10); `core/client.go` | The rule "the job is terminal, delete the VM" covers this case. |
@@ -405,15 +405,20 @@ jobs in the same `batch-reserve` call as the admitted jobs. The Launcher MUST th
 reserved unmatched job with its mismatch message. The Launcher MUST NOT get a token or create a
 VM for these jobs.
 
-**Reading the queue.** The Poller reads the list from its head at each tick. It asks for 3 jobs
-for each machine slot of the fleet (`JobsPerSlot`), counted over the workers that answer, and
-capped by `maxInFlight` when that is set. It uses the total slots and not the free slots,
-because a full fleet has no free slot, and a size of zero is the size that Buildkite chooses. If
-the slots are not known yet, the Poller uses the size that Buildkite chooses. The Poller follows
-the cursor for at most 3 pages (`MaxPages`) in one tick. If more jobs wait than 3 pages hold,
-the Poller MUST NOT read the rest in that tick. The jobs of the first pages start and leave the
-list, so the next tick reads the jobs that were behind them. No page is skipped, because each
-tick starts at the head. If a page fails, the Poller keeps the answer of the last whole read.
+**Reading the queue.** The Poller reads the list from its head at each tick. It asks for 1000
+jobs in each call, which is the largest page that the API accepts (§3). The size is a constant
+and it does not follow the slots of the fleet, because the list holds jobs that never leave it:
+unmatched jobs, which the controller skips, jobs for other tags, and jobs that the API refuses
+with 422. The Poller reads at most 3 pages (`MaxPages`) in one tick. It keeps each job once, at
+its first place, because a cursor over a list that changes can give a job twice. If a page fails,
+the Poller keeps the answer of the last whole read.
+
+More than 3 pages of 1000 jobs that never leave the list hide the jobs after them, and the
+controller never sees these jobs. This limit is `UNKNOWN`, in the sense that it is not measured
+(owner: the maintainer; trigger: the pilot, or the first warning of this kind). A read that
+stops at the cap with a page left writes a warning in the log, and it adds 1 to the counter
+`bkaso.queue.truncated` (§10.1). An operator MUST treat this counter as a sign that jobs may be
+hidden.
 
 ### 6.4 Launch
 
@@ -652,7 +657,8 @@ profiles: [] # see §5
 ```
 
 The controller MUST refuse `reservationExpiry` and `jobTokenLifetime` values that are more than
-3600 s (§3). It reports the key and the limit, and it does not start.
+3600 s, less than 1 s, or not a whole number of seconds (§3). These are the limits of the API. It
+reports the key and the limit, and it does not start.
 
 The controller serves the gRPC health checking protocol (`grpc.health.v1`) on `healthAddress`,
 with the services `liveness` and `readiness`. The empty service name, which is the health of the
@@ -813,6 +819,7 @@ The instruments follow the OpenTelemetry semantic conventions. The prefix `bkaso
 | UpDownCounter | `bkaso.job.waiting.count` (`{job}`) | `bkaso.profile` |
 | Gauge | `bkaso.job.waiting.oldest.age` (`s`) | `bkaso.profile` |
 | Counter | `bkaso.job.unmatched` (`{job}`) | — |
+| Counter | `bkaso.queue.truncated` (`{read}`) | — |
 | Counter | `bkaso.job.failed` (`{job}`) | `error.type` |
 | UpDownCounter | `bkaso.slot.count` (`{slot}`) | `bkaso.pool`, `bkaso.slot.state` = `total`/`used`/`free` |
 | UpDownCounter | `bkaso.vm.count` (`{vm}`) | `bkaso.profile`, `bkaso.vm.phase` = `unplaced`/`booting`/`running`/`failed` |

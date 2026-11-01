@@ -236,6 +236,27 @@ func TestLoadRefusesALifetimeUnderOneSecond(t *testing.T) {
 	}
 }
 
+// The library sends whole seconds, so 1500 ms would become 1 s. The configuration refuses it, and
+// does not truncate it.
+func TestLoadRefusesALifetimeThatIsNotWholeSeconds(t *testing.T) {
+	//nolint:gosec // The keys name a lifetime and not a credential.
+	for name, change := range map[string]string{
+		"buildkite.reservationExpiry": "buildkite:\n  reservationExpiry: 1500ms",
+		"buildkite.jobTokenLifetime":  "buildkite:\n  jobTokenLifetime: 1500ms",
+	} {
+		t.Run(name, func(t *testing.T) {
+			body := strings.Replace(minimal, strings.SplitN(change, "\n", 2)[0], change, 1)
+
+			_, err := load(t, body, secrets())
+			if err == nil || !strings.Contains(err.Error(), name) ||
+				!strings.Contains(err.Error(), "whole seconds") {
+				t.Errorf("Load() with %s = %v, want an error that names it and whole seconds",
+					change, err)
+			}
+		})
+	}
+}
+
 func TestLoadAcceptsALifetimeOfOneHour(t *testing.T) {
 	body := strings.Replace(minimal, "buildkite:",
 		"buildkite:\n  reservationExpiry: 3600s\n  jobTokenLifetime: 3600s", 1)

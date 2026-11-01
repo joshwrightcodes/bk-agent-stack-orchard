@@ -169,7 +169,7 @@ when it reports only.
 | T-006 | R-14, target design section 7.3 | Timeout arithmetic with the default values and with a profile override | `unplaced + boot + acquire` is not more than `jobTokenLifetime`, and the validation fails when it is more | required |
 | T-007 | R-08, PR-004, PR-008 | The finish message: an unmatched job, a boot timeout, and an acquire timeout with startup-script output | The message contains the tags and the profiles, or the last 50 log lines. The message is cut at 4 KB on a rune boundary | required |
 | T-008 | R-16, PR-025 | Telemetry construction: metric attributes, and the trace identifier of a job | I-7, and the trace identifier is the 128 bits of the job UUID | required |
-| T-009 | R-08, PR-009, PR-012 | The stack notification for each step, and the finish call of a failed job | The notifications are "VM requested", "placed on <worker>", "booting", "failed: …", and "VM deleted: …". Each finish call of the controller has `exit_status -1` and `signal_reason: stack_error` | required |
+| T-009 | R-08, PR-009, PR-012 | The stack notification for each step, and the finish call of a failed job | The notifications are "VM requested", "placed on <worker>", "booting", "failed: …", and "VM deleted: …". Each finish call of the controller has `exit_status -1` and a detail, and no `signal_reason`, because the finish request has no such field. The platform generates `stack_error` (PR-012), which no fake can show | required |
 
 ### 6.3 Component (L2)
 
@@ -277,8 +277,8 @@ Each item is a decision, not missing work.
   requests isolation (T-003), and it proves the effect one time on real hardware (T-101). It does
   not test the isolation mechanism itself.
 * **The Buildkite retry engine, job log storage, and the agent internals.** These are supplier
-  behaviour. The project proves only its own signal (`signal_reason: stack_error`) in T-007 and
-  T-062.
+  behaviour. The project proves only that its finish call has `exit_status -1` and a detail, in
+  T-007, T-009, and T-062. The platform generates the `signal_reason` (PR-012).
 * **A browser, device, or operating-system matrix.** The controller has no user interface. The
   only operating-system cells are Linux for the controller and macOS for the VMs.
 * **The Kubernetes chart beyond a render and one smoke deployment.** The controller MUST NOT

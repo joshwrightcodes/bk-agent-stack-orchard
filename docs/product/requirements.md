@@ -95,8 +95,9 @@ slot is free, the job stays in the queue until a slot is free. If the job is can
 starts, its VM is deleted.
 
 **J2: A job cannot run.** The tags of a job match no profile, or the VM of the job does not start.
-The job fails with a message on the job page. If the pipeline has the recommended retry rule,
-Buildkite tries the job again one time.
+The job fails with a message on the job page. The Buildkite platform generates the
+`signal_reason` `stack_error` for it (PR-012), and the automatic retry rule of the pipeline decides
+if Buildkite tries the job again.
 
 **J3: Change the profiles.** The fleet operator changes the configuration file and restarts the
 controller. If the configuration is not valid, the controller does not start, and it reports the
@@ -249,7 +250,9 @@ requirements. The target design describes the job lifecycle and the failure proc
 
 * Requirement: The controller MUST NOT start if a profile rule fails. The rules forbid duplicate
   names, equal `match` maps, and empty or `queue` match keys. They also forbid timeouts longer
-  than the job token lifetime. A profile that uses the SSH startup-script transport MUST have VM
+  than the job token lifetime. The controller MUST also refuse a reservation expiry or a job token
+  lifetime that is not a whole number of seconds from 1 to 3600, which are the limits of the
+  Stacks API. A profile that uses the SSH startup-script transport MUST have VM
   credentials. A profile MUST name only variables that start with `VM_` as the source of a value
   for its VM, because the controller pod holds other secrets. A profile MUST NOT send agent
   telemetry over plain HTTP to a non-loopback address.

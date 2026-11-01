@@ -53,6 +53,7 @@ func recordAll(t *testing.T) []metricdata.Metrics {
 
 	ctx := t.Context()
 	instruments.Unmatched(ctx)
+	instruments.QueueTruncated(ctx)
 	instruments.Failed(ctx, "no_profile")
 	instruments.Deleted(ctx, "job_ended")
 	instruments.SystemError(ctx, telemetry.ComponentBuildkite, "rate_limited")
@@ -148,6 +149,7 @@ var design = []struct {
 		false,
 	},
 	{"bk_agent_stack_orchard.job.unmatched", "{job}", nil, true},
+	{"bk_agent_stack_orchard.queue.truncated", "{read}", nil, true},
 	{"bk_agent_stack_orchard.job.failed", "{job}", []string{"error.type"}, true},
 	{
 		"bk_agent_stack_orchard.slot.count", "{slot}",

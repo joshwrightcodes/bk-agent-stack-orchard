@@ -3,11 +3,17 @@
 package stack_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"slices"
+	"strings"
 	"testing"
 	"time"
+
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
@@ -30,6 +36,7 @@ type fake struct {
 	registerErr   error
 	deregisterErr error
 	pollErr       error
+	pageErrs      map[string]error
 }
 
 func (f *fake) Register(context.Context) error {
@@ -48,6 +55,10 @@ func (f *fake) ScheduledJobs(_ context.Context, cursor string, size int) (buildk
 	f.polls++
 	f.sizes = append(f.sizes, size)
 	f.cursors = append(f.cursors, cursor)
+
+	if err, ok := f.pageErrs[cursor]; ok {
+		return buildkite.Page{}, err
+	}
 
 	if page, ok := f.pages[cursor]; ok {
 		return page, f.pollErr
@@ -193,7 +204,7 @@ func TestRefreshKeepsTheAnswerAndItsTime(t *testing.T) {
 
 // A queue of more jobs than one page holds must not hide the jobs behind the first page: the
 // controller can carry jobs that rank low in the list. The poll reads the pages from the head,
-// asks for three jobs for each slot of the fleet, and stops after three pages.
+// asks for the largest page that the API accepts, and stops after three pages.
 func TestTheSourceReadsSeveralPagesOfScheduledJobs(t *testing.T) {
 	t.Parallel()
 
@@ -209,12 +220,7 @@ func TestTheSourceReadsSeveralPagesOfScheduledJobs(t *testing.T) {
 		"page-4": {Jobs: []buildkite.ScheduledJob{{ID: four}}},
 	}}
 
-	poller, err := stack.NewPoller(stack.PollerOptions{
-		Stacks:   api,
-		Interval: time.Second,
-		Slots:    func() int { return 2 },
-		Now:      time.Now,
-	})
+	poller, err := stack.NewPoller(stack.PollerOptions{Stacks: api, Interval: time.Second, Now: time.Now})
 	if err != nil {
 		t.Fatalf("NewPoller() = %v, want the poller", err)
 	}
@@ -228,8 +234,9 @@ func TestTheSourceReadsSeveralPagesOfScheduledJobs(t *testing.T) {
 			api.cursors, want)
 	}
 
-	if want := []int{6, 6, 6}; !slices.Equal(api.sizes, want) {
-		t.Errorf("the poll asked for the sizes %v, want %v (3 jobs for each of 2 slots)",
+	want := []int{stack.PageSize, stack.PageSize, stack.PageSize}
+	if !slices.Equal(api.sizes, want) {
+		t.Errorf("the poll asked for the sizes %v, want %v: the size does not depend on the slots",
 			api.sizes, want)
 	}
 
@@ -249,9 +256,128 @@ func TestTheSourceReadsSeveralPagesOfScheduledJobs(t *testing.T) {
 	}
 }
 
-// The poll stops at the last page, and it asks for the default page size when it does not know
-// the slots of the fleet.
-func TestTheSourceStopsAtTheLastPageAndAsksForTheDefaultSizeWithoutSlots(t *testing.T) {
+// Jobs that never leave the list, such as jobs that no profile matches, fill the pages. A tick
+// that stops at the cap with a next page left says so in a warning and in a counter, so that an
+// operator can see that jobs behind the pages may be hidden.
+func TestATickThatStopsAtTheCapWarnsAndCounts(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+
+	metrics, err := telemetry.NewMetrics(provider.Meter("test"))
+	if err != nil {
+		t.Fatalf("NewMetrics() = %v, want the instruments", err)
+	}
+
+	var logged bytes.Buffer
+
+	api := &fake{pages: map[string]buildkite.Page{
+		"":       {NextCursor: "page-2"},
+		"page-2": {NextCursor: "page-3"},
+		"page-3": {NextCursor: "page-4"},
+	}}
+
+	poller, _ := stack.NewPoller(stack.PollerOptions{
+		Stacks:   api,
+		Interval: time.Second,
+		Metrics:  metrics,
+		Logger:   slog.New(slog.NewTextHandler(&logged, nil)),
+		Now:      time.Now,
+	})
+
+	if err := poller.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh() = %v, want no error", err)
+	}
+
+	if strings.Count(logged.String(), "level=WARN") != 1 {
+		t.Errorf("the poll logged %q, want one warning", logged.String())
+	}
+
+	if got := truncations(t, reader); got != 1 {
+		t.Errorf("the counter holds %d, want 1", got)
+	}
+
+	// A tick that reaches the last page inside the cap says nothing.
+	api.pages = map[string]buildkite.Page{"": {NextCursor: "page-2"}, "page-2": {}}
+	logged.Reset()
+
+	if err := poller.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh() = %v, want no error", err)
+	}
+
+	if logged.Len() != 0 || truncations(t, reader) != 1 {
+		t.Errorf("a whole read logged %q and counted %d, want neither", logged.String(),
+			truncations(t, reader))
+	}
+}
+
+// truncations reads the counter of the reads that stopped at the cap.
+func truncations(t *testing.T, reader sdkmetric.Reader) int64 {
+	t.Helper()
+
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(t.Context(), &collected); err != nil {
+		t.Fatalf("Collect() = %v, want no error", err)
+	}
+
+	for _, scope := range collected.ScopeMetrics {
+		for _, recorded := range scope.Metrics {
+			if recorded.Name != "bk_agent_stack_orchard.queue.truncated" {
+				continue
+			}
+
+			sum, ok := recorded.Data.(metricdata.Sum[int64])
+			if !ok {
+				t.Fatalf("the counter is a %T, want a sum", recorded.Data)
+			}
+
+			var total int64
+			for _, point := range sum.DataPoints {
+				total += point.Value
+			}
+
+			return total
+		}
+	}
+
+	return 0
+}
+
+// A cursor over a list that changes can give a job on two pages. A job must enter the answer
+// once, because one batch-reserve call must not carry the same job twice.
+func TestTheSourceKeepsAJobThatTwoPagesGiveOnce(t *testing.T) {
+	t.Parallel()
+
+	one := job.ID("018f3b2c-1c4a-7e5b-9a3d-2f1e4c5b6a01")
+	two := job.ID("018f3b2c-1c4a-7e5b-9a3d-2f1e4c5b6a02")
+
+	api := &fake{pages: map[string]buildkite.Page{
+		"":       {Jobs: []buildkite.ScheduledJob{{ID: one}}, NextCursor: "page-2"},
+		"page-2": {Jobs: []buildkite.ScheduledJob{{ID: one}, {ID: two}}},
+	}}
+
+	poller, _ := stack.NewPoller(stack.PollerOptions{Stacks: api, Interval: time.Second, Now: time.Now})
+	if err := poller.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh() = %v, want no error", err)
+	}
+
+	queue, _ := poller.Latest()
+
+	var got []job.ID
+	for _, scheduled := range queue.Jobs {
+		got = append(got, scheduled.ID)
+	}
+
+	if want := []job.ID{one, two}; !slices.Equal(got, want) {
+		t.Errorf("the answer holds %v, want %v: each job once, in the order of the pages", got, want)
+	}
+}
+
+// The poll stops at the last page.
+func TestTheSourceStopsAtTheLastPage(t *testing.T) {
 	t.Parallel()
 
 	api := &fake{pages: map[string]buildkite.Page{
@@ -268,10 +394,6 @@ func TestTheSourceStopsAtTheLastPageAndAsksForTheDefaultSizeWithoutSlots(t *test
 	if api.polls != 2 {
 		t.Errorf("the poll made %d calls, want 2: the last page has no next page", api.polls)
 	}
-
-	if want := []int{0, 0}; !slices.Equal(api.sizes, want) {
-		t.Errorf("the poll asked for the sizes %v, want %v", api.sizes, want)
-	}
 }
 
 // A page that fails in the middle of a read must not leave half a queue in place of a whole one.
@@ -285,11 +407,18 @@ func TestAFailureOnALaterPageKeepsTheAnswerBeforeIt(t *testing.T) {
 		t.Fatalf("Refresh() = %v, want no error", err)
 	}
 
-	api.pages = map[string]buildkite.Page{"": {NextCursor: "page-2"}}
-	api.pollErr = errors.New("buildkite is not available")
+	api.pages = map[string]buildkite.Page{
+		"": {Jobs: []buildkite.ScheduledJob{{Priority: 9}}, NextCursor: "page-2"},
+	}
+	api.pageErrs = map[string]error{"page-2": errors.New("buildkite is not available")}
 
 	if err := poller.Refresh(t.Context()); err == nil {
 		t.Fatal("Refresh() = nil, want the error of the failed page")
+	}
+
+	if want := []string{"", "", "page-2"}; !slices.Equal(api.cursors, want) {
+		t.Fatalf("the polls asked for %q, want %q: the second read must reach page 2",
+			api.cursors, want)
 	}
 
 	queue, _ := poller.Latest()
