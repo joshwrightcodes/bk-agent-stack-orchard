@@ -5,6 +5,28 @@ maintainer decides what the project accepts.
 
 ## Workflow
 
+### Contribute a change
+
+1. **Find or open an issue.** Search the
+   [issues](https://github.com/joshwrightcodes/bk-agent-stack-orchard/issues) first. To open one,
+   use a [form](https://github.com/joshwrightcodes/bk-agent-stack-orchard/issues/new/choose): a bug
+   report for behaviour that differs from the target design, or a change request for behaviour
+   that the documents do not state yet. Never open a public issue for a vulnerability:
+   [SECURITY.md](SECURITY.md) gives the private process.
+2. **Agree the change before the code.** For more than a small correction, wait until the
+   maintainer agrees in the issue, because the documents decide first (below).
+3. **Fork the repository, and work on a branch.** Follow the rules below, and run
+   `mise run check` before you open a pull request.
+4. **Open a pull request** from your fork, with `Closes #<number>` in its body, and complete the
+   template. The workflows of a first pull request from a fork start after the maintainer
+   approves them.
+5. **The maintainer reviews and merges.**
+
+The maintainer answers issues and pull requests when time permits. This is a personal project,
+so there is no fixed response time. A vulnerability report gets a first answer within one week.
+
+### The maintainer's workflow
+
 The maintainer tracks work in a GitHub project. Each item is a work unit of the
 [implementation plan](docs/delivery/implementation-plan.md).
 

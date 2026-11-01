@@ -218,6 +218,9 @@ roadmap (section 14).
 
 This is a personal project with one maintainer, Josh Wright.
 
+* Report a bug or request a change through an
+  [issue form](https://github.com/joshwrightcodes/bk-agent-stack-orchard/issues/new/choose). The
+  maintainer answers when time permits.
 * [CONTRIBUTING.md](CONTRIBUTING.md) gives the document-first workflow, the conventions for
   documents, the rules for code and commits, and the rules for versions and releases.
 * [SECURITY.md](SECURITY.md) tells you how to report a vulnerability. It also gives the properties
