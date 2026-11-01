@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0015
 date: 2026-09-20
 decision-makers: Josh Wright
 ---

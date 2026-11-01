@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package orchard
 
 // The resource names of Orchard. A worker advertises what it has under these names, and a

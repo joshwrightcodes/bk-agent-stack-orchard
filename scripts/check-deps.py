@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Check the dependency rules of this repository.
 
 Two of these rules are licence rules, not preferences. The project publishes an image under the
@@ -17,13 +18,19 @@ Checks:
      archive, so the fleet runs the Orchard that the tests run;
   7. the Mac hosts of deploy/hosts install the same version, with the same SHA-256 of the macOS
      archive, so the workers run the Orchard that the tests run;
-  8. the Mac hosts install at least the minimum Tart version that the design states.
+  8. the Mac hosts install at least the minimum Tart version that the design states;
+  9. NOTICE names each module that the controller binary links, the Go standard library, and the
+     NOTICE text of gRPC (Apache-2.0, section 4(d));
+ 10. the Helm chart carries copies of LICENSE and NOTICE that equal the files of the root, so
+     that helm package includes them;
+ 11. every tracked Go file carries the SPDX licence line of the project as its first line. A generator writes the line into a generated file.
 """
 
 from __future__ import annotations
 
 import pathlib
 import re
+import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -31,6 +38,8 @@ GO_MOD = ROOT / "go.mod"
 MISE = ROOT / "mise.toml"
 DESIGN = ROOT / "docs/architecture/target-design.md"
 ORCHARD_IMAGE = ROOT / "deploy/orchard/image/Dockerfile"
+NOTICE = ROOT / "NOTICE"
+CHART = ROOT / "deploy/helm/bk-agent-stack-orchard"
 HOSTS = ROOT / "deploy/hosts/roles/orchard_worker/defaults/main.yml"
 
 ORCHARD = ("github.com/cirruslabs/orchard", "github.com/openai/orchard")
@@ -173,6 +182,89 @@ def check_tart_hosts() -> None:
         )
 
 
+def parse_modules(output: str, own: str) -> list[str]:
+    """The sorted, unique module paths of the go list output, without this module."""
+    return sorted({line.strip() for line in output.splitlines() if line.strip()} - {own})
+
+
+def linked_modules() -> list[str] | None:
+    """The modules that the controller binary links, or None when go cannot list them."""
+    own = re.search(r"^module (\S+)$", GO_MOD.read_text(encoding="utf-8"), re.M)
+    try:
+        result = subprocess.run(
+            ["go", "list", "-deps", "-f", "{{if .Module}}{{.Module.Path}}{{end}}",
+             "./cmd/bk-agent-stack-orchard"],
+            cwd=ROOT, capture_output=True, text=True, check=True)
+    except (OSError, subprocess.CalledProcessError) as error:
+        errors.append(f"go list cannot name the modules of the binary: {error}")
+        return None
+    return parse_modules(result.stdout, own.group(1) if own else "")
+
+
+def notice_errors(modules: list[str], notice: str) -> list[str]:
+    """Rule 9: NOTICE names each linked module, the Go library, and the gRPC NOTICE text."""
+    found: list[str] = []
+    for module in modules:
+        # The path MUST stand alone: a longer path (go.opentelemetry.io/otel/sdk) does not name
+        # a shorter module (go.opentelemetry.io/otel), and the other way round.
+        pattern = rf"(?<![\w./-]){re.escape(module)}(?![\w-]|[/.]\w)"
+        if not re.search(pattern, notice):
+            found.append(f"NOTICE does not name {module}, which the controller binary links")
+    if "Go standard library" not in notice:
+        found.append("NOTICE does not name the Go standard library, which the binary links")
+    if "google.golang.org/grpc" in modules and "Copyright 2014 gRPC authors" not in notice:
+        found.append("NOTICE lacks the NOTICE text of gRPC, which Apache-2.0 section 4(d) needs")
+    return found
+
+
+def copy_errors(name: str, original: str, copy: str | None) -> list[str]:
+    """Rule 10: a chart file equals the file of the root."""
+    if copy is None:
+        return [f"deploy/helm/bk-agent-stack-orchard/{name} is missing, so helm package omits "
+                f"the licence notice"]
+    if copy != original:
+        return [f"deploy/helm/bk-agent-stack-orchard/{name} differs from {name} of the root. "
+                f"Copy the root file"]
+    return []
+
+
+def check_licence_notices() -> None:
+    if NOTICE.exists():
+        modules = linked_modules()
+        if modules is not None:
+            errors.extend(notice_errors(modules, NOTICE.read_text(encoding="utf-8")))
+    if CHART.exists():
+        for name in ("LICENSE", "NOTICE"):
+            copy = CHART / name
+            errors.extend(copy_errors(
+                name, (ROOT / name).read_text(encoding="utf-8"),
+                copy.read_text(encoding="utf-8") if copy.exists() else None))
+
+
+# The text is in two parts, so that the reuse tool does not read it as a header of this file.
+SPDX_LINE = "// SPDX-License-" + "Identifier: AGPL-3.0-or-later"
+
+
+def spdx_errors(name: str, text: str) -> list[str]:
+    """Rule 11: the SPDX line is the first line of a Go file."""
+    lines = text.splitlines()
+    if lines and lines[0] == SPDX_LINE:
+        return []
+    return [f"{name} lacks the line {SPDX_LINE!r} as its first line"]
+
+
+def check_spdx_headers() -> None:
+    try:
+        listed = subprocess.run(["git", "ls-files", "*.go"], cwd=ROOT, capture_output=True,
+                                text=True, check=True).stdout.splitlines()
+    except (OSError, subprocess.CalledProcessError) as error:
+        errors.append(f"git cannot list the Go files: {error}")
+        return
+    for name in listed:
+        if (ROOT / name).is_file():
+            errors.extend(spdx_errors(name, (ROOT / name).read_text(encoding="utf-8")))
+
+
 def main() -> int:
     if not GO_MOD.exists():
         print("check-deps: no go.mod yet, nothing to check")
@@ -219,6 +311,8 @@ def main() -> int:
     check_orchard_image()
     check_orchard_hosts()
     check_tart_hosts()
+    check_licence_notices()
+    check_spdx_headers()
 
     if errors:
         print(f"check-deps: {len(errors)} problem(s)\n", file=sys.stderr)

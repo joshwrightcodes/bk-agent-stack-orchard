@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Verify the signatures of a release: the checksums and the archives, the chart package, the image,
 # the SBOM of each platform image, and the chart in the registry.
 #

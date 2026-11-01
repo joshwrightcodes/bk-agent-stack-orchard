@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Package launcher starts the jobs that admission chose.
 //
 // The order of the calls is what keeps one job to one machine (target design, section 6.4): the

@@ -34,6 +34,17 @@ mise run check   # the gates: documents, commits, dependencies, lint, tests, and
 The gates are also tasks of their own: `check-docs`, `check-commits`, `check-deps`, `lint`,
 `lint-format`, `test`, `check-generate`, and `snapshot`. `mise tasks` lists them.
 
+If `check-deps` fails because NOTICE does not name a module, a dependency update added a module
+that the binary links. Fix it in this order:
+
+1. Run `mise run licenses`, or `go-licenses`, to see the new module and its licence. The texts are
+   in `build/licenses`.
+2. Add the module to the list of its licence in `NOTICE`, in the existing format: one line,
+   `  * <module path>`, in alphabetical order.
+3. Copy `NOTICE` to `deploy/helm/bk-agent-stack-orchard/NOTICE`, because the chart carries a copy
+   that equals the file of the root.
+4. Run `mise run check-deps`.
+
 ## The package map
 
 Each component of the target design (section 4) is one package with one responsibility, so that
@@ -70,7 +81,7 @@ deploy/helm/                    the controller chart
 deploy/orchard/                 the Orchard StatefulSet and its bootstrap job
 deploy/hosts/                   Ansible for the Mac hosts
 images/                         the builds of the job VM images (agent and pilot: tart and the guest agent)
-tools/orchardgen/               the generator of the Orchard wire types (ADR-0011)
+tools/orchardgen/               the generator of the Orchard wire types (ADR-0015)
 scripts/                        the gate scripts, the smoke and release scripts, and the runner script
 ```
 
@@ -173,8 +184,9 @@ in order, because the documents decide the behaviour (CONTRIBUTING, section "Bef
    that Orchard returns it unchanged.
 6. When the field goes into the Helm values, change `deploy/helm/bk-agent-stack-orchard` and its
    values schema, and run `mise run check-deploy`.
-7. When the specification needs a field that the generated Orchard types lack, run
-   `mise run generate`, and commit the result (ADR-0011).
+7. When the specification needs a field that the generated Orchard types lack, add the field to
+   the allow list of its type in `tools/orchardgen/main.go`, run `mise run generate`, and commit
+   the result (ADR-0015).
 8. Run `mise run test`, `mise x -- golangci-lint run ./...`, `mise run lint-format`, and
    `mise run check-docs`.
 

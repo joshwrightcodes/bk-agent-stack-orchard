@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Check the container image that GoReleaser and ko build.
 #
 # The design states a distroless base and a non-root user. An image that runs as root, or that

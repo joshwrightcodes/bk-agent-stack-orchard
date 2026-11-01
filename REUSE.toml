@@ -1,0 +1,70 @@
+# REUSE specification 3.3. The Go files, the shell scripts and the Python helpers carry an SPDX
+# comment header. The files below cannot carry one, or carry text that a comment would change, so
+# this file annotates them. Source: https://reuse.software/spec-3.3/ (checked 2026-11-01).
+#
+# Not annotated here: LICENSE and deploy/helm/bk-agent-stack-orchard/LICENSE, which are the licence
+# text itself, and build/ and dist/, which git ignores. The third-party licence texts that
+# scripts/licenses.sh writes go to build/licenses, so they are not in the tree.
+version = 1
+
+[[annotations]]
+path = [
+  "README.md",
+  "CONTRIBUTING.md",
+  "SECURITY.md",
+  "SUPPORT.md",
+  "docs/**",
+  ".github/**",
+  "deploy/**/*.md",
+  "deploy/**/*.yml",
+  "deploy/**/*.yaml",
+  "deploy/**/*.json",
+  "deploy/**/*.j2",
+  "deploy/**/*.plist",
+  "deploy/**/*.cfg",
+  "deploy/**/*.tpl",
+  "deploy/**/NOTES.txt",
+  "deploy/orchard/image/Dockerfile",
+  "images/**",
+  "internal/orchard/*.md",
+  "test/**/*.yml",
+  "test/**/*.yaml",
+  "test/**/*.md",
+  ".golangci.yaml",
+  ".goreleaser.yaml",
+  ".ko.yaml",
+  ".release-please-manifest.json",
+  "release-please-config.json",
+  "mise.toml",
+  "REUSE.toml",
+  "go.mod",
+  "go.sum",
+  ".gitignore",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Josh Wright"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+# NOTICE and its copy in the chart reproduce third-party notice text: the MIT, BSD-3-Clause and
+# Apache-2.0 licence texts, and the NOTICE text of gRPC (Apache-2.0, section 4(d)). The file names
+# the FSL-1.1-ALv2 modules but does not reproduce that licence. The project text is AGPL.
+[[annotations]]
+path = ["NOTICE", "deploy/helm/bk-agent-stack-orchard/NOTICE"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Josh Wright"
+SPDX-License-Identifier = "AGPL-3.0-or-later AND MIT AND BSD-3-Clause AND Apache-2.0"
+
+# The code of conduct quotes the Contributor Covenant 2.1 without change. The Covenant is
+# CC-BY-4.0. Source: https://www.contributor-covenant.org (checked 2026-11-01). The project
+# sections around the quote (the source note and the reporting channels) are AGPL.
+[[annotations]]
+path = "CODE_OF_CONDUCT.md"
+precedence = "aggregate"
+SPDX-FileCopyrightText = ["Contributor Covenant contributors", "2026 Josh Wright"]
+SPDX-License-Identifier = "CC-BY-4.0 AND AGPL-3.0-or-later"
+
+# The source files carry the licence in their header. This entry adds the copyright holder.
+[[annotations]]
+path = ["**/*.go", "**/*.sh", "**/*.py"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Josh Wright"

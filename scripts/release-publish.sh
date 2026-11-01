@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Sign the image of a release, attest the SBOM of each platform image, and package, sign, and push
 # the chart.
 #

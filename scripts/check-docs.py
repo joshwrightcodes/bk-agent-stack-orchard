@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Check that the document set stays whole.
 
 The documents of this project carry identifiers, and the direction of the set runs from the
@@ -106,6 +107,9 @@ def check_adr_direction() -> None:
     for path in sorted(ADR_DIR.glob("0*.md")):
         own = int(path.name[:4])
         for number, line in enumerate(read(path).split("\n"), 1):
+            # The rule of the ADR guide allows the status field `superseded by` to cite a later ADR.
+            if line.startswith("status: superseded by "):
+                continue
             for cited in re.findall(r"\bADR-(\d{4})\b", line):
                 if int(cited) > own:
                     fail(path, number, f"cites the later ADR-{cited}")

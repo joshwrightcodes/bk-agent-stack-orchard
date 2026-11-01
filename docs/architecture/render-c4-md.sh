@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Generates docs/architecture/c4.md from docs/architecture/workspace.dsl.
 #
 # Structurizr exports Mermaid with HTML labels. Markdown renderers that run Mermaid with

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Package match selects the virtual machine profile of a job from the agent tags of that job.
 //
 // The match is exact: the tags of the job, without the queue, must equal the match map of one

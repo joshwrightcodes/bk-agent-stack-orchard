@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Publish the draft release of a tag, after a check that its assets are the files that the workflow
 # built and verified.
 #
@@ -8,6 +9,26 @@
 #
 # Usage: scripts/release-finish.sh <tag>    (needs GH_TOKEN and GITHUB_REPOSITORY)
 set -euo pipefail
+
+# Publish the draft. The tag decides the pre-release flag, because a published release is immutable.
+# Every 0.x release is a pre-release until 1.0.0, and it is not the latest release. A tag of another
+# major version is neither. Checked 2026-11-01: GoReleaser 2.18.2 resets the flag on the draft, and
+# its own value cannot be a template (see .goreleaser.yaml), so this PATCH is the one place that
+# decides. -F sends the booleans as JSON. make_latest is a string enum of the API ("true", "false",
+# or "legacy"), so -f sends it as a raw string.
+publish_release() {
+  local api="$1" id="$2" tag="$3"
+  local flags
+  case "$tag" in
+    v0.*) flags=(-F prerelease=true -f make_latest=false) ;;
+    *) flags=(-F prerelease=false) ;;
+  esac
+  gh api --method PATCH "$api/releases/$id" -F draft=false "${flags[@]}" > /dev/null
+  echo "release-finish: published $tag (${flags[*]})"
+}
+
+# Sourcing the file defines the function and runs nothing else.
+[[ "${BASH_SOURCE[0]}" != "$0" ]] && return 0
 
 tag="${1:?usage: release-finish.sh <tag>}"
 api="repos/${GITHUB_REPOSITORY:?}"
@@ -56,5 +77,4 @@ if ! diff <(sort "$want") <(sort "$got"); then
   exit 1
 fi
 
-gh api --method PATCH "$api/releases/$id" -F draft=false > /dev/null
-echo "release-finish: published $tag"
+publish_release "$api" "$id" "$tag"

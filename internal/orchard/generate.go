@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package orchard
 
 // The wire types of this package are generated from the Orchard resource types at the version

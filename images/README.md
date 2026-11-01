@@ -102,8 +102,9 @@ tart run bkaso-pilot   # look at it
 ```
 
 The build makes the local Tart VM `bkaso-<image>` (`VM_NAME` changes it). With `IMAGE_REGISTRY`, for
-example `ghcr.io/joshwrightcodes`, it pushes `<registry>/bkaso-<image>:<tag>` (`IMAGE_TAG`, the
-commit by default), with the credentials in `TART_REGISTRY_USERNAME` and `TART_REGISTRY_PASSWORD`.
+example `registry.example.internal/macos` (a private registry), it pushes
+`<registry>/bkaso-<image>:<tag>` (`IMAGE_TAG`, the commit by default), with the credentials in
+`TART_REGISTRY_USERNAME` and `TART_REGISTRY_PASSWORD`.
 A profile names the image by the digest that the registry gives.
 
 ## What the image holds

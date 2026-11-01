@@ -16,8 +16,13 @@ The project is a program that an operator deploys. It is not a Go library. All G
 
 ## Status
 
-**Pre-release.** The project has no release yet. The first release will be version 0.1.0, and
-the [version rules](#versioning) apply to it.
+**Pre-release.** The 0.x releases are marked as pre-releases on GitHub until version 1.0.0, and the
+[version rules](#versioning) apply to them. The first release, version 0.1.0, waits for the release
+gate in the [test strategy](docs/quality/test-strategy.md). The
+[GitHub Releases page](https://github.com/joshwrightcodes/bk-agent-stack-orchard/releases) lists
+each release that exists. [`CHANGELOG.md`](https://github.com/joshwrightcodes/bk-agent-stack-orchard/blob/main/CHANGELOG.md)
+lists the changes of each release. The file appears with the first release, so the link works only
+after that.
 
 The implementation follows four increments. Each increment ends with evidence in CI, not with code
 that compiles.
@@ -30,6 +35,22 @@ that compiles.
 | 4. Fleet readiness | Real Tart virtual machines on Mac hardware, and the pilot | In progress |
 
 Do not use the controller for production work before increment 4 is complete.
+
+## Known limitations
+
+Each release pull request links to this section. As of 2026-11-01, from the
+[test strategy](docs/quality/test-strategy.md) and the status above:
+
+* The release gate is open. Tests T-100 to T-105 MUST pass on real hardware before version 0.1.0.
+  They cover a real job on a Tart VM, the network limits, a failed image, a restart, the
+  replacement of the token, and the storage of artifacts.
+* Increment 4 is in progress, and the pilot has not run. The token replacement has not run on a
+  live cluster (W-18).
+* Every 0.x release is a pre-release. A minor version can contain a breaking change
+  ([Versioning](#versioning)).
+* The legal review of the position in
+  [ADR-0015](docs/adrs/0015-generate-only-the-orchard-fields-the-controller-uses.md) is `UNKNOWN`:
+  a lawyer has not confirmed it. Owner: the maintainer. Trigger: before v0.1.0 is published.
 
 ## The problem
 
@@ -90,7 +111,45 @@ security model (section 9), and the deployment (section 11).
 
 ## Install
 
-The project publishes no release yet. To build the binary and the container image from source:
+### Quick start with a published release
+
+This section applies only after the project has published a release. The
+[Releases page](https://github.com/joshwrightcodes/bk-agent-stack-orchard/releases) shows whether a
+release exists. Each release has a signed Helm chart in an OCI registry.
+
+1. [Verify the release](#verify-a-release) with `scripts/verify-release.sh`.
+2. Make a namespace and a Secret. The keys of the Secret are environment variables of the
+   controller. The chart creates no Secret, so that no secret goes through the values of a release.
+   Read each value from your secret manager. Do not write it to a file in a repository.
+
+   ```sh
+   kubectl create namespace bk-agent-stack-orchard
+   kubectl --namespace bk-agent-stack-orchard create secret generic bk-agent-stack-orchard \
+     --from-literal=BK_AGENT_STACK_ORCHARD_BUILDKITE_AGENT_TOKEN="$BUILDKITE_AGENT_TOKEN" \
+     --from-literal=BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN="$ORCHARD_TOKEN"
+   ```
+
+   Add `BK_AGENT_STACK_ORCHARD_ORCHARD_CA_CERT` if Orchard uses a private certificate authority.
+   The [target design](docs/architecture/target-design.md) (section 8) lists all keys.
+3. Write a values file. `config.controllerID`, `config.buildkite.queue`, `config.orchard.url`, and
+   `secret.name` are required. Add at least one entry to `config.profiles`. The chart documents
+   all values in `values.yaml`, and `values.schema.json` rejects a wrong value.
+4. Install the chart. Use an exact version, and replace `<version>` with it:
+
+   ```sh
+   helm install bk-agent-stack-orchard \
+     oci://ghcr.io/joshwrightcodes/charts/bk-agent-stack-orchard --version <version> \
+     --namespace bk-agent-stack-orchard --values values.yaml
+   ```
+
+[`deploy/orchard`](deploy/orchard/README.md) is a kustomize base for the Orchard controller. An
+overlay of the operator sets the namespace, the image, and the endpoint of the collector.
+[`deploy/hosts`](deploy/hosts) sets up the Mac hosts, and [`images/`](images/README.md) builds the
+VM images.
+
+### Build from source
+
+To build the binary and the container image from source:
 
 ```sh
 mise install       # install the pinned tool versions
@@ -101,12 +160,10 @@ mise run snapshot  # build the release archives and the image, without publishin
 The image is `goreleaser.ko.local` in the local Docker daemon. Push it to your registry, and set
 `image.repository` and `image.digest` in the values of the chart.
 
-After the first release, use the published artifacts, and [verify](#verify-a-release) them before
-you deploy them.
-
 ## Verify a release
 
-Each release has a keyless [cosign](https://docs.sigstore.dev/cosign/) signature from the release
+The release workflow publishes each release. Each release has a keyless
+[cosign](https://docs.sigstore.dev/cosign/) signature from the release
 workflow of this repository
 ([ADR-0013](docs/adrs/0013-sign-releases-with-keyless-cosign-signatures.md)):
 
@@ -159,7 +216,7 @@ version.
 | [System design baseline](docs/architecture/system-design-baseline.md) | Quality scenarios, the assumed demand model, the quality targets, the cost comparison, and the driver register |
 | [Target design](docs/architecture/target-design.md) | Components, job lifecycle, failure handling, configuration, security, observability, deployment, and conventions |
 | [C4 model](docs/architecture/c4.md) | Levels 1 to 3, generated from [`workspace.dsl`](docs/architecture/workspace.dsl) |
-| [Decision records](docs/adrs/README.md) | ADR-0001 to ADR-0014 |
+| [Decision records](docs/adrs/README.md) | ADR-0001 to ADR-0015 |
 | [Test strategy](docs/quality/test-strategy.md) | The risk map, the invariants, and the test obligations with their gates |
 | [Implementation plan](docs/delivery/implementation-plan.md) | Work units W-01 to W-27, their order, and the evidence that ends each work unit |
 | [Development guide](docs/development.md) | The gates, the integration tests, and the real-VM tests |
@@ -179,10 +236,11 @@ version.
 | [0008](docs/adrs/0008-use-a-dedicated-cluster-agent-token.md) | Use a dedicated cluster agent token with an expiry and an IP allowlist |
 | [0009](docs/adrs/0009-run-startup-scripts-over-the-tart-guest-agent.md) | Run VM startup scripts over the Tart guest agent |
 | [0010](docs/adrs/0010-call-the-orchard-api-with-a-client-of-this-project.md) | Call the Orchard API with a client of this project |
-| [0011](docs/adrs/0011-generate-the-orchard-wire-types.md) | Generate the Orchard wire types |
+| [0011](docs/adrs/0011-generate-the-orchard-wire-types.md) | Generate the Orchard wire types (superseded by ADR-0015) |
 | [0012](docs/adrs/0012-build-the-job-vm-images-from-a-vanilla-macos-image.md) | Build the job VM images from a vanilla macOS image |
 | [0013](docs/adrs/0013-sign-releases-with-keyless-cosign-signatures.md) | Sign releases with keyless cosign signatures (proposed) |
 | [0014](docs/adrs/0014-calculate-releases-with-release-please.md) | Calculate releases with release-please (proposed) |
+| [0015](docs/adrs/0015-generate-only-the-orchard-fields-the-controller-uses.md) | Generate only the Orchard fields that the controller uses (proposed) |
 
 ## Stack
 
@@ -194,7 +252,7 @@ version.
 | `buildkite-agent` | v4 | In the VM image |
 | Pilot image | macOS 27.2, Xcode 27 | Built from `macos-golden-gate-vanilla` (ADR-0012) |
 | Telemetry | OpenTelemetry (OTLP only) | No Prometheus endpoint |
-| Licence | AGPL-3.0-or-later | The controller holds no third-party code with a use restriction |
+| Licence | AGPL-3.0-or-later | The controller imports no code with a use restriction (ADR-0015) |
 | Tools and tasks | `mise` | Pins Go, golangci-lint, GoReleaser, and Ansible |
 
 ## Development
@@ -225,6 +283,8 @@ This is a personal project with one maintainer, Josh Wright.
   maintainer answers when time permits.
 * [CONTRIBUTING.md](CONTRIBUTING.md) gives the document-first workflow, the conventions for
   documents, the rules for code and commits, and the rules for versions and releases.
+* [SUPPORT.md](SUPPORT.md) tells you where to ask for help. A developer who uses a fleet asks the
+  fleet operator first.
 * [SECURITY.md](SECURITY.md) tells you how to report a vulnerability. It also gives the properties
   that the project protects and the risks that it accepts. Every build is untrusted, by decision.
 * [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) gives the Contributor Covenant.
@@ -233,13 +293,100 @@ This is a personal project with one maintainer, Josh Wright.
 
 [GNU Affero General Public License v3.0 or later](LICENSE).
 
-You can use, run, and change the controller. If you distribute it, you must publish your source
-under the same licence. This rule also applies if you give a changed version to other people over
-a network. Use inside your own organization, without access for other people, needs no disclosure.
+You can use, run, and change the controller. If you give a copy to other people, you must offer
+them the source under the same licence. If you change the controller and other people use it
+through a network, you must offer the source of your changed version to those users. The AGPL
+requires an offer to those people. It does not require you to publish the source to everyone. Use
+inside your own organisation, without access for other people, needs no offer.
 
-The binary contains no code with a field-of-use restriction. Orchard has the FSL-1.1-ALv2 licence,
+This summary is not legal advice. The text of the licence controls.
+
+The binary imports no code with a field-of-use restriction. Orchard has the FSL-1.1-ALv2 licence,
 and the AGPL forbids a further restriction on a distributed work. Because of this, the controller
 calls the Orchard REST API with its own client, and it does not import the Orchard Go package
-([ADR-0010](docs/adrs/0010-call-the-orchard-api-with-a-client-of-this-project.md)). The fleet
-runs Orchard and Tart as separate programs under their own licences. [NOTICE](NOTICE) records the
-third-party licences.
+([ADR-0010](docs/adrs/0010-call-the-orchard-api-with-a-client-of-this-project.md)).
+
+The project does generate one file from Orchard source. `internal/orchard/types_gen.go` holds the
+field names, the JSON tags, and the types of the Orchard fields that the controller uses, taken
+from a pinned Orchard version so that the controller works with the Orchard API. The generator
+writes only the fields on an allow list, and the file has a header that names the source, the
+version, the commit, the licence, and the copyright notice of OpenAI
+([ADR-0015](docs/adrs/0015-generate-only-the-orchard-fields-the-controller-uses.md)). The project
+copies no other code that is under the FSL. This is the view of the project about copying for
+interoperability. It is not legal advice, and a lawyer has not yet confirmed it.
+
+The fleet runs Orchard and Tart as separate programs under their own licences.
+[NOTICE](NOTICE) records the third-party licences.
+
+## Notices for operators
+
+These notices are not legal advice. Ask a lawyer about your own case.
+
+### Australian Consumer Law
+
+Nothing in this project excludes, restricts, or modifies a right that cannot be excluded under
+the Australian Consumer Law.
+
+### Trademarks
+
+This project is not affiliated with, and not endorsed by, Buildkite, OpenAI, Cirrus Labs, or
+Apple. The names and marks in this project belong to their owners.
+
+### Apple licensing
+
+The operator is responsible for compliance with the licences of Apple. This section paraphrases
+two agreements. It is not a full statement of them.
+
+**The macOS licence agreement** (section 2B(iii), section 2I, and section 3):
+
+* Section 2B(iii) lets the licensee run up to two additional instances of macOS in virtual
+  environments on each Apple-branded computer that the licensee owns or controls and that already
+  runs macOS. The permitted purposes are software development, testing during software
+  development, use of macOS Server, and personal non-commercial use.
+* The operator MUST NOT run more than two virtual macOS instances on one Mac host at a time.
+* The text after section 2B(iii) and section 2I forbid the use of virtualised macOS in connection
+  with service bureau, time-sharing, terminal sharing, relay, or similar services. This bar applies
+  inside the organisation of the operator, and it applies to third parties. An operator MUST
+  assess whether a shared pool of build machines for other teams is such a service.
+* Section 3 is the only exception. It lets a lessor lease macOS to a lessee, if all of these
+  conditions are met: the lease is for continuous integration services (Permitted Developer
+  Services), each lease period is at least 24 consecutive hours, the lessee has sole and exclusive
+  use and control of the software and the hardware during the lease, and the lessee agrees to the
+  licence. The lessor MUST give Apple advance notice. A job VM that lives for one build is much
+  shorter than 24 hours.
+
+**The Xcode and Apple SDKs Agreement** (section 2.2 and section 2.7): the licence is for internal
+use by the licensee and its authorised developers. The agreement does not let the licensee upload
+the software to, or host it on, a website or a server, or redistribute it. Because of this, images
+that contain Xcode MUST stay in a private registry that only the organisation of the operator can
+use. The operator carries the risk of this reading. The operator SHOULD ask a lawyer.
+
+When it runs, `images/build.sh` accepts the Xcode and SDK licences on behalf of the operator.
+
+Sources, read on 2026-11-01:
+
+* macOS licence agreement: <https://www.apple.com/legal/sla/docs/macOSGoldenGate.pdf>
+* Xcode and Apple SDKs Agreement: <https://www.apple.com/legal/sla/docs/xcode.pdf> (edition
+  EA2002, dated 06/08/2026 in the document)
+
+### Privacy
+
+Job logs and build metadata can carry personal information, such as the names of committers. They
+go to Buildkite. Buildkite stores job logs in Amazon Web Services, and its documentation states no
+region (2026-09-14, owner answer Q-A7 in the
+[requirements](docs/product/requirements.md) and the
+[system design baseline](docs/architecture/system-design-baseline.md)). The operator therefore
+cannot assume that the data stays in Australia. An operator that is an APP entity under the Privacy
+Act 1988 SHOULD consider Australian Privacy Principle 8 (APP 8) before it sends such data.
+
+### Licences of Tart and Orchard
+
+Tart and Orchard use the FSL-1.1-ALv2 licence. The licence text is in the LICENSE file of the
+Tart repository, read on 2026-11-01 through the GitHub API (`openai/tart`). Its Permitted Purpose
+is any purpose other than a Competing Use. Internal use and access is a Permitted Purpose. A
+Competing Use is to make the software available to others in a commercial product or service
+that substitutes for the software, substitutes for another product or service of the licensor that
+uses the software, or offers the same or substantially similar functionality. An operator that
+offers a commercial macOS build service to others MUST check this definition first. The licence
+text controls. ADR-0015 records a check of the Orchard licence on 2026-11-01, in the LICENSE
+file of the pinned commit.

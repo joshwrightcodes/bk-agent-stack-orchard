@@ -91,6 +91,14 @@ request.
   `CHANGELOG.md` and into both versions of `Chart.yaml`.
 * It creates the release as a draft with the changelog, and it creates the tag at once. The tag
   starts the release workflow of ADR-0013, which adds the assets and publishes the draft.
+* Every 0.x release is a pre-release, and it is not marked as the latest release.
+  `scripts/release-finish.sh` decides this from the tag when it publishes the draft, because a
+  published release is immutable and a tag rule cannot be forgotten at version 1.0.0. Sources,
+  checked 2026-11-01: GoReleaser 2.18.2 (`internal/client/github.go`) sends its own pre-release
+  flag to the existing draft, so it resets the flag, and its `prerelease` value takes no template
+  (`internal/pipe/release/release.go`). The release-please `prerelease` option only sets the flag
+  on the draft, while the major version is 0 (release-please-action 5.0.0), so it does not decide
+  the flag at publication.
 * It uses a token of a GitHub App with contents, pull requests, and issues write access. The client
   ID and the private key MUST be secrets of the `release-please` environment, which permits only
   `main`.

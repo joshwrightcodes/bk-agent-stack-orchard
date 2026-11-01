@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Stops the processes that an earlier run of the integration tests left on the runner.
 #
 # When GitHub cancels a job, the runner stops the processes of the step: mise, go test, and the

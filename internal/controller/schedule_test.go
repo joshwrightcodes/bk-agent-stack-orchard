@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // These tests are inside the package, because the rule that they prove is when the loop reads a
 // source, and that decision needs a tick time that a test can choose.
 package controller

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Package telemetry starts the OpenTelemetry providers of the controller, and it holds the
 // instruments and the trace identity that the rest of the controller uses.
 //

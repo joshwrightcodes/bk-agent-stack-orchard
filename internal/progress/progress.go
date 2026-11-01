@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Package progress follows each machine of this controller from its request to the agent that
 // takes its job, and tells the job page and the telemetry at each step.
 //

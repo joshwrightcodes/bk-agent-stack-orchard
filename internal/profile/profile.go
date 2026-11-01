@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Package profile describes one type of job virtual machine: the jobs that it serves, the image
 // that it runs, its size, and how the worker starts its script.
 //

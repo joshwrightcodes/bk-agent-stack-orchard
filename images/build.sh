@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Builds a job VM image of the fleet into a local Tart VM, and pushes it when a registry is given.
 #
 #   images/build.sh agent   macOS Golden Gate without Xcode: every scenario but the iOS build

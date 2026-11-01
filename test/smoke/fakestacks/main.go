@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Command fakestacks serves the fake Stacks API of this project on a port, so that the smoke
 // deployment of W-21 can run it as a pod beside the controller. It is a test program: no release
 // builds it.

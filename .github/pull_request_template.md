@@ -2,7 +2,8 @@
 The title of this pull request MUST follow Conventional Commits, because the
 project squashes each pull request into one commit. For example:
   feat(reaper): delete the VM when the job is terminal
-CONTRIBUTING.md gives the types, the scopes, and the rules.
+CONTRIBUTING.md gives the types, the scopes, and the rules. The key words follow BCP 14, as
+CONTRIBUTING.md describes.
 -->
 
 ## What changes
@@ -21,7 +22,9 @@ CONTRIBUTING.md gives the types, the scopes, and the rules.
 
 ## Checks
 
-- [ ] The title follows Conventional Commits.
+- [ ] The title follows Conventional Commits and has 65 characters or fewer.
+- [ ] Every commit carries a `Signed-off-by` trailer (`git commit -s`), as CONTRIBUTING.md states
+      in "Developer Certificate of Origin".
 - [ ] `mise run check` passes.
 - [ ] The evidence above passes in CI, and a new behaviour started with a failing test.
 - [ ] The documents follow the change: a new behaviour updates the product requirements, a new
@@ -31,5 +34,6 @@ CONTRIBUTING.md gives the types, the scopes, and the rules.
 - [ ] No secret, token, or customer source code is in the diff or in the test data.
 - [ ] No code with a field-of-use restriction entered the repository, and `go.mod` has no Orchard
       dependency (ADR-0010).
-- [ ] I have the right to give this contribution under the AGPL-3.0-or-later, as CONTRIBUTING.md
-      states in "Licence of contributions".
+- [ ] I have the right to give this contribution under the AGPL-3.0-or-later, and my sign-off
+      certifies this under the Developer Certificate of Origin, as CONTRIBUTING.md states in
+      "Licence of contributions".

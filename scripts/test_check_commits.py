@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Tests of scripts/check-commits.py.
 
 Run with: python3 -m unittest discover -s scripts -p 'test_*.py'
@@ -5,9 +6,13 @@ Run with: python3 -m unittest discover -s scripts -p 'test_*.py'
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import pathlib
+import sys
 import unittest
+from unittest import mock
 
 SPEC = importlib.util.spec_from_file_location(
     "check_commits", pathlib.Path(__file__).with_name("check-commits.py"))
@@ -74,6 +79,62 @@ class CheckTest(unittest.TestCase):
         message = "docs: say more\n\n" + "a" * 80
         problems = check_commits.check("r", message, "Josh")
         self.assertTrue(any("body line" in p for p in problems), problems)
+
+    def test_a_person_uses_ci_for_workflow_changes(self) -> None:
+        for scope in ("ci", "runner"):
+            problems = check_commits.check("r", f"fix({scope}): start the job again", "Josh")
+            self.assertTrue(any("Use ci:" in p for p in problems), problems)
+        self.assertEqual(check_commits.check("r", "ci(runner): start the job again", "Josh"), [])
+        self.assertEqual(check_commits.check("r", "fix(reaper): delete the VM", "Josh"), [])
+
+    def test_the_ci_rule_covers_a_breaking_fix_and_spares_other_scopes(self) -> None:
+        problems = check_commits.check("r", "fix(ci)!: start the job again", "Josh")
+        self.assertTrue(any("Use ci:" in p for p in problems), problems)
+        self.assertEqual(check_commits.check("r", "fix(cio): start the job again", "Josh"), [])
+
+    def test_a_person_signs_off(self) -> None:
+        email = "josh@example.org"
+        signed = "docs: say more\n\nSigned-off-by: Josh <JOSH@example.org>"
+        self.assertEqual(check_commits.check_signoff("r", signed, email), [])
+
+        unsigned = check_commits.check_signoff("r", "docs: say more", email)
+        self.assertTrue(any("Signed-off-by" in p for p in unsigned), unsigned)
+
+        other = "docs: say more\n\nSigned-off-by: Ann <ann@example.org>"
+        mismatch = check_commits.check_signoff("r", other, email)
+        self.assertTrue(any("author email" in p for p in mismatch), mismatch)
+
+        for bot in ("49699333+dependabot[bot]@users.noreply.github.com",
+                    "41898282+github-actions[bot]@users.noreply.github.com"):
+            self.assertEqual(check_commits.check_signoff("r", "build: bump", bot), [])
+
+    def test_the_pr_title_is_checked(self) -> None:
+        self.assertEqual(check_commits.check_title("feat(reaper): delete the VM"), [])
+        long = "feat(reaper): " + "a" * 60
+        problems = check_commits.check_title(long)
+        self.assertTrue(any("65" in p for p in problems), problems)
+        bad = check_commits.check_title("Update things")
+        self.assertTrue(any("Conventional Commits" in p for p in bad), bad)
+
+    def test_a_sign_off_in_the_body_does_not_count(self) -> None:
+        message = ("docs: say more\n\nSigned-off-by: Josh <josh@example.org>\n\n"
+                   "More text after the line.")
+        problems = check_commits.check_signoff("r", message, "josh@example.org")
+        self.assertTrue(any("Signed-off-by" in p for p in problems), problems)
+
+    def test_several_sign_offs_pass_with_the_author_among_them(self) -> None:
+        message = ("docs: say more\n\nCo-authored-by: Ann <ann@example.org>\n"
+                   "Signed-off-by: Ann <ann@example.org>\n"
+                   "Signed-off-by: Josh <josh@example.org>")
+        self.assertEqual(check_commits.check_signoff("r", message, "josh@example.org"), [])
+
+    def test_the_title_mode_runs_through_main(self) -> None:
+        for length, code in ((65, 0), (66, 1)):
+            title = "feat: " + "a" * (length - len("feat: "))
+            with mock.patch.object(sys, "argv", ["check-commits.py", "--title", title]), \
+                    contextlib.redirect_stdout(io.StringIO()), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(check_commits.main(), code, length)
 
 
 if __name__ == "__main__":

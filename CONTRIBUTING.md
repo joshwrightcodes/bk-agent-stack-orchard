@@ -133,7 +133,7 @@ Every commit message MUST follow [Conventional Commits 1.0.0](https://www.conven
 | `refactor` | A change of structure with no change of behaviour |
 | `perf` | A change that makes the controller faster or smaller |
 | `build` | `go.mod`, `mise.toml`, GoReleaser, and the image |
-| `ci` | The workflows and the gates |
+| `ci` | The workflows, the gates, and the self-hosted runner |
 | `chore` | Work that fits no other type, such as a dependency bump |
 | `revert` | A revert of an earlier commit |
 
@@ -144,6 +144,10 @@ Rules for the subject line:
 * The description is imperative, lowercase, and without a full stop, for example
   `feat(reaper): delete the VM when the job is terminal`.
 * The subject line has a maximum of 72 characters.
+* A pull request title has a maximum of 65 characters, because GitHub adds " (#NNN)" to the
+  subject when it squashes. The `title` job of the `documents` workflow checks it, and it runs
+  again when the title changes. The job skips a pull request that a bot opens, because the
+  subject of a bot can pass the limit (see the rules for the rest of the message).
 
 Rules for the rest of the message:
 
@@ -152,6 +156,14 @@ Rules for the rest of the message:
   characters, because the module path belongs in the subject. A description from Dependabot
   starts with a capital letter ("Bump …"), because its configuration sets only the type and the
   scope.
+* A change of a workflow or of the runner uses `ci:`. It MUST NOT use `fix(ci)` or `fix(runner)`,
+  because release-please hides a commit by its type and not by its scope, so a `fix` of this kind
+  would show in the release notes. `scripts/check-commits.py` rejects both subjects.
+* A commit that fixes a vulnerability names its identifier (`GO-`, `GHSA-`, or `CVE-`) in the
+  subject or in the body, so that the release notes and a reader of the history can find the
+  advisory. Renovate has no template field for an advisory identifier (checked 2026-11-01 in the
+  Renovate documentation of templates), so the maintainer adds it when a vulnerability update
+  merges.
 * A breaking change has `!` before the colon, and a `BREAKING CHANGE:` footer that says what
   a user of the project must do.
 * Footers name the source identifiers, for example `Refs: W-06, PR-001` and `Evidence: T-041`.
@@ -180,6 +192,9 @@ Conventional Commits on `main`
 * The major version is 0. It MUST stay 0 until the maintainer decides that the project is stable.
   Only the maintainer starts version 1.0.0, and a pull request MUST NOT set a major version of 1
   or more.
+* Every 0.x release is a GitHub pre-release until version 1.0.0, and it is not the latest release.
+  `scripts/release-finish.sh` sets the flag from the tag when it publishes the draft, because a
+  published release is immutable.
 * A published tag never moves, and the repository rules block the deletion of a tag. To correct a
   bad release, publish a new version.
 
@@ -202,7 +217,10 @@ release-please keeps one release pull request open, with the title `chore(main):
 Each merge to `main` that changes behaviour updates it: the next version, `CHANGELOG.md`, and the
 version in `Chart.yaml`. The pull request collects all changes until the maintainer merges it.
 
-1. Read the release pull request. Make sure that the version and the changelog are correct.
+1. Read the release pull request. Make sure that the version and the changelog are correct. Read
+   the Known limitations section of `README.md`, and make sure that each item is closed or
+   accepted. For version 0.1.0, the legal review of ADR-0015 MUST be done first: a lawyer
+   confirms the licence position, and the maintainer records the result in the ADR.
 2. Merge the release pull request. release-please creates the tag and a draft release with the
    changelog.
 3. The tag starts the release workflow in the `release` environment. Make sure that the SHA of the
@@ -210,6 +228,12 @@ version in `Chart.yaml`. The pull request collects all changes until the maintai
    workflow builds and signs the artifacts, verifies the signatures and the assets, and then
    publishes the release
    ([ADR-0013](docs/adrs/0013-sign-releases-with-keyless-cosign-signatures.md)).
+   release-please creates the draft release when the release pull request merges, before the
+   workflow waits for the approval. For version 0.1.0, edit the notes of the draft release before
+   the approval: remove the entries of the `fix(ci)` and `fix(runner)` commits that are on `main`
+   before the rule of `scripts/check-commits.py`. release-please rebuilds the release pull request
+   on each push to `main`, so an edit of `CHANGELOG.md` there does not stay. `CHANGELOG.md` keeps
+   these entries for version 0.1.0, and the project accepts this.
 
 To set a version that the commits do not give, for example a release candidate such as
 `0.4.0-rc.1`, or `1.0.0`, add `"release-as": "<version>"` to `release-please-config.json` in a
@@ -228,10 +252,74 @@ that licence, and a pull request states that the author has the right to give it
 Two rules protect the licence:
 
 * Never copy code from a source with a field-of-use restriction, such as the FSL, into this
-  repository, and never generate code from such a file.
+  repository. The only exception is `internal/orchard/types_gen.go`. The generator
+  `tools/orchardgen` writes it from a pinned Orchard version, and it copies only the field names,
+  the JSON tags, and the types of the fields that the controller uses, for interoperability. Its
+  header names the source and the licence. A change that makes the controller read a new Orchard
+  field adds that field to the allow list of the generator
+  ([ADR-0015](docs/adrs/0015-generate-only-the-orchard-fields-the-controller-uses.md)).
 * The controller calls the Orchard REST API with its own client. Never add an Orchard package to
   `go.mod`
   ([ADR-0010](docs/adrs/0010-call-the-orchard-api-with-a-client-of-this-project.md)).
+
+## Developer Certificate of Origin
+
+A contribution MUST carry a sign-off under the
+[Developer Certificate of Origin 1.1](https://developercertificate.org/). The sign-off says that
+the author wrote the contribution, or has the right to give it under the licence of the project,
+and that the author knows the project keeps a public record of it. The full text is at that
+address.
+
+* Add the sign-off with `git commit -s`. It adds the trailer
+  `Signed-off-by: Name <email>`, and the email MUST be the email of the commit author.
+* To add the sign-off to the commits of a branch, run `git rebase --signoff <base>`. The rebase
+  rewrites the commits and removes their signatures, and the main branch requires signed commits.
+  Sign the commits again, for example with `git rebase --exec 'git commit --amend --no-edit -S'
+  <base>`, before the push.
+* A bot that uses a GitHub App (Renovate, release-please, and github-actions) is exempt. Its
+  author email ends with `[bot]@users.noreply.github.com`. The exemption trusts the author
+  email, so the maintainer checks during review that a bot pull request comes from the bot
+  account.
+
+`scripts/check-commits.py` checks the sign-off of each commit of a pull request, and the
+`commits` job fails the pull request when one is missing. The project squashes each pull request,
+and the squash message is the pull request description. So the commit on `main` does not keep the
+trailers. The commits of the pull request keep them, and the pull request record is the proof.
+
+## Continuity
+
+Today the project has one maintainer, and no second holder for the items below.
+
+| Item | Holder today | Successor |
+|---|---|---|
+| The `release` and `release-please` environments | The maintainer | `UNKNOWN` |
+| The private key of the release GitHub App | The maintainer | `UNKNOWN` |
+| The rulesets of the repository | The maintainer | `UNKNOWN` |
+
+* Owner of the `UNKNOWN` values: the maintainer.
+* Trigger: before version 1.0.0, or when a second maintainer joins, whichever is first.
+* If the maintainer is unavailable, no release can be made, because only the maintainer can
+  approve the environments and use the App key. A change can still be reviewed and merged only by
+  the maintainer, so the project pauses. The repository settings and the key stay as they are
+  until a successor is named here.
+
+The project does not name a person for these items until that person agrees.
+
+## Ownership and decisions
+
+The maintainer is the product owner. The kinds of change have these deciders:
+
+| Kind of change | Who decides |
+|---|---|
+| A requirement | The maintainer, as product owner |
+| An ADR | The maintainer, after review in the pull request |
+| The design | The maintainer, after review in the pull request; the design follows the requirements |
+| The code | The maintainer reviews it, and the requirements and the design decide what it does |
+
+[`.github/CODEOWNERS`](.github/CODEOWNERS) names the maintainer as the owner of each path. To
+move this to a team, replace the one user handle with a GitHub team handle (`@org/team`) on each
+line. The team MUST have write access to the repository. Contact is through GitHub only: an issue
+or a private security advisory.
 
 ## Security
 

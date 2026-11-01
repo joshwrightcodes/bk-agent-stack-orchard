@@ -228,3 +228,6 @@ test/component/testdata/rapid/
 
 # The chart package and the SBOMs that the release scripts write.
 /build/
+
+# Licence texts that scripts/licenses.sh copies for ko at build time (never committed).
+/cmd/bk-agent-stack-orchard/kodata/

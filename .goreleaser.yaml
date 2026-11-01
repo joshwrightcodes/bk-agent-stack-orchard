@@ -2,6 +2,13 @@ version: 2
 
 project_name: bk-agent-stack-orchard
 
+# The script writes the licence texts of the binary into build/licenses and, for ko, into
+# cmd/bk-agent-stack-orchard/kodata/licenses (ADR-0010 and NOTICE). A release and a snapshot
+# both run it, so no artifact ships without the notices.
+before:
+  hooks:
+    - ./scripts/licenses.sh
+
 builds:
   - id: bk-agent-stack-orchard
     main: ./cmd/bk-agent-stack-orchard
@@ -23,6 +30,17 @@ archives:
     ids: [bk-agent-stack-orchard]
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # Setting files replaces the defaults (LICENSE*, README*, CHANGELOG*), so the list keeps
+    # them as globs, which match nothing without an error (CHANGELOG.md exists only after the
+    # first release). It adds NOTICE and the texts of the third-party licences under licenses/.
+    files:
+      - LICENSE*
+      - README*
+      - CHANGELOG*
+      - NOTICE
+      - src: build/licenses/**
+        dst: licenses
+        strip_parent: false
 
 # Each archive gets an SPDX SBOM from syft. The checksums cover the archives and the SBOMs, and one
 # keyless cosign signature covers the checksums (ADR-0013). The chart is not here: it carries the
@@ -51,6 +69,12 @@ release:
   mode: keep-existing
   # A run that fails after the upload can run again on the same draft.
   replace_existing_artifacts: true
+  # Checked 2026-11-01 in GoReleaser 2.18.2 (internal/pipe/release/release.go): the value is not a
+  # template. It is the string "auto" or "true", and "auto" marks only a tag with a suffix such as
+  # -rc.1, so it does not mark v0.1.0. In keep-existing mode the run still sends this flag to the
+  # existing draft (internal/client/github.go, createOrUpdateRelease), so it can reset the flag
+  # that release-please set. scripts/release-finish.sh decides the flag at the publication, from
+  # the tag, and no fixed value here could change to false at 1.0.0 by itself.
   prerelease: auto
 
 kos:
@@ -70,3 +94,12 @@ kos:
     # The release workflow attests an SBOM of each platform image with syft and cosign. The SBOM
     # of ko has no signature, so it is off.
     sbom: none
+    # The kodata directory holds the licence texts (scripts/licenses.sh), which ko copies to
+    # /var/run/ko/licenses in the image. The OCI annotations go on the manifest, and the same
+    # keys are labels of the image configuration, which docker inspect shows.
+    labels:
+      org.opencontainers.image.licenses: AGPL-3.0-or-later
+      org.opencontainers.image.source: https://github.com/joshwrightcodes/bk-agent-stack-orchard
+    annotations:
+      org.opencontainers.image.licenses: AGPL-3.0-or-later
+      org.opencontainers.image.source: https://github.com/joshwrightcodes/bk-agent-stack-orchard

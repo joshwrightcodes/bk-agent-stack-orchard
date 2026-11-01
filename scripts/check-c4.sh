@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Validate the C4 workspace and confirm that the generated views agree with it.
 #
 # The workspace is the source of truth for the diagrams (target design, section 4). This script

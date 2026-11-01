@@ -14,13 +14,24 @@ Orchard OpenAPI file. The
 decision record `docs/adrs/0010-call-the-orchard-api-with-a-client-of-this-project.md` holds the
 reasoning.
 
+The project does copy one thing from the Orchard source: the field names, the JSON tags, and the
+types of the fields that the controller uses, in `types_gen.go`. It copies them so that the
+controller works with the Orchard API, and it copies no more than that. It never copies other code
+that is under the FSL. This is the view of the project, and a lawyer has not yet confirmed it
+(`ADR-0015`).
+
 ## What is generated, and what is not
 
 `tools/orchardgen` writes `types_gen.go` from the Orchard resource types at the pinned commit,
 and `go generate ./internal/orchard/` runs it. The `go:generate` directive carries that commit,
 because a tag can move. The generator resolves the tag of the version that the design states. It
 stops when the tag no longer points at the pinned commit. The generated file carries the field
-names, the JSON tags, and a type for each field. A person writes everything else by hand. This
+names, the JSON tags, and a type for each field, and only for the fields on the allow list of the
+generator (the `wanted` variable in `tools/orchardgen/main.go`). The allow list names the fields
+that code or a test in `internal/` reads or sets. The generator fails when a name on the list is
+not an upstream field. The file starts with a header that names the source repository, the
+version, the commit, the FSL-1.1-ALv2 licence, and the copyright notice of OpenAI. A person writes
+everything else by hand. This
 includes the requests, the retries, the errors, and the decisions about a conflict or a machine
 that is already gone.
 
@@ -29,8 +40,8 @@ types are what the server marshals. At 0.58.0 that description omits `randomSeri
 `last_seen`, and `scheduling_paused`, which the controller uses. Its paths also leave out the
 `/v1` prefix that the server serves. A client generated from it would not work.
 
-`ADR-0011` records this decision, and `ADR-0010` records why the Orchard Go client stays out of
-the binary.
+`ADR-0015` records this decision, and it replaces `ADR-0011`. `ADR-0010` records why the Orchard
+Go client stays out of the binary.
 
 ## What the client covers
 
@@ -64,7 +75,8 @@ Three layers, from cheapest to strongest:
    read the difference. That is the list of fields that moved. The run needs no commit, because a
    candidate is a question rather than a pin.
 3. Change the client where a moved field matters. A new type that the controller needs gets an
-   entry in the `wanted` list of the generator.
+   entry in the `wanted` list of the generator. A field that the controller starts to read or set
+   goes on the allow list of its type in the same change, and no other field does.
 4. Run the integration tests against the new version.
 5. Change the minimum version in the target design, section 9.2, and the driver in the system
    design baseline.
@@ -74,7 +86,7 @@ Three layers, from cheapest to strongest:
 ## If Orchard publishes a client or a specification under a permissive licence
 
 That removes the reason for this client. The change needs a new decision record that supersedes
-ADR-0010 and ADR-0011, and the client then becomes their package with a pinned version.
+ADR-0010 and ADR-0015, and the client then becomes their package with a pinned version.
 
 ## Running the generator
 

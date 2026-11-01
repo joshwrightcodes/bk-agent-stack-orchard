@@ -7,7 +7,7 @@
   * [Product requirements](../product/requirements.md): requirement identifiers such as `PR-005`
   * [System design baseline](system-design-baseline.md): driver identifiers such
     as `QA-01`
-  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0014
+  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0015
 
 ## Conventions
 
@@ -990,11 +990,15 @@ The minimum Orchard version of §9.2 applies to the server that the fleet runs, 
 dependency.
 
 **Wire types.** `tools/orchardgen` writes the wire types from the Orchard resource types of the
-pinned commit, and `go generate ./internal/orchard/` runs it (ADR-0011). The directive MUST carry
+pinned commit, and `go generate ./internal/orchard/` runs it (ADR-0015). The directive MUST carry
 a commit, not a tag, because a tag can move, and the generator MUST stop when the tag of the
 minimum version no longer points at that commit. The generated file
-carries the field names, the JSON tags, and a type for each field, and no behaviour of Orchard. A
-field whose type the controller does not read carries `json.RawMessage`.
+carries the field names, the JSON tags, and a type for each field, and no behaviour of Orchard. It
+MUST carry only the fields on an allow list in the generator, which are the fields that code or a
+test in `internal/` reads or sets. The generator MUST fail when a name on the list is not an
+upstream field. A field whose type the controller does not read carries `json.RawMessage`. The
+file MUST start with a header that names the source repository, the version, the commit, the
+FSL-1.1-ALv2 licence, and the copyright notice of the source.
 
 The generator reads the Go types, not the published description, because the Go types are what
 the server marshals: the description of version 0.58.0 omits `randomSerial`, `createdAt`,
@@ -1040,6 +1044,21 @@ These rules apply to the configuration:
 * `--snapshot` mode MUST skip the signatures (`--skip=sign`), because a snapshot has no OIDC
   token. It still builds the SBOMs.
 * `changelog` is off, because release-please writes the release notes.
+* Each release artifact MUST carry the licence notices of the third-party code that the binary
+  links (AGPL-3.0 and the licences of the dependencies need them). `scripts/licenses.sh`
+  (`mise run licenses`) uses `go-licenses` to write the licence texts of the linked modules to
+  `build/licenses`, and it adds the licence of the Go standard library. A `before.hooks` entry
+  runs it, so a release and a snapshot always generate the texts. Each archive MUST contain
+  `LICENSE`, `NOTICE`, `README.md`, `CHANGELOG.md` (when it exists), and the texts in
+  `licenses/`. The script also copies `LICENSE`, `NOTICE`, and the texts to
+  `cmd/bk-agent-stack-orchard/kodata/licenses`, which Git ignores. ko puts them in the image at
+  `/var/run/ko/licenses`, and the texts of the dependencies are in
+  `/var/run/ko/licenses/third-party/`. The image MUST have the OCI annotations
+  `org.opencontainers.image.licenses=AGPL-3.0-or-later` and `org.opencontainers.image.source`.
+  The Helm chart directory MUST contain copies of `LICENSE` and `NOTICE`, so that `helm package`
+  includes them. `NOTICE` MUST name each module that the binary links, and it MUST include the
+  `NOTICE` text of gRPC. `scripts/check-deps.py` fails when a module is missing from `NOTICE`, or
+  when a chart copy differs from the file of the root.
 
 **Release versions.** release-please calculates each version from the Conventional Commits on
 `main`, with the 0.x rules of the contributing guide (`release-please-config.json`). It keeps one
@@ -1074,7 +1093,10 @@ steps in this order:
    tags in the registry give the digests that step 2 and step 3 signed.
 5. `scripts/release-finish.sh` checks that exactly one release has the tag, and that the assets of
    the draft are the verified files, by name and SHA-256. Then it publishes the draft. The
-   repository makes a published release immutable, so a changed asset would stay.
+   repository makes a published release immutable, so a changed asset would stay. The same step
+   sets the pre-release flag from the tag: a tag `v0.*` is a pre-release and not the latest
+   release, and any other tag is neither. GoReleaser resets the flag on the draft, so the tag
+   decides at publication (ADR-0014).
 
 Each signature MUST be keyless. cosign gets a short-lived certificate from Sigstore for the OIDC
 token of the workflow, and records the signature in the Rekor transparency log. A verification
