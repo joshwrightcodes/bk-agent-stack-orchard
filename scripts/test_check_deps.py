@@ -90,6 +90,10 @@ class SpdxHeaderTest(unittest.TestCase):
     def test_a_go_file_with_the_line_first_passes(self) -> None:
         self.assertEqual(check_deps.spdx_errors("a.go", self.LINE + "\n\npackage a\n"), [])
 
+    def test_a_line_in_second_place_fails(self) -> None:
+        text = "//go:build integration\n" + self.LINE + "\n\npackage a\n"
+        self.assertEqual(len(check_deps.spdx_errors("a.go", text)), 1)
+
     def test_a_line_below_the_package_clause_fails(self) -> None:
         text = "package a\n\n" + self.LINE + "\n"
         self.assertEqual(len(check_deps.spdx_errors("a.go", text)), 1)

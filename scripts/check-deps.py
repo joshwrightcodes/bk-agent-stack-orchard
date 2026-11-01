@@ -23,8 +23,7 @@ Checks:
      NOTICE text of gRPC (Apache-2.0, section 4(d));
  10. the Helm chart carries copies of LICENSE and NOTICE that equal the files of the root, so
      that helm package includes them;
- 11. every tracked Go file carries the SPDX licence line of the project before its package
-     clause. A generator writes the line into a generated file.
+ 11. every tracked Go file carries the SPDX licence line of the project as its first line. A generator writes the line into a generated file.
 """
 
 from __future__ import annotations
@@ -247,13 +246,11 @@ SPDX_LINE = "// SPDX-License-" + "Identifier: AGPL-3.0-or-later"
 
 
 def spdx_errors(name: str, text: str) -> list[str]:
-    """Rule 11: the SPDX line stands above the package clause of a Go file."""
-    for line in text.splitlines():
-        if line.startswith("package "):
-            break
-        if line == SPDX_LINE:
-            return []
-    return [f"{name} lacks the line {SPDX_LINE!r} before its package clause"]
+    """Rule 11: the SPDX line is the first line of a Go file."""
+    lines = text.splitlines()
+    if lines and lines[0] == SPDX_LINE:
+        return []
+    return [f"{name} lacks the line {SPDX_LINE!r} as its first line"]
 
 
 def check_spdx_headers() -> None:

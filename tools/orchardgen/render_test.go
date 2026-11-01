@@ -5,6 +5,7 @@ package main
 import (
 	"go/parser"
 	"go/token"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -167,5 +168,30 @@ func TestRenderFailsWhenAnAllowedFieldIsGone(t *testing.T) {
 
 	if _, err := render("0.58.0", "", types); err == nil || !strings.Contains(err.Error(), "Status") {
 		t.Errorf("render() error = %v, want one that names the field Status", err)
+	}
+}
+
+// The file starts with the licence line, and Go still treats it as generated.
+func TestRenderStartsWithTheLicenceLineAndStaysGenerated(t *testing.T) {
+	types := parse(t, `package v1
+
+type VM struct {
+	Image string `+"`json:\"image,omitempty\"`"+`
+}
+`)
+
+	got, err := render("0.58.0", "22bd63c34674a1422896aa208a464f4340cdb0b8", types)
+	if err != nil {
+		t.Fatalf("render() failed: %v", err)
+	}
+
+	const line = "// SPDX-License-" + "Identifier: AGPL-3.0-or-later\n"
+	if !strings.HasPrefix(string(got), line) {
+		t.Errorf("render() does not start with the licence line:\n%.200s", got)
+	}
+
+	generated := regexp.MustCompile(`(?m)^// Code generated .* DO NOT EDIT\.$`)
+	if !generated.Match(got) {
+		t.Errorf("render() lost the generated-file line that Go reads:\n%.300s", got)
 	}
 }
