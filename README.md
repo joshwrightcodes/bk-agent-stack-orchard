@@ -20,8 +20,9 @@ The project is a program that an operator deploys. It is not a Go library. All G
 [version rules](#versioning) apply to them. The first release, version 0.1.0, waits for the release
 gate in the [test strategy](docs/quality/test-strategy.md). The
 [GitHub Releases page](https://github.com/joshwrightcodes/bk-agent-stack-orchard/releases) lists
-each release that exists. `CHANGELOG.md` lists the changes of each release. The file appears with
-the first release.
+each release that exists. [`CHANGELOG.md`](https://github.com/joshwrightcodes/bk-agent-stack-orchard/blob/main/CHANGELOG.md)
+lists the changes of each release. The file appears with the first release, so the link works only
+after that.
 
 The implementation follows four increments. Each increment ends with evidence in CI, not with code
 that compiles.
@@ -277,7 +278,7 @@ You can use, run, and change the controller. If you give a copy to other people,
 them the source under the same licence. If you change the controller and other people use it
 through a network, you must offer the source of your changed version to those users. The AGPL
 requires an offer to those people. It does not require you to publish the source to everyone. Use
-inside your own organization, without access for other people, needs no offer.
+inside your own organisation, without access for other people, needs no offer.
 
 This summary is not legal advice. The text of the licence controls.
 
@@ -304,27 +305,58 @@ Apple. The names and marks in this project belong to their owners.
 
 ### Apple licensing
 
-The operator is responsible for compliance with the licences of Apple. The macOS software license
-agreement of Apple (checked 2026-11-01) states these limits:
+The operator is responsible for compliance with the licences of Apple. This section paraphrases
+two agreements. It is not a full statement of them.
 
-* The operator MUST use macOS virtualization for internal software development and testing only.
-* The operator MUST NOT run more than two macOS virtual machines on one Mac host at a time.
-* The operator MUST NOT give a service to third parties, unless the leasing terms of Apple are
-  met.
+**The macOS licence agreement** (section 2B(iii), section 2I, and section 3):
 
-Images that contain Xcode MUST stay in a private registry for the organization of the operator.
+* Section 2B(iii) lets the licensee run up to two additional instances of macOS in virtual
+  environments on each Apple-branded computer that the licensee owns or controls and that already
+  runs macOS. The permitted purposes are software development, testing during software
+  development, use of macOS Server, and personal non-commercial use.
+* The operator MUST NOT run more than two virtual macOS instances on one Mac host at a time.
+* The text after section 2B(iii) and section 2I forbid the use of virtualised macOS in connection
+  with service bureau, time-sharing, terminal sharing, relay, or similar services. This bar applies
+  inside the organisation of the operator, and it applies to third parties. An operator MUST
+  assess whether a shared pool of build machines for other teams is such a service.
+* Section 3 is the only exception. It lets a lessor lease macOS to a lessee, if all of these
+  conditions are met: the lease is for continuous integration services (Permitted Developer
+  Services), each lease period is at least 24 consecutive hours, the lessee has sole and exclusive
+  use and control of the software and the hardware during the lease, and the lessee agrees to the
+  licence. The lessor MUST give Apple advance notice. A job VM that lives for one build is much
+  shorter than 24 hours.
+
+**The Xcode and Apple SDKs Agreement** (section 2.2 and section 2.7): the licence is for internal
+use by the licensee and its authorised developers. The agreement does not let the licensee upload
+the software to, or host it on, a website or a server, or redistribute it. Because of this, images
+that contain Xcode MUST stay in a private registry that only the organisation of the operator can
+use. The operator carries the risk of this reading. The operator SHOULD ask a lawyer.
+
 When it runs, `images/build.sh` accepts the Xcode and SDK licences on behalf of the operator.
 
-Source: the macOS software license agreement of Apple, checked 2026-11-01.
+Sources, read on 2026-11-01:
+
+* macOS licence agreement: <https://www.apple.com/legal/sla/docs/macOSGoldenGate.pdf>
+* Xcode and Apple SDKs Agreement: <https://www.apple.com/legal/sla/docs/xcode.pdf> (edition
+  EA2002, dated 06/08/2026 in the document)
 
 ### Privacy
 
 Job logs and build metadata can carry personal information, such as the names of committers. They
-go to Buildkite, which hosts them outside Australia. An operator in Australia SHOULD consider
-Australian Privacy Principle 8 (APP 8) of the Privacy Act 1988 before it sends such data.
+go to Buildkite. Buildkite stores job logs in Amazon Web Services, and its documentation states no
+region (2026-09-14, owner answer Q-A7 in the
+[requirements](docs/product/requirements.md) and the
+[system design baseline](docs/architecture/system-design-baseline.md)). The operator therefore
+cannot assume that the data stays in Australia. An operator that is an APP entity under the Privacy
+Act 1988 SHOULD consider Australian Privacy Principle 8 (APP 8) before it sends such data.
 
 ### Licences of Tart and Orchard
 
-Tart and Orchard use the FSL-1.1-ALv2 licence (checked 2026-11-01, from the FSL text). Internal use
-is a permitted purpose under this licence. A commercial service that competes with Tart or Orchard
-is not a permitted purpose.
+Tart and Orchard use the FSL-1.1-ALv2 licence. The licence text is in the LICENSE file of the
+Tart repository, read on 2026-11-01 through the GitHub API (`openai/tart`). Its Permitted Purpose
+is any purpose other than a Competing Use. Internal use and access is a Permitted Purpose. A
+Competing Use is to make the software available to others in a commercial product or service
+that substitutes for the software, substitutes for another product or service of the licensor that
+uses the software, or offers the same or substantially similar functionality. An operator that
+offers a commercial macOS build service to others MUST check this definition first. The licence
+text controls. The Orchard licence was not checked separately on 2026-11-01.
