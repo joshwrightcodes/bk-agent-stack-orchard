@@ -28,6 +28,11 @@ const (
 	TransportSSH Transport = "ssh"
 )
 
+// UnsafeInTagList holds the characters that a tag must not contain. The agent reads its tags as
+// one comma-separated list, so a comma would split a tag in two. A newline, a carriage return, or
+// a quote would break the text that carries the list.
+const UnsafeInTagList = ",\n\r\"'"
+
 var (
 	nameFormat     = regexp.MustCompile(`^[a-z0-9-]+$`)
 	matchKeyFormat = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]*$`)
@@ -224,6 +229,9 @@ func (p Profile) validateMatch() []error {
 		case key == "queue":
 			problems = append(problems,
 				errors.New("match must not contain the queue key, because the queue selects the fleet"))
+		case key == "profile", key == "agent-stack":
+			problems = append(problems, fmt.Errorf(
+				"match must not contain the key %q, because the controller sets that tag", key))
 		case !matchKeyFormat.MatchString(key):
 			problems = append(problems, fmt.Errorf("match key %q must be a lower-case literal", key))
 		case value == "":
@@ -231,6 +239,9 @@ func (p Profile) validateMatch() []error {
 		case strings.ContainsAny(value, "*?!"):
 			problems = append(problems,
 				fmt.Errorf("match value %q must be a literal, because a wildcard matches more than one profile", value))
+		case strings.ContainsAny(value, UnsafeInTagList), strings.TrimSpace(value) != value:
+			problems = append(problems, fmt.Errorf("match value %q must have no comma, quote, newline, "+
+				"or white space at an end, because the agent reads its tags as one list", value))
 		}
 	}
 

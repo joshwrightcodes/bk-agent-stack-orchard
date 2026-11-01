@@ -133,7 +133,7 @@ func serve(ctx context.Context, path, origin string, out io.Writer) error {
 
 	// The calls of this controller become spans and metrics of the HTTP conventions, which is
 	// where an operator looks first when a call is slow or fails.
-	client := &http.Client{Transport: otelhttp.NewTransport(nil)}
+	client := newHTTPClient(nil)
 
 	stacks, err := buildkite.New(buildkite.Options{
 		Token:      settings.Buildkite.AgentToken,
@@ -158,7 +158,7 @@ func serve(ctx context.Context, path, origin string, out io.Writer) error {
 		URL:            settings.Orchard.URL,
 		ServiceAccount: settings.Orchard.ServiceAccount,
 		Token:          settings.Orchard.Token,
-		HTTPClient:     &http.Client{Transport: otelhttp.NewTransport(toOrchard)},
+		HTTPClient:     newHTTPClient(toOrchard),
 	})
 	if err != nil {
 		return err
@@ -243,4 +243,13 @@ func orUnknown(value string) string {
 	}
 
 	return value
+}
+
+// httpTimeout limits one whole call to Buildkite or to Orchard. A server that accepts a call and
+// never answers would otherwise hold the loop for ever, with no reaping and no restart.
+const httpTimeout = 30 * time.Second
+
+// newHTTPClient builds the client for one remote service. A nil transport gives the default one.
+func newHTTPClient(transport http.RoundTripper) *http.Client {
+	return &http.Client{Transport: otelhttp.NewTransport(transport), Timeout: httpTimeout}
 }

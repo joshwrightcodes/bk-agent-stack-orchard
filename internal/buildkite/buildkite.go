@@ -24,6 +24,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -154,9 +155,7 @@ func New(options Options) (*Client, error) {
 		opts = append(opts, stacksapi.WithLogger(options.Logger))
 	}
 
-	if options.HTTPClient != nil {
-		opts = append(opts, stacksapi.WithHTTPClient(options.HTTPClient))
-	}
+	opts = append(opts, stacksapi.WithHTTPClient(limitBodies(options.HTTPClient)))
 
 	api, err := stacksapi.NewClient(options.Token.Reveal(), opts...)
 	if err != nil {
@@ -504,3 +503,71 @@ func identifiers(texts []string) ([]job.ID, error) {
 
 	return out, nil
 }
+
+// maxResponseBytes is the most that the client reads from the body of an answer. The library reads
+// a whole body into memory, so a body over the limit fails the call, and a cut body never reaches
+// the decoder.
+const maxResponseBytes = 16 << 20 // 16 MiB
+
+// limitBodies gives a copy of the client whose transport limits each answer body. A nil client
+// stands for the default client of the library.
+func limitBodies(client *http.Client) *http.Client {
+	limited := &http.Client{}
+	if client != nil {
+		copied := *client
+		limited = &copied
+	}
+
+	limited.Transport = limitedTransport{next: limited.Transport}
+
+	return limited
+}
+
+// limitedTransport replaces the body of each answer with a reader that fails past the limit.
+type limitedTransport struct{ next http.RoundTripper }
+
+func (t limitedTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	next := t.next
+	if next == nil {
+		next = http.DefaultTransport
+	}
+
+	response, err := next.RoundTrip(request)
+	if err != nil {
+		return response, err
+	}
+
+	response.Body = &limitedBody{body: response.Body, left: maxResponseBytes}
+
+	return response, nil
+}
+
+// limitedBody reads up to the limit, and then fails if the body has more.
+type limitedBody struct {
+	body io.ReadCloser
+	left int64
+}
+
+func (b *limitedBody) Read(p []byte) (int, error) {
+	if b.left < 0 {
+		return 0, errBodyOverLimit
+	}
+
+	// One byte more than the limit shows that the body is longer.
+	if int64(len(p)) > b.left+1 {
+		p = p[:b.left+1]
+	}
+
+	n, err := b.body.Read(p)
+	b.left -= int64(n)
+
+	if b.left < 0 {
+		return n - 1, errBodyOverLimit
+	}
+
+	return n, err
+}
+
+func (b *limitedBody) Close() error { return b.body.Close() }
+
+var errBodyOverLimit = fmt.Errorf("the body of the answer is over the limit of %d bytes", maxResponseBytes)

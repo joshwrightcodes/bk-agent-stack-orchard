@@ -114,6 +114,42 @@ func TestRegisterAnnouncesACustomStackForTheQueue(t *testing.T) {
 	}
 }
 
+// stacksapi reads a whole body into memory. A body over the limit must fail the call, and a cut
+// body must never reach the decoder.
+func TestACallFailsWhenTheBodyOfTheAnswerIsOverTheLimit(t *testing.T) {
+	const limit = 16 << 20
+
+	for name, size := range map[string]int{"over": limit + 1, "at": limit} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"pad":"`))
+				_, _ = w.Write(bytes.Repeat([]byte("a"), size-len(`{"pad":"`)-2))
+				_, _ = w.Write([]byte(`"}`))
+			}))
+			t.Cleanup(server.Close)
+
+			client, err := buildkite.New(buildkite.Options{
+				Token:    secret.String("bkct_a-cluster-agent-token"),
+				Endpoint: server.URL,
+				StackKey: "bk-macos-prod",
+				Queue:    "macos-prod",
+			})
+			if err != nil {
+				t.Fatalf("New() = %v, want a client", err)
+			}
+
+			err = client.Register(t.Context())
+			if name == "over" && (err == nil || !strings.Contains(err.Error(), "over the limit")) {
+				t.Errorf("Register() with a body of %d bytes = %v, want an error about the limit", size, err)
+			}
+			if name == "at" && err != nil && strings.Contains(err.Error(), "over the limit") {
+				t.Errorf("Register() with a body of %d bytes = %v, want no error about the limit", size, err)
+			}
+		})
+	}
+}
+
 // An idle queue is the usual answer, and it must not look like a failure.
 func TestScheduledJobsReadsAnEmptyPage(t *testing.T) {
 	client, fake := start(t)

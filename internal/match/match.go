@@ -120,11 +120,6 @@ func formatTags(tags map[string]string) string {
 	return strings.Join(pairs, ", ")
 }
 
-// unsafeInTagList holds the characters that a tag must not contain. The tags of a job reach the
-// agent as one comma-separated list, so a comma would split a tag in two. A newline, a carriage
-// return, or a quote would break the text that carries the list.
-const unsafeInTagList = ",\n\r\"'"
-
 // Tags reads the agent query rules of a job into a map, without the queue rule.
 //
 // A rule must be `key=literal`. A wildcard, a negation, or another shape gives a mismatch,
@@ -143,7 +138,7 @@ func Tags(rules []string) (map[string]string, error) {
 			return nil, &Mismatch{Reason: ReasonRuleNotLiteral, Rule: rule}
 		case strings.ContainsAny(key, "*?!"), strings.ContainsAny(value, "*?"):
 			return nil, &Mismatch{Reason: ReasonRuleNotLiteral, Rule: rule}
-		case strings.ContainsAny(key, unsafeInTagList), strings.ContainsAny(value, unsafeInTagList):
+		case strings.ContainsAny(key+value, profile.UnsafeInTagList):
 			return nil, &Mismatch{Reason: ReasonRuleNotLiteral, Rule: rule}
 		case strings.TrimSpace(key) != key, strings.TrimSpace(value) != value:
 			return nil, &Mismatch{Reason: ReasonRuleNotLiteral, Rule: rule}

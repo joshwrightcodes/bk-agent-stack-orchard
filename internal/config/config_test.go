@@ -198,19 +198,29 @@ profiles:`, 1)
 
 // The Stacks API accepts a reservation of 3600 s at most, and a token of the same length at most.
 // A value above that fails at start-up, and not at the first job, where Buildkite would refuse it.
-func TestLoadRefusesALifetimeOverOneHour(t *testing.T) {
-	//nolint:gosec // The keys name a lifetime and not a credential.
-	for name, change := range map[string]string{
-		"buildkite.reservationExpiry": "buildkite:\n  reservationExpiry: 3601s",
-		"buildkite.jobTokenLifetime":  "buildkite:\n  jobTokenLifetime: 3601s",
-	} {
-		t.Run(name, func(t *testing.T) {
-			body := strings.Replace(minimal, strings.SplitN(change, "\n", 2)[0], change, 1)
+func TestLoadRefusesAReservationOverOneHour(t *testing.T) {
+	body := strings.Replace(minimal, "buildkite:", "buildkite:\n  reservationExpiry: 3601s", 1)
+
+	_, err := load(t, body, secrets())
+	if err == nil || !strings.Contains(err.Error(), "buildkite.reservationExpiry") ||
+		!strings.Contains(err.Error(), "3600") {
+		t.Errorf("Load() with a reservation of 3601 s = %v, want an error that names it and the limit", err)
+	}
+}
+
+// The token goes into a virtual machine that runs untrusted code, so it lives 1800 s at most. That
+// is shorter than the limit of the API.
+func TestLoadRefusesATokenLifetimeOverThirtyMinutes(t *testing.T) {
+	for _, lifetime := range []string{"1801s", "3600s", "3601s"} {
+		t.Run(lifetime, func(t *testing.T) {
+			body := strings.Replace(minimal, "buildkite:",
+				"buildkite:\n  jobTokenLifetime: "+lifetime, 1)
 
 			_, err := load(t, body, secrets())
-			if err == nil || !strings.Contains(err.Error(), name) ||
-				!strings.Contains(err.Error(), "3600") {
-				t.Errorf("Load() with %s = %v, want an error that names it and the limit", change, err)
+			if err == nil || !strings.Contains(err.Error(), "buildkite.jobTokenLifetime") ||
+				!strings.Contains(err.Error(), "1800") {
+				t.Errorf("Load() with a token lifetime of %s = %v, want an error that names it and 1800",
+					lifetime, err)
 			}
 		})
 	}
@@ -257,12 +267,37 @@ func TestLoadRefusesALifetimeThatIsNotWholeSeconds(t *testing.T) {
 	}
 }
 
-func TestLoadAcceptsALifetimeOfOneHour(t *testing.T) {
+func TestLoadAcceptsTheLongestLifetimes(t *testing.T) {
 	body := strings.Replace(minimal, "buildkite:",
-		"buildkite:\n  reservationExpiry: 3600s\n  jobTokenLifetime: 3600s", 1)
+		"buildkite:\n  reservationExpiry: 3600s\n  jobTokenLifetime: 1800s", 1)
 
 	if _, err := load(t, body, secrets()); err != nil {
-		t.Errorf("Load() with lifetimes of 3600 s = %v, want no error", err)
+		t.Errorf("Load() with a reservation of 3600 s and a token of 1800 s = %v, want no error", err)
+	}
+}
+
+// BUILDKITE_AGENT_TAGS is one comma-separated list, and the queue is its first tag.
+func TestLoadRefusesAQueueThatIsUnsafeInTheTagList(t *testing.T) {
+	for name, queue := range map[string]string{
+		"a comma":          `"a,b"`,
+		"a double quote":   `'a"b'`,
+		"a single quote":   `"a'b"`,
+		"a newline":        `"a\nb"`,
+		"a carriage":       `"a\rb"`,
+		"leading padding":  `" a"`,
+		"trailing padding": `"a "`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			body := strings.Replace(minimal, "queue: macos\n", "queue: "+queue+"\n", 1)
+			if body == minimal {
+				t.Fatal("the test fixture has no queue line to change")
+			}
+
+			_, err := load(t, body, secrets())
+			if err == nil || !strings.Contains(err.Error(), "buildkite.queue") {
+				t.Errorf("Load() with a queue with %s = %v, want an error that names the queue", name, err)
+			}
+		})
 	}
 }
 

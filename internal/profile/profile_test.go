@@ -58,6 +58,31 @@ func TestValidateRejectsAMatchMapThatIsNotLiteral(t *testing.T) {
 	}
 }
 
+// The matcher skips every job for a rule that names a tag that the controller sets, or one that
+// the agent cannot carry in its tag list. A profile with such a map could never match a job.
+func TestValidateRejectsAMatchMapThatNoJobCanMatch(t *testing.T) {
+	cases := map[string]map[string]string{
+		"the profile key":     {"profile": "large"},
+		"the agent-stack key": {"agent-stack": "orchard"},
+		"a comma":             {"xcode": "27,28"},
+		"a double quote":      {"xcode": `2"7`},
+		"a single quote":      {"xcode": "2'7"},
+		"a newline":           {"xcode": "27\n"},
+		"a carriage return":   {"xcode": "2\r7"},
+		"leading padding":     {"xcode": " 27"},
+		"trailing padding":    {"xcode": "27 "},
+	}
+
+	for name, match := range cases {
+		p := valid()
+		p.Match = match
+
+		if err := p.Validate(); err == nil {
+			t.Errorf("Validate() with %s = nil, want an error", name)
+		}
+	}
+}
+
 func TestValidateAcceptsAnEmptyMatchMap(t *testing.T) {
 	p := valid()
 	p.Match = map[string]string{}

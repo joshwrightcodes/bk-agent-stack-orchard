@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/goccy/go-yaml"
@@ -83,6 +84,11 @@ type Defaults struct {
 // lifetime, that the Stacks API accepts: 3600 s. These are the limits of the API itself (target
 // design, section 3).
 const MaxAPILifetime = time.Hour
+
+// MaxJobTokenLifetime is the longest job acquisition token lifetime that the controller accepts:
+// 1800 s. The token goes into a virtual machine that runs untrusted code, so the limit is shorter
+// than the one of the API (target design, section 9).
+const MaxJobTokenLifetime = 30 * time.Minute
 
 // Config is the whole configuration of one controller.
 type Config struct {
@@ -206,6 +212,13 @@ func (c *Config) validateBuildkite() []error {
 	if c.Buildkite.Queue == "" {
 		problems = append(problems, errors.New("buildkite.queue must name the queue of the fleet"))
 	}
+	// The queue is the first tag of BUILDKITE_AGENT_TAGS, which the agent reads as one list.
+	if strings.ContainsAny(c.Buildkite.Queue, profile.UnsafeInTagList) ||
+		strings.TrimSpace(c.Buildkite.Queue) != c.Buildkite.Queue {
+		problems = append(problems, fmt.Errorf(
+			"buildkite.queue %q must not have a comma, a quote, a newline, or white space at an end, "+
+				"because the agent reads its tags as one comma-separated list", c.Buildkite.Queue))
+	}
 	if err := secureAddress("buildkite.endpoint", c.Buildkite.Endpoint,
 		c.Buildkite.PlainHTTPEndpoint); err != nil {
 		problems = append(problems, err)
@@ -224,15 +237,28 @@ func (c *Config) validateBuildkite() []error {
 		}
 	}
 
-	for name, value := range map[string]time.Duration{
-		"buildkite.reservationExpiry": c.Buildkite.ReservationExpiry,
-		"buildkite.jobTokenLifetime":  c.Buildkite.JobTokenLifetime,
+	for _, lifetime := range []struct {
+		name  string
+		value time.Duration
+		limit time.Duration
+		why   string
+	}{
+		{
+			"buildkite.reservationExpiry", c.Buildkite.ReservationExpiry, MaxAPILifetime,
+			"the Stacks API accepts",
+		},
+		{
+			"buildkite.jobTokenLifetime", c.Buildkite.JobTokenLifetime, MaxJobTokenLifetime,
+			"the controller accepts",
+		},
 	} {
+		name, value := lifetime.name, lifetime.value
+
 		switch {
-		case value > MaxAPILifetime:
+		case value > lifetime.limit:
 			problems = append(problems, fmt.Errorf(
-				"%s is %s, and the Stacks API accepts %d s at most", name, value,
-				int(MaxAPILifetime.Seconds())))
+				"%s is %s, and %s %d s at most", name, value, lifetime.why,
+				int(lifetime.limit.Seconds())))
 		case value > 0 && value < time.Second:
 			problems = append(problems, fmt.Errorf(
 				"%s is %s, and the Stacks API needs at least 1 s", name, value))

@@ -144,11 +144,6 @@ func Build(r Request) (orchard.VM, error) {
 // text.
 const scriptContent = "buildkite-agent start"
 
-// unsafeInTagList holds the characters that a tag must not contain. The agent reads its tags as
-// one comma-separated list, so a comma would split a tag in two. A newline, a carriage return, or
-// a quote would break the text that carries the list.
-const unsafeInTagList = ",\n\r\"'"
-
 // agentTags gives the tags of the agent as the list that the agent reads: the three fixed tags
 // first, then the tags of the job in the order of their keys.
 func (r Request) agentTags() string {
@@ -207,7 +202,7 @@ func (r Request) validate() error {
 
 	for key, value := range r.Tags {
 		switch {
-		case key == "", value == "", strings.ContainsAny(key+value, unsafeInTagList),
+		case key == "", value == "", strings.ContainsAny(key+value, profile.UnsafeInTagList),
 			strings.TrimSpace(key) != key, strings.TrimSpace(value) != value:
 			problems = append(problems, fmt.Errorf("the tag %q=%q is empty, or it has a comma, "+
 				"a newline, a quote, or white space at an end", key, value))

@@ -5,9 +5,11 @@ package main
 import (
 	"bytes"
 	"errors"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestVersionPrintsTheVersionAndTheCommit(t *testing.T) {
@@ -153,5 +155,21 @@ func TestTheStartErrorNamesWhereTheConfigPathCameFrom(t *testing.T) {
 				t.Errorf("run() reported %q, want it to name %q", problems.String(), tt.other)
 			}
 		})
+	}
+}
+
+// A server that accepts a call and never answers must not hold the loop for ever.
+func TestTheClientsOfTheControllerCarryATimeout(t *testing.T) {
+	for name, client := range map[string]*http.Client{
+		"buildkite": newHTTPClient(nil),
+		"orchard":   newHTTPClient(http.DefaultTransport),
+	} {
+		if client.Timeout != httpTimeout || httpTimeout <= 0 {
+			t.Errorf("the %s client has timeout %s, want %s", name, client.Timeout, httpTimeout)
+		}
+	}
+
+	if httpTimeout != 30*time.Second {
+		t.Errorf("httpTimeout = %s, want 30s", httpTimeout)
 	}
 }
