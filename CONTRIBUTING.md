@@ -217,7 +217,11 @@ release-please keeps one release pull request open, with the title `chore(main):
 Each merge to `main` that changes behaviour updates it: the next version, `CHANGELOG.md`, and the
 version in `Chart.yaml`. The pull request collects all changes until the maintainer merges it.
 
-1. Read the release pull request. Make sure that the version and the changelog are correct.
+1. Read the release pull request. Make sure that the version and the changelog are correct. For
+   version 0.1.0, edit the pull request so that `CHANGELOG.md` does not list the `fix(ci)` and
+   `fix(runner)` commits that are on `main` before the rule of `scripts/check-commits.py`. Also
+   update the `pull-request-header` text of `release-please-config.json` to the known limitations
+   that remain, and remove the text when none remain.
 2. Merge the release pull request. release-please creates the tag and a draft release with the
    changelog.
 3. The tag starts the release workflow in the `release` environment. Make sure that the SHA of the

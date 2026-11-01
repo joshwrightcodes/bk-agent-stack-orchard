@@ -86,6 +86,11 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(check_commits.check("r", "ci(runner): start the job again", "Josh"), [])
         self.assertEqual(check_commits.check("r", "fix(reaper): delete the VM", "Josh"), [])
 
+    def test_the_ci_rule_covers_a_breaking_fix_and_spares_other_scopes(self) -> None:
+        problems = check_commits.check("r", "fix(ci)!: start the job again", "Josh")
+        self.assertTrue(any("Use ci:" in p for p in problems), problems)
+        self.assertEqual(check_commits.check("r", "fix(cio): start the job again", "Josh"), [])
+
     def test_a_person_signs_off(self) -> None:
         email = "josh@example.org"
         signed = "docs: say more\n\nSigned-off-by: Josh <JOSH@example.org>"

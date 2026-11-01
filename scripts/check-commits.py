@@ -101,7 +101,8 @@ def check(rev: str, message: str, author: str = "", subject_limit: int = 0) -> l
         if match.group("type") == "fix" and match.group("scope") in CI_SCOPES:
             problems.append(
                 f"fix({match.group('scope')}) would show in the release notes. "
-                "Use ci: for a change of a workflow or of the runner")
+                "Use ci: for a change of a workflow or of the runner"
+            )
         if len(subject) > subject_limit:
             problems.append(f"subject is {len(subject)} characters, the limit is {subject_limit}")
         # Dependabot writes "Bump …" with a capital letter, and its configuration sets only the

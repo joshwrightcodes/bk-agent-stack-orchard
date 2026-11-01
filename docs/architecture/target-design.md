@@ -1093,7 +1093,10 @@ steps in this order:
    tags in the registry give the digests that step 2 and step 3 signed.
 5. `scripts/release-finish.sh` checks that exactly one release has the tag, and that the assets of
    the draft are the verified files, by name and SHA-256. Then it publishes the draft. The
-   repository makes a published release immutable, so a changed asset would stay.
+   repository makes a published release immutable, so a changed asset would stay. The same step
+   sets the pre-release flag from the tag: a tag `v0.*` is a pre-release and not the latest
+   release, and any other tag is neither. GoReleaser resets the flag on the draft, so the tag
+   decides at publication (ADR-0014).
 
 Each signature MUST be keyless. cosign gets a short-lived certificate from Sigstore for the OIDC
 token of the workflow, and records the signature in the Rekor transparency log. A verification
