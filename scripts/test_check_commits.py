@@ -75,6 +75,30 @@ class CheckTest(unittest.TestCase):
         problems = check_commits.check("r", message, "Josh")
         self.assertTrue(any("body line" in p for p in problems), problems)
 
+    def test_a_person_signs_off(self) -> None:
+        email = "josh@example.org"
+        signed = "docs: say more\n\nSigned-off-by: Josh <JOSH@example.org>"
+        self.assertEqual(check_commits.check_signoff("r", signed, email), [])
+
+        unsigned = check_commits.check_signoff("r", "docs: say more", email)
+        self.assertTrue(any("Signed-off-by" in p for p in unsigned), unsigned)
+
+        other = "docs: say more\n\nSigned-off-by: Ann <ann@example.org>"
+        mismatch = check_commits.check_signoff("r", other, email)
+        self.assertTrue(any("author email" in p for p in mismatch), mismatch)
+
+        for bot in ("49699333+dependabot[bot]@users.noreply.github.com",
+                    "41898282+github-actions[bot]@users.noreply.github.com"):
+            self.assertEqual(check_commits.check_signoff("r", "build: bump", bot), [])
+
+    def test_the_pr_title_is_checked(self) -> None:
+        self.assertEqual(check_commits.check_title("feat(reaper): delete the VM"), [])
+        long = "feat(reaper): " + "a" * 60
+        problems = check_commits.check_title(long)
+        self.assertTrue(any("65" in p for p in problems), problems)
+        bad = check_commits.check_title("Update things")
+        self.assertTrue(any("Conventional Commits" in p for p in bad), bad)
+
 
 if __name__ == "__main__":
     unittest.main()

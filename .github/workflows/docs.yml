@@ -5,6 +5,8 @@ name: documents
 
 on:
   pull_request:
+    # A new title runs the title gate again. The first three are the defaults.
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main]
 
@@ -51,6 +53,18 @@ jobs:
             base="$BASE_SHA"
           fi
           python3 scripts/check-commits.py "$base"
+
+  title:
+    name: pull request title
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # The squash commit takes the title, and GitHub adds " (#NNN)", so the limit is 65.
+      - env:
+          # The title is free text from the author, so it reaches the shell only as a variable.
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: python3 scripts/check-commits.py --title "$PR_TITLE"
 
   c4:
     name: c4 model

@@ -6,9 +6,13 @@ and changes nothing.
 
 Usage:
     scripts/check-commits.py [<base-ref>]
+    scripts/check-commits.py --title "<pull request title>"
 
 The default base reference is origin/main. A pull request checks its own commits, so CI gives the
-merge base of the target branch.
+merge base of the target branch. Each commit of a person MUST carry a Signed-off-by trailer with
+the email of the author (the Developer Certificate of Origin). A GitHub App bot is exempt. The
+title mode applies the subject rules to a pull request title, with a lower limit, because GitHub
+adds " (#NNN)" to the subject of the squash commit.
 """
 
 from __future__ import annotations
@@ -28,34 +32,57 @@ SUBJECT = re.compile(
 
 MAX_SUBJECT = 72
 MAX_BODY = 72
+MAX_TITLE = 65
+BOT_EMAIL_SUFFIX = "[bot]@users.noreply.github.com"
+SIGNOFF = re.compile(r"^Signed-off-by: .+? <([^<>\s]+)>\s*$", re.MULTILINE | re.IGNORECASE)
+FIELD = "\x1f"
 SEPARATOR = "\x1e"
 
 
-def commits(base: str) -> list[tuple[str, str, str]]:
+def commits(base: str) -> list[tuple[str, str, str, str]]:
     # --no-merges: a pull request event checks out refs/pull/N/merge, so the range contains a
     # merge commit that GitHub wrote. The rules apply to the commits that a person wrote.
     revs = subprocess.run(["git", "rev-list", "--no-merges", f"{base}..HEAD"],
                           capture_output=True, text=True, check=True).stdout.split()
     out = []
     for rev in revs:
-        message = subprocess.run(["git", "log", "-1", "--format=%B", rev],
-                                 capture_output=True, text=True, check=True).stdout
-        author = subprocess.run(["git", "log", "-1", "--format=%an", rev],
-                                capture_output=True, text=True, check=True).stdout.strip()
-        out.append((rev[:8], message.rstrip("\n"), author))
+        # One call: the author name, the author email, and the message, split on the unit
+        # separator, which a name or an email cannot hold. The message is last and can hold
+        # anything else.
+        raw = subprocess.run(["git", "log", "-1", f"--format=%an{FIELD}%ae{FIELD}%B", rev],
+                             capture_output=True, text=True, check=True).stdout
+        author, email, message = raw.split(FIELD, 2)
+        out.append((rev[:8], message.rstrip("\n"), author, email.strip()))
     return out
 
 
 BOTS = ("dependabot[bot]", "renovate[bot]", "github-actions[bot]")
 
 
-def check(rev: str, message: str, author: str = "") -> list[str]:
+def check_signoff(rev: str, message: str, email: str) -> list[str]:
+    """Return the problems with the sign-off of one commit. A bot of a GitHub App is exempt."""
+    if email.lower().endswith(BOT_EMAIL_SUFFIX):
+        return []
+    emails = [found.lower() for found in SIGNOFF.findall(message)]
+    if not emails:
+        return [f"{rev}: no Signed-off-by trailer. Commit with 'git commit -s'"]
+    if email.lower() not in emails:
+        return [f"{rev}: the Signed-off-by email does not match the author email {email}"]
+    return []
+
+
+def check_title(title: str) -> list[str]:
+    """Return the problems with a pull request title."""
+    return check("title", title, subject_limit=MAX_TITLE)
+
+
+def check(rev: str, message: str, author: str = "", subject_limit: int = 0) -> list[str]:
     problems = []
     lines = message.split("\n")
     subject = lines[0]
     # A bot writes the module path into the subject, and a long path passes the limit. The type
     # and the shape still apply, because its configuration sets them.
-    subject_limit = 200 if author in BOTS else MAX_SUBJECT
+    subject_limit = subject_limit or (200 if author in BOTS else MAX_SUBJECT)
 
     match = SUBJECT.match(subject)
     if not match:
@@ -91,6 +118,15 @@ def check(rev: str, message: str, author: str = "") -> list[str]:
 
 
 def main() -> int:
+    if len(sys.argv) == 3 and sys.argv[1] == "--title":
+        problems = check_title(sys.argv[2])
+        if problems:
+            for problem in problems:
+                print(f"  {problem}", file=sys.stderr)
+            return 1
+        print("check-commits: the title follows Conventional Commits")
+        return 0
+
     base = sys.argv[1] if len(sys.argv) > 1 else "origin/main"
     try:
         found = commits(base)
@@ -102,7 +138,8 @@ def main() -> int:
         print(f"check-commits: no commit in {base}..HEAD")
         return 0
 
-    problems = [p for rev, message, author in found for p in check(rev, message, author)]
+    problems = [p for rev, message, author, email in found
+                for p in check(rev, message, author) + check_signoff(rev, message, email)]
     if problems:
         print(f"check-commits: {len(problems)} problem(s) in {len(found)} commit(s)\n",
               file=sys.stderr)
@@ -110,7 +147,7 @@ def main() -> int:
             print(f"  {problem}", file=sys.stderr)
         return 1
 
-    print(f"check-commits: {len(found)} commit(s) follow Conventional Commits")
+    print(f"check-commits: {len(found)} commit(s) follow Conventional Commits and carry a sign-off")
     return 0
 
 

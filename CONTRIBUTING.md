@@ -144,6 +144,9 @@ Rules for the subject line:
 * The description is imperative, lowercase, and without a full stop, for example
   `feat(reaper): delete the VM when the job is terminal`.
 * The subject line has a maximum of 72 characters.
+* A pull request title has a maximum of 65 characters, because GitHub adds " (#NNN)" to the
+  subject when it squashes. The `title` job of the `documents` workflow checks it, and it runs
+  again when the title changes.
 
 Rules for the rest of the message:
 
@@ -237,6 +240,63 @@ Two rules protect the licence:
 * The controller calls the Orchard REST API with its own client. Never add an Orchard package to
   `go.mod`
   ([ADR-0010](docs/adrs/0010-call-the-orchard-api-with-a-client-of-this-project.md)).
+
+## Developer Certificate of Origin
+
+A contribution MUST carry a sign-off under the
+[Developer Certificate of Origin 1.1](https://developercertificate.org/). The sign-off says that
+the author wrote the contribution, or has the right to give it under the licence of the project,
+and that the author knows the project keeps a public record of it. The full text is at that
+address.
+
+* Add the sign-off with `git commit -s`. It adds the trailer
+  `Signed-off-by: Name <email>`, and the email MUST be the email of the commit author.
+* To add the sign-off to the commits of a branch, run `git rebase --signoff <base>`. The rebase
+  rewrites the commits and removes their signatures, and the main branch requires signed commits.
+  Sign the commits again, for example with `git rebase --exec 'git commit --amend --no-edit -S'
+  <base>`, before the push.
+* A bot that uses a GitHub App (Renovate, release-please, and github-actions) is exempt. Its
+  author email ends with `[bot]@users.noreply.github.com`.
+
+`scripts/check-commits.py` checks the sign-off of each commit of a pull request, and the
+`commits` job fails the pull request when one is missing. The project squashes each pull request,
+and the squash message is the pull request description. So the commit on `main` does not keep the
+trailers. The commits of the pull request keep them, and the pull request record is the proof.
+
+## Continuity
+
+Today the project has one maintainer, and no second holder for the items below.
+
+| Item | Holder today | Successor |
+|---|---|---|
+| The `release` and `release-please` environments | The maintainer | `UNKNOWN` |
+| The private key of the release GitHub App | The maintainer | `UNKNOWN` |
+| The rulesets of the repository | The maintainer | `UNKNOWN` |
+
+* Owner of the `UNKNOWN` values: the maintainer.
+* Trigger: before version 1.0.0, or when a second maintainer joins, whichever is first.
+* If the maintainer is unavailable, no release can be made, because only the maintainer can
+  approve the environments and use the App key. A change can still be reviewed and merged only by
+  the maintainer, so the project pauses. The repository settings and the key stay as they are
+  until a successor is named here.
+
+The project does not name a person for these items until that person agrees.
+
+## Ownership and decisions
+
+The maintainer is the product owner. The kinds of change have these deciders:
+
+| Kind of change | Who decides |
+|---|---|
+| A requirement | The maintainer, as product owner |
+| An ADR | The maintainer, after review in the pull request |
+| The design | The maintainer, after review in the pull request; the design follows the requirements |
+| The code | The maintainer reviews it, and the requirements and the design decide what it does |
+
+[`.github/CODEOWNERS`](.github/CODEOWNERS) names the maintainer as the owner of each path. To
+move this to a team, replace the one user handle with a GitHub team handle (`@org/team`) on each
+line. The team MUST have write access to the repository. Contact is through GitHub only: an issue,
+a discussion, or a private security advisory.
 
 ## Security
 
