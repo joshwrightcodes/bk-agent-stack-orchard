@@ -10,6 +10,13 @@ Do this procedure:
 * when the token could be known to a person or a system that must not have it;
 * when the controller logs that Buildkite refused the agent token.
 
+## Conventions
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT",
+"RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be
+interpreted as described in BCP 14 [RFC 2119] [RFC 8174] when, and only when, they appear in
+all capitals, as shown here.
+
 ## Why the order is important
 
 The cluster agent token issues a job acquisition token for each job VM. Buildkite applies the
@@ -26,7 +33,7 @@ first pass.
 
 ## Before you start
 
-1. Get the `allowed_ip_addresses` of the current token. The new token MUST have the same list.
+1. Get the `allowed_ip_addresses` of the current token. Give the new token the same list.
 2. Confirm that the list contains:
    * the egress addresses of the controller;
    * the egress addresses of the job VMs.
@@ -82,7 +89,7 @@ Write down the time of the restart. Step 4 needs it.
 ### 4. Wait for the VMs from before the restart
 
 A VM that the controller created before the restart has a job acquisition token that the old
-token issued. The old token MUST stay valid until each of these VMs is gone.
+token issued. Keep the old token valid until each of these VMs is gone.
 
 List the VMs of the controller in Orchard. Their names start with `bk-<controllerID>-`. Compare
 the `createdAt` of each VM with the time of the restart. Wait until no VM has a `createdAt` before

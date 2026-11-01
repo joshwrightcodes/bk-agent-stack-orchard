@@ -4,6 +4,13 @@ This directory is a kustomize base for the Orchard controller of the fleet (targ
 section 11). An overlay of the operator sets the namespace, the image, the annotation of the
 internal load balancer, and the endpoint of the collector.
 
+## Conventions
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT",
+"RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be
+interpreted as described in BCP 14 [RFC 2119] [RFC 8174] when, and only when, they appear in
+all capitals, as shown here.
+
 ## The image
 
 Orchard publishes its image to `ghcr.io/openai/orchard`, and that package does not answer a pull

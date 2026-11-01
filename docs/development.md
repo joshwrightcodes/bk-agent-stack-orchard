@@ -3,6 +3,13 @@
 This guide tells a developer how to run the gates and the integration tests, and how to operate a
 self-hosted runner for the integration tests in a private copy of the repository.
 
+## Conventions
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT",
+"RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be
+interpreted as described in BCP 14 [RFC 2119] [RFC 8174] when, and only when, they appear in
+all capitals, as shown here.
+
 ## Tools
 
 `mise` pins every tool that a developer and CI share, Orchard included.
@@ -98,7 +105,7 @@ tick only when `LOAD_TICK_BUDGET` is set (open item O-5).
 `LOAD_JOBS` runs fewer jobs, for example `LOAD_JOBS=60`, while you work on the test. The test
 writes a progress line each minute, and on a failure it shows the end of the controller log.
 
-The host MUST stay awake for the whole run. A Mac that sleeps pauses the run, and the synthetic
+Keep the host awake for the whole run. A Mac that sleeps pauses the run, and the synthetic
 workers go offline, so the result is not a measurement. Run it with `caffeinate -dims` and the lid
 open.
 
@@ -157,25 +164,25 @@ grpc-health-probe -addr=localhost:8080 -service=readiness
   each line of the startup script as an event, so the test also proves the events of a VM.
 * The specification test (T-064) sends the VM specification of each startup transport, with every
   optional field of a profile set, and reads the stored VM back. Orchard ignores a field that it
-  does not know, so every field that the specification sent MUST come back with the same value.
+  does not know, so the test checks that every field that the specification sent comes back with
+  the same value.
 
 ```sh
 mise run integration
 ```
 
-The tests MUST run on macOS on arm64. Orchard places a VM only on a worker of the same
+Run the tests on macOS on arm64. Orchard places a VM only on a worker of the same
 architecture and runtime. A macOS VM is arm64 and runs on Tart. A synthetic worker takes its
 architecture from the host and its runtime from the host OS: Tart on macOS, and Vetu on Linux. On
 any other host each test stops at once and gives this reason.
 
 These conditions also apply:
 
-* Port 6120 MUST be free, because Orchard fixes the port of `orchard dev`. A test stops with a
+* Keep port 6120 free, because Orchard fixes the port of `orchard dev`. A test stops with a
   message when something already answers there. The tests therefore run one after the other.
 * Each test gives `orchard dev` a home directory of its own, because `orchard dev` writes a context
   into `$HOME/.orchard/orchard.yml`. The Orchard configuration of the developer does not change.
-* Without `mise`, `ORCHARD_BIN` can name an Orchard binary. It MUST be the version that `mise.toml`
-  pins.
+* Without `mise`, `ORCHARD_BIN` can name an Orchard binary. Use the version that `mise.toml` pins.
 * The macOS binary of Orchard 0.56.0 and later fails its own signature check
   ([openai/orchard#456](https://github.com/openai/orchard/issues/456), checked 2026-10-31). macOS 26
   kills it at launch, before it writes any output, so each test waits for workers that never
@@ -189,7 +196,7 @@ These conditions also apply:
 ## The CI runner of the integration tests
 
 CI runs the integration tests on macOS on arm64 for the same reason. The repository is public, so
-the job runs on a hosted macOS runner, which costs nothing. `JOURNEY_RUNNER` MUST stay unset,
+the job runs on a hosted macOS runner, which costs nothing. Leave `JOURNEY_RUNNER` unset,
 because a self-hosted runner MUST NOT serve a public repository.
 
 In a private copy of the repository, a hosted macOS runner costs ten times the minutes of a Linux
@@ -226,7 +233,7 @@ The runner needs only Tart. The Tart test below also needs Softnet. Install Tart
 `deploy/hosts/roles/orchard_worker/defaults/main.yml` (checked 2026-11-01), and the Mac hosts use
 the same version. The minimum version is 2.39.0 (target design, section 9.2). Install the release
 archive of the pinned version, and check it against the SHA-256 in the same file
-(`orchard_worker_tart_sha256`). A Homebrew formula MAY replace the archive when it gives the same
+(`orchard_worker_tart_sha256`). A Homebrew formula can replace the archive when it gives the same
 version. Then check the version:
 
 ```sh

@@ -61,6 +61,11 @@ The content of an accepted ADR does not change. To replace a decision:
 1. Create a new ADR with the new decision. Add `supersedes: ADR-NNNN` to its front matter.
 2. Change the status of the old ADR to `superseded by ADR-NNNN`.
 
+A dated "Errata" section at the end of an accepted ADR can correct a fact that changed later, such
+as a version, a date, or a name. Each note in it states its date, the old fact, and the new fact.
+An errata note cannot change the decision, the options considered, or the consequences. A change
+of any of these needs a new ADR.
+
 ## Index
 
 The status column gives the state of each decision, and the front matter of each ADR gives its

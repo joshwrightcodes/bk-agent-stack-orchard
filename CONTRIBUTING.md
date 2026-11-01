@@ -71,22 +71,32 @@ product requirements  ->  decision records  ->  target design  ->  implementatio
 A requirement never cites the design or an ADR as its source. Each document section names the
 identifiers it implements, so the direction stays visible.
 
+## Conventions
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT",
+"RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be
+interpreted as described in BCP 14 [RFC 2119] [RFC 8174] when, and only when, they appear in
+all capitals, as shown here.
+
 ## Document conventions
 
 * [ASD-STE100 Simplified Technical English](https://www.asd-ste100.org), in the third person.
 * RFC 2119 and RFC 8174 key words, in capitals, for obligations only.
-* Lines wrap at 100 columns, except table rows and code blocks.
+* Lines wrap at 100 columns, except table rows and code blocks. Only the text of a URL is exempt
+  from the width check, because a reader cannot wrap it.
 * A fact that can change — a version, a price, or a vendor term — carries the date it was
   checked, and a source that a reader can follow.
 * An unknown value is `UNKNOWN`, and it has an owner and a trigger. It is never a silent guess.
 
 ## Code
 
-* **Identifiers stay in the documents.** Code, configuration, and task descriptions say what they
-  do and why. They do not carry a work unit, a requirement, or a test identifier, because a
-  reader of the code cannot resolve one. The traceability lives in the commit footers, the pull
-  request, and the project item. A decision record is the exception: a rule that exists for a
-  recorded decision may name that ADR, because the reason is the useful part.
+* **Identifiers stay in the documents.** Production code, configuration, and task descriptions say
+  what they do and why. They do not carry a work unit, a requirement, or a test identifier,
+  because a reader of the code cannot resolve one. A test file and the comments in it can carry
+  `T-nnn`, `I-n`, and `O-n`, because the tests are the evidence for those identifiers.
+  The traceability lives in the commit footers, the pull request, and the project item. A decision
+  record is the exception: a rule that exists for a recorded decision may name that ADR, because
+  the reason is the useful part.
 * Go 1.27. `mise install` gives the pinned tool versions, and `mise run check` runs the gate.
 * Test-driven development. Each change of behaviour starts with a failing test.
 * Code that reads input from outside the controller, such as the agent rules of a job, a machine

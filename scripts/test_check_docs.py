@@ -55,6 +55,12 @@ class CheckDocsTest(unittest.TestCase):
         check_docs.check_width()
         self.assertEqual(1, len(check_docs.errors), check_docs.errors)
 
+    def test_a_link_target_with_parentheses_leaves_no_stray_bracket(self) -> None:
+        target = "https://example.com/Foo_(bar)_" + "a" * 150
+        self.write("README.md", f"{'word ' * 15}[the page]({target}) end.\n")
+        check_docs.check_width()
+        self.assertEqual([], check_docs.errors)
+
     def test_an_adr_range_must_match_the_files(self) -> None:
         self.write("README.md", "The set runs from ADR-0001 to ADR-0009.\n")
         check_docs.check_adr_ranges()

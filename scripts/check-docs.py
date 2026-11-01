@@ -125,7 +125,7 @@ def check_links() -> None:
                     fail(path, number, f"link target does not exist: {target}")
 
 
-URL = re.compile(r"\]\([^)\s]*\)|(?:https?|ftp)://[^\s)>\]]+")
+URL = re.compile(r"\]\((?:[^()\s]|\([^()\s]*\))*\)|(?:https?|ftp)://[^\s)>\]]+")
 
 
 def check_width() -> None:
