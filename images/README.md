@@ -45,8 +45,8 @@ Xcode, the owner:
 `XCODE_ARCHIVE` names another place on the build Mac. The build expands the archive on the Mac,
 because `xip` in a VM ends before the app is in place (2026-10-10). It packs Xcode into one `ditto`
 archive, because the shared directory of a VM does not follow some symbolic links of Xcode, and the
-VM unpacks it from a read-only directory of the Mac, so no archive stays in the image. Keep the archive and the pilot
-image private: the license of Xcode limits who may receive it.
+VM unpacks it from a read-only directory of the Mac, so no archive stays in the image. Keep the
+archive and the pilot image private: the license of Xcode limits who may receive it.
 
 ## The artifact storage
 

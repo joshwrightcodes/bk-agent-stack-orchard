@@ -12,7 +12,8 @@ Checks:
   3. no ADR cites an ADR with a higher number;
   4. every relative link resolves;
   5. every line outside a table row or a fenced block is 100 characters or less;
-  6. each ADR file name matches its title, and its status is a lifecycle value.
+  6. each ADR file name matches its title, and its status is a lifecycle value;
+  7. no "ADR-0001 to ADR-NNNN" range stops below the highest ADR that exists.
 """
 
 from __future__ import annotations
@@ -45,9 +46,11 @@ def fail(path: pathlib.Path, line: int | None, message: str) -> None:
 
 def markdown_files() -> list[pathlib.Path]:
     files = sorted(ROOT.glob("docs/**/*.md"))
+    for pattern in ("images/**/*.md", "deploy/**/*.md", "internal/**/README.md"):
+        files += sorted(ROOT.glob(pattern))
     files += [ROOT / name for name in ("README.md", "CONTRIBUTING.md", "SECURITY.md",
-                                       "CODE_OF_CONDUCT.md")]
-    return [f for f in files if f.exists()]
+                                       "CODE_OF_CONDUCT.md", ".github/pull_request_template.md")]
+    return sorted({f for f in files if f.exists()})
 
 
 def read(path: pathlib.Path) -> str:
@@ -122,6 +125,9 @@ def check_links() -> None:
                     fail(path, number, f"link target does not exist: {target}")
 
 
+URL = re.compile(r"\]\([^)\s]*\)|(?:https?|ftp)://[^\s)>\]]+")
+
+
 def check_width() -> None:
     for path in markdown_files():
         if path in GENERATED:
@@ -131,10 +137,26 @@ def check_width() -> None:
             if line.startswith("```"):
                 in_fence = not in_fence
                 continue
-            if in_fence or line.startswith("|") or "http" in line:
+            if in_fence or line.startswith("|"):
                 continue
-            if len(line) > MAX_WIDTH:
-                fail(path, number, f"line is {len(line)} characters, the limit is {MAX_WIDTH}")
+            # Only the URL is exempt, because a reader cannot wrap it. The prose is not.
+            width = len(URL.sub("", line))
+            if width > MAX_WIDTH:
+                fail(path, number, f"line is {width} characters, the limit is {MAX_WIDTH}")
+
+
+def check_adr_ranges() -> None:
+    """A range that starts at ADR-0001 claims the whole set, so it must reach the last ADR."""
+    numbers = [int(p.name[:4]) for p in ADR_DIR.glob("0*.md")]
+    if not numbers:
+        return
+    highest = max(numbers)
+    for path in markdown_files():
+        for number, line in enumerate(read(path).split("\n"), 1):
+            for end in re.findall(r"\bADR-0001 to ADR-(\d{4})\b", line):
+                if int(end) < highest:
+                    fail(path, number,
+                         f"range ADR-0001 to ADR-{end} stops below ADR-{highest:04d}")
 
 
 def check_adr_metadata() -> None:
@@ -166,6 +188,7 @@ def main() -> int:
     check_adr_direction()
     check_links()
     check_width()
+    check_adr_ranges()
     check_adr_metadata()
 
     if errors:
