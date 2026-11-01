@@ -9,11 +9,23 @@
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
   extends: ["config:recommended"],
 
-  enabledManagers: ["gomod", "dockerfile", "kubernetes", "github-actions"],
+  enabledManagers: ["gomod", "dockerfile", "kubernetes", "github-actions", "custom.regex"],
   kubernetes: {
     // The image of the bootstrap Job of Orchard. No other manifest pins an image.
     managerFilePatterns: ["/^deploy/orchard/bootstrap-job\\.yaml$/"],
   },
+
+  customManagers: [
+    {
+      // The base image of the released image, pinned by its tag and its digest.
+      customType: "regex",
+      managerFilePatterns: ["/^\\.goreleaser\\.yaml$/", "/^\\.ko\\.yaml$/"],
+      matchStrings: [
+        "(?:base_image|defaultBaseImage): (?<depName>[^:@\\s]+):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})",
+      ],
+      datasourceTemplate: "docker",
+    },
+  ],
 
   timezone: "Australia/Sydney",
   schedule: ["* 6-9 * * 1"],
@@ -32,8 +44,10 @@
 
   packageRules: [
     {
+      // A module update changes the binary and the image, so it is a fix, and release-please
+      // proposes a patch release for it. The images and the actions change no release artifact.
       matchManagers: ["gomod"],
-      semanticCommitType: "build",
+      semanticCommitType: "fix",
     },
     {
       // mise.toml pins the Go version, and target design section 15 states it.
@@ -52,6 +66,12 @@
       matchManagers: ["dockerfile", "kubernetes"],
       semanticCommitType: "build",
       groupName: "images",
+    },
+    {
+      // The base image is in the released image, so a new digest is a fix and a patch release.
+      matchManagers: ["custom.regex"],
+      semanticCommitType: "fix",
+      groupName: "release base image",
     },
     {
       matchManagers: ["github-actions"],

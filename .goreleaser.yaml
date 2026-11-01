@@ -24,19 +24,49 @@ archives:
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
+# Each archive gets an SPDX SBOM from syft. The checksums cover the archives and the SBOMs, and one
+# keyless cosign signature covers the checksums (ADR-0013). The chart is not here: it carries the
+# digest of the image, so the release workflow packages it after the image exists.
+sboms:
+  - artifacts: archive
+
+changelog:
+  disable: true
+
 checksum:
   name_template: checksums.txt
+
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args: ["sign-blob", "--bundle=${signature}", "${artifact}", "--yes"]
+    artifacts: checksum
+
+# release-please creates the release as a draft, with its changelog as the notes. GoReleaser
+# uploads the assets to that draft and keeps the notes. The workflow publishes the draft after it
+# has verified each signature, because the repository makes a published release immutable.
+release:
+  draft: true
+  use_existing_draft: true
+  mode: keep-existing
+  # A run that fails after the upload can run again on the same draft.
+  replace_existing_artifacts: true
+  prerelease: auto
 
 kos:
   - id: bk-agent-stack-orchard
     build: bk-agent-stack-orchard
-    base_image: gcr.io/distroless/static-debian13:nonroot
+    base_image: gcr.io/distroless/static-debian13:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99
     repositories: [ghcr.io/joshwrightcodes/bk-agent-stack-orchard]
     platforms: [linux/amd64, linux/arm64]
+    # No latest tag: it would move before the workflow signs the image, and an operator pins a
+    # version. The chart refers to the image by its digest.
     tags:
       - "{{ .Tag }}"
-      - "{{ if not .Prerelease }}latest{{ end }}"
+      - "{{ .Version }}"
     bare: true
     creation_time: "{{ .CommitTimestamp }}"
     ko_data_creation_time: "{{ .CommitTimestamp }}"
-    sbom: spdx
+    # The release workflow attests an SBOM of each platform image with syft and cosign. The SBOM
+    # of ko has no signature, so it is off.
+    sbom: none

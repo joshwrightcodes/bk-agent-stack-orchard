@@ -131,28 +131,54 @@ also checks the documents and the C4 model.
 ## Versioning and releases
 
 The project uses [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html). The binary,
-the container image, and the Helm chart have the same version. The Git tag is the only source of
-that version.
+the container image, and the Helm chart have the same version.
+[release-please](https://github.com/googleapis/release-please) calculates each version from the
+Conventional Commits on `main`
+([ADR-0014](docs/adrs/0014-calculate-releases-with-release-please.md)).
 
-* A release tag has the form `vMAJOR.MINOR.PATCH`, for example `v0.3.1`. A release candidate adds
-  a suffix, for example `v0.4.0-rc.1`.
+* A release tag has the form `vMAJOR.MINOR.PATCH`, for example `v0.3.1`.
 * The major version is 0. It MUST stay 0 until the maintainer decides that the project is stable.
   Only the maintainer starts version 1.0.0, and a pull request MUST NOT set a major version of 1
   or more.
-* Only the maintainer creates a release tag. The tag is an annotated tag on a commit of `main`.
 * A published tag never moves, and the repository rules block the deletion of a tag. To correct a
   bad release, publish a new version.
 
-While the major version is 0, the commits since the last release select the next version:
+While the major version is 0, release-please selects the next version from the commits since the
+last release:
 
 | The commits since the last release contain | Next version |
 |---|---|
 | A breaking change (`!` in the subject) | Next minor version, for example `v0.3.1` to `v0.4.0` |
 | A `feat` commit | Next minor version |
-| Only `fix` and `perf` commits, and commits that change no behaviour | Next patch version, for example `v0.3.1` to `v0.3.2` |
-| Only `docs`, `test`, `ci`, `build`, `chore`, or `refactor` commits | No release is necessary |
+| Only `fix`, `perf`, and `revert` commits, and commits that change no behaviour | Next patch version, for example `v0.3.1` to `v0.3.2` |
+| Only `docs`, `test`, `ci`, `build`, `chore`, or `refactor` commits | No release |
 
-The release notes identify each breaking change, and they tell an operator what to change.
+A breaking change has `!` in its subject, and a `BREAKING CHANGE:` footer that tells an operator
+what to change. The changelog shows each breaking change.
+
+### Make a release
+
+release-please keeps one release pull request open, with the title `chore(main): release <version>`.
+Each merge to `main` that changes behaviour updates it: the next version, `CHANGELOG.md`, and the
+version in `Chart.yaml`. The pull request collects all changes until the maintainer merges it.
+
+1. Read the release pull request. Make sure that the version and the changelog are correct.
+2. Merge the release pull request. release-please creates the tag and a draft release with the
+   changelog.
+3. The tag starts the release workflow in the `release` environment. Make sure that the SHA of the
+   tag is the merge commit of the release pull request, and then approve the deployment. The
+   workflow builds and signs the artifacts, verifies the signatures and the assets, and then
+   publishes the release
+   ([ADR-0013](docs/adrs/0013-sign-releases-with-keyless-cosign-signatures.md)).
+
+To set a version that the commits do not give, for example a release candidate such as
+`0.4.0-rc.1`, or `1.0.0`, add `"release-as": "<version>"` to `release-please-config.json` in a
+pull request. Remove it in the next pull request after the release.
+
+If the workflow fails before it publishes, the release stays a draft. If the cause is outside the
+repository, for example an outage of Sigstore, run the workflow again: it replaces the assets on
+the draft. If the cause needs a change in the repository, the version is lost, because the tag
+cannot move. Delete the draft, merge the correction, and release the next version.
 
 ## Licence of contributions
 
