@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -311,5 +312,65 @@ func TestLoadRejectsAConfigurationWithNoProfile(t *testing.T) {
 
 	if _, err := load(t, body, secrets()); err == nil {
 		t.Error("Load() with no profile = nil, want an error")
+	}
+}
+
+// The agent token and the Orchard token travel with every request, so an address must use TLS.
+// A loopback address stays on the machine, and the tests use one.
+func TestLoadRejectsAnAddressWithoutTLS(t *testing.T) {
+	cases := map[string]struct{ from, to, want string }{
+		"buildkite": {
+			"endpoint: https://agent.buildkite.com/v3", "endpoint: http://agent.buildkite.com/v3",
+			"buildkite.endpoint",
+		},
+		"orchard": {
+			"url: https://orchard.internal:6120", "url: http://orchard.internal:6120", "orchard.url",
+		},
+		"another scheme": {
+			"url: https://orchard.internal:6120", "url: ftp://orchard.internal:6120", "orchard.url",
+		},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := load(t, strings.Replace(minimal, c.from, c.to, 1), secrets())
+			if err == nil || !strings.Contains(err.Error(), c.want) ||
+				!strings.Contains(err.Error(), "https") {
+				t.Fatalf("Load() = %v, want an error that %s must use https", err, c.want)
+			}
+		})
+	}
+}
+
+func TestLoadAcceptsPlainHTTPOnALoopbackAddress(t *testing.T) {
+	for _, host := range []string{"127.0.0.1:8080", "localhost:8080", "[::1]:8080"} {
+		t.Run(host, func(t *testing.T) {
+			body := strings.Replace(minimal, "endpoint: https://agent.buildkite.com/v3",
+				"endpoint: http://"+host+"/v3", 1)
+			body = strings.Replace(body, "url: https://orchard.internal:6120",
+				"url: http://"+host, 1)
+
+			if _, err := load(t, body, secrets()); err != nil {
+				t.Fatalf("Load() = %v, want no error for the loopback address %s", err, host)
+			}
+		})
+	}
+}
+
+// A test cluster can serve a fake Stacks API without TLS. It must say so, and the controller
+// warns about it.
+func TestLoadAcceptsAPlainHTTPBuildkiteEndpointThatTheConfigurationAllows(t *testing.T) {
+	body := strings.Replace(minimal, "endpoint: https://agent.buildkite.com/v3",
+		"endpoint: http://fakestacks.smoke:8080\n  plainHTTPEndpoint: true", 1)
+
+	cfg, err := load(t, body, secrets())
+	if err != nil {
+		t.Fatalf("Load() = %v, want no error", err)
+	}
+
+	if !slices.ContainsFunc(cfg.Warnings, func(w string) bool {
+		return strings.Contains(w, "buildkite.endpoint") && strings.Contains(w, "plain HTTP")
+	}) {
+		t.Fatalf("Warnings = %q, want a warning about the plain HTTP endpoint", cfg.Warnings)
 	}
 }

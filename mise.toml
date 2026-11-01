@@ -3,9 +3,12 @@
 # One file gives a developer and CI the same versions (target design, section 15).
 
 [tools]
-go = "1.27.1"
-golangci-lint = "2.13.2"
+go = "1.27.3"
+golangci-lint = "2.15.0"
 goreleaser = "2.18.2"
+# govulncheck reports a known vulnerability that the code can reach. The go backend installs the
+# module at this version, which the checksum database of Go confirms.
+"go:golang.org/x/vuln/cmd/govulncheck" = { version = "1.9.0", depends = ["go"] }
 # The release signs with cosign and makes the SBOMs with syft (ADR-0013).
 cosign = "3.1.4"
 syft = "1.55.0"
@@ -107,6 +110,10 @@ run = "golangci-lint config verify"
 description = "Run the Go tests"
 run = "go test ./..."
 
+[tasks.vuln]
+description = "Report known vulnerabilities that the code can reach (govulncheck)"
+run = "govulncheck ./..."
+
 # go test runs the seed inputs of each fuzz test with the other tests. This task fuzzes each target
 # in turn, for FUZZTIME each. go test can fuzz one target of one package at a time.
 [tasks.fuzz]
@@ -183,8 +190,10 @@ run = "docker buildx build --load -t orchard:0.58.0 deploy/orchard/image"
 
 
 [tasks.build]
-description = "Build the binary"
-run = "go build ./..."
+# go build of several packages compiles them and keeps no binary, so the controller gets its own
+# command, which writes ./bk-agent-stack-orchard. .gitignore excludes that file.
+description = "Compile every package, and build the controller binary"
+run = ["go build ./...", "go build -trimpath -o . ./cmd/bk-agent-stack-orchard"]
 
 [tasks.snapshot]
 description = "Build the release artifacts and the image, without publishing"

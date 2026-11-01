@@ -27,6 +27,7 @@ import pathlib
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -38,10 +39,20 @@ IMAGE_BUILD = ROOT / "images/build.sh"
 TIMEOUT = 20
 
 
+def sends_token(url: str) -> bool:
+    """Only the GitHub API gets the token: the scheme and the host must match exactly.
+
+    A test of the text alone would also give the token to a URL that only names the API, such as
+    a host whose name starts with it, or a query that contains it.
+    """
+    parts = urllib.parse.urlsplit(url)
+    return parts.scheme == "https" and parts.hostname == "api.github.com"
+
+
 def get_json(url: str, headers: dict[str, str] | None = None):
     request = urllib.request.Request(url, headers=headers or {})
     token = os.environ.get("GITHUB_TOKEN")
-    if token and "api.github.com" in url:
+    if token and sends_token(url):
         request.add_header("Authorization", f"Bearer {token}")
     request.add_header("User-Agent", "bk-agent-stack-orchard-upstream-watch")
     with urllib.request.urlopen(request, timeout=TIMEOUT) as response:

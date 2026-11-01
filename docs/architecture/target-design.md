@@ -606,6 +606,13 @@ source is older than 30 s, or after the Stacks API returned HTTP 401. The protoc
 reason, so the controller writes a log record at each change of readiness, and a record of
 `not ready` names each reason. A `healthAddress` that another process holds fails the start.
 
+`buildkite.endpoint` and `orchard.url` MUST use `https`, because a token travels with each
+request. The controller refuses a configuration that does not. Plain `http` is accepted only on a
+loopback address (`localhost`, `127.0.0.0/8`, `::1`), where the integration tests run, and for
+`buildkite.endpoint` only when `buildkite.plainHTTPEndpoint: true` permits it. That setting is for
+a test cluster with a fake Stacks API, and the controller warns at start that the agent token
+travels unencrypted.
+
 The configuration MUST set `pollInterval`, `jobStatesInterval`, and `inventoryInterval` shorter
 than `stateFreshness`. Admission and the Reaper act only on data newer than `stateFreshness`, so a
 source that the controller reads less often stops them permanently. The controller refuses such a

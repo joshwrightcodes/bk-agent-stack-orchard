@@ -35,7 +35,6 @@ import (
 	"go.opentelemetry.io/contrib/processors/minsev"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutlog"
-	"go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
@@ -273,7 +272,7 @@ func (t *Telemetry) logs(ctx context.Context, described *resource.Resource,
 	provider := sdklog.NewLoggerProvider(settings...)
 
 	t.shutdown = append(t.shutdown, provider.Shutdown)
-	global.SetLoggerProvider(provider)
+	otel.SetLoggerProvider(provider)
 
 	logger := slog.New(otelslog.NewHandler(options.ServiceName,
 		otelslog.WithLoggerProvider(provider)))

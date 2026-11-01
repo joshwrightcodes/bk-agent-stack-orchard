@@ -43,8 +43,11 @@ var controllerIDFormat = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,21}[a-z0-9])?
 type Buildkite struct {
 	Queue string `yaml:"queue"`
 	// AgentToken comes from the environment, never from the file.
-	AgentToken             secret.String `yaml:"-"`
-	Endpoint               string        `yaml:"endpoint,omitempty"`
+	AgentToken secret.String `yaml:"-"`
+	Endpoint   string        `yaml:"endpoint,omitempty"`
+	// PlainHTTPEndpoint permits an endpoint without TLS that is not a loopback address, such as
+	// the fake Stacks API of a test cluster. The agent token then travels unencrypted.
+	PlainHTTPEndpoint      bool          `yaml:"plainHTTPEndpoint,omitempty"`
 	PollInterval           time.Duration `yaml:"pollInterval,omitempty"`
 	JobStatesInterval      time.Duration `yaml:"jobStatesInterval,omitempty"`
 	ReservationExpiry      time.Duration `yaml:"reservationExpiry,omitempty"`
@@ -111,6 +114,12 @@ func Load(path string, environment Environment) (*Config, error) {
 
 	for _, p := range cfg.Profiles {
 		cfg.Warnings = append(cfg.Warnings, p.Warnings()...)
+	}
+
+	if endpoint, err := url.Parse(cfg.Buildkite.Endpoint); err == nil && endpoint.Scheme == "http" &&
+		!loopback(endpoint.Hostname()) {
+		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("buildkite.endpoint %q uses plain HTTP, "+
+			"so the agent token travels unencrypted", cfg.Buildkite.Endpoint))
 	}
 
 	return cfg, nil
@@ -190,8 +199,9 @@ func (c *Config) validateBuildkite() []error {
 	if c.Buildkite.Queue == "" {
 		problems = append(problems, errors.New("buildkite.queue must name the queue of the fleet"))
 	}
-	if _, err := url.ParseRequestURI(c.Buildkite.Endpoint); err != nil {
-		problems = append(problems, fmt.Errorf("buildkite.endpoint %q is not a URL", c.Buildkite.Endpoint))
+	if err := secureAddress("buildkite.endpoint", c.Buildkite.Endpoint,
+		c.Buildkite.PlainHTTPEndpoint); err != nil {
+		problems = append(problems, err)
 	}
 
 	for name, value := range map[string]time.Duration{
@@ -242,11 +252,41 @@ func (c *Config) validateFreshness() []error {
 	return problems
 }
 
+// secureAddress accepts an https address. A token travels with every request, so plain HTTP is
+// accepted only on a loopback address, which stays on the machine, or when plain says so.
+func secureAddress(name, raw string, plain bool) error {
+	address, err := url.ParseRequestURI(raw)
+	if err != nil {
+		return fmt.Errorf("%s %q is not a URL", name, raw)
+	}
+
+	switch {
+	case address.Scheme == "https":
+		return nil
+	case address.Scheme == "http" && (plain || loopback(address.Hostname())):
+		return nil
+	default:
+		return fmt.Errorf("%s %q must use https, because a token travels with each request", name,
+			raw)
+	}
+}
+
+// loopback reports whether a host names this machine.
+func loopback(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+
+	ip := net.ParseIP(host)
+
+	return ip != nil && ip.IsLoopback()
+}
+
 func (c *Config) validateOrchard() []error {
 	var problems []error
 
-	if _, err := url.ParseRequestURI(c.Orchard.URL); err != nil {
-		problems = append(problems, fmt.Errorf("orchard.url %q is not a URL", c.Orchard.URL))
+	if err := secureAddress("orchard.url", c.Orchard.URL, false); err != nil {
+		problems = append(problems, err)
 	}
 	if c.Orchard.ServiceAccount == "" {
 		problems = append(problems, errors.New("orchard.serviceAccount must name the service account"))
