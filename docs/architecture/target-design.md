@@ -74,7 +74,7 @@ The design depends on these facts. Each fact was verified against source code or
 | The scheduled-jobs call takes `limit` (page size, maximum 1000) and `after` (a cursor). The answer has `page_info.has_next_page` and `page_info.end_cursor`. The API orders the jobs by `scheduled_at`, oldest first. A call returns one page, and the library does not read the next page. Paging does not cover a snapshot: new jobs can appear behind the cursor. The documentation advises to read the first few pages only, and to reserve the jobs. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01); `buildkite/stacksapi` v1.2.0 `scheduled_jobs.go` | The Poller asks for 1000 jobs in each call, and it reads at most 3 pages in one tick, from the head of the list (§6.3). |
 | A reservation lasts 900 s by default and 3600 s maximum. A second reserve call extends it. When a reservation expires, the job becomes `scheduled` again. | Stacks API docs | The controller uses short reservations. It extends them while a VM starts (§6, §7). |
 | A job acquisition token (`bkjat_`) connects an agent to one reserved job. The token expires early if the reservation expires. At agent registration, Buildkite applies the expiry and the allowed IP addresses of the agent token that issued the JAT. | `buildkite/stacksapi` v1.2.0 `IssueJobAcquisitionTokens`; `buildkite/docs` `pages/agent/self_hosted/job_acquisition_tokens.md` (2026-08-26) | Only a job acquisition token goes into a VM (§9.1). The agent token allowlist MUST contain the job VM egress addresses (§9.2). |
-| `token_lifetime_seconds` of a job acquisition token has a minimum of 1, a maximum of 3600, and a default of 900. `reservation_expiry_seconds` has a default of 900 and a maximum of 3600. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The limits of 3600 s are the limits of the API. The controller refuses `reservationExpiry` and `jobTokenLifetime` values that are more than 3600 s or less than 1 s, so that the refusal comes at start-up and not at the first job (§8). |
+| `token_lifetime_seconds` of a job acquisition token has a minimum of 1, a maximum of 3600, and a default of 900. `reservation_expiry_seconds` has a default of 900 and a maximum of 3600. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The limits of 3600 s are the limits of the API. The controller refuses a `reservationExpiry` that is more than 3600 s. It refuses a `jobTokenLifetime` that is more than 1800 s, which is the security limit of §9.1. It refuses both values if they are less than 1 s, so that the refusal comes at start-up and not at the first job (§8). |
 | The `detail` of a stack notification must not be empty and cannot exceed 256 characters. The unit is characters. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The controller cuts a detail to 256 characters, counted as runes and cut between characters, and ends a cut detail with an ellipsis. It sends "(no detail)" in place of an empty detail (§10.5). |
 | A stack notification needs no reservation, and the job does not have to be in a particular state. Only a job that finished more than 300 s ago cannot get one. A job can have at most 100 notifications. A request can carry at most 1000 notifications. When some lines fail, the response has `errors` entries with 0-based `indexes`, and the valid notifications are still created. The limit is 200 requests per second for each stack. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The controller sends a skip notice for a job that it does not hold. It sends at most 1000 lines in one call (`NotificationsPerRequest`), and it reads the refused indexes of a partial answer. A notice for each job is written once while the job stays listed (§5), so that the 100-line limit of one job stays far away. |
 | The `detail` of a finish request has a maximum of 4 KB. The documentation does not state the unit. `exit_status` defaults to -1. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The controller counts the 4 KB in bytes, which is never more than a count in characters, and it shortens the detail to the budget before it finishes a job (§6). |
@@ -202,9 +202,10 @@ for a source that waits for the ones before it in the same tick, so a comparison
 a source whose interval equals the tick interval at only every other tick. A source that failed
 MUST wait for its interval like one that answered.
 
-With 100 VMs, the controller makes approximately three API calls each second. All rate limits
-are higher. The Stacks API limits are 10 requests/s for list and reserve, and 20 requests/s for
-get-states.
+With 100 VMs, the controller makes approximately three API calls each second in a normal tick. A
+tick that lists a long queue makes up to 3 list requests (one for each page of 1000 jobs), and each
+batch of at most 1000 notice lines adds one more call. All rate limits are higher. The Stacks API
+limits are 10 requests/s for list and reserve, and 20 requests/s for get-states.
 
 **Implements.** PR-001, PR-005, PR-010, QA-01, QA-04, DR-01, OP-04.
 
@@ -279,7 +280,9 @@ The controller writes these notices after it reserves and starts the admitted jo
 tick, so that a slow notification call cannot delay an admitted job. It sends at most 1000 lines
 in one call (`NotificationsPerRequest`, §3). Each call has its own time limit of 10 s
 (`notifyTimeout`), so that a call that retries cannot hold the loop for more than 10 s. The
-Orchard client has a limit of 30 s for the same reason.
+Buildkite client and the Orchard client each have a limit of 30 s for a whole call for the same
+reason. The Buildkite client also limits the body of an answer to 16 MiB, and a longer body fails
+the call.
 
 The controller keeps the identifiers of the jobs that it notified in a set in memory, so that it
 writes the notice for a job once while the job stays listed and the process runs. The set has
@@ -311,13 +314,16 @@ notifications for unmatched jobs.
 
 * Profile names are unique and match `[a-z0-9-]+`.
 * No two profiles have equal `match` maps.
-* `match` keys and values are literals that are not empty. `queue` is not a key.
+* `match` keys and values are literals that are not empty. `queue`, `profile`, and `agent-stack`
+  are not keys, because the controller sets these tags. No value has a comma, a quote, a newline,
+  a carriage return, or white space at an end, because the agent reads its tags as one
+  comma-separated list.
 * `startupTransport` is `tart-guest-agent` (the default) or `ssh` (ADR-0009).
 * A profile with `startupTransport: ssh` has `vmCredentials`, and both referenced environment
   variables exist and are not empty. Orchard uses `admin/admin` when a VM specification has no
   credentials. Because of this, a missing value is a fatal error for this transport. A profile
   with the guest-agent transport MUST NOT have `vmCredentials`.
-* No profile field that names an environment variable for its VM (`vmCredentials.usernameEnv`,
+* Each profile field that names an environment variable for its VM (`vmCredentials.usernameEnv`,
   `vmCredentials.passwordEnv`, and `otel.headersEnv`) names a variable that starts with
   `VM_`. The pod of the controller holds other secrets (for example a proxy URL with a password),
   and only a variable that the operator marks for the VM may go into one. The controller also
@@ -415,10 +421,12 @@ Admission does these steps:
    Inventory sees a launch only at its next refresh. A failed poll keeps the last answer, and that
    answer can still list the job. Sort them by Buildkite `priority` (highest first), then by
    `scheduled_at` (oldest first).
-2. **In-flight limit.** Stop when the number of owned VMs, plus the VMs that this process
-   requested and the Inventory data does not show yet, plus admitted jobs, is equal to
-   `maxInFlight`. The default value of `maxInFlight` is 0, which means the total VM slots of the
-   eligible workers. Because of this, the limit follows the fleet, and it does not hold slots
+2. **In-flight limit.** Stop when the number of owned VMs, plus the VMs that this process requested
+   and the Inventory data does not show yet, plus admitted jobs, is equal to `maxInFlight`. The
+   count includes every owned VM, also a VM in the `failed` status, until the Reaper deletes it. The
+   Reaper deletes such a VM in the same tick or the next one, so the count is conservative and it
+   lasts a short time. The default value of `maxInFlight` is 0, which means the total VM slots of
+   the eligible workers. Because of this, the limit follows the fleet, and it does not hold slots
    empty at the target scale (SC-01, QA-02). A value more than 0 limits the controller to that
    number of VMs, for example during a pilot.
 3. **Eligible workers for each profile.** A worker is eligible if it is online, it is not paused
@@ -434,11 +442,12 @@ Admission does these steps:
    2026-11-01).
    The controller also gives no hypothetical placement to a VM in the `failed` status, because the
    Orchard scheduler skips a VM in a terminal state when it places VMs.
-5. **Unplaced VMs.** Give a hypothetical placement to the VMs of all owners that have no worker,
-   and to the VMs that this process requested and the Inventory data does not show yet. Use the
-   first eligible worker with sufficient free resources. For a VM of Orchard, a worker is eligible
-   only if its labels contain the labels of the VM, and the VMs go in the order of their creation.
-   The Orchard scheduler does the same. A VM that no worker can take takes no resources.
+5. **Unplaced VMs.** Give a hypothetical placement to the VMs of all owners that are not scheduled
+   and are not failed, and to the VMs that this process requested and the Inventory data does not
+   show yet. Use the first eligible worker with sufficient free resources. For a VM of Orchard, a
+   worker is eligible only if its labels contain the labels of the VM, and the VMs go in the order
+   of their creation. The Orchard scheduler does the same. A VM that no worker can take takes no
+   resources.
 6. **Admit.** For each candidate in sequence, find the first eligible worker with sufficient
    free `tart-vms`, `logical-cores`, and `memory-mib`. Subtract the resources. If no worker has
    sufficient resources, skip the candidate. A skipped candidate does not stop the next
@@ -705,9 +714,13 @@ defaults:
 profiles: [] # see §5
 ```
 
-The controller MUST refuse `reservationExpiry` and `jobTokenLifetime` values that are more than
-3600 s, less than 1 s, or not a whole number of seconds (§3). These are the limits of the API. It
-reports the key and the limit, and it does not start.
+The controller MUST refuse a `reservationExpiry` that is more than 3600 s, and a
+`jobTokenLifetime` that is more than 1800 s. It MUST also refuse either value if it is less than
+1 s or not a whole number of seconds (§3). The limit of 3600 s is the limit of the API. The limit
+of 1800 s for the token is the security limit of §9.1, and it is shorter than the limit of the
+API. The controller also refuses a `buildkite.queue` with a comma, a quote, a newline, a carriage
+return, or white space at an end, because the queue is the first tag of the agent. It reports the
+key and the limit, and it does not start.
 
 The controller serves the gRPC health checking protocol (`grpc.health.v1`) on `healthAddress`,
 with the services `liveness` and `readiness`. The empty service name, which is the health of the
@@ -786,8 +799,9 @@ The controller MUST treat all builds as untrusted (PR-030). Each VM MUST have th
   controller and its own profiles. ADR-0004 (accepted, so it stays unchanged) treats all builds
   as untrusted, and this rule follows from it.
 * The VM has no host directory mounts. Profiles cannot configure them.
-* The VM gets only a job acquisition token for its own job. The token lifetime is a maximum of
-  30 minutes. After the agent acquires the job, the token has no use.
+* The VM gets only a job acquisition token for its own job. The token lifetime is a maximum of 30
+  minutes (1800 s), and the controller refuses a longer `jobTokenLifetime` at start-up (§8). After
+  the agent acquires the job, the token has no use.
 
 The cluster agent token and the Orchard credentials MUST NOT go into a VM.
 

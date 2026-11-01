@@ -263,9 +263,13 @@ requirements. The target design describes the job lifecycle and the failure proc
 
 * Requirement: The controller MUST NOT start if a profile rule fails. The rules forbid duplicate
   names, equal `match` maps, and empty or `queue` match keys. They also forbid timeouts longer
-  than the job token lifetime. The controller MUST also refuse a reservation expiry or a job token
-  lifetime that is not a whole number of seconds from 1 to 3600, which are the limits of the
-  Stacks API. A profile that uses the SSH startup-script transport MUST have VM
+  than the job token lifetime. The controller MUST also refuse a reservation expiry that is not a
+  whole number of seconds from 1 to 3600, which are the limits of the Stacks API. It MUST refuse
+  a job token lifetime that is not a whole number of seconds from 1 to 1800, because the token
+  goes into a VM that runs untrusted code. A profile MUST NOT use `queue`, `profile`, or
+  `agent-stack` as a `match` key. No `match` value and no `buildkite.queue` MAY have a comma, a
+  quote, a newline, or white space at an end. A `softnetAllow` entry MUST be an IPv4 CIDR range
+  that is not wider than /16. A profile that uses the SSH startup-script transport MUST have VM
   credentials. A profile MUST name only variables that start with `VM_` as the source of a value
   for its VM, because the controller pod holds other secrets. A profile MUST NOT send agent
   telemetry over plain HTTP to a non-loopback address.

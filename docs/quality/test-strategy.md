@@ -129,7 +129,9 @@ These invariants are the standing oracles. L2 asserts all of them after each eve
 assert them at the end of each scenario.
 
 * **I-1:** each job UUID has a maximum of one owned VM.
-* **I-2:** the number of owned VMs is not more than the free slots and not more than
+* **I-2:** the number of scheduled owned VMs is not more than the free slots, and the number of
+  owned VMs is not more than `maxInFlight`. A failed VM is not scheduled, and Orchard frees its
+  resources, so it takes no slot while it waits for the Reaper. It still counts against
   `maxInFlight`.
 * **I-3:** no VM specification contains the cluster agent token or the Orchard credentials.
 * **I-4:** each VM specification has `netSoftnet: true`, no host directories, and
@@ -162,7 +164,7 @@ when it reports only.
 | ID | Basis | Scenario | Oracle | Gate |
 |---|---|---|---|---|
 | T-001 | R-08, PR-003, ADR-0006 | Match: exact map, extra tag, missing tag, empty `match`, the `queue` key removed, a rule that is not `key=literal`, a wildcard, and a negation | The returned profile, or the mismatch reason with the job tags and all `match` maps | required |
-| T-002 | R-14, PR-020, PR-021, ADR-0009 | Configuration validation: duplicate names, equal `match` maps, an empty or `queue` match key, `startupTransport: ssh` without credentials, `tart-guest-agent` with credentials, an environment variable that is empty, a timeout sum more than `jobTokenLifetime`, an image without a digest | The controller refuses to start and names the rule. An image without a digest gives a warning only | required |
+| T-002 | R-14, PR-020, PR-021, ADR-0009 | Configuration validation: duplicate names, equal `match` maps, an empty or `queue` match key, `startupTransport: ssh` without credentials, `tart-guest-agent` with credentials, an environment variable that is empty, a name for the VM that does not start with `VM_` or that starts with `OTEL_` or the controller prefix, `otel.endpoint` without https (loopback excepted), a `reservationExpiry` outside 1 to 3600 s or a `jobTokenLifetime` outside 1 to 1800 s (whole seconds only), a `softnetAllow` entry that is not an IPv4 CIDR with a prefix or that is too wide, a `match` key `queue`, `profile`, or `agent-stack`, a `match` value or a `buildkite.queue` with a comma, a quote, a newline, a carriage return, or padding, a timeout sum more than `jobTokenLifetime`, an image without a digest | The controller refuses to start and names the rule. An image without a digest gives a warning only | required |
 | T-003 | R-01, R-02, PR-030, ADR-0004, ADR-0009 | The VM specification builder, for each profile shape | I-3, I-4; the name matches `bk-<controllerID>-<job-uuid>` and has a maximum of 63 characters; `labels` contains only `workerLabels`; `resources` contains `tart-vms`, `logical-cores`, and `memory-mib`; the environment contains only the documented variables | required |
 | T-004 | R-05, R-09, R-10, ADR-0002 | Admission: free capacity with foreign VMs on the worker (a failed VM that is not scheduled holds no slot), hypothetical placement of unplaced VMs, `maxInFlight: 0` and a value more than 0, a candidate that does not fit, and the order by `priority` then `scheduled_at` | The admitted list, its order, and the list of unmatched jobs that the launcher skips. A candidate that does not fit does not stop the next candidate | required |
 | T-005 | R-03, R-04, R-06, R-13, PR-002, PR-007, PR-008 | The Reaper decision function: one case for each row of the decision table, a state that matches no row, a job state that is not causally fresh, and a stale job state | The decided action and `reason` for each case. A state that matches no row gives no action and one warning record | required |
