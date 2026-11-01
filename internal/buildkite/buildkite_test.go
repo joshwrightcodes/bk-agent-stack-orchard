@@ -369,6 +369,11 @@ func TestANotificationDetailIsCutTo256Characters(t *testing.T) {
 			long[len(long)-3:])
 	}
 
+	// The API refuses an empty detail, so the client sends a word in its place.
+	if got := sent(""); got == "" {
+		t.Error("the client sent an empty detail, want a replacement because the API refuses it")
+	}
+
 	exact := strings.Repeat("ビ", 256)
 	if got := sent(exact); got != exact {
 		t.Error("a detail of exactly 256 characters changed on the way out, want it unchanged")

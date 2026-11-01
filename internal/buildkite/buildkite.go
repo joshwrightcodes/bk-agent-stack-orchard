@@ -357,12 +357,18 @@ func (c *Client) Finish(ctx context.Context, id job.ID, exitStatus int, detail s
 }
 
 // NotificationLimit is the longest detail of a notification, in characters, that Buildkite
-// accepts. The library does not know it, and does not cut.
+// accepts (Stacks API documentation, read on 2026-11-01). The library does not cut.
 const NotificationLimit = 256
 
 // cut shortens text to at most limit characters, and ends a cut text with an ellipsis that says
-// so. It cuts between characters, never inside the bytes of one.
+// so. It cuts between characters, never inside the bytes of one. It gives a word for empty text,
+// because the API refuses an empty detail.
 func cut(text string, limit int) string {
+	if text == "" {
+		// The API refuses an empty detail.
+		return "(no detail)"
+	}
+
 	if utf8.RuneCountInString(text) <= limit {
 		return text
 	}

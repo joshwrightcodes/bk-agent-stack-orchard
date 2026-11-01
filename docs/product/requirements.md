@@ -219,11 +219,17 @@ the VMs of ended jobs and starts VMs for waiting jobs.
 
 **PR-012: Give pipelines a retry signal.**
 
-* Requirement: A job that the product fails MUST have `signal_reason: stack_error`. Pipelines on
-  the queue SHOULD retry such a job one time.
+* Requirement: The product MUST finish a job that it fails with exit status -1 and a detail. The
+  Buildkite platform then generates the `signal_reason` `stack_error` for the job. The product
+  cannot set the `signal_reason` itself, because the finish request has no such field. Pipelines
+  on the queue use `signal_reason: stack_error` with `limit: 0` in their automatic retry rules
+  (Buildkite Stacks API documentation, read on 2026-11-01). Whether the platform generates
+  `stack_error` for every job that the product finishes is `UNKNOWN` (owner: the maintainer;
+  trigger: the first runs of T-100 to T-105).
 * Status: `accepted`.
 * Acceptance: Given a pipeline with the retry rule. When the product fails a job because a host
-  went offline. Then Buildkite tries the job again one time.
+  went offline. Then the job has `signal_reason: stack_error`, and the retry rule of the pipeline
+  applies.
 
 **References.** ADR-0001, ADR-0002, ADR-0003, and ADR-0006 record the decisions behind these
 requirements. The target design describes the job lifecycle and the failure procedures.

@@ -216,6 +216,26 @@ func TestLoadRefusesALifetimeOverOneHour(t *testing.T) {
 	}
 }
 
+// The API takes whole seconds, and a token lifetime of at least 1 s. A shorter value would turn
+// into 0, which the library leaves out of the request, and the API would then use its default.
+func TestLoadRefusesALifetimeUnderOneSecond(t *testing.T) {
+	//nolint:gosec // The keys name a lifetime and not a credential.
+	for name, change := range map[string]string{
+		"buildkite.reservationExpiry": "buildkite:\n  reservationExpiry: 500ms",
+		"buildkite.jobTokenLifetime":  "buildkite:\n  jobTokenLifetime: 500ms",
+	} {
+		t.Run(name, func(t *testing.T) {
+			body := strings.Replace(minimal, strings.SplitN(change, "\n", 2)[0], change, 1)
+
+			_, err := load(t, body, secrets())
+			if err == nil || !strings.Contains(err.Error(), name) ||
+				!strings.Contains(err.Error(), "at least 1 s") {
+				t.Errorf("Load() with %s = %v, want an error that names it and the minimum", change, err)
+			}
+		})
+	}
+}
+
 func TestLoadAcceptsALifetimeOfOneHour(t *testing.T) {
 	body := strings.Replace(minimal, "buildkite:",
 		"buildkite:\n  reservationExpiry: 3600s\n  jobTokenLifetime: 3600s", 1)
