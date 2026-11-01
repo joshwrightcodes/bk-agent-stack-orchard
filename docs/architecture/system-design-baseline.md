@@ -153,7 +153,7 @@ can permit a smaller fleet at peak. The pilot must measure the real arrival rate
   Since 2026-09-22, Cirrus Labs publishes `macos-golden-gate-xcode:27` from that template: 68.9 GB
   compressed and an 85.4 GB disk (checked 2026-10-10). Since 2026-10-10, the pilot image builds
   from `macos-golden-gate-vanilla` and an Xcode archive instead (ADR-0012): a 104 GB disk, 59 GB on
-  the host, and 33 GB free in the VM.
+  the host, and 40 GB free in the VM.
 * **Host storage:** each host has 1 TB storage, so the number of images that a host can hold is
   limited. The limit is `UNKNOWN` (SC-09).
 
