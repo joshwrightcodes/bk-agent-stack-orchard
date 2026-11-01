@@ -9,6 +9,22 @@ Do not open a public issue, and do not include a working exploit in the first me
 This is a personal project with one maintainer. Expect a first answer within one week. The
 maintainer will agree a disclosure date with the reporter after the cause is clear.
 
+When the maintainer confirms a vulnerability, the maintainer publishes a GitHub security advisory
+for it and requests a CVE through that advisory.
+
+## Supported versions
+
+No release exists yet. The first release will be v0.1.0. Until 1.0.0, only the latest 0.x minor
+release receives security fixes. A fix does not go to an older minor release. A user of an older
+release MUST upgrade to the latest minor release.
+
+## Safe harbour
+
+Research in good faith is welcome, if it follows this policy and the researcher runs it on the
+researcher's own deployment of the project. The maintainer does not pursue legal action for such
+research. This policy does not authorise testing of a system that the researcher does not own or
+operate. That includes the deployments of other people, Buildkite, and GitHub.
+
 ## What the project protects
 
 The controller runs untrusted code. Every build in a job VM is untrusted, by decision
@@ -20,8 +36,6 @@ properties, and a defect in one of them is a vulnerability:
 * A job VM cannot reach the host, another VM, or a private network, except the addresses that its
   profile permits.
 * A job VM has no host directory mounts, and it never runs a second job.
-* Source code checkouts, build data, and artifacts stay on owner infrastructure, in the operating
-  country.
 * Telemetry contains no source code, no token, and no job or VM identifier in metric attributes.
 
 [`docs/quality/test-strategy.md`](docs/quality/test-strategy.md) holds these properties as
@@ -40,6 +54,21 @@ These are known, recorded, and accepted. They are not vulnerabilities in this pr
   Orchard has no narrower role.
 * Job logs go to Buildkite SaaS, and they can contain parts of source code, such as compiler
   errors.
+* Artifacts stay on owner infrastructure only as far as configuration holds. The residency
+  setting protects against configuration mistakes. It is not a boundary against a hostile build.
+  A build that has root in its VM and internet egress can send source code, build data, and
+  artifacts to any address that its profile permits. The mitigation is the egress allowlist of
+  each profile.
+* An Orchard account with the `compute:read` role can read the job acquisition token of a VM
+  that is starting, because the token is in the VM specification. The token opens one job only
+  and it expires. The mitigation is to give `compute:read` to few accounts and to no build.
+* When a profile enables agent telemetry, the credential of the OpenTelemetry collector (the
+  headers) enters the VM. A hostile build can read it. The mitigation is that the collector
+  uses its own ingest token, with the lowest privilege, that can send telemetry and do nothing
+  else.
+* Releases have one maintainer as the only reviewer, and the rules of the main branch have an
+  administrator bypass. No second person reviews a release. The mitigation is that the release
+  gate (T-100 to T-105) and the pipeline checks run before every release.
 
 ## Secrets
 
