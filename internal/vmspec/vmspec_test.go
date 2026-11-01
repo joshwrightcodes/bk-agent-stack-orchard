@@ -169,7 +169,7 @@ func TestBuildGivesTheVMOnlyTheTokenOfItsOwnJob(t *testing.T) {
 
 	want := []string{
 		"BUILDKITE_AGENT_TOKEN", "BUILDKITE_AGENT_ACQUIRE_JOB", "BUILDKITE_AGENT_NAME",
-		"BK_AGENT_STACK_QUEUE", "BK_AGENT_STACK_PROFILE",
+		"BUILDKITE_AGENT_TAGS",
 	}
 	if len(env) != len(want) {
 		t.Errorf("env = %v, want only %v", env, want)
@@ -268,18 +268,65 @@ func TestBuildAddsTheAgentTelemetryOnlyWhenTheProfileAsksForIt(t *testing.T) {
 func TestBuildStartsTheAgentForOneJob(t *testing.T) {
 	vm := build(t, request())
 
-	script := vm.StartupScript.ScriptContent
-	if !strings.Contains(script, "buildkite-agent start") {
-		t.Errorf("the script does not start the agent: %q", script)
+	// The tags travel in the environment, so no tag text is in the script.
+	if got, want := vm.StartupScript.ScriptContent, "buildkite-agent start"; got != want {
+		t.Errorf("the script = %q, want %q", got, want)
 	}
-	for _, want := range []string{"${BK_AGENT_STACK_QUEUE}", "${BK_AGENT_STACK_PROFILE}"} {
-		if !strings.Contains(script, want) {
-			t.Errorf("the script does not use %s: %q", want, script)
-		}
-	}
+
 	// The token and the job never appear in the script, because the environment carries them.
+	script := vm.StartupScript.ScriptContent
 	if strings.Contains(script, jobUUID.String()) || strings.Contains(script, "bkjat_") {
 		t.Errorf("the script carries a value that belongs in the environment: %q", script)
+	}
+}
+
+// The agent reads its tags from BUILDKITE_AGENT_TAGS. The three fixed tags come first, then the
+// literal tags of the job in the order of their keys, so that two machines of one job read alike.
+func TestTheAgentTagsCarryTheJobsLiteralTags(t *testing.T) {
+	r := request()
+	r.Tags = map[string]string{"xcode": "27", "size": "large", "gpu": "yes"}
+
+	vm := build(t, r)
+
+	want := "queue=macos,agent-stack=orchard,profile=xcode-27,gpu=yes,size=large,xcode=27"
+	if got := vm.StartupScript.Env["BUILDKITE_AGENT_TAGS"]; got != want {
+		t.Errorf("BUILDKITE_AGENT_TAGS = %q, want %q", got, want)
+	}
+
+	if script := vm.StartupScript.ScriptContent; strings.Contains(script, "xcode") ||
+		strings.Contains(script, "--tags") {
+		t.Errorf("the script carries tag text: %q", script)
+	}
+}
+
+func TestTheAgentTagsOfAJobWithNoLiteralTagsAreTheFixedTags(t *testing.T) {
+	vm := build(t, request())
+
+	want := "queue=macos,agent-stack=orchard,profile=xcode-27"
+	if got := vm.StartupScript.Env["BUILDKITE_AGENT_TAGS"]; got != want {
+		t.Errorf("BUILDKITE_AGENT_TAGS = %q, want %q", got, want)
+	}
+}
+
+// A comma would split a tag in two, and the other characters would break text that carries the
+// list. The matcher refuses them, and the specification does not trust the matcher alone.
+func TestBuildRefusesATagThatWouldBreakTheAgentTagList(t *testing.T) {
+	for name, tags := range map[string]map[string]string{
+		"a comma in a value": {"xcode": "27,gpu=yes"},
+		"a comma in a key":   {"xcode,gpu": "27"},
+		"a newline":          {"xcode": "27\nx"},
+		"a double quote":     {"xcode": `"27"`},
+		"a single quote":     {"xcode": "'27'"},
+		"an empty value":     {"xcode": ""},
+		"an empty key":       {"": "27"},
+		"a carriage return":  {"xc\rode": "27"},
+	} {
+		r := request()
+		r.Tags = tags
+
+		if _, err := vmspec.Build(r); err == nil {
+			t.Errorf("Build() with %s = nil, want an error", name)
+		}
 	}
 }
 

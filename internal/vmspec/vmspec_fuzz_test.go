@@ -4,9 +4,12 @@ package vmspec_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/profile"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/secret"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/vmspec"
 )
 
@@ -66,6 +69,50 @@ func FuzzOwnedJobTellsControllersApart(f *testing.F) {
 				t.Fatalf("OwnedJob(%q, %q) claimed job %q of the controller %q", name, other, got,
 					owner)
 			}
+		}
+	})
+}
+
+// A tag comes from a pipeline author, and every build is untrusted. Whatever the tag says, it
+// reaches the agent only through the environment and never through the text of the script, and
+// the list of the agent holds one entry for each tag.
+func FuzzATagReachesTheEnvironmentAndNeverTheScript(f *testing.F) {
+	f.Add("xcode", "27")
+	f.Add("size", "large")
+	f.Add("x", "$(touch /tmp/owned)")
+	f.Add("x", "`id`")
+	f.Add("x", "a,b=c")
+	f.Add("x", "a\nb")
+	f.Add("x", "\"; rm -rf /; \"")
+	f.Add("", "")
+
+	f.Fuzz(func(t *testing.T, key, value string) {
+		vm, err := vmspec.Build(vmspec.Request{
+			ControllerID: "macos-prod",
+			Queue:        "macos",
+			JobID:        job.ID("018f3b2c-1c4a-7e5b-9a3d-2f1e4c5b6a7d"),
+			JobToken:     secret.String("bkjat_job_token"),
+			Tags:         map[string]string{key: value},
+			Profile: profile.Profile{
+				Name: "xcode-27", Image: "image@sha256:abc", CPU: 8, MemoryMiB: 28672,
+				DiskSizeGB: 150, StartupTransport: profile.TransportGuestAgent,
+			},
+		})
+		if err != nil {
+			return
+		}
+
+		if script := vm.StartupScript.ScriptContent; script != "buildkite-agent start" {
+			t.Fatalf("Build() with the tag %q=%q gave the script %q", key, value, script)
+		}
+
+		list := vm.StartupScript.Env["BUILDKITE_AGENT_TAGS"]
+		if !strings.HasSuffix(list, ","+key+"="+value) {
+			t.Fatalf("Build() with the tag %q=%q gave the list %q", key, value, list)
+		}
+
+		if got := len(strings.Split(list, ",")); got != 4 {
+			t.Fatalf("Build() with the tag %q=%q gave %d tags in %q, want 4", key, value, got, list)
 		}
 	})
 }

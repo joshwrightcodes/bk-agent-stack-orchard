@@ -147,8 +147,9 @@ the VMs of ended jobs and starts VMs for waiting jobs.
 
 **PR-004: Fail an unmatched job immediately.**
 
-* Requirement: If no profile matches a job, or a tag rule is not `key=literal`, the product MUST
-  fail the job immediately. The message MUST list the tags of the job and the `match` maps of all
+* Requirement: If no profile matches a job, or a tag rule is not `key=literal` (a key or a value
+  with a comma, a newline, or a quote is not a literal), the product MUST fail the job
+  immediately. The message MUST list the tags of the job and the `match` maps of all
   profiles. An unmatched job MUST NOT use a VM slot.
 * Status: `accepted`.
 * Acceptance: Given a job whose tags match no profile. When Buildkite schedules the job. Then the

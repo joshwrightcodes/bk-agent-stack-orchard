@@ -26,6 +26,8 @@ func FuzzTagsGiveOnlyLiteralRules(f *testing.F) {
 		"=27",
 		"queue=macos",
 		"a=b=c",
+		"xcode=27,gpu=yes",
+		"xcode=\"27\"",
 		"",
 	} {
 		f.Add(seed)
@@ -50,6 +52,8 @@ func FuzzTagsGiveOnlyLiteralRules(f *testing.F) {
 				t.Fatalf("Tags(%q) gave the empty pair %q=%q", rules, key, value)
 			case strings.ContainsAny(key, "*?!"), strings.ContainsAny(value, "*?"):
 				t.Fatalf("Tags(%q) gave the pattern %q=%q", rules, key, value)
+			case strings.ContainsAny(key, ",\n\r\"'"), strings.ContainsAny(value, ",\n\r\"'"):
+				t.Fatalf("Tags(%q) gave %q=%q, which would break the agent tag list", rules, key, value)
 			case key == "queue":
 				t.Fatalf("Tags(%q) kept the queue rule", rules)
 			case !slices.Contains(rules, key+"="+value):

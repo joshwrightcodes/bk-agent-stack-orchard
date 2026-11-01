@@ -246,7 +246,9 @@ other than `queue`.
 
 * No profile has a `match` map that is equal to the job tags.
 * A rule does not have the format `key=literal`. Wildcards, negations, and rules with an
-  incorrect format are in this group.
+  incorrect format are in this group. A rule whose key or value has a comma, a newline, a
+  carriage return, or a quote (`"` or `'`) is in this group also, because the agent of the job
+  reads its tags as one comma-separated list (§5, VM specification).
 
 The controller MUST reserve an unmatched job and finish it immediately with
 `exit_status: -1`. The detail message MUST list the job tags and the `match` maps of all
@@ -430,13 +432,12 @@ For the admitted jobs, the Launcher MUST do these steps:
   },
   "startup_script": {
     "transport": "tart-guest-agent",
-    "script_content": "buildkite-agent start --tags \"queue=${BK_AGENT_STACK_QUEUE},agent-stack=orchard,profile=${BK_AGENT_STACK_PROFILE}\"",
+    "script_content": "buildkite-agent start",
     "env": {
       "BUILDKITE_AGENT_TOKEN": "<job acquisition token>",
       "BUILDKITE_AGENT_ACQUIRE_JOB": "<job-uuid>",
       "BUILDKITE_AGENT_NAME": "bk-macos-prod-<job-uuid>",
-      "BK_AGENT_STACK_QUEUE": "macos",
-      "BK_AGENT_STACK_PROFILE": "xcode-27"
+      "BUILDKITE_AGENT_TAGS": "queue=macos,agent-stack=orchard,profile=xcode-27,xcode=27"
     }
   }
 }
@@ -452,6 +453,16 @@ The transport is `tart-guest-agent` (ADR-0009). With this transport, the Orchard
 VM control socket, and the VM specification contains no credentials. A profile with
 `startupTransport: ssh` gets `username` and `password` from its `vmCredentials` instead. The
 `env` values and the event log are the same for both transports.
+
+`BUILDKITE_AGENT_TAGS` is the tag list of the agent. It holds `queue=<queue>`,
+`agent-stack=orchard`, and `profile=<profile name>`, in this order, and then each `key=value` of
+the literal tags of the job, without the `queue` tag, sorted by key. A comma joins the entries.
+The agent reads `BUILDKITE_AGENT_TAGS` as the source of its `--tags` option (`buildkite/agent`,
+`clicommand/agent_start.go` at v4.9.0, checked 2026-11-01). Because of this, the startup script
+has no tag text, and no tag value is ever part of shell text. The controller MUST refuse a tag
+whose key or value is empty, or has a comma, a newline, a carriage return, or a quote. The
+matcher refuses these tags first (§5, unmatched jobs), and the VM specification builder refuses
+them again.
 
 The image MUST contain `buildkite-agent` v4 and its hooks (§5). The controller MUST add only
 the environment variables above. When `profile.otel.enabled` is true, the controller also adds

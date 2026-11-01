@@ -207,6 +207,34 @@ func candidates(ids ...job.ID) []admission.Candidate {
 	return out
 }
 
+// The agent of a machine carries the literal tags of its job, so the job page shows them.
+func TestTheMachineOfAJobCarriesTheTagsOfThatJob(t *testing.T) {
+	t.Parallel()
+
+	api, fleet := &stacks{}, &machines{}
+	started := build(t, api, fleet)
+
+	waiting := admission.Candidate{
+		Job:     buildkite.ScheduledJob{ID: first, Rules: []string{"queue=macos-prod", "xcode=27"}},
+		Profile: pilot,
+	}
+
+	err := started.Launch(t.Context(), admission.Result{Admit: []admission.Candidate{waiting}},
+		inventory.Snapshot{})
+	if err != nil {
+		t.Fatalf("Launch() = %v, want no error", err)
+	}
+
+	if len(fleet.created) != 1 {
+		t.Fatalf("orchard saw %d machines, want 1", len(fleet.created))
+	}
+
+	want := "queue=macos-prod,agent-stack=orchard,profile=" + pilot.Name + ",xcode=27"
+	if got := fleet.created[0].StartupScript.Env["BUILDKITE_AGENT_TAGS"]; got != want {
+		t.Errorf("BUILDKITE_AGENT_TAGS = %q, want %q", got, want)
+	}
+}
+
 // The order of the calls is what keeps one job to one machine: hold the job, then get its token,
 // then ask for the machine.
 func TestALaunchHoldsTheJobThenGetsATokenThenAsksForAMachine(t *testing.T) {

@@ -77,6 +77,7 @@ func TestOrchardKeepsEveryFieldOfTheSpecification(t *testing.T) {
 				JobID:            c.job,
 				JobToken:         "bkaj_integration",
 				Profile:          spec,
+				Tags:             spec.Match,
 				ImageCredentials: c.credentials,
 				TraceParent:      "00-018f3b2c1c4a7e5b9a3d2f1e4c5b6a01-018f3b2c1c4a7e5b-01",
 				OTelHeaders:      "authorization=Bearer integration",

@@ -26,6 +26,7 @@ import (
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/inventory"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/match"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/secret"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
@@ -459,7 +460,12 @@ func (l *Launcher) create(ctx context.Context, wanted []admission.Candidate,
 func (l *Launcher) machine(ctx context.Context, candidate admission.Candidate,
 	token secret.String,
 ) error {
-	spec, err := vmspec.Build(l.request(ctx, candidate, token))
+	request, err := l.request(ctx, candidate, token)
+	if err != nil {
+		return err
+	}
+
+	spec, err := vmspec.Build(request)
 	if err != nil {
 		return err
 	}
@@ -478,13 +484,21 @@ func (l *Launcher) machine(ctx context.Context, candidate admission.Candidate,
 // request gives the specification request of one job.
 func (l *Launcher) request(ctx context.Context, candidate admission.Candidate,
 	token secret.String,
-) vmspec.Request {
+) (vmspec.Request, error) {
+	// The tags of the job are the match map of its profile, because a job reaches a profile only
+	// when the two are equal. The agent carries the tags of the job itself.
+	tags, err := match.Tags(candidate.Job.Rules)
+	if err != nil {
+		return vmspec.Request{}, err
+	}
+
 	request := vmspec.Request{
 		ControllerID: l.controllerID,
 		Queue:        l.queue,
 		JobID:        candidate.Job.ID,
 		JobToken:     token,
 		Profile:      candidate.Profile,
+		Tags:         tags,
 	}
 
 	if credentials := candidate.Profile.VMCredentials; credentials != nil {
@@ -501,5 +515,5 @@ func (l *Launcher) request(ctx context.Context, candidate admission.Candidate,
 		request.OTelHeaders = secret.String(l.environment(candidate.Profile.OTel.HeadersEnv))
 	}
 
-	return request
+	return request, nil
 }

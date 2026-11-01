@@ -111,6 +111,36 @@ func TestMatchRefusesARuleThatIsNotALiteral(t *testing.T) {
 	}
 }
 
+// The tags of the job go to the agent as one comma-separated list. A comma would split a tag in
+// two, and a newline or a quote would break the text that carries the list.
+func TestTagsRefuseAKeyOrAValueThatWouldBreakTheAgentTagList(t *testing.T) {
+	cases := map[string][]string{
+		"a comma in the value":         {"queue=macos", "xcode=27,gpu=yes"},
+		"a comma in the key":           {"queue=macos", "xcode,gpu=27"},
+		"a newline in the value":       {"queue=macos", "xcode=27\nx"},
+		"a carriage return in a key":   {"queue=macos", "xc\rode=27"},
+		"a double quote in the value":  {"queue=macos", `xcode="27"`},
+		"a single quote in the value":  {"queue=macos", "xcode='27'"},
+		"a double quote in the key":    {"queue=macos", `xc"ode=27`},
+		"a comma in a rule with queue": {"queue=macos,x", "xcode=27"},
+	}
+
+	for name, rules := range cases {
+		_, err := match.Tags(rules)
+
+		var mismatch *match.Mismatch
+		if !errors.As(err, &mismatch) {
+			t.Errorf("Tags(%s) = %v, want a mismatch", name, err)
+
+			continue
+		}
+		if mismatch.Reason != match.ReasonRuleNotLiteral {
+			t.Errorf("Tags(%s) gave the reason %q, want %q",
+				name, mismatch.Reason, match.ReasonRuleNotLiteral)
+		}
+	}
+}
+
 func TestMatchRefusesTheSameTagTwiceWithTwoValues(t *testing.T) {
 	if _, err := match.Match([]string{"queue=macos", "xcode=27", "xcode=26"}, profiles()); err == nil {
 		t.Error("Match() with two values for one tag = nil, want a mismatch")

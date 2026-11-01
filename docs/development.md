@@ -300,7 +300,8 @@ outside the controller:
 
 | Fuzz test | Input | Property |
 |---|---|---|
-| `FuzzTagsGiveOnlyLiteralRules` | The agent rules of a job, which pipeline authors write | An accepted rule is a literal `key=value` that a rule names, and a match is an equal match map |
+| `FuzzTagsGiveOnlyLiteralRules` | The agent rules of a job, which pipeline authors write | An accepted rule is a literal `key=value` that a rule names and that has no comma, newline, or quote, and a match is an equal match map |
+| `FuzzATagReachesTheEnvironmentAndNeverTheScript` | A tag of a job, which pipeline authors write | The tag reaches `BUILDKITE_AGENT_TAGS` in the VM environment and never the startup script |
 | `FuzzOwnedJobClaimsOnlyTheMachinesOfThisController` | A machine name in Orchard, which any tool can set | The controller claims only the exact name that it gives to a valid job |
 | `FuzzOwnedJobTellsControllersApart` | Two controller identifiers | A controller never claims a machine of another controller |
 | `FuzzParseIDAcceptsOnlyTheBuildkiteShape` | A job identifier from Buildkite | Only the lowercase UUID shape passes, unchanged |
