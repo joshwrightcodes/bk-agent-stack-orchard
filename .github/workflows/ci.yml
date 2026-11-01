@@ -8,12 +8,9 @@ on:
   push:
     branches: [main]
 
+# Each job reads the repository only. The lint job alone gets more, below.
 permissions:
   contents: read
-  # The lint action writes its findings as annotations on the pull request.
-  checks: write
-  # only-new-issues reads the diff of the pull request.
-  pull-requests: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -23,6 +20,12 @@ jobs:
   go:
     name: lint and test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The lint action writes its findings as annotations on the pull request.
+      checks: write
+      # only-new-issues reads the diff of the pull request.
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4

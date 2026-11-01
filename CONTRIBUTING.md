@@ -22,6 +22,11 @@ The maintainer tracks work in a GitHub project. Each item is a work unit of the
 Nothing goes to `main` directly. Every change arrives through a pull request, and the project
 squashes it into one commit.
 
+A pull request must be up to date with `main` before it merges, and a new push dismisses the
+approvals that it had. A pull request with no activity for 30 days gets the `stale` label, and it
+closes 14 days later unless somebody comments, pushes a commit, or removes the label. Dependency
+pull requests and the release pull request are exempt.
+
 ## Before code: the documents decide
 
 The document set is the source of truth, and it has one direction:

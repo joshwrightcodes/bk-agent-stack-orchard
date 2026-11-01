@@ -1,0 +1,47 @@
+name: stale
+
+# A pull request with no activity for 30 days gets the label stale and a comment, and it closes 14
+# days later unless somebody comments, pushes, or removes the label. Issues are not affected: each
+# work unit is an issue that stays open until its evidence passes.
+#
+# Dependency pull requests are exempt, because Renovate keeps them current itself, and it never
+# proposes an update again after somebody closes its pull request. The release pull request of
+# release-please is exempt too.
+
+on:
+  schedule:
+    # Each day, 03:40 UTC.
+    - cron: "40 3 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: stale
+  cancel-in-progress: false
+
+jobs:
+  stale:
+    name: stale pull requests
+    runs-on: ubuntu-latest
+    permissions:
+      # The label, the comment, and the closure of a pull request.
+      pull-requests: write
+      # GitHub writes labels and comments of a pull request through the issues API.
+      issues: write
+    steps:
+      - uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93 # v11.0.0
+        with:
+          days-before-issue-stale: -1
+          days-before-issue-close: -1
+          days-before-pr-stale: 30
+          days-before-pr-close: 14
+          stale-pr-label: stale
+          exempt-pr-labels: "dependencies,autorelease: pending"
+          stale-pr-message: >-
+            This pull request has had no activity for 30 days. It closes in 14 days unless
+            somebody comments, pushes a commit, or removes the stale label.
+          close-pr-message: >-
+            This pull request closed after 44 days with no activity. Open it again, or open a new
+            one, to continue the work.
+          delete-branch: false
