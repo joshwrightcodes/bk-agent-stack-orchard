@@ -37,6 +37,10 @@
   minimumReleaseAge: "3 days",
   internalChecksFilter: "strict",
 
+  // A pull request must be up to date with main before it merges, so Renovate rebases each one
+  // when main moves.
+  rebaseWhen: "behind-base-branch",
+
   semanticCommits: "enabled",
   semanticCommitScope: "deps",
 
@@ -48,6 +52,13 @@
       // proposes a patch release for it. The images and the actions change no release artifact.
       matchManagers: ["gomod"],
       semanticCommitType: "fix",
+    },
+    {
+      // Renovate leaves indirect modules alone by default. They are in the binary too, and a
+      // vulnerability in one is a vulnerability of the release.
+      matchManagers: ["gomod"],
+      matchDepTypes: ["indirect"],
+      enabled: true,
     },
     {
       // mise.toml pins the Go version, and target design section 15 states it.
