@@ -34,13 +34,32 @@ uv = "0.12.19"
 # platform names its archive and the SHA-256 that the release publishes, so a tag that moves cannot
 # change the binary without a failed install.
 [tools."github:openai/orchard"]
-version = "0.57.0"
+version = "0.58.0"
+# The macOS release binary fails its own signature check: its designated requirement looks for the
+# Developer ID marker on the root certificate, not the intermediate (openai/orchard#456, still so in
+# 0.58.0), and macOS 26 kills it at launch. The signature is otherwise intact, so this keeps the
+# release binary as orchard.release, verifies it against a correct Developer ID requirement for the
+# team of the release, and fails the install if that check fails. Only then does it make orchard,
+# an ad hoc signed copy of the verified file. It never signs a file that it has not verified, and
+# it runs on each install, so a restored cache is checked again. It changes nothing on Linux.
+postinstall = { when = "always", run = """
+set -eu
+[ "$(uname -s)" = Darwin ] || exit 0
+dir="$MISE_TOOL_INSTALL_PATH"
+[ -f "$dir/orchard.release" ] || mv "$dir/orchard" "$dir/orchard.release"
+chmod a-x "$dir/orchard.release"
+codesign --verify --strict -R='anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "9M2P8L4D89"' "$dir/orchard.release"
+cp "$dir/orchard.release" "$dir/orchard.tmp"
+chmod a+x "$dir/orchard.tmp"
+codesign --force --sign - "$dir/orchard.tmp"
+mv -f "$dir/orchard.tmp" "$dir/orchard"
+""" }
 
 [tools."github:openai/orchard".platforms]
-linux-x64 = { asset_pattern = "orchard-linux-amd64.tar.gz", checksum = "sha256:8e54692d5d38eac228b63fc16f0e801c4d7335287b9f1922743e0ac6e4c382d5" }
-linux-arm64 = { asset_pattern = "orchard-linux-arm64.tar.gz", checksum = "sha256:5c744e2883ff02b3e3e42b9ecaa42922411843653ea708eb7e37ee393c945d1f" }
-macos-x64 = { asset_pattern = "orchard-darwin-amd64.tar.gz", checksum = "sha256:b93202610373e1e0f4342ad7e03820e5d74a7891e92cf7532effce2a16b4d256" }
-macos-arm64 = { asset_pattern = "orchard-darwin-arm64.tar.gz", checksum = "sha256:63b511cb9ba4ecadda947d70763b4a226f9f0d56422e147cbf2a2b9b2eeabd26" }
+linux-x64 = { asset_pattern = "orchard-linux-amd64.tar.gz", checksum = "sha256:55370716a7e5ad86643a9829afbdf99b57e0cc957bb7dcef2a8a2acd44b97051" }
+linux-arm64 = { asset_pattern = "orchard-linux-arm64.tar.gz", checksum = "sha256:00bb625c177049cb052d68ebb1992da89e1b09da2f8b516fc0b6009e45d5fddf" }
+macos-x64 = { asset_pattern = "orchard-darwin-amd64.tar.gz", checksum = "sha256:c25a3303b6f19646fb5f5108d30050a50450b1030d2f126ffba3778c3e4c834a" }
+macos-arm64 = { asset_pattern = "orchard-darwin-arm64.tar.gz", checksum = "sha256:aa912db4d47d93413dabfd34c856c6ebb124e09d13fba70b5a62467276a1a71d" }
 
 [tasks.check-docs]
 description = "Check that the document set stays whole"
@@ -147,7 +166,7 @@ run = "go test -tags integration,load -count=1 -timeout 45m -run TestTheControll
 
 [tasks.orchard-image]
 description = "Build the image of the Orchard controller from its release (deploy/orchard/image)"
-run = "docker buildx build --load -t orchard:0.57.0 deploy/orchard/image"
+run = "docker buildx build --load -t orchard:0.58.0 deploy/orchard/image"
 
 
 [tasks.build]

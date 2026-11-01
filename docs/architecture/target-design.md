@@ -681,9 +681,11 @@ The controller MUST fail its readiness check when the Stacks API returns HTTP 40
 **Queue separation.** The controller MUST serve a dedicated queue (PR-031). The cluster MAY
 contain other queues. A leaked cluster agent token reaches all self-hosted queues of the cluster.
 
-**Orchard version.** The minimum Orchard version MUST be 0.57.0 (released 2026-09-15). Pull
+**Orchard version.** The minimum Orchard version MUST be 0.58.0 (released 2026-10-19). Pull
 request #465 makes the worker wait for VM shutdown before it releases capacity. Pull request #470
-corrects an overcommit problem. Orchard 0.57.0 contains both. The controller, the workers, and CI
+corrects an overcommit problem. Orchard 0.57.0 contains both. Orchard 0.58.0 adds 64 KiB receive
+windows for the Tart guest agent transport (pull request #520), and it corrects the health check of
+a replacement VM that is not scheduled (pull request #522). The controller, the workers, and CI
 MUST use the same Orchard version.
 
 **Tart version.** The minimum Tart version on a worker MUST be 2.39.0 (released 2026-09-26). The
@@ -989,7 +991,7 @@ carries the field names, the JSON tags, and a type for each field, and no behavi
 field whose type the controller does not read carries `json.RawMessage`.
 
 The generator reads the Go types, not the published description, because the Go types are what
-the server marshals: the description of version 0.57.0 omits `randomSerial`, `createdAt`,
+the server marshals: the description of version 0.58.0 omits `randomSerial`, `createdAt`,
 `last_seen`, and `scheduling_paused`, and its paths leave out the `/v1` prefix.
 
 **Contract drift.** CI MUST run `go generate ./...` and MUST fail when a generated file is

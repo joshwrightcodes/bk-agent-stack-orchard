@@ -23,7 +23,7 @@ JSON tags, and a type for each field. Everything else here is written by hand: t
 retries, the errors, and the decisions about a conflict or a machine that is already gone.
 
 The generator reads the Go types rather than the published OpenAPI description, because the Go
-types are what the server marshals. At 0.57.0 that description omits `randomSerial`, `createdAt`,
+types are what the server marshals. At 0.58.0 that description omits `randomSerial`, `createdAt`,
 `last_seen`, and `scheduling_paused`, which the controller uses, and its paths leave out the
 `/v1` prefix that the server serves. A client generated from it would not work.
 
