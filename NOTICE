@@ -102,5 +102,15 @@ permits every purpose except a competing use, and the AGPL-3.0 forbids a
 further restriction on a distributed work. See
 docs/adrs/0010-call-the-orchard-api-with-a-client-of-this-project.md.
 
+One file of this program, internal/orchard/types_gen.go, is generated from
+the Orchard source (copyright 2023-2026 OpenAI, FSL-1.1-ALv2) at a pinned
+version. It holds only the field names, the JSON tags, and the types of the
+Orchard fields that this program uses, and it copies them for
+interoperability with the Orchard API. Its header names the source, the
+version, the commit, and the licence. This program copies no other code that
+is under the FSL. This is the view of the project, which a lawyer has not
+yet confirmed. See
+docs/adrs/0015-generate-only-the-orchard-fields-the-controller-uses.md.
+
 The fleet operator installs Orchard and Tart, and the FSL of each version
 converts to the Apache License 2.0 two years after its release.

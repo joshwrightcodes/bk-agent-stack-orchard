@@ -990,11 +990,15 @@ The minimum Orchard version of §9.2 applies to the server that the fleet runs, 
 dependency.
 
 **Wire types.** `tools/orchardgen` writes the wire types from the Orchard resource types of the
-pinned commit, and `go generate ./internal/orchard/` runs it (ADR-0011). The directive MUST carry
+pinned commit, and `go generate ./internal/orchard/` runs it (ADR-0015). The directive MUST carry
 a commit, not a tag, because a tag can move, and the generator MUST stop when the tag of the
 minimum version no longer points at that commit. The generated file
-carries the field names, the JSON tags, and a type for each field, and no behaviour of Orchard. A
-field whose type the controller does not read carries `json.RawMessage`.
+carries the field names, the JSON tags, and a type for each field, and no behaviour of Orchard. It
+MUST carry only the fields on an allow list in the generator, which are the fields that code or a
+test in `internal/` reads or sets. The generator MUST fail when a name on the list is not an
+upstream field. A field whose type the controller does not read carries `json.RawMessage`. The
+file MUST start with a header that names the source repository, the version, the commit, the
+FSL-1.1-ALv2 licence, and the copyright notice of the source.
 
 The generator reads the Go types, not the published description, because the Go types are what
 the server marshals: the description of version 0.58.0 omits `randomSerial`, `createdAt`,

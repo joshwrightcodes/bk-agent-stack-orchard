@@ -200,7 +200,7 @@ version.
 | [System design baseline](docs/architecture/system-design-baseline.md) | Quality scenarios, the assumed demand model, the quality targets, the cost comparison, and the driver register |
 | [Target design](docs/architecture/target-design.md) | Components, job lifecycle, failure handling, configuration, security, observability, deployment, and conventions |
 | [C4 model](docs/architecture/c4.md) | Levels 1 to 3, generated from [`workspace.dsl`](docs/architecture/workspace.dsl) |
-| [Decision records](docs/adrs/README.md) | ADR-0001 to ADR-0014 |
+| [Decision records](docs/adrs/README.md) | ADR-0001 to ADR-0015 |
 | [Test strategy](docs/quality/test-strategy.md) | The risk map, the invariants, and the test obligations with their gates |
 | [Implementation plan](docs/delivery/implementation-plan.md) | Work units W-01 to W-27, their order, and the evidence that ends each work unit |
 | [Development guide](docs/development.md) | The gates, the integration tests, and the real-VM tests |
@@ -220,10 +220,11 @@ version.
 | [0008](docs/adrs/0008-use-a-dedicated-cluster-agent-token.md) | Use a dedicated cluster agent token with an expiry and an IP allowlist |
 | [0009](docs/adrs/0009-run-startup-scripts-over-the-tart-guest-agent.md) | Run VM startup scripts over the Tart guest agent |
 | [0010](docs/adrs/0010-call-the-orchard-api-with-a-client-of-this-project.md) | Call the Orchard API with a client of this project |
-| [0011](docs/adrs/0011-generate-the-orchard-wire-types.md) | Generate the Orchard wire types |
+| [0011](docs/adrs/0011-generate-the-orchard-wire-types.md) | Generate the Orchard wire types (superseded by ADR-0015) |
 | [0012](docs/adrs/0012-build-the-job-vm-images-from-a-vanilla-macos-image.md) | Build the job VM images from a vanilla macOS image |
 | [0013](docs/adrs/0013-sign-releases-with-keyless-cosign-signatures.md) | Sign releases with keyless cosign signatures (proposed) |
 | [0014](docs/adrs/0014-calculate-releases-with-release-please.md) | Calculate releases with release-please (proposed) |
+| [0015](docs/adrs/0015-generate-only-the-orchard-fields-the-controller-uses.md) | Generate only the Orchard fields that the controller uses (proposed) |
 
 ## Stack
 
@@ -235,7 +236,7 @@ version.
 | `buildkite-agent` | v4 | In the VM image |
 | Pilot image | macOS 27.2, Xcode 27 | Built from `macos-golden-gate-vanilla` (ADR-0012) |
 | Telemetry | OpenTelemetry (OTLP only) | No Prometheus endpoint |
-| Licence | AGPL-3.0-or-later | The controller holds no third-party code with a use restriction |
+| Licence | AGPL-3.0-or-later | The controller imports no code with a use restriction (ADR-0015) |
 | Tools and tasks | `mise` | Pins Go, golangci-lint, GoReleaser, and Ansible |
 
 ## Development
@@ -282,12 +283,22 @@ inside your own organisation, without access for other people, needs no offer.
 
 This summary is not legal advice. The text of the licence controls.
 
-The binary contains no code with a field-of-use restriction. Orchard has the FSL-1.1-ALv2 licence,
+The binary imports no code with a field-of-use restriction. Orchard has the FSL-1.1-ALv2 licence,
 and the AGPL forbids a further restriction on a distributed work. Because of this, the controller
 calls the Orchard REST API with its own client, and it does not import the Orchard Go package
-([ADR-0010](docs/adrs/0010-call-the-orchard-api-with-a-client-of-this-project.md)). The fleet
-runs Orchard and Tart as separate programs under their own licences. [NOTICE](NOTICE) records the
-third-party licences.
+([ADR-0010](docs/adrs/0010-call-the-orchard-api-with-a-client-of-this-project.md)).
+
+The project does generate one file from Orchard source. `internal/orchard/types_gen.go` holds the
+field names, the JSON tags, and the types of the Orchard fields that the controller uses, taken
+from a pinned Orchard version so that the controller works with the Orchard API. The generator
+writes only the fields on an allow list, and the file has a header that names the source, the
+version, the commit, the licence, and the copyright notice of OpenAI
+([ADR-0015](docs/adrs/0015-generate-only-the-orchard-fields-the-controller-uses.md)). The project
+copies no other code that is under the FSL. This is the view of the project about copying for
+interoperability. It is not legal advice, and a lawyer has not yet confirmed it.
+
+The fleet runs Orchard and Tart as separate programs under their own licences.
+[NOTICE](NOTICE) records the third-party licences.
 
 ## Notices for operators
 

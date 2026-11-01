@@ -83,7 +83,8 @@ date. The content of an accepted ADR does not change: a new ADR supersedes it.
 | [ADR-0008](0008-use-a-dedicated-cluster-agent-token.md) | Use a dedicated cluster agent token with an expiry and an IP allowlist | accepted |
 | [ADR-0009](0009-run-startup-scripts-over-the-tart-guest-agent.md) | Run VM startup scripts over the Tart guest agent | accepted |
 | [ADR-0010](0010-call-the-orchard-api-with-a-client-of-this-project.md) | Call the Orchard API with a client of this project | accepted |
-| [ADR-0011](0011-generate-the-orchard-wire-types.md) | Generate the Orchard wire types from the pinned version | accepted |
+| [ADR-0011](0011-generate-the-orchard-wire-types.md) | Generate the Orchard wire types from the pinned version | superseded by ADR-0015 |
 | [ADR-0012](0012-build-the-job-vm-images-from-a-vanilla-macos-image.md) | Build the job VM images from a vanilla macOS image | accepted |
 | [ADR-0013](0013-sign-releases-with-keyless-cosign-signatures.md) | Sign releases with keyless cosign signatures | proposed |
 | [ADR-0014](0014-calculate-releases-with-release-please.md) | Calculate releases with release-please | proposed |
+| [ADR-0015](0015-generate-only-the-orchard-fields-the-controller-uses.md) | Generate only the Orchard fields that the controller uses | proposed |

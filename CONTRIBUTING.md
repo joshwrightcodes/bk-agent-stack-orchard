@@ -228,7 +228,12 @@ that licence, and a pull request states that the author has the right to give it
 Two rules protect the licence:
 
 * Never copy code from a source with a field-of-use restriction, such as the FSL, into this
-  repository, and never generate code from such a file.
+  repository. The only exception is `internal/orchard/types_gen.go`. The generator
+  `tools/orchardgen` writes it from a pinned Orchard version, and it copies only the field names,
+  the JSON tags, and the types of the fields that the controller uses, for interoperability. Its
+  header names the source and the licence. A change that makes the controller read a new Orchard
+  field adds that field to the allow list of the generator
+  ([ADR-0015](docs/adrs/0015-generate-only-the-orchard-fields-the-controller-uses.md)).
 * The controller calls the Orchard REST API with its own client. Never add an Orchard package to
   `go.mod`
   ([ADR-0010](docs/adrs/0010-call-the-orchard-api-with-a-client-of-this-project.md)).

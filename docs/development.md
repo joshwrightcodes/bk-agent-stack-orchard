@@ -70,7 +70,7 @@ deploy/helm/                    the controller chart
 deploy/orchard/                 the Orchard StatefulSet and its bootstrap job
 deploy/hosts/                   Ansible for the Mac hosts
 images/                         the builds of the job VM images (agent and pilot: tart and the guest agent)
-tools/orchardgen/               the generator of the Orchard wire types (ADR-0011)
+tools/orchardgen/               the generator of the Orchard wire types (ADR-0015)
 scripts/                        the gate scripts, the smoke and release scripts, and the runner script
 ```
 
@@ -173,8 +173,9 @@ in order, because the documents decide the behaviour (CONTRIBUTING, section "Bef
    that Orchard returns it unchanged.
 6. When the field goes into the Helm values, change `deploy/helm/bk-agent-stack-orchard` and its
    values schema, and run `mise run check-deploy`.
-7. When the specification needs a field that the generated Orchard types lack, run
-   `mise run generate`, and commit the result (ADR-0011).
+7. When the specification needs a field that the generated Orchard types lack, add the field to
+   the allow list of its type in `tools/orchardgen/main.go`, run `mise run generate`, and commit
+   the result (ADR-0015).
 8. Run `mise run test`, `mise x -- golangci-lint run ./...`, `mise run lint-format`, and
    `mise run check-docs`.
 
