@@ -44,7 +44,7 @@ Shared metadata: the owner of all entries is Josh Wright. The as-of date of all 
 ## 1. Business context
 
 The owner builds and tests an iOS app with Buildkite. The owner wants the macOS jobs to run on
-self-hosted Apple Silicon Macs for three reasons: cost, data sovereignty, and performance. The
+self-hosted Apple silicon Macs for three reasons: cost, data sovereignty, and performance. The
 comparison basis is the equivalent Buildkite hosted macOS agent. No measurements of cost or
 performance exist yet. The fleet is new, and the hosts have no VM tooling.
 
@@ -87,8 +87,10 @@ These scenarios are the most likely to shape the architecture.
 ### 4.1 Fleet and hosts
 
 * **Fleet size:** development on 1 Mac; pilot on 2 to 4 Macs; first fleet of 2 to 10 Macs; target
-  of 10 to 50 Macs. The pilot starts in approximately 1 month, and adoption and scale follow in
-  approximately 3 months (from 2026-09-14).
+  of 10 to 50 Macs. The dates of the pilot and of adoption and scale are `UNKNOWN` (owner: the
+  maintainer; trigger: a Buildkite test cluster and the Mac hosts are ready). On 2026-09-14, the
+  plan estimated the pilot start in approximately 1 month and adoption and scale in approximately
+  3 months.
 * **Host model:** Mac mini with an M5 Pro chip: 18-core CPU, 20-core GPU, and 16-core Neural
   Engine. Each host has 64 GB memory, 1 TB storage, and 10 Gb Ethernet. Apple ships it from
   2026-09-22.
@@ -242,14 +244,14 @@ can permit a smaller fleet at peak. The pilot must measure the real arrival rate
 
 | ID | Theme | Parameter | Applicability | Criticality | Evidence | Value or measure | Source | Review trigger |
 |---|---|---|---|---|---|---|---|---|
-| BD-01 | Business | Execution location | APPLICABLE | DRIVER | CONFIRMED | Self-hosted Apple Silicon hosts | Owner statement (2026-09-13); ADR-0001 | Hosted macOS agents accept custom base images |
+| BD-01 | Business | Execution location | APPLICABLE | DRIVER | CONFIRMED | Self-hosted Apple silicon hosts | Owner statement (2026-09-13); ADR-0001 | Hosted macOS agents accept custom base images |
 | BD-02 | Business | Reasons for self-hosting | APPLICABLE | DRIVER | CONFIRMED | Cost, data sovereignty, performance. No measurements. | Owner statement (2026-09-13) | Measurements become available |
 | BD-03 | Business | Comparison basis | APPLICABLE | SUPPORTING | CONFIRMED | Equivalent Buildkite hosted macOS agent: Medium 0.12 USD/min, Large 0.24 USD/min | Owner answer Q-P1; Buildkite pricing (2026-09-14) | Buildkite price change |
 | BD-04 | Business | Workload type | APPLICABLE | SUPPORTING | CONFIRMED | iOS app builds and tests | Owner answer Q-P4 | New workload type |
 | BD-05 | Business | Exchange rate | APPLICABLE | SUPPORTING | CONFIRMED | 1 USD = 1.39842141 AUD, mid-market | xe.com (2026-09-14 04:37 UTC) | A cost comparison at a later date |
 | SC-01 | Scale | Fleet size | APPLICABLE | DRIVER | CONFIRMED | 1 Mac (development), 2 to 4 (pilot), 2 to 10 (first fleet), 10 to 50 (target) | Owner statement (2026-09-13) | Need for more than 50 Macs |
 | SC-02 | Scale | VM slots on each host | APPLICABLE | DRIVER | CONFIRMED | 2 (hard limit) | Apple macOS licence; Orchard `tart-vms` resource (2026-09-13) | Apple licence change |
-| SC-03 | Scale | Dates of the phases | APPLICABLE | SUPPORTING | CONFIRMED | Pilot in approximately 1 month; adoption and scale in approximately 3 months (from 2026-09-14) | Owner answers Q-P5 and Q-P6 | A change of plan |
+| SC-03 | Scale | Dates of the phases | APPLICABLE | SUPPORTING | UNKNOWN | `UNKNOWN`, owner: the maintainer, trigger: a Buildkite test cluster and the Mac hosts are ready. History: on 2026-09-14 the plan estimated the pilot in approximately 1 month and adoption and scale in approximately 3 months | Owner answers Q-P5 and Q-P6 | The trigger occurs, or a change of plan |
 | SC-04 | Scale | Host model | APPLICABLE | DRIVER | CONFIRMED | Mac mini, M5 Pro: 18-core CPU, 20-core GPU, 16-core Neural Engine; 64 GB; 1 TB; 10 Gb Ethernet; AU$5,099.00 pre-order (2026-09-14 21:00 AEST); ships 2026-09-22 | Owner answers Q-P1 (2026-09-14); Apple (2026-09-14) | New host model |
 | SC-05 | Demand | Job arrival rate and peak concurrency | APPLICABLE | DRIVER | ASSUMED | 880 jobs each workday; peak 38.7 concurrent VMs (section 4.2) | Demand model; owner answer Q-A1 | Pilot telemetry |
 | SC-06 | Demand | Job duration and longest job | APPLICABLE | SUPPORTING | ASSUMED | Mean 15 min; longest 60 min; safety limit `maxVMLifetime` 25 h | Demand model (section 4.2) | Pilot telemetry |

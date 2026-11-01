@@ -33,8 +33,8 @@ it. It does not repeat the design.
 In scope: the controller, its two clients, the test harness, the release artifacts, the reference
 deployment, the host provisioning, and the pilot image.
 
-Out of scope: the pipelines of the iOS application, a second region, a warm pool, high
-availability, and any item in the roadmap of the target design.
+Out of scope are these items: the pipelines of the iOS application, a second region, a warm pool,
+high availability, and any item in the roadmap of the target design.
 
 One person does this work (OP-01). Because of this, the plan has no parallel work streams for
 people. It marks the work that can wait for hardware, so that the person always has work that is
@@ -123,7 +123,7 @@ give a configured response, status code, or error. Buildkite tests its own contr
 W-05 MUST use this fake, and it MUST NOT contain a new fake of the same API.
 
 W-05 measured the import first, and it copied the file. An import puts `k8s.io/apimachinery`,
-`k8s.io/klog/v2`, `k8s.io/utils`, and `go-logr` in the module graph for one test helper, and it
+`k8s.io/klog/v2`, `k8s.io/utils`, and `go-logr` in the module graph for one test helper. It also
 asks for `stacksapi` v1.0.2, which is older than the version that this project needs. The package
 carries no release tag, so an import also pins an untagged commit of a Kubernetes controller.
 `test/fakestacks` therefore holds the file with its MIT notice and its provenance, and the module
@@ -138,15 +138,16 @@ makes. Each change carries a comment in the file that starts with "Change of thi
 3. A test can set the headers of an answer, which the `Retry-After` case of T-040 needs.
 4. A reserved job leaves the scheduled-jobs list and takes the state `reserved`, as the API
    states. A test that runs the controller end to end (T-060) needs the list to move.
-5. A test can set a job state, schedule a job again as an expired reservation does (T-021), pause
-   the queue (T-022), and read the calls while the controller runs, under the lock of the server.
+5. A test can do these things while the controller runs, under the lock of the server:
+   set a job state, schedule a job again as an expired reservation does (T-021), pause the
+   queue (T-022), and read the calls.
 6. A finish call records the exit status and the detail that it sends, which T-062 reads.
 7. A test can revoke the token while the controller runs, and every call then gets HTTP 401
    (T-063).
 8. The routes are a handler that a test program serves itself, for the smoke deployment on
    Kubernetes (W-21).
 
-The fake is not a conformance suite. Open item O-1 of the test strategy stays: the fixtures of
+The fake is not a conformance suite. Open item O-1 of the test strategy stays. The fixtures of
 T-040 come from recorded responses of a real Buildkite test cluster.
 
 ## 4. Work units
@@ -248,15 +249,15 @@ flowchart LR
 The critical path is W-26, W-01, W-02, W-04, W-08, W-10, W-11, W-13, W-16, W-21, W-24, W-25.
 W-27 is on no path, and it runs on a schedule after it exists.
 
-W-22 and W-23 are not on the software path, and the owner decided on 2026-09-20 that neither one
-starts early: the hosts are not necessary for increments 0 to 3, and the pilot image blocks no
+W-22 and W-23 are not on the software path. The owner decided on 2026-09-20 that neither one
+starts early. The hosts are not necessary for increments 0 to 3. The pilot image blocks no
 software work until W-24. W-23 therefore runs last.
 
 This has one consequence to watch. W-24 needs an image that contains `buildkite-agent` v4 and the
-Tart guest agent, so the end-to-end evidence, and with it the only proof that the guest-agent
-transport starts an agent (open item O-2), waits for W-23. If that wait becomes a problem, the
-smaller step is an image with the agent and the guest agent but no Xcode, which the end-to-end
-scenarios other than the iOS build can use.
+Tart guest agent. The end-to-end evidence therefore waits for W-23. This evidence includes the
+only proof that the guest-agent transport starts an agent (open item O-2). If the wait becomes a
+problem, a smaller step is possible. This step is an image with the agent and the guest agent but
+no Xcode. The end-to-end scenarios other than the iOS build can use this image.
 
 ## 6. Estimates
 
@@ -278,18 +279,19 @@ Dates that the plan must respect:
 * The earliest pilot exit date is `UNKNOWN`. The pilot exit criteria need two weeks of measurement
   (QA-04).
 
-The owner of these dates is the maintainer. The dates become known when a Buildkite test cluster
-and the Mac hosts are ready (2026-11-01). The plan of 2026-09-14 estimated that the hosts ship on
-2026-09-22 (SC-04), that the pilot starts about 2026-10-14 (SC-03), and that the earliest exit is
-about 2026-10-28.
+The owner of these dates is the maintainer. The dates become known when a Buildkite test cluster and
+the Mac hosts are ready (2026-11-01). The plan of 2026-09-14 had three estimates. The hosts ship on
+2026-09-22 (SC-04). The pilot starts about 2026-10-14 (SC-03). The earliest exit is about
+2026-10-28.
 
 Each work unit carries a day estimate and a size in the GitHub project of the maintainer. The
-estimates of an increment sum inside its range above. The project holds the value for each unit,
-and this document holds the range for each increment, so a change to one unit does not need a
+estimates of an increment sum inside its range above. The project holds the value for each unit.
+This document holds the range for each increment. A change to one unit therefore does not need a
 change to this document.
 
-The sum of the ranges is 21 to 36 working days. The lower range meets the pilot date only if the
-image build (W-23) starts before the hosts arrive, and if no increment needs a new decision. The
+The sum of the ranges is 21 to 36 working days. The lower range meets the pilot date only in two
+cases. The image build (W-23) must start before the hosts arrive, and no increment must need a new
+decision. The
 owner SHOULD expect the pilot entry in the second half of October 2026.
 
 ## 7. Verification

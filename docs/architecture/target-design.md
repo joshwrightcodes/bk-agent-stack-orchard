@@ -22,7 +22,7 @@ state names in `code format` are technical names.
 ## 1. Purpose
 
 `bk-agent-stack-orchard` runs Buildkite jobs on temporary macOS virtual machines (VMs). The
-VMs operate on self-hosted Apple Silicon Macs.
+VMs operate on self-hosted Apple silicon Macs.
 
 The controller monitors a Buildkite queue for scheduled jobs. For each job, it starts one new
 Tart VM through Orchard. When the job ends, the controller deletes the VM. This behavior is the
@@ -332,11 +332,11 @@ decide what old data permits it to do.
 Admission does these steps:
 
 1. **Candidates.** Select the matched scheduled jobs that have no owned VM with the same name,
-   and that this process does not hold. A job that this process reserved, or whose VM it
-   requested, is its own even when the Inventory data does not show the VM yet: the Inventory
-   learns of a launch only at its next refresh, and a poll that fails keeps an answer that still
-   lists the job. Sort them by Buildkite `priority` (highest first), then by `scheduled_at` (oldest
-   first).
+   and that this process does not hold. This process owns each job that it reserved, and each
+   job whose VM it requested. This is also true when the Inventory does not show the VM yet. The
+   Inventory sees a launch only at its next refresh. A failed poll keeps the last answer, and that
+   answer can still list the job. Sort them by Buildkite `priority` (highest first), then by
+   `scheduled_at` (oldest first).
 2. **In-flight limit.** Stop when the number of owned VMs, plus the VMs that this process
    requested and the Inventory data does not show yet, plus admitted jobs, is equal to
    `maxInFlight`. The default value of `maxInFlight` is 0, which means the total VM slots of the
@@ -917,8 +917,8 @@ Development MUST use TDD. Each change of behavior MUST start with a failing test
 | Phase | Scope | Exit criteria |
 |---|---|---|
 | 0 — Development | One Mac, `orchard dev`, a Buildkite test cluster | The end-to-end scenarios and the synthetic load test pass. |
-| 1 — Pilot | Orchard on Kubernetes, 2 to 4 Macs, one queue, 1 or 2 profiles. Only non-critical pipelines that opt in. Telemetry and alerts are active. The pilot profile uses Xcode 27 (PR-026). The pilot starts in approximately 1 month (SC-03). | Two weeks with zero leaked VMs and zero jobs that the controller failed incorrectly. The start time and the wait time are measured against QA-01 and QA-02. |
-| 2 — Adoption | Increase to 10 Macs and more profiles. Move pipelines to the queue. Adjust timeouts from telemetry. Adoption and scale start in approximately 3 months (SC-03). | The warm-pool decision is examined again with measured `job.phase.duration` data. |
+| 1 — Pilot | Orchard on Kubernetes, 2 to 4 Macs, one queue, 1 or 2 profiles. Only non-critical pipelines that opt in. Telemetry and alerts are active. The pilot profile uses Xcode 27 (PR-026). The pilot start date is `UNKNOWN` (SC-03; owner: the maintainer; trigger: a Buildkite test cluster and the Mac hosts are ready). On 2026-09-14, the plan estimated approximately 1 month. | Two weeks with zero leaked VMs and zero jobs that the controller failed incorrectly. The start time and the wait time are measured against QA-01 and QA-02. |
+| 2 — Adoption | Increase to 10 Macs and more profiles. Move pipelines to the queue. Adjust timeouts from telemetry. The date of adoption and scale is `UNKNOWN` (SC-03; same owner and trigger). On 2026-09-14, the plan estimated approximately 3 months. | The warm-pool decision is examined again with measured `job.phase.duration` data. |
 | 3 — Scale | 10 to 50 Macs | The load test agrees with production behavior. High availability and controller placement are decided only if telemetry shows a need. |
 
 **Implements.** PR-026, SC-01, SC-03, QA-01, QA-02.
@@ -1013,82 +1013,8 @@ archives, the SBOMs of the archives, the checksums, and the container image. GoR
 ko through its `kos` section to build the image. The image MUST be distroless. The repository
 MUST NOT have a `.ko.yaml` file, because GoReleaser sets all ko options.
 
-The `.goreleaser.yaml` file MUST contain this configuration. `goreleaser check` validates it.
-
-```yaml
-version: 2
-
-project_name: bk-agent-stack-orchard
-
-builds:
-  - id: bk-agent-stack-orchard
-    main: ./cmd/bk-agent-stack-orchard
-    binary: bk-agent-stack-orchard
-    env:
-      - CGO_ENABLED=0
-    goos: [linux, darwin]
-    goarch: [amd64, arm64]
-    ignore:
-      - goos: darwin
-        goarch: amd64
-    flags: [-trimpath]
-    ldflags:
-      - -s -w -X main.version={{ .Version }} -X main.commit={{ .ShortCommit }}
-    mod_timestamp: "{{ .CommitTimestamp }}"
-
-archives:
-  - id: bk-agent-stack-orchard
-    ids: [bk-agent-stack-orchard]
-    formats: [tar.gz]
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-
-# Each archive gets an SPDX SBOM from syft. The checksums cover the archives and the SBOMs, and one
-# keyless cosign signature covers the checksums (ADR-0013). The chart is not here: it carries the
-# digest of the image, so the release workflow packages it after the image exists.
-sboms:
-  - artifacts: archive
-
-changelog:
-  disable: true
-
-checksum:
-  name_template: checksums.txt
-
-signs:
-  - cmd: cosign
-    signature: "${artifact}.sigstore.json"
-    args: ["sign-blob", "--bundle=${signature}", "${artifact}", "--yes"]
-    artifacts: checksum
-
-# release-please creates the release as a draft, with its changelog as the notes. GoReleaser
-# uploads the assets to that draft and keeps the notes. The workflow publishes the draft after it
-# has verified each signature, because the repository makes a published release immutable.
-release:
-  draft: true
-  use_existing_draft: true
-  mode: keep-existing
-  # A run that fails after the upload can run again on the same draft.
-  replace_existing_artifacts: true
-  prerelease: auto
-
-kos:
-  - id: bk-agent-stack-orchard
-    build: bk-agent-stack-orchard
-    base_image: gcr.io/distroless/static-debian13:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99
-    repositories: [ghcr.io/joshwrightcodes/bk-agent-stack-orchard]
-    platforms: [linux/amd64, linux/arm64]
-    # No latest tag: it would move before the workflow signs the image, and an operator pins a
-    # version. The chart refers to the image by its digest.
-    tags:
-      - "{{ .Tag }}"
-      - "{{ .Version }}"
-    bare: true
-    creation_time: "{{ .CommitTimestamp }}"
-    ko_data_creation_time: "{{ .CommitTimestamp }}"
-    # The release workflow attests an SBOM of each platform image with syft and cosign. The SBOM
-    # of ko has no signature, so it is off.
-    sbom: none
-```
+The `.goreleaser.yaml` file ([`.goreleaser.yaml`](../../.goreleaser.yaml)) MUST hold the
+configuration that the rules below describe. `goreleaser check` validates it.
 
 These rules apply to the configuration:
 

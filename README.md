@@ -233,8 +233,7 @@ This is a personal project with one maintainer, Josh Wright.
 
 You can use, run, and change the controller. If you distribute it, you must publish your source
 under the same licence. This rule also applies if you give a changed version to other people over
-a network. Use inside
-your own organization, without access for other people, needs no disclosure.
+a network. Use inside your own organization, without access for other people, needs no disclosure.
 
 The binary contains no code with a field-of-use restriction. Orchard has the FSL-1.1-ALv2 licence,
 and the AGPL forbids a further restriction on a distributed work. Because of this, the controller

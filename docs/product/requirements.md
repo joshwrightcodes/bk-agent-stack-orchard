@@ -30,7 +30,7 @@ Each requirement has one of these status values:
 ## 1. Problem and intended outcome
 
 Buildkite macOS jobs for an iOS app need an execution environment. The owner wants these jobs to
-run on self-hosted Apple Silicon Macs for three reasons: cost, data sovereignty, and performance.
+run on self-hosted Apple silicon Macs for three reasons: cost, data sovereignty, and performance.
 The comparison basis for cost and performance is the equivalent Buildkite hosted macOS agent.
 Buildkite does not start agents for a self-hosted queue. Each job needs a clean macOS VM, and
 each host can run only two macOS VMs at the same time.
