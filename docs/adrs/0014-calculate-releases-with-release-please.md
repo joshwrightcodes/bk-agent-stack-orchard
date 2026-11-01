@@ -98,7 +98,8 @@ request.
   delete one. release-please ignores a refused tag, so without the App in the tag rules, a merge
   gives a draft with no tag and no release.
 * The repository rules permit only the App and the maintainer to create, change, or delete the
-  branch of the release pull request, so a commit on it comes from release-please or from the maintainer.
+  branch of the release pull request, so a commit on it comes from release-please or from the
+  maintainer.
 * The release workflow MUST run in the `release` environment, which permits only `v*` tags and
   needs the approval of the maintainer. It MUST check that the version in `Chart.yaml` is the
   version of the tag.
