@@ -277,14 +277,18 @@ For each unmatched job that has no entry in the notified set, the controller MUS
 
 The controller writes these notices after it reserves and starts the admitted jobs of the same
 tick, so that a slow notification call cannot delay an admitted job. It sends at most 1000 lines
-in one call (`NotificationsPerRequest`, §3).
+in one call (`NotificationsPerRequest`, §3). Each call has its own time limit of 10 s
+(`notifyTimeout`), so that a call that retries cannot hold the loop for more than 10 s. The
+Orchard client has a limit of 30 s for the same reason.
 
 The controller keeps the identifiers of the jobs that it notified in a set in memory, so that it
 writes the notice for a job once while the job stays listed and the process runs. The set has
 these rules:
 
-* A job enters the set when Buildkite accepts its line. If a call fails, the jobs of the call do
-  not enter the set, and the controller tries again at the next tick. If a call is partly
+* A job enters the set when Buildkite accepts its line. If a call fails as a whole, the jobs of
+  that call do not enter the set, and the controller tries again at the next tick. The controller
+  still sends the later calls of the tick, so that a fixed refusal of one call cannot starve the
+  jobs behind it. It writes one warning for each tick that has a failed call. If a call is partly
   refused, the response has the 0-based indexes of the refused lines. The accepted jobs enter the
   set, and only the refused jobs are tried again at the next tick.
 * The controller evicts jobs from the set only after a complete listing: the read was not cut at

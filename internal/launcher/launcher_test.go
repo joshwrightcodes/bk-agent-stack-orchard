@@ -67,6 +67,12 @@ type stacks struct {
 	// refuse holds the jobs whose lines Buildkite refuses, as it does for a job that ended.
 	refuse map[job.ID]bool
 
+	// failCall holds the calls of Notify, by number from 0, that fail as a whole.
+	failCall map[int]error
+
+	// bounded holds, for each call of Notify, whether its context had a deadline.
+	bounded []bool
+
 	// order is the calls in the sequence that they came.
 	order []string
 }
@@ -124,9 +130,17 @@ func (s *stacks) Finish(_ context.Context, id job.ID, exitStatus int, detail str
 	return s.finishErr
 }
 
-func (s *stacks) Notify(_ context.Context, lines []buildkite.Notification) error {
+func (s *stacks) Notify(ctx context.Context, lines []buildkite.Notification) error {
+	_, bounded := ctx.Deadline()
+	s.bounded = append(s.bounded, bounded)
+
+	call := len(s.notified)
 	s.order = append(s.order, "notify")
 	s.notified = append(s.notified, lines)
+
+	if err := s.failCall[call]; err != nil {
+		return err
+	}
 
 	var refused []int
 
@@ -1086,6 +1100,91 @@ func TestTheSkipNoticesComeAfterTheAdmittedJobsStart(t *testing.T) {
 	if api.notified[0][0].JobID != first || api.notified[1][0].JobID != idOf(5) {
 		t.Errorf("the lines went to %v, want the admitted job and then the skipped job",
 			notices(api))
+	}
+}
+
+// Exactly one request of lines makes one call, and one line more makes a second call with that
+// line alone.
+func TestTheSkipNoticesSplitAtTheRequestLimit(t *testing.T) {
+	t.Parallel()
+
+	for name, c := range map[string]struct {
+		jobs  int
+		calls []int
+	}{
+		"exactly one request": {buildkite.NotificationsPerRequest, []int{buildkite.NotificationsPerRequest}},
+		"one line more":       {buildkite.NotificationsPerRequest + 1, []int{buildkite.NotificationsPerRequest, 1}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			api, fleet := &stacks{}, &machines{}
+			started := build(t, api, fleet)
+
+			if err := started.Launch(t.Context(), unmatchedJobs(1, c.jobs), inventory.Snapshot{}); err != nil {
+				t.Fatalf("Launch() = %v, want no error", err)
+			}
+
+			var sizes []int
+			for _, call := range api.notified {
+				sizes = append(sizes, len(call))
+			}
+
+			if !slices.Equal(sizes, c.calls) {
+				t.Errorf("the calls had %v lines, want %v", sizes, c.calls)
+			}
+		})
+	}
+}
+
+// A batch that fails as a whole must not starve the batches behind it. The jobs of the later batch
+// get their lines and enter the set, and the jobs of the failed batch try again at the next tick.
+func TestAFailedBatchDoesNotStopTheLaterBatches(t *testing.T) {
+	t.Parallel()
+
+	total := buildkite.NotificationsPerRequest + 5
+	api, fleet := &stacks{failCall: map[int]error{0: errors.New("buildkite refused the call")}}, &machines{}
+	started := build(t, api, fleet)
+
+	decision := unmatchedJobs(1, total)
+
+	if err := started.Launch(t.Context(), decision, inventory.Snapshot{}); err != nil {
+		t.Fatalf("Launch() = %v, want no error", err)
+	}
+
+	if len(api.notified) != 2 || len(api.notified[1]) != 5 {
+		t.Fatalf("buildkite saw %d calls, want the failed batch and the batch of 5 jobs",
+			len(api.notified))
+	}
+
+	// The next tick sends only the jobs of the failed batch: the 5 later jobs are in the set.
+	if err := started.Launch(t.Context(), decision, inventory.Snapshot{}); err != nil {
+		t.Fatalf("Launch() = %v, want no error", err)
+	}
+
+	if len(api.notified) != 3 || len(api.notified[2]) != buildkite.NotificationsPerRequest {
+		t.Fatalf("buildkite saw %d calls, want a third call of %d lines", len(api.notified),
+			buildkite.NotificationsPerRequest)
+	}
+
+	if got := count(notices(api), idOf(total)); got != 1 {
+		t.Errorf("a job of the later batch has %d lines, want 1", got)
+	}
+}
+
+// Each call has a time limit, so that a call that retries cannot hold the loop.
+func TestEachSkipNoticeCallHasATimeLimit(t *testing.T) {
+	t.Parallel()
+
+	api, fleet := &stacks{}, &machines{}
+	started := build(t, api, fleet)
+
+	if err := started.Launch(t.Context(), unmatchedJobs(1, 1), inventory.Snapshot{}); err != nil {
+		t.Fatalf("Launch() = %v, want no error", err)
+	}
+
+	if len(api.bounded) != 1 || !api.bounded[0] {
+		t.Errorf("the calls had deadlines %v, want one call with a deadline", api.bounded)
 	}
 }
 

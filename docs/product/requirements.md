@@ -156,8 +156,9 @@ the VMs of ended jobs and starts VMs for waiting jobs.
   it a VM slot. The job stays `scheduled`, so that another stack or agent of the queue can carry
   it. The product MUST write one stack notification on the job page, which says in short why no
   profile carries the job. The product MUST write that notification once for a job while the job
-  stays listed and the process runs. The product MAY write it again after a restart, and after
-  the job left the list and came back. The product MUST write the full message, with the tags of
+  stays listed and the process runs. The product MAY write it again after a restart, after
+  the job left the list and came back, and when the number of jobs that it remembers passes the
+  cap of the design (10 000). The product MUST write the full message, with the tags of
   the job and the `match` maps of all profiles, in the log each time that it writes the
   notification. The product MUST count a skipped job each time that it writes the notification.
   A job can have at most 100 notifications, so the product keeps the number of notices low.

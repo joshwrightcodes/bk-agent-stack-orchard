@@ -35,6 +35,11 @@ import (
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/vmspec"
 )
 
+// notifyTimeout is the time limit of one call that writes skip notices. The client retries a
+// server failure and a rate limit inside the call, and without a limit that could hold the loop
+// for a long time.
+const notifyTimeout = 10 * time.Second
+
 // NotifiedLimit is the most job identifiers that the launcher remembers as notified. One read of
 // the queue gives at most 3000 jobs (3 pages of 1000, target design section 6.3), so the cap holds
 // only while the listing stays truncated.
@@ -382,12 +387,26 @@ func (l *Launcher) skip(ctx context.Context, decision admission.Result) {
 		fresh = append(fresh, entry)
 	}
 
+	var (
+		failed int
+		first  error
+	)
+
 	for start := 0; start < len(fresh); start += buildkite.NotificationsPerRequest {
 		end := min(start+buildkite.NotificationsPerRequest, len(fresh))
 
-		if !l.tell(ctx, fresh[start:end]) {
-			break
+		// A batch that fails as a whole does not stop the later ones: a refusal that never
+		// changes would starve every job behind it.
+		if err := l.tell(ctx, fresh[start:end]); err != nil {
+			failed++
+			first = cmp.Or(first, err)
 		}
+	}
+
+	if failed > 0 {
+		l.logger.WarnContext(ctx, "the controller could not write some notifications of the "+
+			"jobs that it skips, and it tries again at the next tick",
+			"failedCalls", failed, "error", first)
 	}
 
 	if !decision.Truncated {
@@ -427,10 +446,13 @@ func (l *Launcher) trim() {
 }
 
 // tell writes the notifications of up to one request of fresh jobs, and puts each accepted job in
-// the set. It reports whether the next call may go on: a call that fails as a whole stops the
-// tick, and the jobs try again at the next one. A call that Buildkite refuses in part keeps the
-// valid lines, so only the refused jobs try again.
-func (l *Launcher) tell(ctx context.Context, fresh []admission.Unmatched) bool {
+// the set. A call that fails as a whole puts no job in the set, so its jobs try again at the next
+// tick. A call that Buildkite refuses in part keeps the valid lines, so only the refused jobs try
+// again. The call has its own time limit, so that a client that retries cannot hold the loop.
+func (l *Launcher) tell(ctx context.Context, fresh []admission.Unmatched) error {
+	ctx, cancel := context.WithTimeout(ctx, notifyTimeout)
+	defer cancel()
+
 	ctx, span := l.tracer.Start(ctx, "stacks.notify_skipped")
 	defer span.End()
 
@@ -450,10 +472,8 @@ func (l *Launcher) tell(ctx context.Context, fresh []admission.Unmatched) bool {
 
 		if !errors.As(err, &partial) {
 			span.RecordError(err)
-			l.logger.WarnContext(ctx, "the controller could not write the notifications of "+
-				"the jobs that it skips", "jobs", len(fresh), "error", err)
 
-			return false
+			return err
 		}
 
 		l.logger.WarnContext(ctx, "buildkite refused some notifications of the jobs that "+
@@ -462,7 +482,7 @@ func (l *Launcher) tell(ctx context.Context, fresh []admission.Unmatched) bool {
 
 		// A refusal with no index is a refusal of every line.
 		if len(partial.Indexes) == 0 {
-			return true
+			return nil
 		}
 
 		for _, index := range partial.Indexes {
@@ -483,7 +503,7 @@ func (l *Launcher) tell(ctx context.Context, fresh []admission.Unmatched) bool {
 			"reason", entry.Reason)
 	}
 
-	return true
+	return nil
 }
 
 // tokens gets one job acquisition token for each reserved job.
