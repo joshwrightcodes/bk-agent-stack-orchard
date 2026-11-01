@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
@@ -120,24 +121,49 @@ func (s *stacksFake) called(endpoint string) error {
 func (s *stacksFake) Register(context.Context) error   { return s.called("register") }
 func (s *stacksFake) Deregister(context.Context) error { return s.called("deregister") }
 
-func (s *stacksFake) ScheduledJobs(context.Context, string, int) (buildkite.Page, error) {
+// ScheduledJobs gives one page of the scheduled jobs, in the order of their arrival. The cursor is
+// the number of jobs that earlier pages gave, and an empty cursor starts at the first job.
+func (s *stacksFake) ScheduledJobs(_ context.Context, cursor string, size int) (buildkite.Page, error) {
 	if err := s.called("list"); err != nil {
 		return buildkite.Page{}, err
 	}
 
 	s.lapse()
 
+	skip := 0
+	if cursor != "" {
+		var err error
+		if skip, err = strconv.Atoi(cursor); err != nil || skip < 0 {
+			return buildkite.Page{}, fmt.Errorf("the cursor %q is not one that this fake gave", cursor)
+		}
+	}
+
 	page := buildkite.Page{Paused: s.paused}
+	seen := 0
 
 	for _, id := range s.order {
-		if w := s.jobs[id]; w.state == stateScheduled {
-			page.Jobs = append(page.Jobs, buildkite.ScheduledJob{
-				ID:          w.id,
-				Rules:       slices.Clone(w.rules),
-				ScheduledAt: w.scheduledAt,
-				RunnableAt:  w.scheduledAt,
-			})
+		w := s.jobs[id]
+		if w.state != stateScheduled {
+			continue
 		}
+
+		seen++
+		if seen <= skip {
+			continue
+		}
+
+		if size > 0 && len(page.Jobs) == size {
+			page.NextCursor = strconv.Itoa(skip + len(page.Jobs))
+
+			break
+		}
+
+		page.Jobs = append(page.Jobs, buildkite.ScheduledJob{
+			ID:          w.id,
+			Rules:       slices.Clone(w.rules),
+			ScheduledAt: w.scheduledAt,
+			RunnableAt:  w.scheduledAt,
+		})
 	}
 
 	return page, nil

@@ -248,7 +248,8 @@ func (f *fleet) created(spec orchard.VM) {
 		f.violate("I-8: a machine for the unmatched job %s", id)
 	}
 
-	// I-2: inside maxInFlight, and inside the slots of the workers that can take a machine.
+	// I-2: inside maxInFlight, and inside the slots of the workers that can take a machine. Only
+	// scheduled machines take a slot.
 	count := len(f.orchard.owned(vmspec.Prefix(controllerID))) + 1
 	if f.maxInFlight > 0 && uint64(count) > f.maxInFlight {
 		f.violate("I-2: %d machines, and maxInFlight is %d", count, f.maxInFlight)
@@ -262,7 +263,12 @@ func (f *fleet) created(spec orchard.VM) {
 		}
 	}
 
+	// A failed machine waits for the Reaper and its resources are free, so it takes no slot.
 	for _, vm := range f.orchard.vms {
+		if vm.Status == orchard.StatusFailed {
+			continue
+		}
+
 		if vm.Worker == "" {
 			taken++
 		} else if h := f.orchard.host(vm.Worker); f.orchard.online(h.worker) {
@@ -370,7 +376,7 @@ func (f *fleet) FailMachine(rt *rapid.T) {
 		rt.Skip("no running machine")
 	}
 
-	rapid.SampledFrom(running).Draw(rt, "failed").Status = orchard.StatusFailed
+	fail(rapid.SampledFrom(running).Draw(rt, "failed"), "the machine failed")
 	f.tick()
 }
 
