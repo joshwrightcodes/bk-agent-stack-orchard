@@ -173,12 +173,7 @@ func TestRenderFailsWhenAnAllowedFieldIsGone(t *testing.T) {
 
 // The file starts with the licence line, and Go still treats it as generated.
 func TestRenderStartsWithTheLicenceLineAndStaysGenerated(t *testing.T) {
-	types := parse(t, `package v1
-
-type VM struct {
-	Image string `+"`json:\"image,omitempty\"`"+`
-}
-`)
+	types := parse(t, upstreamOfTheTests(""))
 
 	got, err := render("0.58.0", "22bd63c34674a1422896aa208a464f4340cdb0b8", types)
 	if err != nil {
