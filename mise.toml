@@ -33,11 +33,24 @@ uv = "0.12.19"
 [tools."github:openai/orchard"]
 version = "0.58.0"
 # The macOS release binary fails its own signature check: its designated requirement looks for the
-# Developer ID marker on the root certificate (openai/orchard#456, still so in 0.58.0). macOS 26
-# kills it at launch. After mise has checked the SHA-256 above, this gives only this binary an ad
-# hoc signature, as a build from source gets. It runs on each install, so a restored cache also
-# gets it, and it changes nothing on Linux.
-postinstall = { run = '[ "$(uname -s)" != Darwin ] || codesign --force --sign - "$MISE_TOOL_INSTALL_PATH/orchard"', when = "always" }
+# Developer ID marker on the root certificate, not the intermediate (openai/orchard#456, still so in
+# 0.58.0), and macOS 26 kills it at launch. The signature is otherwise intact, so this keeps the
+# release binary as orchard.release, verifies it against a correct Developer ID requirement for the
+# team of the release, and fails the install if that check fails. Only then does it make orchard,
+# an ad hoc signed copy of the verified file. It never signs a file that it has not verified, and
+# it runs on each install, so a restored cache is checked again. It changes nothing on Linux.
+postinstall = { when = "always", run = """
+set -eu
+[ "$(uname -s)" = Darwin ] || exit 0
+dir="$MISE_TOOL_INSTALL_PATH"
+[ -f "$dir/orchard.release" ] || mv "$dir/orchard" "$dir/orchard.release"
+chmod a-x "$dir/orchard.release"
+codesign --verify --strict -R='anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "9M2P8L4D89"' "$dir/orchard.release"
+cp "$dir/orchard.release" "$dir/orchard.tmp"
+chmod a+x "$dir/orchard.tmp"
+codesign --force --sign - "$dir/orchard.tmp"
+mv -f "$dir/orchard.tmp" "$dir/orchard"
+""" }
 
 [tools."github:openai/orchard".platforms]
 linux-x64 = { asset_pattern = "orchard-linux-amd64.tar.gz", checksum = "sha256:55370716a7e5ad86643a9829afbdf99b57e0cc957bb7dcef2a8a2acd44b97051" }
