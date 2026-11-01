@@ -1115,7 +1115,9 @@ release pull request that collects the changes and writes `CHANGELOG.md` and bot
 `Chart.yaml`. When the maintainer merges it, release-please creates a draft release with the
 changelog, and the tag `v<version>` at once. It uses the token of a GitHub App, because GitHub
 starts no workflow for a tag that `GITHUB_TOKEN` creates. The client ID and the private key of the
-App MUST be secrets of the `release-please` environment, which permits only `main`.
+App MUST be secrets of the `release-please` environment, which permits only `main`. The repository
+rules MUST permit only the App and the maintainer to create, change, or delete the branch of the
+release pull request (`release-please--**`).
 
 **Release signatures.** A tag that matches `v*` starts `.github/workflows/release.yml` in the
 `release` environment. The environment permits only `v*` tags, and it MUST need the approval of
