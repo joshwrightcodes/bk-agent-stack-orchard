@@ -153,6 +153,8 @@ version.
 
 | Document | Contents |
 |---|---|
+| [Documents guide](docs/README.md) | The reading order for the first day, the document map, and the access checklist |
+| [Glossary](docs/glossary.md) | The terms and the identifier families of the documents |
 | [Product requirements](docs/product/requirements.md) | The problem, the actors, the journeys, and 23 requirements: PR-001 to PR-012, PR-020 to PR-026, and PR-030 to PR-033 |
 | [System design baseline](docs/architecture/system-design-baseline.md) | Quality scenarios, the assumed demand model, the quality targets, the cost comparison, and the driver register |
 | [Target design](docs/architecture/target-design.md) | Components, job lifecycle, failure handling, configuration, security, observability, deployment, and conventions |

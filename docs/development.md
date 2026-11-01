@@ -10,6 +10,18 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 interpreted as described in BCP 14 [RFC 2119] [RFC 8174] when, and only when, they appear in
 all capitals, as shown here.
 
+## Prerequisites
+
+* A Mac with Apple silicon (macOS on arm64). The integration tests and the real-VM tests need it,
+  because Orchard places a macOS VM only on an arm64 worker with the Tart runtime. The gates `lint`,
+  `test`, and `check-docs` run on any host.
+* [`mise`](https://mise.jdx.dev/). It installs every other tool, Go and Orchard included.
+* Docker. Two tasks need it: `check-c4` (it renders the C4 model) and `snapshot` (it builds the
+  image). `mise run check` runs both, so it also needs Docker. `smoke` needs it too, for kind.
+* Tart. Install Tart from the `openai/tools` tap as the section "Install Tart" says, or let the
+  Ansible role of `deploy/hosts` install it on a Mac host. Only the real-VM tests (`tart-test`,
+  `failures-test`, `restart-test`, `softnet-test`) need Tart. The other tasks do not.
+
 ## Tools
 
 `mise` pins every tool that a developer and CI share, Orchard included.
@@ -21,6 +33,150 @@ mise run check   # the gates: documents, commits, dependencies, lint, tests, and
 
 The gates are also tasks of their own: `check-docs`, `check-commits`, `check-deps`, `lint`,
 `lint-format`, `test`, `check-generate`, and `snapshot`. `mise tasks` lists them.
+
+## The package map
+
+Each component of the target design (section 4) is one package with one responsibility, so that
+the pure functions stay testable without a VM. The implementation plan (section 3) gives the rule
+for the interfaces.
+
+```
+cmd/bk-agent-stack-orchard/     process entry point, flags, signal handling, the real clients
+internal/app/                   the wiring: the parts, both APIs, and the one clock
+internal/secret/                a value that no log, metric, or VM specification may carry
+internal/config/                configuration types, loading, and validation
+internal/profile/               profiles, the match map, and the VM size
+internal/job/                   the job identifier: a UUID that no other identifier can replace
+internal/match/                 Matcher: job tags to one profile (pure)
+internal/admission/             Admission: candidates, capacity, order (pure)
+internal/reaper/                Reaper: the decision table (pure) and its executor
+internal/vmspec/                the Orchard VM specification builder and the VM name
+internal/buildkite/             the Stacks interface, its client, and its errors
+internal/orchard/               the Orchard interface, this project's REST client (ADR-0010)
+internal/inventory/             worker and VM inventory with freshness
+internal/jobstates/             batched job states with observation times
+internal/launcher/              reserve, issue tokens, create VMs, notify
+internal/progress/              the steps of each VM: job page lines, span events, phase durations
+internal/stack/                 stack registration, the queue poll, and the paused value
+internal/controller/            the tick loop, which a test can run one tick at a time
+internal/telemetry/             OTel meter, tracer, and the slog bridge
+internal/health/                the gRPC health service: liveness and readiness
+test/fakestacks/                the fake Stacks API server
+test/component/                 T-020: in-memory fakes of both APIs and random event sequences
+test/integration/               tests against orchard dev --synthetic, and the load test (tag load)
+test/smoke/                     the kind smoke deployment: the fake Stacks server as a program, and the
+                                Orchard and collector manifests
+deploy/helm/                    the controller chart
+deploy/orchard/                 the Orchard StatefulSet and its bootstrap job
+deploy/hosts/                   Ansible for the Mac hosts
+images/                         the builds of the job VM images (agent and pilot: tart and the guest agent)
+tools/orchardgen/               the generator of the Orchard wire types (ADR-0011)
+scripts/                        the gate scripts, the smoke and release scripts, and the runner script
+```
+
+## Run the controller locally
+
+This quick start runs the controller against a synthetic Orchard and the fake Stacks API. No VM
+starts, and no Buildkite account is necessary. A person checked these commands on 2026-11-01, on
+macOS on arm64, with Orchard 0.58.0.
+
+The fake of `test/smoke/fakestacks` serves one stack and no jobs. The controller therefore
+registers, becomes ready, and polls. To see a job go from `scheduled` to a deleted VM, run
+`mise run integration`. Its fake gets the job from the test code.
+
+1. Keep port 6120 free, and set a work directory:
+
+   ```sh
+   work=$(mktemp -d)
+   ```
+
+2. Build the controller and the fake Stacks API:
+
+   ```sh
+   mise x -- go build -o "$work/controller" ./cmd/bk-agent-stack-orchard
+   mise x -- go build -o "$work/fakestacks" ./test/smoke/fakestacks
+   ```
+
+3. Write a minimal configuration. A profile names the tags that it matches, the image, and the
+   size of the VM:
+
+   ```sh
+   cat > "$work/config.yaml" <<'EOF'
+   controllerID: local
+   healthAddress: 127.0.0.1:8080
+   buildkite:
+     queue: macos-local
+     endpoint: http://127.0.0.1:8090
+   orchard:
+     url: http://127.0.0.1:6120
+     serviceAccount: bk-agent-stack-orchard
+   profiles:
+     - name: xcode-27
+       match: {xcode: "27"}
+       image: ghcr.io/cirruslabs/macos-golden-gate-vanilla:27.0
+       cpu: 8
+       memoryMiB: 28672
+       diskSizeGB: 150
+   EOF
+   ```
+
+4. Start Orchard in synthetic mode with one worker. It writes a context into
+   `$HOME/.orchard/orchard.yml`, so give it a home of its own. Wait until the worker reports:
+
+   ```sh
+   mkdir "$work/home"
+   resources=org.cirruslabs.tart-vms=2,org.cirruslabs.logical-cores=16
+   resources=$resources,org.cirruslabs.memory-mib=65536
+   HOME="$work/home" "$(mise which orchard)" dev --synthetic --workers 1 \
+     --data-dir "$work/home/data" --resources "$resources" > "$work/orchard.log" 2>&1 &
+   sleep 5; curl -s http://127.0.0.1:6120/v1/workers
+   ```
+
+5. Start the fake Stacks API. `STACK_KEY` is the `controllerID` of the configuration:
+
+   ```sh
+   STACK_KEY=local LISTEN=127.0.0.1:8090 "$work/fakestacks" &
+   ```
+
+6. Start the controller. The two tokens are dummy values, because both fakes accept any token. The
+   exporters are off, so the log goes to the standard output, and the command writes it to a
+   file:
+
+   ```sh
+   BK_AGENT_STACK_ORCHARD_BUILDKITE_AGENT_TOKEN=bkct_local \
+   BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN=local \
+   OTEL_TRACES_EXPORTER=none OTEL_METRICS_EXPORTER=none OTEL_LOGS_EXPORTER=none \
+     "$work/controller" -config "$work/config.yaml" > "$work/controller.log" 2>&1 &
+   ```
+
+   After a few seconds, `cat "$work/controller.log"` shows a warning that the image has no digest,
+   then "the controller registered its stack and starts its loop", and then "the controller is
+   ready". The controller serves its gRPC probes on `127.0.0.1:8080`.
+
+7. Stop each process with `kill %3 %2 %1`, which stops the controller first. Check that nothing
+   holds port 6120 (`lsof -i :6120`). Delete the work directory.
+
+## Change checklist: a new profile field
+
+A profile field reaches the VM specification that the controller sends to Orchard. Do these steps
+in order, because the documents decide the behaviour (CONTRIBUTING, section "Before code"):
+
+1. Change `docs/product/requirements.md` when a pipeline author or an operator can see the new
+   behaviour. Write an ADR when the change replaces an approach.
+2. Change the profile and configuration sections of `docs/architecture/target-design.md`: the
+   field, its default, its validation, and its place in the VM specification (sections 5 and 6.4).
+3. Write the failing test first. Add the field to `internal/profile/profile.go` with its
+   validation, and test the validation in `internal/profile`.
+4. Map the field to the specification in `internal/vmspec/vmspec.go`, and test it in
+   `internal/vmspec/vmspec_test.go`.
+5. Add the field to the specification test (T-064, `test/integration/specification_test.go`), so
+   that Orchard returns it unchanged.
+6. When the field goes into the Helm values, change `deploy/helm/bk-agent-stack-orchard` and its
+   values schema, and run `mise run check-deploy`.
+7. When the specification needs a field that the generated Orchard types lack, run
+   `mise run generate`, and commit the result (ADR-0011).
+8. Run `mise run test`, `mise x -- golangci-lint run ./...`, `mise run lint-format`, and
+   `mise run check-docs`.
 
 ## The Helm chart
 
@@ -159,7 +315,6 @@ pins:
 * The readiness journey (T-063) revokes the agent token while the controller runs. The gRPC
   `readiness` service then stops serving, the log names the token, and `liveness` serves. Each
   controller of the integration tests serves its probes on a free port of its own.
-
 * The interruption journeys cover two cases. When the queue is paused (T-022), no VM starts, and
   the controller does not reserve or finish a job. The VMs in progress continue. When a job is
   cancelled while its VM boots (T-023), the controller deletes the VM and does not take the job

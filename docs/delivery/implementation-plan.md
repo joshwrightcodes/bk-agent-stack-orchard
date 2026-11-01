@@ -61,34 +61,7 @@ complete, the controller MUST NOT serve the pilot queue.
 The layout follows the components of the target design, section 4. Each component is one package
 with one responsibility, so that the pure functions stay testable without a VM.
 
-```
-cmd/bk-agent-stack-orchard/     process entry point, flags, signal handling, the real clients
-internal/app/                   the wiring: the parts, both APIs, and the one clock
-internal/secret/                a value that no log, metric, or VM specification may carry
-internal/config/                configuration types, loading, and validation
-internal/profile/               profiles, the match map, and the VM size
-internal/match/                 Matcher: job tags to one profile (pure)
-internal/admission/             Admission: candidates, capacity, order (pure)
-internal/reaper/                Reaper: the decision table (pure) and its executor
-internal/vmspec/                the Orchard VM specification builder and the VM name
-internal/buildkite/             the Stacks interface, its client, and its errors
-internal/orchard/               the Orchard interface, this project's REST client (ADR-0010)
-internal/inventory/             worker and VM inventory with freshness
-internal/jobstates/             batched job states with observation times
-internal/launcher/              reserve, issue tokens, create VMs, notify
-internal/progress/              the steps of each VM: job page lines, span events, phase durations
-internal/stack/                 stack registration, the queue poll, and the paused value
-internal/controller/            the tick loop, which a test can run one tick at a time
-internal/telemetry/             OTel meter, tracer, and the slog bridge
-internal/health/                the gRPC health service: liveness and readiness
-test/fakestacks/                the fake Stacks API server
-test/component/                 T-020: in-memory fakes of both APIs and random event sequences
-test/integration/               tests against orchard dev --synthetic, and the load test (tag load)
-deploy/helm/                    the controller chart
-deploy/orchard/                 the Orchard StatefulSet and its bootstrap job
-deploy/hosts/                   Ansible for the Mac hosts
-images/                         the builds of the job VM images (agent and pilot: tart and the guest agent)
-```
+The package map is in the [development guide](../development.md#the-package-map).
 
 `internal/buildkite` and `internal/orchard` MUST expose narrow interfaces, and all other packages
 MUST depend on the interfaces only (target design, section 4). Because of this, the in-memory
@@ -291,8 +264,9 @@ change to this document.
 
 The sum of the ranges is 21 to 36 working days. The lower range meets the pilot date only when
 both conditions hold. The image build (W-23) must start before the hosts arrive, and no increment
-must need a new decision. The owner SHOULD expect the pilot entry in the second half of October
-2026.
+must need a new decision. The pilot entry date is `UNKNOWN`. The owner of the date is the
+maintainer. It becomes known when a Buildkite test cluster and the Mac hosts are ready
+(2026-11-01). The plan of 2026-09-14 expected the pilot entry in the second half of October 2026.
 
 ## 7. Verification
 
