@@ -55,12 +55,13 @@ SPDX-FileCopyrightText = "2026 Josh Wright"
 SPDX-License-Identifier = "AGPL-3.0-or-later AND MIT AND BSD-3-Clause AND Apache-2.0"
 
 # The code of conduct quotes the Contributor Covenant 2.1 without change. The Covenant is
-# CC-BY-4.0. Source: https://www.contributor-covenant.org (checked 2026-11-01).
+# CC-BY-4.0. Source: https://www.contributor-covenant.org (checked 2026-11-01). The project
+# sections around the quote (the source note and the reporting channels) are AGPL.
 [[annotations]]
 path = "CODE_OF_CONDUCT.md"
 precedence = "aggregate"
-SPDX-FileCopyrightText = "Contributor Covenant authors"
-SPDX-License-Identifier = "CC-BY-4.0"
+SPDX-FileCopyrightText = ["Contributor Covenant contributors", "2026 Josh Wright"]
+SPDX-License-Identifier = "CC-BY-4.0 AND AGPL-3.0-or-later"
 
 # The source files carry the licence in their header. This entry adds the copyright holder.
 [[annotations]]
