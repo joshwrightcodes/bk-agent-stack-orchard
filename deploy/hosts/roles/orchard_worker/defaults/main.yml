@@ -1,7 +1,7 @@
 # The pinned versions. Orchard MUST be the version of mise.toml, which the tests run, and
 # scripts/check-deps.py keeps the two in agreement.
-orchard_worker_orchard_version: "0.57.0"
-orchard_worker_orchard_sha256: "63b511cb9ba4ecadda947d70763b4a226f9f0d56422e147cbf2a2b9b2eeabd26"
+orchard_worker_orchard_version: "0.58.0"
+orchard_worker_orchard_sha256: "aa912db4d47d93413dabfd34c856c6ebb124e09d13fba70b5a62467276a1a71d"
 orchard_worker_tart_version: "2.40.1"
 orchard_worker_tart_sha256: "363e2701154a8155cbc1bb6d845430c9b42697d2a186bc49574471ca2877db46"
 orchard_worker_softnet_version: "0.24.1"

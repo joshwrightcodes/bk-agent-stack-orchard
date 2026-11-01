@@ -74,7 +74,7 @@ To operate the controller, you need these items:
   token for that queue (ADR-0007, ADR-0008).
 * Apple silicon Mac hosts that run Orchard workers and Tart. `deploy/hosts` sets up a host with
   Ansible.
-* An Orchard controller, version 0.57.0 or later. `deploy/orchard` gives a reference deployment.
+* An Orchard controller, version 0.58.0 or later. `deploy/orchard` gives a reference deployment.
 * A Tart image for each VM profile, with `buildkite-agent` v4 and the Tart guest agent. `images/`
   builds the images.
 * A Kubernetes cluster for the reference deployment of the controller. `deploy/helm` holds the
@@ -149,7 +149,7 @@ version.
 | Item | Version | Note |
 |---|---|---|
 | Go | 1.27 | Module `github.com/joshwrightcodes/bk-agent-stack-orchard` |
-| [Orchard](https://github.com/openai/orchard) | 0.57.0 or later | Schedules the VMs on the Mac hosts |
+| [Orchard](https://github.com/openai/orchard) | 0.58.0 or later | Schedules the VMs on the Mac hosts |
 | [Tart](https://github.com/openai/tart) | 2.40.1 | Runs macOS VMs on Apple Virtualization |
 | `buildkite-agent` | v4 | In the VM image |
 | Pilot image | macOS 27, Xcode 27 | Built from `macos-golden-gate-vanilla` (ADR-0012) |
