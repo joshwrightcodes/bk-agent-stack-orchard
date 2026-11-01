@@ -1040,6 +1040,19 @@ These rules apply to the configuration:
 * `--snapshot` mode MUST skip the signatures (`--skip=sign`), because a snapshot has no OIDC
   token. It still builds the SBOMs.
 * `changelog` is off, because release-please writes the release notes.
+* Each release artifact MUST carry the licence notices of the third-party code that the binary
+  links (AGPL-3.0 and the licences of the dependencies need them). `scripts/licenses.sh`
+  (`mise run licenses`) uses `go-licenses` to write the licence texts of the linked modules to
+  `build/licenses`, and it adds the licence of the Go standard library. A `before.hooks` entry
+  runs it, so a release and a snapshot always generate the texts. Each archive MUST contain
+  `LICENSE`, `NOTICE`, and the texts in `licenses/`. The script also copies these files to
+  `cmd/bk-agent-stack-orchard/kodata/licenses`, which Git ignores, and ko puts them in the image
+  at `/var/run/ko/licenses`. The image MUST have the OCI annotations
+  `org.opencontainers.image.licenses=AGPL-3.0-or-later` and `org.opencontainers.image.source`.
+  The Helm chart directory MUST contain copies of `LICENSE` and `NOTICE`, so that `helm package`
+  includes them. `NOTICE` MUST name each module that the binary links, and it MUST include the
+  `NOTICE` text of gRPC. `scripts/check-deps.py` fails when a module is missing from `NOTICE`, or
+  when a chart copy differs from the file of the root.
 
 **Release versions.** release-please calculates each version from the Conventional Commits on
 `main`, with the 0.x rules of the contributing guide (`release-please-config.json`). It keeps one

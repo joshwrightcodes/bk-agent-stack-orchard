@@ -9,6 +9,8 @@ goreleaser = "2.18.2"
 # govulncheck reports a known vulnerability that the code can reach. The go backend installs the
 # module at this version, which the checksum database of Go confirms.
 "go:golang.org/x/vuln/cmd/govulncheck" = { version = "1.9.0", depends = ["go"] }
+# go-licenses saves the licence texts of the modules that the binary links (task licenses).
+"go:github.com/google/go-licenses/v2" = { version = "2.0.1", depends = ["go"] }
 # The release signs with cosign and makes the SBOMs with syft (ADR-0013).
 cosign = "3.1.4"
 syft = "1.55.0"
@@ -204,6 +206,10 @@ run = [
   "goreleaser release --snapshot --clean --skip=sign",
   "./scripts/check-image.sh",
 ]
+
+[tasks.licenses]
+description = "Write the licence texts of the modules that the controller binary links into build/licenses"
+run = "./scripts/licenses.sh"
 
 [tasks.check]
 description = "Run every gate that this repository has"
