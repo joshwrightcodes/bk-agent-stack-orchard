@@ -29,6 +29,7 @@ import (
 	"net/url"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/buildkite/stacksapi"
 
@@ -355,7 +356,21 @@ func (c *Client) Finish(ctx context.Context, id job.ID, exitStatus int, detail s
 	return c.classifyJob(err)
 }
 
-// Notify writes lines on the job pages.
+// NotificationLimit is the longest detail of a notification, in characters, that Buildkite
+// accepts. The library does not know it, and does not cut.
+const NotificationLimit = 256
+
+// cut shortens text to at most limit characters, and ends a cut text with an ellipsis that says
+// so. It cuts between characters, never inside the bytes of one.
+func cut(text string, limit int) string {
+	if utf8.RuneCountInString(text) <= limit {
+		return text
+	}
+
+	return string([]rune(text)[:limit-1]) + "…"
+}
+
+// Notify writes lines on the job pages. A detail over NotificationLimit characters is cut.
 func (c *Client) Notify(ctx context.Context, notifications []Notification) error {
 	if len(notifications) == 0 {
 		return nil
@@ -365,7 +380,7 @@ func (c *Client) Notify(ctx context.Context, notifications []Notification) error
 	for _, notification := range notifications {
 		lines = append(lines, stacksapi.StackNotification{
 			JobUUID:   string(notification.JobID),
-			Detail:    notification.Detail,
+			Detail:    cut(notification.Detail, NotificationLimit),
 			Timestamp: notification.At,
 		})
 	}

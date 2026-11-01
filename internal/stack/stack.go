@@ -32,8 +32,8 @@ type Stacks interface {
 
 // Queue is one answer of the scheduled-jobs list.
 type Queue struct {
-	// Jobs are the jobs of the first page. The list gives every job of the queue, and the
-	// Matcher decides which of them this controller can carry.
+	// Jobs are the jobs of the first pages, at most MaxPages of them. The list gives every job
+	// of the queue, and the Matcher decides which of them this controller can carry.
 	Jobs []buildkite.ScheduledJob
 
 	// Paused reports a queue whose dispatch an operator stopped. The controller then starts no
@@ -103,7 +103,7 @@ func (s *Stack) Deregister(ctx context.Context) error {
 type Poller struct {
 	stacks   Stacks
 	interval time.Duration
-	size     int
+	slots    func() int
 	now      func() time.Time
 
 	mu     sync.RWMutex
@@ -119,8 +119,10 @@ type PollerOptions struct {
 	// Interval is how often the poll may run. The design states one second.
 	Interval time.Duration
 
-	// PageSize asks for a number of jobs. Zero takes the size that Buildkite chooses.
-	PageSize int
+	// Slots gives the number of machine slots of the fleet, at the start of a poll. The poll asks
+	// for JobsPerSlot jobs for each slot. A nil function, or an answer of zero or less, means
+	// that the slots are not known, and the poll takes the page size that Buildkite chooses.
+	Slots func() int
 
 	// Now is the clock of the part. internal/app gives every part the same one.
 	Now func() time.Time
@@ -145,7 +147,7 @@ func NewPoller(options PollerOptions) (*Poller, error) {
 	return &Poller{
 		stacks:   options.Stacks,
 		interval: options.Interval,
-		size:     options.PageSize,
+		slots:    options.Slots,
 		now:      now,
 	}, nil
 }
@@ -160,21 +162,61 @@ func (p *Poller) Interval() time.Duration {
 	return p.interval
 }
 
-// Refresh reads the first page of the queue and keeps the answer.
+// JobsPerSlot is how many jobs a page holds for each machine slot of the fleet. A job that the
+// controller starts leaves the list, so jobs for the free slots and a few that follow them are
+// enough to see what to start, and a longer page spends the rate limit on jobs that wait.
+const JobsPerSlot = 3
+
+// MaxPages is the most pages that one poll reads. The list is ordered by Buildkite, and each poll
+// starts at its head, so no page is skipped: the jobs that the pages of one poll leave out come
+// to the head as the jobs before them start, and a later poll reads them.
+const MaxPages = 3
+
+// Refresh reads the head of the queue, up to MaxPages pages, and keeps the answer.
 //
-// It reads one page. A queue longer than one page means that the fleet is full, and the jobs
-// that this page leaves out wait for a later tick: a controller that reads every page would
-// spend its rate limit on jobs that it cannot start.
+// The page size is JobsPerSlot times the slots of the fleet that are known at the start of the
+// poll. The total is used, and not the free slots: a full fleet has no free slot, and a page of
+// size zero would then be the size that Buildkite chooses, which is the opposite of the intent.
+// A queue of more jobs than the pages hold means that the fleet has a backlog, and the jobs that
+// these pages leave out wait for a later poll.
+//
+// The poll keeps nothing when a page fails, so that a half-read queue does not replace a whole
+// one.
 func (p *Poller) Refresh(ctx context.Context) error {
-	page, err := p.stacks.ScheduledJobs(ctx, "", p.size)
-	if err != nil {
-		return fmt.Errorf("reading the queue: %w", err)
+	size := 0
+	if p.slots != nil {
+		size = max(p.slots(), 0) * JobsPerSlot
+	}
+
+	var (
+		jobs   []buildkite.ScheduledJob
+		paused bool
+		cursor string
+	)
+
+	for number := range MaxPages {
+		page, err := p.stacks.ScheduledJobs(ctx, cursor, size)
+		if err != nil {
+			return fmt.Errorf("reading page %d of the queue: %w", number+1, err)
+		}
+
+		if number == 0 {
+			paused = page.Paused
+		}
+
+		jobs = append(jobs, page.Jobs...)
+
+		if page.NextCursor == "" {
+			break
+		}
+
+		cursor = page.NextCursor
 	}
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.latest = Queue{Jobs: page.Jobs, Paused: page.Paused, At: p.now()}
+	p.latest = Queue{Jobs: jobs, Paused: paused, At: p.now()}
 	p.got = true
 
 	return nil

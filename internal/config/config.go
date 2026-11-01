@@ -79,6 +79,10 @@ type Defaults struct {
 	Timeouts profile.Timeouts `yaml:"timeouts,omitempty"`
 }
 
+// MaxAPILifetime is the longest reservation, and the longest job acquisition token, that the Stacks
+// API accepts: 3600 s (target design, section 3).
+const MaxAPILifetime = time.Hour
+
 // Config is the whole configuration of one controller.
 type Config struct {
 	ControllerID   string            `yaml:"controllerID"`
@@ -216,6 +220,17 @@ func (c *Config) validateBuildkite() []error {
 	} {
 		if value <= 0 {
 			problems = append(problems, fmt.Errorf("%s must be more than zero", name))
+		}
+	}
+
+	for name, value := range map[string]time.Duration{
+		"buildkite.reservationExpiry": c.Buildkite.ReservationExpiry,
+		"buildkite.jobTokenLifetime":  c.Buildkite.JobTokenLifetime,
+	} {
+		if value > MaxAPILifetime {
+			problems = append(problems, fmt.Errorf(
+				"%s is %s, and the Stacks API accepts %s (%d s) at most", name, value,
+				MaxAPILifetime, int(MaxAPILifetime.Seconds())))
 		}
 	}
 

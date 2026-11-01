@@ -71,8 +71,14 @@ The design depends on these facts. Each fact was verified against source code or
 |---|---|---|
 | The Stacks API accepts only a cluster agent token (`bkct_`). | Buildkite docs, `apis/agent_api/stacks.md` | The controller keeps a cluster agent token (§9.2). |
 | The scheduled-jobs list gives all jobs in the queue. It does not filter by other tags. It does not include reserved jobs. | Stacks API docs | The controller does the tag match (§5). |
+| The scheduled-jobs call takes `limit` (page size) and `after` (a cursor). The answer has `page_info.has_next_page` and `page_info.end_cursor`. A call returns one page, and the library does not read the next page. | `buildkite/stacksapi` v1.2.0 `scheduled_jobs.go` (checked 2026-11-01) | The Poller sets `limit` to 3 × the machine slots of the fleet. It reads at most 3 pages in one tick, from the head of the list (§6.3). |
 | A reservation lasts 900 s by default and 3600 s maximum. A second reserve call extends it. When a reservation expires, the job becomes `scheduled` again. | Stacks API docs | The controller uses short reservations. It extends them while a VM starts (§6, §7). |
 | A job acquisition token (`bkjat_`) connects an agent to one reserved job. The token expires early if the reservation expires. At agent registration, Buildkite applies the expiry and the allowed IP addresses of the agent token that issued the JAT. | `buildkite/stacksapi` v1.2.0 `IssueJobAcquisitionTokens`; `buildkite/docs` `pages/agent/self_hosted/job_acquisition_tokens.md` (2026-08-26) | Only a job acquisition token goes into a VM (§9.1). The agent token allowlist MUST contain the job VM egress addresses (§9.2). |
+| A job acquisition token has a default lifetime of 900 s. The library sets no maximum. A maximum of 3600 s for the token is `UNKNOWN`: the readiness-fixes plan of 2026-11-01 states it, and no source that the project holds confirms it (owner: the maintainer; trigger: the first test of a token with a longer lifetime against a Buildkite test cluster). | `buildkite/stacksapi` v1.2.0 `job_acquisition_tokens.go` (checked 2026-11-01) | The controller refuses `reservationExpiry` and `jobTokenLifetime` that are more than 3600 s, so that the refusal comes at start-up and not at the first job (§8). |
+| The stack notification call takes a `detail` for each line. The library does not cut a notification, and it sends the text as it is. The limit of 256 characters comes from the readiness-fixes plan of 2026-11-01. No source that the project holds confirms it, and whether Buildkite counts characters or bytes is `UNKNOWN` (owner: the maintainer; trigger: the first test of a long notification against a Buildkite test cluster). | `buildkite/stacksapi` v1.2.0 `stack_notification.go` (checked 2026-11-01) | The controller cuts a detail to 256 characters, between characters, and ends a cut detail with an ellipsis. A count in characters is never more than a count in bytes, so the cut is safe for both (§10.5). |
+| The finish call takes `exit_status` and `detail` only. It has no `signal_reason` field, so the controller cannot set `signal_reason` through the library. | `buildkite/stacksapi` v1.2.0 `finish.go` (checked 2026-11-01) | The rule in §7.6 that matches `signal_reason: stack_error` does not match a job that the controller fails, as long as Buildkite sets another reason. What Buildkite sets for a finished job is `UNKNOWN` (owner: the maintainer; trigger: the first end-to-end failure of a job, §12). The pipeline author guide gives the retry guidance. |
+| The exit code 28 has no known source in the project. The maintainer expects a case where Buildkite or the agent ends a job with this code, but the code, the cause, and the effect are `UNKNOWN`: no document, code, or library that the project holds states them (owner: the maintainer; trigger: the agent release notes or the first end-to-end run that shows the code). | The project documents and code, and `buildkite/stacksapi` v1.2.0 (checked 2026-11-01) | None. The design does not use exit code 28. The only exit code of the agent that the design uses is 27, above. |
+| `maxVMLifetime` is 25 h by default. The Reaper deletes a VM that is older than this, for any job state (row 2 of §7.2). A job that still runs at 25 h loses its VM and its agent. After the agent acquired the job, the Buildkite lost-agent procedure controls the result, and the controller does not finish the job (§7.1, rule 5). The job result that Buildkite gives in this case is `UNKNOWN` (owner: the maintainer; trigger: the first end-to-end run of a job that outlives `maxVMLifetime`). | Derived from `internal/reaper/decide.go` and §7.2, §7.1 (checked 2026-11-01) | A pipeline step with a run time near 25 h MUST set a lower job timeout. The default of 25 h is the safety limit in SC-06, not a job limit. |
 | `buildkite-agent start --acquire-job` exits with code 27 if the job is already taken, cancelled, or complete (HTTP 422). | `buildkite/agent` v4.0.3 release notes (2026-09-10); `core/client.go` | The rule "the job is terminal, delete the VM" covers this case. |
 | Buildkite agent v4 is the stable line (v4.0.0 on 2026-09-01; v4.9.0 on 2026-10-30, checked 2026-11-01). v4.7.0 is a security release: it rejects compromised eMudhra certificate chains (CVE-2026-111943). v4 exits immediately when a flag is not defined. v4 keeps `--acquire-job`, `BUILDKITE_AGENT_ACQUIRE_JOB`, and `BUILDKITE_OPENTELEMETRY_TRACING`, and it adds `BUILDKITE_OPENTELEMETRY_METRICS`. v4 removes the OpenTracing and Datadog backends. | `buildkite/agent` releases and `clicommand/agent_start.go` at v4.0.4 (2026-09-19) | The image MUST contain agent v4.7.0 or later (§5). The startup script uses only v4 flags. |
 | Orchard `startup_script.transport` accepts `ssh` (the default) and `tart-guest-agent`. The guest-agent transport operates only on the Tart runtime, and the worker connects through the VM control socket. For both transports, the worker builds the same script: `set -e`, one `export` line for each `env` entry, then `script_content`. | Orchard `pkg/resource/v1/v1.go` and `internal/worker/vmmanager/base` at tag 0.57.0 | §6.4 uses the guest-agent transport. VM specifications need no SSH credentials. |
@@ -399,6 +405,16 @@ jobs in the same `batch-reserve` call as the admitted jobs. The Launcher MUST th
 reserved unmatched job with its mismatch message. The Launcher MUST NOT get a token or create a
 VM for these jobs.
 
+**Reading the queue.** The Poller reads the list from its head at each tick. It asks for 3 jobs
+for each machine slot of the fleet (`JobsPerSlot`), counted over the workers that answer, and
+capped by `maxInFlight` when that is set. It uses the total slots and not the free slots,
+because a full fleet has no free slot, and a size of zero is the size that Buildkite chooses. If
+the slots are not known yet, the Poller uses the size that Buildkite chooses. The Poller follows
+the cursor for at most 3 pages (`MaxPages`) in one tick. If more jobs wait than 3 pages hold,
+the Poller MUST NOT read the rest in that tick. The jobs of the first pages start and leave the
+list, so the next tick reads the jobs that were behind them. No page is skipped, because each
+tick starts at the head. If a page fails, the Poller keeps the answer of the last whole read.
+
 ### 6.4 Launch
 
 For the admitted jobs, the Launcher MUST do these steps:
@@ -640,6 +656,9 @@ defaults:
     maxVMLifetime: 25h
 profiles: [] # see §5
 ```
+
+The controller MUST refuse `reservationExpiry` and `jobTokenLifetime` values that are more than
+3600 s (§3). It reports the key and the limit, and it does not start.
 
 The controller serves the gRPC health checking protocol (`grpc.health.v1`) on `healthAddress`,
 with the services `liveness` and `readiness`. The empty service name, which is the health of the
@@ -915,6 +934,9 @@ because macOS starts after that. The Reaper sends "failed: <status message>" for
 step again for a VM that the last process started, because the job page already shows it. The
 same steps are span events in the job trace, and the times between them are the phase durations
 of §10.1.
+
+A notification detail MUST NOT be longer than 256 characters. The controller cuts a longer
+detail between characters, and the cut detail ends with an ellipsis (§3).
 
 ### 10.6 Alert conditions
 

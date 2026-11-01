@@ -196,6 +196,35 @@ profiles:`, 1)
 	}
 }
 
+// The Stacks API accepts a reservation of 3600 s at most, and a token of the same length at most.
+// A value above that fails at start-up, and not at the first job, where Buildkite would refuse it.
+func TestLoadRefusesALifetimeOverOneHour(t *testing.T) {
+	//nolint:gosec // The keys name a lifetime and not a credential.
+	for name, change := range map[string]string{
+		"buildkite.reservationExpiry": "buildkite:\n  reservationExpiry: 3601s",
+		"buildkite.jobTokenLifetime":  "buildkite:\n  jobTokenLifetime: 3601s",
+	} {
+		t.Run(name, func(t *testing.T) {
+			body := strings.Replace(minimal, strings.SplitN(change, "\n", 2)[0], change, 1)
+
+			_, err := load(t, body, secrets())
+			if err == nil || !strings.Contains(err.Error(), name) ||
+				!strings.Contains(err.Error(), "3600") {
+				t.Errorf("Load() with %s = %v, want an error that names it and the limit", change, err)
+			}
+		})
+	}
+}
+
+func TestLoadAcceptsALifetimeOfOneHour(t *testing.T) {
+	body := strings.Replace(minimal, "buildkite:",
+		"buildkite:\n  reservationExpiry: 3600s\n  jobTokenLifetime: 3600s", 1)
+
+	if _, err := load(t, body, secrets()); err != nil {
+		t.Errorf("Load() with lifetimes of 3600 s = %v, want no error", err)
+	}
+}
+
 func TestLoadRejectsASourceThatIsReadLessOftenThanTheFreshnessLimit(t *testing.T) {
 	for name, change := range map[string]string{
 		"buildkite.pollInterval":      "buildkite:\n  pollInterval: 60s",

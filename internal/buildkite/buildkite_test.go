@@ -338,6 +338,43 @@ func TestNotifyWritesTheLinesOfEachJob(t *testing.T) {
 	}
 }
 
+// Buildkite accepts a detail of 256 characters in a notification. The client cuts a longer
+// detail at a character, never inside one, and ends it with an ellipsis so that a reader can tell.
+func TestANotificationDetailIsCutTo256Characters(t *testing.T) {
+	t.Parallel()
+
+	sent := func(detail string) string {
+		t.Helper()
+
+		client, fake := start(t)
+
+		if err := client.Notify(t.Context(), []buildkite.Notification{
+			{JobID: first, Detail: detail, At: time.Now()},
+		}); err != nil {
+			t.Fatalf("Notify() = %v, want no error", err)
+		}
+
+		return fake.NotificationCalls[0][0].Detail
+	}
+
+	// Each character takes three bytes, so a limit in bytes would cut inside one.
+	long := sent(strings.Repeat("ビ", 300))
+	if got := utf8.RuneCountInString(long); got != 256 || !utf8.ValidString(long) {
+		t.Errorf("the client sent %d characters, whole characters %v; want 256 whole characters",
+			got, utf8.ValidString(long))
+	}
+
+	if !strings.HasSuffix(long, "…") {
+		t.Errorf("the detail ends with %q, want an ellipsis that says it was cut",
+			long[len(long)-3:])
+	}
+
+	exact := strings.Repeat("ビ", 256)
+	if got := sent(exact); got != exact {
+		t.Error("a detail of exactly 256 characters changed on the way out, want it unchanged")
+	}
+}
+
 // The job ended, another stack owns it, or it never existed. The answer does not change, so the
 // caller marks the job as ignored, and the client sends no second call.
 func TestFinishTreatsA422AsTerminalAndSendsNoSecondCall(t *testing.T) {

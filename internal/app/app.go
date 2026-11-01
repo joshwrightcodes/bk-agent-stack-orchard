@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math"
 	"sync"
 	"time"
 
@@ -83,21 +84,22 @@ func Build(options Options) (*controller.Controller, error) {
 		return nil, err
 	}
 
-	poller, err := stack.NewPoller(stack.PollerOptions{
-		Stacks:   stacks,
-		Interval: settings.Buildkite.PollInterval,
-		Now:      now,
-	})
-	if err != nil {
-		return nil, err
-	}
-
 	fleet, err := inventory.New(inventory.Options{
 		Orchard:        machines,
 		ControllerID:   settings.ControllerID,
 		Interval:       settings.Orchard.InventoryInterval,
 		OfflineTimeout: settings.Orchard.WorkerOfflineTimeout,
 		Now:            now,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	poller, err := stack.NewPoller(stack.PollerOptions{
+		Stacks:   stacks,
+		Interval: settings.Buildkite.PollInterval,
+		Slots:    func() int { return fleetSlots(fleet, settings.MaxInFlight) },
+		Now:      now,
 	})
 	if err != nil {
 		return nil, err
@@ -342,4 +344,29 @@ func (a *admitter) observe() telemetry.Observation {
 // a restart has none, and it counts as one of an unknown profile until it ends.
 func (a *admitter) profileOf(id job.ID) string {
 	return a.starter.Profile(id)
+}
+
+// fleetSlots counts the machine slots of the workers that answer, as admission does, so that the
+// poll asks for a page of a size that follows the hardware. A limit on the machines of this
+// controller lowers the count. Zero means that the slots are not known yet, because the
+// inventory has not answered.
+func fleetSlots(fleet *inventory.Inventory, limit uint64) int {
+	snapshot, read := fleet.Latest()
+	if !read {
+		return 0
+	}
+
+	var slots uint64
+
+	for _, worker := range snapshot.Workers {
+		if fleet.Online(worker) {
+			slots += worker.Resources[orchard.ResourceVMs]
+		}
+	}
+
+	if limit > 0 {
+		slots = min(slots, limit)
+	}
+
+	return int(min(slots, math.MaxInt32))
 }
