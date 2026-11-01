@@ -215,7 +215,7 @@ func TestAnOrchardOutageStopsAdmissionAndDeletion(t *testing.T) {
 	s.stacks.jobs[ended].state = stateFinished
 
 	// The last answer of the inventory ages past the freshness limit, and admission stops.
-	s.run(61)
+	s.run(70)
 
 	late := s.arrive()
 	s.run(60)

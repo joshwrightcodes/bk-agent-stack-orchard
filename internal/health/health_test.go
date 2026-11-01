@@ -133,8 +133,6 @@ func TestAControllerIsNotReadyBeforeTheFirstUpdate(t *testing.T) {
 	}
 }
 
-// A source whose calls fail keeps its last answer. The controller then acts on an old world, and
-// the platform must stop sending it traffic and an operator must see why.
 // The window is stateFreshness, which the configuration requires to be longer than the interval
 // of each source. A source read every 45 s is ready inside a window of 60 s, however often the
 // probe reads.
@@ -156,6 +154,8 @@ func TestReadinessUsesStateFreshness(t *testing.T) {
 	}
 }
 
+// A source whose calls fail keeps its last answer. The controller then acts on an old world, and
+// the platform must stop sending it traffic and an operator must see why.
 func TestAnOldSourceMakesTheControllerUnready(t *testing.T) {
 	t.Parallel()
 
@@ -245,7 +245,8 @@ func TestNewRefusesIncompleteChecks(t *testing.T) {
 	t.Parallel()
 
 	_, err := health.New(health.Options{})
-	if err == nil || !strings.Contains(err.Error(), "clock") || !strings.Contains(err.Error(), "window") || !strings.Contains(err.Error(), "token") ||
+	if err == nil || !strings.Contains(err.Error(), "clock") ||
+		!strings.Contains(err.Error(), "window") || !strings.Contains(err.Error(), "token") ||
 		!strings.Contains(err.Error(), "logger") {
 		t.Errorf("New() with nothing = %v, want an error that names each missing part", err)
 	}

@@ -66,11 +66,13 @@ func run(args []string, out, problems io.Writer) int {
 		return 0
 	}
 
+	location, origin := configPath(*path, os.Getenv)
+
 	// A signal stops the loop, and the loop then withdraws the stack and stops the exporters.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	if err := serve(ctx, configPath(*path, os.Getenv), out); err != nil {
+	if err := serve(ctx, location, origin, out); err != nil {
 		_, _ = fmt.Fprintf(problems, "bk-agent-stack-orchard: %v\n", err)
 
 		return 1
@@ -86,25 +88,25 @@ const (
 	defaultConfigPath = "/etc/bk-agent-stack-orchard/config.yaml"
 )
 
-// configPath gives the path of the configuration file: the flag when it is set, else the
-// environment variable, else the default.
-func configPath(flagged string, getenv func(string) string) string {
+// configPath gives the path of the configuration file and where the path came from: the flag when
+// it is set, else the environment variable, else the default.
+func configPath(flagged string, getenv func(string) string) (path, origin string) {
 	if flagged != "" {
-		return flagged
+		return flagged, "the -config flag"
 	}
 
 	if fromEnvironment := getenv(configEnvironment); fromEnvironment != "" {
-		return fromEnvironment
+		return fromEnvironment, "the environment variable " + configEnvironment
 	}
 
-	return defaultConfigPath
+	return defaultConfigPath, "the default path"
 }
 
 // serve runs the controller until the context ends.
-func serve(ctx context.Context, path string, out io.Writer) error {
+func serve(ctx context.Context, path, origin string, out io.Writer) error {
 	settings, err := config.Load(path, os.Getenv)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w (the path %s comes from %s)", err, path, origin)
 	}
 
 	recorder, err := telemetry.Setup(ctx, telemetry.Options{

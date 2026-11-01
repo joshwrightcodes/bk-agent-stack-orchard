@@ -44,14 +44,14 @@ func TestVersionReportsUnknownWhenTheBuildDidNotSetOne(t *testing.T) {
 func TestTheConfigPathComesFromTheEnvironmentWhenTheFlagIsMissing(t *testing.T) {
 	environment := map[string]string{"BK_AGENT_STACK_ORCHARD_CONFIG": "/from/the/environment.yaml"}
 
-	if got := configPath("", func(key string) string { return environment[key] }); got !=
+	if got, _ := configPath("", func(key string) string { return environment[key] }); got !=
 		"/from/the/environment.yaml" {
 		t.Errorf("configPath() = %q, want the path of the environment", got)
 	}
 }
 
 func TestTheDefaultConfigPath(t *testing.T) {
-	got := configPath("", func(string) string { return "" })
+	got, _ := configPath("", func(string) string { return "" })
 
 	if want := "/etc/bk-agent-stack-orchard/config.yaml"; got != want {
 		t.Errorf("configPath() = %q, want %q", got, want)
@@ -61,7 +61,7 @@ func TestTheDefaultConfigPath(t *testing.T) {
 func TestTheFlagWinsOverTheEnvironment(t *testing.T) {
 	environment := map[string]string{"BK_AGENT_STACK_ORCHARD_CONFIG": "/from/the/environment.yaml"}
 
-	if got := configPath("/from/the/flag.yaml", func(key string) string {
+	if got, _ := configPath("/from/the/flag.yaml", func(key string) string {
 		return environment[key]
 	}); got != "/from/the/flag.yaml" {
 		t.Errorf("configPath() = %q, want the path of the flag", got)
@@ -120,5 +120,38 @@ func TestRunReportsAWriteThatFails(t *testing.T) {
 
 	if status := run([]string{"-version"}, failingWriter{}, &problems); status != 1 {
 		t.Errorf("run() = %d, want 1", status)
+	}
+}
+
+// An operator who reads a failed start must learn where the path came from, because the file that
+// the pod reads is not the file that the operator expects when the source is a surprise.
+func TestTheStartErrorNamesWhereTheConfigPathCameFrom(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "nothing.yaml")
+
+	tests := []struct {
+		name  string
+		args  []string
+		env   string
+		other string
+	}{
+		{"flag", []string{"-config", missing}, "", "the -config flag"},
+		{"environment", nil, missing, "the environment variable BK_AGENT_STACK_ORCHARD_CONFIG"},
+		{"default", nil, "", "the default path"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var out, problems bytes.Buffer
+
+			t.Setenv("BK_AGENT_STACK_ORCHARD_CONFIG", tt.env)
+
+			if status := run(tt.args, &out, &problems); status != 1 {
+				t.Fatalf("run() = %d, want 1", status)
+			}
+
+			if !strings.Contains(problems.String(), tt.other) {
+				t.Errorf("run() reported %q, want it to name %q", problems.String(), tt.other)
+			}
+		})
 	}
 }
