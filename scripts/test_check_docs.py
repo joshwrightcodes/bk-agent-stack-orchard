@@ -74,6 +74,31 @@ class CheckDocsTest(unittest.TestCase):
         check_docs.check_adr_ranges()
         self.assertEqual([], check_docs.errors)
 
+    def test_a_wrapped_or_backticked_adr_range_is_checked(self) -> None:
+        self.write("README.md", "The set runs from ADR-0001 to\nADR-0009.\n")
+        check_docs.check_adr_ranges()
+        self.assertEqual(1, len(check_docs.errors), check_docs.errors)
+        self.assertIn("README.md:1", check_docs.errors[0])
+        check_docs.errors.clear()
+        self.write("README.md", "The set runs from `ADR-0001` to `ADR-0009`.\n")
+        check_docs.check_adr_ranges()
+        self.assertEqual(1, len(check_docs.errors), check_docs.errors)
+
+    def test_an_adr_file_and_a_dated_history_line_are_exempt_from_the_range_rule(self) -> None:
+        self.write("docs/adrs/0014-y.md", "The set runs from ADR-0001 to ADR-0009.\n")
+        self.write("README.md",
+                   "On 2026-09-19 the header said ADR-0001 to ADR-0009. It is fixed now.\n")
+        check_docs.check_adr_ranges()
+        self.assertEqual([], check_docs.errors)
+        self.write("README.md", "On 2026-09-19 the header was fixed. It says ADR-0001 to ADR-0009.\n")
+        check_docs.check_adr_ranges()
+        self.assertEqual(1, len(check_docs.errors), check_docs.errors)
+
+    def test_a_fenced_block_inside_a_list_item_is_code_for_the_width_check(self) -> None:
+        self.write("README.md", "1. Run:\n\n   ```sh\n   " + "x" * 120 + "\n   ```\n")
+        check_docs.check_width()
+        self.assertEqual([], check_docs.errors)
+
 
 if __name__ == "__main__":
     unittest.main()
