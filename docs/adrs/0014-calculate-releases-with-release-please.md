@@ -91,8 +91,9 @@ request.
   `CHANGELOG.md` and into both versions of `Chart.yaml`.
 * It creates the release as a draft with the changelog, and it creates the tag at once. The tag
   starts the release workflow of ADR-0013, which adds the assets and publishes the draft.
-* It uses a token of a GitHub App with contents, pull requests, and issues write access. The private
-  key MUST be a secret of the `release-please` environment, which permits only `main`.
+* It uses a token of a GitHub App with contents, pull requests, and issues write access. The client
+  ID and the private key MUST be secrets of the `release-please` environment, which permits only
+  `main`.
 * The tag rules permit only the maintainer and the App to create a `v*` tag, and nobody can move or
   delete one. release-please ignores a refused tag, so without the App in the tag rules, a merge
   gives a draft with no tag and no release.
