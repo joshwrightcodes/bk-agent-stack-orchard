@@ -1,6 +1,10 @@
 # bk-agent-stack-orchard
 
 [![ci](https://github.com/joshwrightcodes/bk-agent-stack-orchard/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/joshwrightcodes/bk-agent-stack-orchard/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/joshwrightcodes/bk-agent-stack-orchard/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/joshwrightcodes/bk-agent-stack-orchard/actions/workflows/github-code-scanning/codeql)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/joshwrightcodes/bk-agent-stack-orchard/badge)](https://scorecard.dev/viewer/?uri=github.com/joshwrightcodes/bk-agent-stack-orchard)
+[![Latest release](https://img.shields.io/github/v/release/joshwrightcodes/bk-agent-stack-orchard?include_prereleases&sort=semver)](https://github.com/joshwrightcodes/bk-agent-stack-orchard/releases)
+[![Go version](https://img.shields.io/github/go-mod/go-version/joshwrightcodes/bk-agent-stack-orchard)](go.mod)
 [![Licence: AGPL-3.0-or-later](https://img.shields.io/badge/licence-AGPL--3.0--or--later-blue)](LICENSE)
 
 A Buildkite custom stack controller for macOS. The controller runs each job in its own temporary
