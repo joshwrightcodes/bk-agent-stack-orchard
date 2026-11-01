@@ -16,7 +16,7 @@ for it and requests a CVE through that advisory.
 
 No release exists yet. The first release will be v0.1.0. Until 1.0.0, only the latest 0.x minor
 release receives security fixes. A fix does not go to an older minor release. A user of an older
-release MUST upgrade to the latest minor release.
+release has to upgrade to the latest minor release to get a fix.
 
 ## Safe harbour
 
@@ -54,14 +54,15 @@ These are known, recorded, and accepted. They are not vulnerabilities in this pr
   Orchard has no narrower role.
 * Job logs go to Buildkite SaaS, and they can contain parts of source code, such as compiler
   errors.
-* Artifacts stay on owner infrastructure only as far as configuration holds. The residency
-  setting protects against configuration mistakes. It is not a boundary against a hostile build.
-  A build that has root in its VM and internet egress can send source code, build data, and
-  artifacts to any address that its profile permits. The mitigation is the egress allowlist of
-  each profile.
-* An Orchard account with the `compute:read` role can read the job acquisition token of a VM
-  that is starting, because the token is in the VM specification. The token opens one job only
-  and it expires. The mitigation is to give `compute:read` to few accounts and to no build.
+* Artifacts stay on owner infrastructure, in the operating country (PR-032), only as far as
+  configuration holds. The residency setting protects against configuration mistakes. It is not
+  a boundary against a hostile build. A build that has root in its VM and internet egress can
+  send source code, build data, and artifacts to any address that its profile permits. The
+  mitigation is the egress allowlist of each profile.
+* An Orchard account with the `compute:read` role can read the job acquisition token of a job
+  VM, because the token is in the VM specification for the full life of the VM. The token opens
+  one job only, and it expires after a maximum of 30 minutes (target design, section 9.2). The
+  mitigation is to give `compute:read` to few accounts and to no build.
 * When a profile enables agent telemetry, the credential of the OpenTelemetry collector (the
   headers) enters the VM. A hostile build can read it. The mitigation is that the collector
   uses its own ingest token, with the lowest privilege, that can send telemetry and do nothing

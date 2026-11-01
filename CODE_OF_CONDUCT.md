@@ -1,8 +1,9 @@
 # Code of conduct
 
 This project follows the Contributor Covenant, version 2.1. The full text follows. It is the
-standard text, quoted without change, except for two edits: the contact placeholder in the
-"Enforcement" section points to the channels below, and long lines are wrapped. The text was read
+standard text, quoted without change, except for three edits: the front matter of the source file
+is removed, the contact placeholder in the "Enforcement" section points to the channels below,
+and long lines are wrapped. The text was read
 on 2026-11-01 from the `content/version/2/1/code_of_conduct.md` file of the `release` branch of
 the EthicalSource/contributor_covenant repository (commit
 5794f441d325aac3f5e263c0154c0fe897f8dbd2). It matches
