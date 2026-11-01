@@ -243,10 +243,13 @@ requirements. The target design describes the job lifecycle and the failure proc
 * Requirement: The controller MUST NOT start if a profile rule fails. The rules forbid duplicate
   names, equal `match` maps, and empty or `queue` match keys. They also forbid timeouts longer
   than the job token lifetime. A profile that uses the SSH startup-script transport MUST have VM
-  credentials.
+  credentials. A profile MUST NOT name a variable of the controller as the source of a value for
+  its VM, and a profile MUST NOT send agent telemetry over plain HTTP to a non-loopback address.
 * Status: `accepted`.
 * Acceptance: Given two profiles with equal `match` maps. When the controller starts. Then it
   stops and reports the rule that failed.
+* Acceptance: Given a profile whose `otel.headersEnv` names `OTEL_EXPORTER_OTLP_HEADERS`. When
+  the controller starts. Then it stops and names the profile, the field, and the variable.
 
 **PR-022: Supply secrets through environment variables.**
 
@@ -305,7 +308,8 @@ The target design describes the configuration, the credentials, and the observab
 * Requirement: Each job VM MUST serve one job only, and the controller MUST NOT use it again. The
   VM MUST NOT reach the host, another VM, or a private address that its profile does not permit.
   The VM MUST NOT have host directory mounts. The VM MUST receive only a job acquisition token for
-  its own job. The cluster agent token and the Orchard credentials MUST NOT go into a VM.
+  its own job. The cluster agent token and the Orchard credentials MUST NOT go into a VM. The
+  controller MUST refuse a profile that names a controller variable as the source of a VM value.
 * Source: owner statement (2026-09-13). Status: `accepted`.
 * Acceptance: Given a job that tries to reach the host, another VM, or a private address that the
   profile does not permit. When the job runs. Then the connection fails, and the VM contains no

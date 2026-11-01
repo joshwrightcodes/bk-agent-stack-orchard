@@ -376,3 +376,81 @@ func TestLoadAcceptsAPlainHTTPBuildkiteEndpointThatTheConfigurationAllows(t *tes
 		t.Fatalf("Warnings = %q, want a warning about the plain HTTP endpoint", cfg.Warnings)
 	}
 }
+
+// A profile names the variables whose values go into its machines. A job runs untrusted code in
+// that machine, so a name that holds a controller secret would give the secret to the job.
+func TestLoadRefusesAProfileThatNamesAControllerSecret(t *testing.T) {
+	secretNames := []string{
+		"BK_AGENT_STACK_ORCHARD_BUILDKITE_AGENT_TOKEN",
+		"BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN",
+		"BK_AGENT_STACK_ORCHARD_ORCHARD_CA_CERT",
+		"OTEL_EXPORTER_OTLP_HEADERS",
+	}
+	fields := map[string]string{
+		"otel.headersEnv": `    otel: {enabled: true, endpoint: "https://otel.example.com", headersEnv: %s}
+`,
+		"vmCredentials.usernameEnv": `    startupTransport: ssh
+    vmCredentials: {usernameEnv: %s, passwordEnv: VM_PASSWORD}
+`,
+		"vmCredentials.passwordEnv": `    startupTransport: ssh
+    vmCredentials: {usernameEnv: VM_USER, passwordEnv: %s}
+`,
+	}
+
+	for field, template := range fields {
+		for _, name := range secretNames {
+			t.Run(field+" "+name, func(t *testing.T) {
+				environment := func(variable string) string {
+					return map[string]string{
+						"BK_AGENT_STACK_ORCHARD_BUILDKITE_AGENT_TOKEN": "bkct_test",
+						"BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN":         "orchard_test",
+					}[variable] + "x"
+				}
+
+				_, err := load(t, minimal+strings.Replace(template, "%s", name, 1), environment)
+				if err == nil {
+					t.Fatalf("Load() with %s naming %s = nil, want an error", field, name)
+				}
+				for _, want := range []string{`profile "xcode-27"`, field, name} {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("Load() = %q, want it to contain %q", err, want)
+					}
+				}
+			})
+		}
+	}
+}
+
+// A name that the controller does not use stays free for an operator to choose.
+func TestLoadAcceptsAProfileThatNamesItsOwnVariables(t *testing.T) {
+	body := minimal + `    otel: {enabled: true, endpoint: "https://otel.example.com", headersEnv: VM_OTEL_HEADERS}
+`
+
+	if _, err := load(t, body, secrets()); err != nil {
+		t.Fatalf("Load() = %v, want no error", err)
+	}
+}
+
+// The telemetry headers of the agent travel with every export, so the endpoint needs TLS as the
+// other endpoints do. A loopback address stays on the machine.
+func TestLoadRefusesAPlainHTTPAgentTelemetryEndpoint(t *testing.T) {
+	otel := func(endpoint string) string {
+		return minimal + `    otel: {enabled: true, endpoint: "` + endpoint + `"}
+`
+	}
+
+	_, err := load(t, otel("http://collector.example.com:4318"), secrets())
+	if err == nil || !strings.Contains(err.Error(), "otel.endpoint") ||
+		!strings.Contains(err.Error(), "https") || !strings.Contains(err.Error(), "xcode-27") {
+		t.Fatalf("Load() = %v, want an error that names the profile and otel.endpoint and asks for https", err)
+	}
+
+	for _, endpoint := range []string{
+		"https://collector.example.com:4318", "http://127.0.0.1:4318", "http://localhost:4318",
+		"http://[::1]:4318",
+	} {
+		if _, err := load(t, otel(endpoint), secrets()); err != nil {
+			t.Errorf("Load() with the endpoint %s = %v, want no error", endpoint, err)
+		}
+	}
+}

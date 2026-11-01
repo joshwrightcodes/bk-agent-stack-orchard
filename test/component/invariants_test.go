@@ -12,6 +12,7 @@ package component_test
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -19,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -65,12 +67,54 @@ func TestRandomEventsHoldTheInvariants(t *testing.T) {
 	})
 }
 
+// I-3. Whatever variables a profile names, a configuration that loads gives no machine the value
+// of a controller secret. A profile that names one of the secrets does not load.
+func TestNoControllerSecretReachesAnyVMSpecification(t *testing.T) {
+	recorder := quiet(t)
+	names := append([]string{
+		"VM_USER", "VM_PASSWORD", "VM_OTEL_HEADERS", "BK_AGENT_STACK_ORCHARD_OTHER",
+		"bk_agent_stack_orchard_orchard_token", "otel_exporter_otlp_headers",
+	}, controllerSecrets...)
+
+	rapid.Check(t, func(rt *rapid.T) {
+		name := rapid.SampledFrom(names)
+
+		lines := ""
+		if rapid.Bool().Draw(rt, "ssh") {
+			lines += fmt.Sprintf("    startupTransport: ssh\n    vmCredentials: {usernameEnv: %s, passwordEnv: %s}\n",
+				name.Draw(rt, "usernameEnv"), name.Draw(rt, "passwordEnv"))
+		}
+		if rapid.Bool().Draw(rt, "otel") {
+			lines += fmt.Sprintf("    otel: {enabled: true, endpoint: https://otel.example.com, headersEnv: %s}\n",
+				name.Draw(rt, "headersEnv"))
+		}
+
+		loaded, environment, err := loadSettings(t, 0, lines)
+		if err != nil {
+			return
+		}
+
+		fleet := newFleetOf(t, rt, recorder, loaded, environment)
+		fleet.ArriveMatched(rt)
+		fleet.Wait(rt)
+		fleet.Check(rt)
+
+		if len(fleet.orchard.vms) == 0 {
+			rt.Fatalf("no machine was created, so the property proved nothing")
+		}
+	})
+}
+
 // fleet is the world of one sequence: Buildkite, Orchard, the clock, and the controller.
 type fleet struct {
 	ctx         context.Context
 	recorder    *telemetry.Telemetry
 	settings    *config.Config
 	maxInFlight uint64
+
+	// environment holds the values of the variables that the controller and the profile read.
+	// The controller secrets in it are the values that I-3 looks for in each specification.
+	environment map[string]string
 
 	now        time.Time
 	stacks     *stacksFake
@@ -96,11 +140,24 @@ type fataler interface {
 func newFleetWith(t *testing.T, fatal fataler, recorder *telemetry.Telemetry,
 	maxInFlight uint64,
 ) *fleet {
+	loaded, environment, err := loadSettings(t, maxInFlight, "")
+	if err != nil {
+		fatal.Fatalf("loading the configuration: %v", err)
+	}
+
+	return newFleetOf(t, fatal, recorder, loaded, environment)
+}
+
+// newFleetOf builds the world around a configuration that loaded.
+func newFleetOf(t *testing.T, fatal fataler, recorder *telemetry.Telemetry, loaded *config.Config,
+	environment map[string]string,
+) *fleet {
 	f := &fleet{
 		ctx:         t.Context(),
 		recorder:    recorder,
-		settings:    settings(t, maxInFlight),
-		maxInFlight: maxInFlight,
+		settings:    loaded,
+		maxInFlight: loaded.MaxInFlight,
+		environment: environment,
 		now:         time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC),
 	}
 
@@ -122,6 +179,8 @@ func (f *fleet) start(rt fataler) {
 		Stacks:    f.stacks,
 		Orchard:   f.orchard,
 		Now:       func() time.Time { return f.now },
+
+		Environment: func(name string) string { return f.environment[name] },
 	})
 	if err != nil {
 		rt.Fatalf("building the controller: %v", err)
@@ -144,6 +203,19 @@ func (f *fleet) created(spec orchard.VM) {
 		f.violate("a machine %s that this controller does not own", spec.Name)
 
 		return
+	}
+
+	// I-3: no controller secret in the specification, whatever the profile names.
+	// G117: the specification holds the image password on purpose, and this check reads it.
+	encoded, err := json.Marshal(spec) //nolint:gosec
+	if err != nil {
+		f.violate("I-3: the specification of %s does not encode: %v", spec.Name, err)
+	}
+
+	for _, name := range controllerSecrets {
+		if strings.Contains(string(encoded), f.environment[name]) {
+			f.violate("I-3: the specification of %s holds the value of %s", spec.Name, name)
+		}
 	}
 
 	// I-1: a machine only for a job that this stack holds, and never for a job that an agent
@@ -359,8 +431,21 @@ func (f *fleet) pick(condition func(*work) bool) []*work {
 	return selected
 }
 
-// settings gives the configuration of the suite: one profile that fills half a worker.
-func settings(t *testing.T, maxInFlight uint64) *config.Config {
+// controllerSecrets name the variables that hold a secret of the controller. The values of these
+// variables never reach a machine.
+var controllerSecrets = []string{
+	"BK_AGENT_STACK_ORCHARD_BUILDKITE_AGENT_TOKEN",
+	"BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN",
+	"BK_AGENT_STACK_ORCHARD_ORCHARD_CA_CERT",
+	"OTEL_EXPORTER_OTLP_HEADERS",
+}
+
+// loadSettings loads the configuration of the suite, with lines that the caller adds to the
+// profile. It gives the environment that the controller reads, which holds a value for every
+// variable that a profile can name.
+func loadSettings(t *testing.T, maxInFlight uint64, profileLines string) (*config.Config,
+	map[string]string, error,
+) {
 	t.Helper()
 
 	body := fmt.Sprintf(`controllerID: %s
@@ -377,7 +462,7 @@ profiles:
     cpu: 8
     memoryMiB: 28672
     diskSizeGB: 150
-`, controllerID, maxInFlight)
+%s`, controllerID, maxInFlight, profileLines)
 
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
@@ -385,17 +470,19 @@ profiles:
 	}
 
 	// G101: the values are fakes that no API accepts, which the configuration needs to load.
-	secrets := map[string]string{ //nolint:gosec
+	environment := map[string]string{ //nolint:gosec
 		"BK_AGENT_STACK_ORCHARD_BUILDKITE_AGENT_TOKEN": "bkct_component",
 		"BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN":         "orchard_component",
+		"BK_AGENT_STACK_ORCHARD_ORCHARD_CA_CERT":       "ca_component",
+		"OTEL_EXPORTER_OTLP_HEADERS":                   "authorization=collector_component",
+		"VM_USER":                                      "image-user",
+		"VM_PASSWORD":                                  "image-password",
+		"VM_OTEL_HEADERS":                              "authorization=agent_component",
 	}
 
-	loaded, err := config.Load(path, func(name string) string { return secrets[name] })
-	if err != nil {
-		t.Fatalf("loading the configuration: %v", err)
-	}
+	loaded, err := config.Load(path, func(name string) string { return environment[name] })
 
-	return loaded
+	return loaded, environment, err
 }
 
 // quiet gives telemetry that exports nothing and writes no log, so that a run of thousands of

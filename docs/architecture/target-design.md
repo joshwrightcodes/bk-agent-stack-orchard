@@ -263,6 +263,13 @@ finish unmatched jobs.
   variables exist and are not empty. Orchard uses `admin/admin` when a VM specification has no
   credentials. Because of this, a missing value is a fatal error for this transport. A profile
   with the guest-agent transport MUST NOT have `vmCredentials`.
+* No profile field that names an environment variable for its VM (`vmCredentials.usernameEnv`,
+  `vmCredentials.passwordEnv`, and `otel.headersEnv`) names a variable that starts with
+  `BK_AGENT_STACK_ORCHARD_` or the variable `OTEL_EXPORTER_OTLP_HEADERS`. These names hold the
+  controller secrets and the credential of the collector of the controller. The error names the
+  profile, the field, and the variable.
+* When `profile.otel.enabled` is true, `profile.otel.endpoint` uses `https`. Plain HTTP is
+  acceptable only on a loopback address (§10.4).
 * For each profile, `unplaced + boot + acquire ≤ jobTokenLifetime` (§7.3).
 
 If a profile `image` has no digest, the controller MUST write a warning. The controller then
@@ -830,6 +837,13 @@ When `profile.otel.enabled` is true, the VM environment MUST also contain these 
 * A W3C `traceparent` for the job trace.
 
 With these values, the build spans are in the same trace as the VM creation spans.
+
+The value of `profile.otel.headersEnv` goes into the VM, so the name MUST NOT start with
+`BK_AGENT_STACK_ORCHARD_` and MUST NOT be `OTEL_EXPORTER_OTLP_HEADERS`. The controller uses
+`OTEL_EXPORTER_OTLP_HEADERS` for its own collector, and the agent in the VM would send that
+credential to the collector of the profile. The controller MUST refuse such a profile at start-up.
+The headers travel with each export, so `profile.otel.endpoint` MUST use `https`, unless it names
+a loopback address.
 
 The endpoint MUST be a dedicated ingest collector on the public internet. The collector MUST
 have authentication and a rate limit. Because of this, Softnet can continue to block private

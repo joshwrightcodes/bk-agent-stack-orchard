@@ -331,6 +331,13 @@ func (c *Config) validateProfiles() []error {
 		}
 
 		problems = append(problems, c.validateProfileTimeouts(p))
+
+		// The headers of the agent travel with each export, as a token travels with each request.
+		if p.OTel.Enabled && p.OTel.Endpoint != "" {
+			if err := secureAddress("otel.endpoint", p.OTel.Endpoint, false); err != nil {
+				problems = append(problems, fmt.Errorf("profile %q: %w", p.Name, err))
+			}
+		}
 	}
 
 	return problems

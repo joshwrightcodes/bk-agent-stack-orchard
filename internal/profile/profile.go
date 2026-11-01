@@ -95,6 +95,7 @@ func (p Profile) Validate() error {
 
 	problems = append(problems, p.validateMatch()...)
 	problems = append(problems, p.validateTransport()...)
+	problems = append(problems, p.validateVMVariables()...)
 
 	if p.Image == "" {
 		problems = append(problems, errors.New("image must name an image"))
@@ -110,6 +111,38 @@ func (p Profile) Validate() error {
 	}
 
 	return join(p.Name, problems)
+}
+
+// controllerVariablePrefix starts the name of every variable that the controller reads for itself.
+const controllerVariablePrefix = "BK_AGENT_STACK_ORCHARD_"
+
+// collectorHeadersVariable holds the credential of the collector of the controller. The agent in
+// a machine uses a variable of this name, so a profile that names it would send that credential.
+//
+//nolint:gosec // G101: this is the name of a variable, not a credential.
+const collectorHeadersVariable = "OTEL_EXPORTER_OTLP_HEADERS"
+
+// validateVMVariables refuses a profile that names a variable of the controller. The values of
+// the variables that a profile names go into its machines, and a job runs untrusted code there.
+func (p Profile) validateVMVariables() []error {
+	var problems []error
+
+	named := []struct{ field, name string }{{"otel.headersEnv", p.OTel.HeadersEnv}}
+	if p.VMCredentials != nil {
+		named = append(named,
+			struct{ field, name string }{"vmCredentials.usernameEnv", p.VMCredentials.UsernameEnv},
+			struct{ field, name string }{"vmCredentials.passwordEnv", p.VMCredentials.PasswordEnv})
+	}
+
+	for _, n := range named {
+		if strings.HasPrefix(n.name, controllerVariablePrefix) || n.name == collectorHeadersVariable {
+			problems = append(problems, fmt.Errorf(
+				"%s names the variable %s, which belongs to the controller, and its value must "+
+					"not go into a virtual machine", n.field, n.name))
+		}
+	}
+
+	return problems
 }
 
 // validateMatch keeps the match map to literal tags. A rule that is not a literal cannot select
