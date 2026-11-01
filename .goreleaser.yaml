@@ -30,10 +30,13 @@ archives:
     ids: [bk-agent-stack-orchard]
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    # Setting files replaces the defaults, so the list names LICENSE and NOTICE, and the texts
-    # of the third-party licences. The archive holds them under licenses/.
+    # Setting files replaces the defaults (LICENSE*, README*, CHANGELOG*), so the list keeps
+    # them as globs, which match nothing without an error (CHANGELOG.md exists only after the
+    # first release). It adds NOTICE and the texts of the third-party licences under licenses/.
     files:
-      - LICENSE
+      - LICENSE*
+      - README*
+      - CHANGELOG*
       - NOTICE
       - src: build/licenses/**
         dst: licenses

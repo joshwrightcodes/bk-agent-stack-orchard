@@ -1045,9 +1045,11 @@ These rules apply to the configuration:
   (`mise run licenses`) uses `go-licenses` to write the licence texts of the linked modules to
   `build/licenses`, and it adds the licence of the Go standard library. A `before.hooks` entry
   runs it, so a release and a snapshot always generate the texts. Each archive MUST contain
-  `LICENSE`, `NOTICE`, and the texts in `licenses/`. The script also copies these files to
-  `cmd/bk-agent-stack-orchard/kodata/licenses`, which Git ignores, and ko puts them in the image
-  at `/var/run/ko/licenses`. The image MUST have the OCI annotations
+  `LICENSE`, `NOTICE`, `README.md`, `CHANGELOG.md` (when it exists), and the texts in
+  `licenses/`. The script also copies `LICENSE`, `NOTICE`, and the texts to
+  `cmd/bk-agent-stack-orchard/kodata/licenses`, which Git ignores. ko puts them in the image at
+  `/var/run/ko/licenses`, and the texts of the dependencies are in
+  `/var/run/ko/licenses/third-party/`. The image MUST have the OCI annotations
   `org.opencontainers.image.licenses=AGPL-3.0-or-later` and `org.opencontainers.image.source`.
   The Helm chart directory MUST contain copies of `LICENSE` and `NOTICE`, so that `helm package`
   includes them. `NOTICE` MUST name each module that the binary links, and it MUST include the
