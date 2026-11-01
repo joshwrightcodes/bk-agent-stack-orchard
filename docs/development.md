@@ -322,8 +322,8 @@ pins:
   controller remains (I-6).
 * The admission journeys run the controller binary in the same way. In T-061, three jobs wait for
   a worker with two slots: the third job stays `scheduled` until a slot is free. In T-062, a job
-  that no profile matches ends with exit status -1 and a message that names the profiles, and no
-  VM starts.
+  that no profile matches stays `scheduled` over 2 ticks, with one notification on its job page,
+  and no VM starts.
 * The restart journey (T-021) kills the controller with SIGKILL and starts it again, at each crash
   window of the target design, section 7.4. Each job keeps at most one VM. The VM of a job that
   ended while no controller ran goes. The first pass extends every reservation.

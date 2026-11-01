@@ -45,7 +45,7 @@ workspace "bk-agent-stack-orchard" "C4 model of the Buildkite agent stack that r
                 inventory = component "Inventory" "Lists Orchard workers and VMs. Selects owned VMs by name prefix." "Go"
                 jobStates = component "JobStates" "Gets the Buildkite job states of owned VMs in batches. Records the observation times." "Go"
                 matcher = component "Matcher" "Pure function. Converts job agent tags to exactly one VM profile, or to a mismatch reason." "Go"
-                admission = component "Admission" "Pure function. Selects the jobs that fit the free capacity and the unmatched jobs to fail." "Go"
+                admission = component "Admission" "Pure function. Selects the jobs that fit the free capacity and the unmatched jobs to skip." "Go"
                 launcher = component "Launcher" "Reserves jobs, gets job acquisition tokens, and creates VMs." "Go"
                 reaper = component "Reaper" "Pure decision function and executor. Deletes VMs, finishes jobs, and extends reservations." "Go"
                 stacksClient = component "Stacks client" "Narrow interface over github.com/buildkite/stacksapi." "Go"

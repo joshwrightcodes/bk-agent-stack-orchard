@@ -9,7 +9,7 @@
   * [System design baseline](../architecture/system-design-baseline.md): driver identifiers such as
     `QA-01`, and quality scenarios such as `QS-1`
   * [Target design](../architecture/target-design.md)
-  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0015
+  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0016
 
 ## Conventions
 
@@ -89,7 +89,7 @@ break a quality target. `P3` degrades operation.
 | R-05 | Owned VMs never exceed free capacity | Boundary error in capacity arithmetic; foreign VMs not counted | Orchard cannot place VMs; jobs wait without a reason | PR-005, SC-02, QS-1, ADR-0002 | P1 |
 | R-06 | The controller never fails a job that an agent acquired | Incorrect success or failure; stale job state | A running build dies, and the pipeline reports a false failure | PR-008, QA-05, design principle 5 | P1 |
 | R-07 | Checkouts, build data, and artifacts stay in the operating country | Wrong destination; default upload target | Source code and artifacts leave owner infrastructure | PR-032, SE-05, SE-08, QS-8 | P1 |
-| R-08 | A job that cannot run fails with a message before its expiry | Rejected valid input; silent wait | A pipeline waits until the job expires, with no reason | PR-004, PR-008, QA-05, QS-3 | P2 |
+| R-08 | A job whose VM cannot start fails with a message before its expiry, and a job that no profile carries gets a notification | Rejected valid input; silent wait | A pipeline waits until the job expires, with no reason | PR-004, PR-008, QA-05, QS-3 | P2 |
 | R-09 | A job that does not fit stays `scheduled` and visible | Hidden reservation; expired reservation | Jobs disappear from the queue, and other stacks cannot see them | PR-005, ADR-0002, QS-1 | P2 |
 | R-10 | Jobs start in Buildkite order | Ordering error | A high-priority job waits behind an old low-priority job | PR-006 | P2 |
 | R-11 | A restart does not change the result of any job | Recovery error; lost in-memory state | Duplicate VMs, or VMs of ended jobs remain | PR-010, QS-4, DR-02 | P2 |
@@ -164,10 +164,10 @@ when it reports only.
 | T-001 | R-08, PR-003, ADR-0006 | Match: exact map, extra tag, missing tag, empty `match`, the `queue` key removed, a rule that is not `key=literal`, a wildcard, and a negation | The returned profile, or the mismatch reason with the job tags and all `match` maps | required |
 | T-002 | R-14, PR-020, PR-021, ADR-0009 | Configuration validation: duplicate names, equal `match` maps, an empty or `queue` match key, `startupTransport: ssh` without credentials, `tart-guest-agent` with credentials, an environment variable that is empty, a timeout sum more than `jobTokenLifetime`, an image without a digest | The controller refuses to start and names the rule. An image without a digest gives a warning only | required |
 | T-003 | R-01, R-02, PR-030, ADR-0004, ADR-0009 | The VM specification builder, for each profile shape | I-3, I-4; the name matches `bk-<controllerID>-<job-uuid>` and has a maximum of 63 characters; `labels` contains only `workerLabels`; `resources` contains `tart-vms`, `logical-cores`, and `memory-mib`; the environment contains only the documented variables | required |
-| T-004 | R-05, R-09, R-10, ADR-0002 | Admission: free capacity with foreign VMs on the worker, hypothetical placement of unplaced VMs, `maxInFlight: 0` and a value more than 0, a candidate that does not fit, and the order by `priority` then `scheduled_at` | The admitted list, its order, and the unmatched list. A candidate that does not fit does not stop the next candidate | required |
+| T-004 | R-05, R-09, R-10, ADR-0002 | Admission: free capacity with foreign VMs on the worker, hypothetical placement of unplaced VMs, `maxInFlight: 0` and a value more than 0, a candidate that does not fit, and the order by `priority` then `scheduled_at` | The admitted list, its order, and the list of unmatched jobs that the launcher skips. A candidate that does not fit does not stop the next candidate | required |
 | T-005 | R-03, R-04, R-06, R-13, PR-002, PR-007, PR-008 | The Reaper decision function: one case for each row of the decision table, a state that matches no row, a job state that is not causally fresh, and a stale job state | The decided action and `reason` for each case. A state that matches no row gives no action and one warning record | required |
 | T-006 | R-14, target design section 7.3 | Timeout arithmetic with the default values and with a profile override | `unplaced + boot + acquire` is not more than `jobTokenLifetime`, and the validation fails when it is more | required |
-| T-007 | R-08, PR-004, PR-008 | The finish message: an unmatched job, a boot timeout, and an acquire timeout with startup-script output | The message contains the tags and the profiles, or the last 50 log lines. The message is cut at 4 KB on a rune boundary | required |
+| T-007 | R-08, PR-004, PR-008 | The finish message of a boot timeout and of an acquire timeout with startup-script output. The skip notification of an unmatched job | The finish message contains the last 50 log lines, and it is cut at 4 KB on a rune boundary. The skip notification says in short why no profile carries the job, and it fits in 256 characters | required |
 | T-008 | R-16, PR-025 | Telemetry construction: metric attributes, and the trace identifier of a job | I-7, and the trace identifier is the 128 bits of the job UUID | required |
 | T-009 | R-08, PR-009, PR-012 | The stack notification for each step, and the finish call of a failed job | The notifications are "VM requested", "placed on <worker>", "booting", "failed: …", and "VM deleted: …". Each finish call of the controller has `exit_status -1` and a detail, and no `signal_reason`, because the finish request has no such field. The platform generates `stack_error` (PR-012), which no fake can show | required |
 
@@ -177,7 +177,7 @@ when it reports only.
 |---|---|---|---|---|
 | T-020 | R-03, R-04, R-05, R-06, ADR-0001, ADR-0002, ADR-0003 | Property-based runs over random event sequences: jobs arrive, jobs are cancelled, workers stop, VMs fail, and the controller restarts | I-1, I-2, I-5, I-6, I-8 after each event; the controller creates a VM only for a reserved job | required |
 | T-021 | R-11, PR-010, QS-4 | A stop and a start at each crash window of the target design, section 7.4 | Each job has a maximum of one VM; no VM of an ended job remains; `reservedUntil` is unknown, so the first pass extends all reservations | required |
-| T-022 | R-12, PR-011 | A paused queue with waiting jobs and unmatched jobs | No VM starts, no job finishes, and VMs in progress continue | required |
+| T-022 | R-12, PR-011 | A paused queue with waiting jobs and unmatched jobs | No VM starts, no job finishes, no new notification appears for an unmatched job, and VMs in progress continue | required |
 | T-023 | R-13, PR-007 | A cancellation while the VM boots | The VM is deleted, and no agent acquires the job | required |
 | T-024 | R-17, R-18, QS-6, QS-7 | Outages: Orchard not available, Buildkite not available, HTTP 429 with `Retry-After`, and a worker that goes offline | Admission stops; readiness fails; the controller obeys `Retry-After`; only rows 1 and 2 delete VMs with stale data; an offline worker gives rows 7 and 9 | required |
 | T-025 | R-09, target design section 7.2 row 13 | Reservation renewal for many VMs in one tick | One `batch-reserve` call contains all extensions, and the renewal starts before `reservationRenewBefore` | required |
@@ -195,7 +195,7 @@ when it reports only.
 |---|---|---|---|---|
 | T-060 | R-03, R-04, PR-009, walking skeleton | One job from `scheduled` to a deleted VM, with `orchard dev --synthetic` and the fake Stacks server | The job reaches `finished`, the VM is deleted, I-6 holds at the end, and the stack notifications contain each step | required |
 | T-061 | R-05, R-09, PR-005, QS-1 | Three matched jobs and two free slots | Two VMs start, the third job stays `scheduled` and visible, and it starts when a slot is free | required |
-| T-062 | R-08, PR-004, QS-3 | A job with tags that match no profile | The job finishes with `exit_status -1` at the next poll, the message lists the profiles, and no VM starts | required |
+| T-062 | R-08, PR-004, QS-3 | A job with tags that match no profile, over 2 ticks | The controller does not reserve the job and does not finish it. The job stays `scheduled`, it has one notification, no VM starts, and the counter of skipped jobs rises by 1 | required |
 | T-063 | R-15, ADR-0008 | A revoked cluster agent token | The Stacks API returns HTTP 401, and the readiness check fails | required |
 | T-064 | R-20, CO-02 | The pinned Orchard version starts, and the controller sends the current VM specification | The API accepts each field that the design uses. A rejected field fails the gate and starts a design review | required |
 
@@ -278,7 +278,7 @@ Each item is a decision, not missing work.
   not test the isolation mechanism itself.
 * **The Buildkite retry engine, job log storage, and the agent internals.** These are supplier
   behaviour. The project proves only that its finish call has `exit_status -1` and a detail, in
-  T-007, T-009, and T-062. The platform generates the `signal_reason` (PR-012).
+  T-007 and T-009. The platform generates the `signal_reason` (PR-012).
 * **A browser, device, or operating-system matrix.** The controller has no user interface. The
   only operating-system cells are Linux for the controller and macOS for the VMs.
 * **The Kubernetes chart beyond a render and one smoke deployment.** The controller MUST NOT

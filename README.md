@@ -79,7 +79,8 @@ flowchart LR
 
 1. The controller polls the Buildkite Stacks API for the scheduled jobs of one dedicated queue.
 2. It matches the agent tags of each job to exactly one VM profile. If a job matches no profile,
-   the job fails immediately with a message.
+   the controller skips the job: it does not reserve or fail the job, and another runner of the
+   queue can carry it. The job page gets one notification.
 3. It checks the free capacity of the fleet **before** it reserves a job. A job that cannot start
    stays visible in the queue.
 4. It reserves the job, issues a job acquisition token for that job only, and asks Orchard for a
@@ -219,7 +220,7 @@ version.
 | [System design baseline](docs/architecture/system-design-baseline.md) | Quality scenarios, the assumed demand model, the quality targets, the cost comparison, and the driver register |
 | [Target design](docs/architecture/target-design.md) | Components, job lifecycle, failure handling, configuration, security, observability, deployment, and conventions |
 | [C4 model](docs/architecture/c4.md) | Levels 1 to 3, generated from [`workspace.dsl`](docs/architecture/workspace.dsl) |
-| [Decision records](docs/adrs/README.md) | ADR-0001 to ADR-0015 |
+| [Decision records](docs/adrs/README.md) | ADR-0001 to ADR-0016 |
 | [Test strategy](docs/quality/test-strategy.md) | The risk map, the invariants, and the test obligations with their gates |
 | [Implementation plan](docs/delivery/implementation-plan.md) | Work units W-01 to W-27, their order, and the evidence that ends each work unit |
 | [Development guide](docs/development.md) | The gates, the integration tests, and the real-VM tests |

@@ -7,7 +7,7 @@
   * [Product requirements](../product/requirements.md): requirement identifiers such as `PR-005`
   * [System design baseline](system-design-baseline.md): driver identifiers such
     as `QA-01`
-  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0015
+  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0016
 
 ## Conventions
 
@@ -174,7 +174,7 @@ In-memory data is only a cache. The loss of this cache is always safe.
 | **Matcher** | Pure function. Converts the job `agent_query_rules` to exactly one profile, or to a mismatch reason. | Configuration |
 | **Inventory** | Lists Orchard workers and VMs at each `inventoryInterval` (1 s). Selects owned VMs by name prefix. Parses the job UUIDs. | `Orchard` client |
 | **JobStates** | Gets the Buildkite job states of owned VMs in one batch at each `jobStatesInterval` (5 s). Records the observation time for each job, and whether Buildkite named the job. A call that fails keeps the states before it, with their times. | `Stacks` client |
-| **Admission** | Pure function. Input: scheduled jobs, inventory, profiles, and `maxInFlight`. Output: jobs to start, and unmatched jobs to fail. | Matcher, Inventory |
+| **Admission** | Pure function. Input: scheduled jobs, inventory, profiles, and `maxInFlight`. Output: jobs to start, and unmatched jobs to skip. | Matcher, Inventory |
 | **Launcher** | For admitted jobs: reserves the jobs, gets job acquisition tokens, and creates VMs. Sends stack notifications. | `Stacks` client, `Orchard` client |
 | **Reaper** | Pure decision function for each owned VM, and an executor. Actions: delete the VM, finish the job, extend the reservation, or send a notification. | Inventory, JobStates |
 | **Telemetry** | Configures the OTel meter, tracer, and slog bridge from the standard `OTEL_*` environment variables. | OTel SDK |
@@ -260,10 +260,37 @@ other than `queue`.
   both tags on every agent. The `queue` rule is not in this group: the matcher reads it and
   takes it out of the tags.
 
-The controller MUST reserve an unmatched job and finish it immediately with
-`exit_status: -1`. The detail message MUST list the job tags and the `match` maps of all
-profiles. Unmatched jobs do not use capacity. While the queue is paused, the controller MUST NOT
-finish unmatched jobs.
+The controller MUST skip an unmatched job (ADR-0016). It MUST NOT reserve the job, MUST NOT finish
+it, and MUST NOT give it capacity (I-8). The job stays `scheduled`, so that another stack or agent
+of the queue can carry it. Buildkite times the job out, or a person cancels it.
+
+For each unmatched job, the controller MUST do these things once, at the first tick that sees the
+job:
+
+* Write one stack notification. The detail says in short why no profile carries the job: the
+  reason, then the tags of the job. The Notify call cuts a detail at 256 characters
+  (`NotificationLimit`), so the long message does not fit.
+* Write the full message at info level in the log. It has the job identifier, the tags of the job,
+  and the `match` map of each profile. The job identifier is in the log, and not in a metric
+  (I-7).
+* Add 1 to the counter `bkaso.job.skipped` (§10.1).
+
+The controller keeps the identifiers of the jobs that it notified in a set in memory. The set has
+one rule of eviction and one bound:
+
+* After each tick, the set holds only the jobs that are unmatched in the decision of that tick. A
+  job that left the list, or that a new configuration now matches, leaves the set. A job that
+  comes back is notified again.
+* The bound is 3000 identifiers, which is the most jobs that one read of the queue gives (3 pages
+  of 1000, §6.3). A decision cannot name more unmatched jobs than that. If it does, the
+  controller notifies only the jobs that fit in the bound, and it writes one warning for the tick.
+* If the notification call fails, the controller does not add the jobs to the set, and it tries
+  again at the next tick.
+* The set is not stored. After a restart, the controller MAY notify and log a job once more. This
+  is acceptable: it costs one extra line on the job page.
+
+While the queue is paused, the controller MUST NOT start VMs, and it MUST NOT write new
+notifications for unmatched jobs.
 
 **Validation at start-up.** The controller MUST NOT start if one of these conditions is false:
 
@@ -400,18 +427,18 @@ controller MUST NOT pin a VM to a worker. A second scheduler in the controller c
 the Orchard scheduler. Image pull before use (§11) gives most of the benefit of placement that
 knows the image cache.
 
-Admission also gives the list of unmatched scheduled jobs (§5). The Launcher MUST reserve these
-jobs in the same `batch-reserve` call as the admitted jobs. The Launcher MUST then finish each
-reserved unmatched job with its mismatch message. The Launcher MUST NOT get a token or create a
-VM for these jobs.
+Admission also gives the list of unmatched scheduled jobs (§5). The Launcher MUST NOT reserve
+these jobs, and MUST NOT finish them. It MUST NOT get a token or create a VM for them. It writes
+one notification for each of them, once (§5, unmatched jobs). The `batch-reserve` call holds the
+admitted jobs only.
 
 **Reading the queue.** The Poller reads the list from its head at each tick. It asks for 1000
 jobs in each call, which is the largest page that the API accepts (§3). The size is a constant
 and it does not follow the slots of the fleet, because the list holds jobs that never leave it:
-unmatched jobs, which the controller skips, jobs for other tags, and jobs that the API refuses
-with 422. The Poller reads at most 3 pages (`MaxPages`) in one tick. It keeps each job once, at
-its first place, because a cursor over a list that changes can give a job twice. If a page fails,
-the Poller keeps the answer of the last whole read.
+unmatched jobs, which the controller skips (ADR-0016), jobs for other tags, and jobs that the API
+refuses with 422. The Poller reads at most 3 pages (`MaxPages`) in one tick. It keeps each job
+once, at its first place, because a cursor over a list that changes can give a job twice. If a
+page fails, the Poller keeps the answer of the last whole read.
 
 More than 3 pages of 1000 jobs that never leave the list hide the jobs after them, and the
 controller never sees these jobs. This limit is `UNKNOWN`, in the sense that it is not measured
@@ -601,7 +628,7 @@ At start-up, before the first Admission, the controller MUST do these steps:
 | The Orchard controller is not available | Inventory data becomes stale. Admission stops. The Reaper cannot delete VMs. VMs on the workers continue to run. Readiness fails. Liveness passes. |
 | The Buildkite API is not available, or applies a rate limit | The controller obeys `Retry-After`. JobStates data becomes stale. The controller does not reserve or finish jobs. The controller deletes VMs only for rows 1 and 2. |
 | A worker is offline | After the worker offline timeout (3 min), Orchard sets the VMs of the worker to `failed`. Rows 7 and 9 apply. `restart_policy: Never` prevents a new VM for the same job on a different worker. |
-| The queue is `dispatch_paused` | Admission stops. The controller does not finish unmatched jobs. The Reaper continues for existing VMs. |
+| The queue is `dispatch_paused` | Admission stops. The controller does not write new notifications for unmatched jobs. The Reaper continues for existing VMs. |
 
 ### 7.6 Pipeline guidance
 
@@ -818,7 +845,7 @@ The instruments follow the OpenTelemetry semantic conventions. The prefix `bkaso
 |---|---|---|
 | UpDownCounter | `bkaso.job.waiting.count` (`{job}`) | `bkaso.profile` |
 | Gauge | `bkaso.job.waiting.oldest.age` (`s`) | `bkaso.profile` |
-| Counter | `bkaso.job.unmatched` (`{job}`) | — |
+| Counter | `bkaso.job.skipped` (`{job}`) | — |
 | Counter | `bkaso.queue.truncated` (`{read}`) | — |
 | Counter | `bkaso.job.failed` (`{job}`) | `error.type` |
 | UpDownCounter | `bkaso.slot.count` (`{slot}`) | `bkaso.pool`, `bkaso.slot.state` = `total`/`used`/`free` |

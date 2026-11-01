@@ -40,7 +40,8 @@ The intended outcome has five parts:
 * Pipeline authors run macOS jobs with standard Buildkite pipeline syntax.
 * Each job runs in a new macOS VM on the self-hosted fleet.
 * The number of VMs follows the number of scheduled jobs, up to the free capacity.
-* A job that cannot run fails with a clear message in Buildkite.
+* A job whose VM cannot start fails with a clear message in Buildkite. A job that no profile
+  carries stays scheduled, with a notification on its job page, for another runner of the queue.
 * Source code stays on owner infrastructure, in the operating country.
 
 The horizon has four phases. Development uses one Mac, and the pilot uses 2 to 4 Macs. Adoption
@@ -63,7 +64,7 @@ In scope:
 
 * Execution of Buildkite macOS jobs from one queue, with one new VM for each job.
 * Selection of a VM profile from the agent tags of a job.
-* Visible failure of jobs that cannot run.
+* Visible failure of jobs whose VM cannot start, and a visible skip of jobs that no profile carries.
 * Configuration, credentials, readiness, and telemetry for the fleet operator.
 * The build of the job VM images. This was a non-goal until the owner decided on 2026-10-10 that
   the project builds them (ADR-0012).
@@ -94,10 +95,11 @@ for the job. The agent in the VM runs the job, and the VM is deleted after the j
 slot is free, the job stays in the queue until a slot is free. If the job is cancelled before it
 starts, its VM is deleted.
 
-**J2: A job cannot run.** The tags of a job match no profile, or the VM of the job does not start.
-The job fails with a message on the job page. The Buildkite platform generates the
-`signal_reason` `stack_error` for it (PR-012), and the automatic retry rule of the pipeline decides
-if Buildkite tries the job again.
+**J2: A job cannot run.** The VM of the job does not start. The job fails with a message on the
+job page. The Buildkite platform generates the `signal_reason` `stack_error` for it (PR-012), and
+the automatic retry rule of the pipeline decides if Buildkite tries the job again. If the tags of
+a job match no profile, the controller skips the job (PR-004): it writes one notification on the
+job page, and the job stays scheduled for another stack or agent of the queue.
 
 **J3: Change the profiles.** The fleet operator changes the configuration file and restarts the
 controller. If the configuration is not valid, the controller does not start, and it reports the
@@ -146,15 +148,23 @@ the VMs of ended jobs and starts VMs for waiting jobs.
   * Given a profile with `match: {}`. When a job has only the `queue` tag. Then the job uses that
     profile.
 
-**PR-004: Fail an unmatched job immediately.**
+**PR-004: Skip an unmatched job.**
 
 * Requirement: If no profile matches a job, or a tag rule is not `key=literal` (a key or a value
-  with a comma, a newline, or a quote is not a literal), the product MUST fail the job
-  immediately. The message MUST list the tags of the job and the `match` maps of all
-  profiles. An unmatched job MUST NOT use a VM slot.
-* Status: `accepted`.
-* Acceptance: Given a job whose tags match no profile. When Buildkite schedules the job. Then the
-  job fails with `exit_status -1` and the message, and no VM starts for the job.
+  with a comma, a newline, a carriage return, or a quote is not a literal), the product MUST
+  skip the job. The product MUST NOT reserve the job, MUST NOT finish the job, and MUST NOT give
+  it a VM slot. The job stays `scheduled`, so that another stack or agent of the queue can carry
+  it. The product MUST write one stack notification on the job page, which says in short why no
+  profile carries the job. The product MUST NOT write that notification again for the same job
+  while the process runs. The product MUST write the full message, with the tags of the job and
+  the `match` maps of all profiles, once in the log. The product MUST count each skipped job
+  once.
+* Status: `accepted`. Decision D1 of the owner, 2026-11-01, replaced "fail immediately" with
+  "skip". ADR-0016 records it.
+* Acceptance: Given a job whose tags match no profile, and a free VM slot. When Buildkite
+  schedules the job, and the controller runs 2 ticks. Then the controller does not reserve the
+  job, does not finish it, and starts no VM for it. The job page has one notification, and the
+  counter of skipped jobs rises by 1. A matched job in the same tick starts as normal.
 
 **PR-005: Keep jobs that do not fit in the queue.**
 
@@ -213,10 +223,10 @@ the VMs of ended jobs and starts VMs for waiting jobs.
 **PR-011: Obey a paused queue.**
 
 * Requirement: While the queue is `dispatch_paused`, the product MUST NOT start VMs and MUST NOT
-  fail unmatched jobs. VMs of jobs in progress MUST continue.
+  write new notifications for unmatched jobs. VMs of jobs in progress MUST continue.
 * Status: `accepted`.
 * Acceptance: Given a paused queue with waiting jobs. When time passes. Then no VM starts, and no
-  job fails.
+  job fails. No new notification appears for an unmatched job.
 
 **PR-012: Give pipelines a retry signal.**
 
