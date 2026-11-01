@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Package secret holds a value that must not reach a log, a metric, or a virtual machine
 // specification.
 //

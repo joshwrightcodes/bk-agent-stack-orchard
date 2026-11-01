@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Report an upstream release that the documents must answer.
 
 Several accepted facts in this project carry a version and a date: the minimum Orchard version,

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Checks the environment hook of the agent image (images/files/environment) the way
 # buildkite-agent runs it: the agent sources the hook, and then reads the environment. The hook
 # keeps the artifacts of a job in the owner-managed storage, and never sends them to the storage of

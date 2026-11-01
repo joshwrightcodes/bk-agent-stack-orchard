@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Package config reads the configuration of the controller: one file for the settings and the
 // profiles, and the environment for every secret.
 //

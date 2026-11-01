@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Runs the playbook against a Tart VM, with an Orchard controller on this Mac, and checks the host
 # as the fleet uses it:
 #

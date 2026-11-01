@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Package reaper decides what happens to each machine of this controller, and carries the
 // decision out.
 //

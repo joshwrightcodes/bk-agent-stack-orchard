@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Package fakestacks is a fake Buildkite Stacks API server for the tests of this project.
 //
 // Buildkite maintains this fake, and it tests its own controller with it. The file comes from

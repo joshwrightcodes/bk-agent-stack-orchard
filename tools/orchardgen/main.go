@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Command orchardgen writes the wire types of the Orchard API that this controller uses.
 //
 // The controller talks to Orchard over HTTP and imports no Orchard package. The shape of that

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Package controller runs the tick.
 //
 // One goroutine runs the loop, and the steps of a tick run in sequence: refresh the sources,

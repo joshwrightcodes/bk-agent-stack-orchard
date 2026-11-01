@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Package app builds the controller from its parts and wires them together.
 //
 // The binary gives it the clients of Buildkite and of Orchard and the clock of the machine. The

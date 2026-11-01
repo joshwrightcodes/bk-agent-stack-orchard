@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Package job holds the identity of a Buildkite job.
 //
 // A job identifier travels through most of the controller: the scheduled-jobs list, a

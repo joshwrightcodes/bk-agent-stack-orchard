@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Package vmspec builds the Orchard specification of one job virtual machine, and reads the job
 // out of the name of a machine that this controller created.
 //

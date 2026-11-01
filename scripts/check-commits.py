@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Check that commit messages follow Conventional Commits 1.0.0.
 
 CONTRIBUTING.md states the rules. This script is the gate for them. It reads the commit range

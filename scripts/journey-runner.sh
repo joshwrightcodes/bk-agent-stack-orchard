@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # The self-hosted runner of the integration tests: a GitHub Actions runner inside a Tart macOS VM on
 # an Apple silicon Mac.
 #

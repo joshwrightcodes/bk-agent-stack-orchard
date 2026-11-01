@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Package stack holds the part of the controller that talks to the queue of Buildkite: the
 // registration of this stack, and the poll that reads the jobs that wait.
 //

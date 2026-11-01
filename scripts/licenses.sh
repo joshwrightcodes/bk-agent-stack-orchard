@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Write the third-party licence texts of the controller binary.
 #
 # go-licenses saves the text of each module that the binary links into build/licenses. It skips

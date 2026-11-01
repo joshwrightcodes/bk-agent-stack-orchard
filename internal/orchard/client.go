@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Package orchard talks to the Orchard REST API.
 //
 // The client belongs to this project. Orchard carries a licence with a field-of-use restriction,

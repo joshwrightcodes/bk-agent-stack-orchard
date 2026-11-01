@@ -280,6 +280,8 @@ This is a personal project with one maintainer, Josh Wright.
   maintainer answers when time permits.
 * [CONTRIBUTING.md](CONTRIBUTING.md) gives the document-first workflow, the conventions for
   documents, the rules for code and commits, and the rules for versions and releases.
+* [SUPPORT.md](SUPPORT.md) tells you where to ask for help. A developer who uses a fleet asks the
+  fleet operator first.
 * [SECURITY.md](SECURITY.md) tells you how to report a vulnerability. It also gives the properties
   that the project protects and the risks that it accepts. Every build is untrusted, by decision.
 * [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) gives the Contributor Covenant.

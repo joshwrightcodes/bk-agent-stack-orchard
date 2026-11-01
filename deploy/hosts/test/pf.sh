@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Loads the pf rules of the hosts on this Mac, for the Softnet test, or removes them.
 #
 #   deploy/hosts/test/pf.sh load [CIDR...]   the rules, with each CIDR as a softnetAllow of a profile

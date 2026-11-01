@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Package admission decides which waiting jobs the fleet can start now.
 //
 // The decision is a pure function of what the controller observed: the queue, the machines that

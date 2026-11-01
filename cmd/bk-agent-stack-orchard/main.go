@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Command bk-agent-stack-orchard runs Buildkite macOS jobs in temporary Tart virtual machines
 // through Orchard.
 //

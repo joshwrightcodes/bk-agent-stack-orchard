@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Check the dependency rules of this repository.
 
 Two of these rules are licence rules, not preferences. The project publishes an image under the
@@ -21,7 +22,9 @@ Checks:
   9. NOTICE names each module that the controller binary links, the Go standard library, and the
      NOTICE text of gRPC (Apache-2.0, section 4(d));
  10. the Helm chart carries copies of LICENSE and NOTICE that equal the files of the root, so
-     that helm package includes them.
+     that helm package includes them;
+ 11. every tracked Go file carries the SPDX licence line of the project before its package
+     clause. A generator writes the line into a generated file.
 """
 
 from __future__ import annotations
@@ -239,6 +242,32 @@ def check_licence_notices() -> None:
                 copy.read_text(encoding="utf-8") if copy.exists() else None))
 
 
+# The text is in two parts, so that the reuse tool does not read it as a header of this file.
+SPDX_LINE = "// SPDX-License-" + "Identifier: AGPL-3.0-or-later"
+
+
+def spdx_errors(name: str, text: str) -> list[str]:
+    """Rule 11: the SPDX line stands above the package clause of a Go file."""
+    for line in text.splitlines():
+        if line.startswith("package "):
+            break
+        if line == SPDX_LINE:
+            return []
+    return [f"{name} lacks the line {SPDX_LINE!r} before its package clause"]
+
+
+def check_spdx_headers() -> None:
+    try:
+        listed = subprocess.run(["git", "ls-files", "*.go"], cwd=ROOT, capture_output=True,
+                                text=True, check=True).stdout.splitlines()
+    except (OSError, subprocess.CalledProcessError) as error:
+        errors.append(f"git cannot list the Go files: {error}")
+        return
+    for name in listed:
+        if (ROOT / name).is_file():
+            errors.extend(spdx_errors(name, (ROOT / name).read_text(encoding="utf-8")))
+
+
 def main() -> int:
     if not GO_MOD.exists():
         print("check-deps: no go.mod yet, nothing to check")
@@ -286,6 +315,7 @@ def main() -> int:
     check_orchard_hosts()
     check_tart_hosts()
     check_licence_notices()
+    check_spdx_headers()
 
     if errors:
         print(f"check-deps: {len(errors)} problem(s)\n", file=sys.stderr)

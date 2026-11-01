@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Package buildkite talks to the Buildkite Stacks API.
 //
 // The package holds a narrow interface over github.com/buildkite/stacksapi, so that the
