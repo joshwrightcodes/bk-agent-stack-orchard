@@ -79,22 +79,20 @@ func TestAFullFleetHoldsAJobBackUntilASlotIsFree(t *testing.T) {
 	stopController(t, process)
 }
 
-// T-062. A job whose tags match no profile fails at the next poll with a message that names the
-// profiles, and no machine starts for it (QS-3).
-func TestAJobThatNoProfileCarriesEndsAtOnce(t *testing.T) {
+// T-062. A job whose tags match no profile is skipped: the controller never reserves it or
+// finishes it, the job page gets one notification, and no machine starts for it (QS-3).
+func TestAJobThatNoProfileCarriesIsLeftAlone(t *testing.T) {
 	startOrchard(t, orchardBinary(t))
 
 	stacks := stacksWith(t, scheduled(carried, "xcode=99", time.Minute))
-
-	started := time.Now()
 	process := startController(t, writeConfig(t, stacks.URL()))
 
-	var finish stacksapi.FinishJobRequest
+	var line stacksapi.StackNotification
 
-	eventually(t, "the controller finishes the job", func() bool {
-		for _, call := range stacks.Finished() {
-			if call.JobUUID == carried {
-				finish = call
+	eventually(t, "the controller writes a notification for the job", func() bool {
+		for _, notification := range stacks.Notifications() {
+			if notification.JobUUID == carried {
+				line = notification
 
 				return true
 			}
@@ -103,30 +101,26 @@ func TestAJobThatNoProfileCarriesEndsAtOnce(t *testing.T) {
 		return false
 	})
 
-	// The poll runs each second. The limit leaves room for the start of the process and a slow
-	// runner, and it is still far inside the scheduled-job expiry that QS-3 measures against.
-	if took := time.Since(started); took > 15*time.Second {
-		t.Errorf("the job ended %s after the controller started, want it at the next poll", took)
+	if !strings.Contains(line.Detail, "xcode=99") {
+		t.Errorf("the job page reads %q, want it to name the tags of the job", line.Detail)
 	}
 
-	if finish.ExitStatus != -1 {
-		t.Errorf("the job ended with the exit status %d, want -1", finish.ExitStatus)
-	}
-
-	// The author of the pipeline reads this on the job page, so it names what the fleet offers.
-	if !strings.Contains(finish.Detail, "xcode-27") {
-		t.Errorf("the job page reads %q, want it to name the profile xcode-27", finish.Detail)
-	}
-
-	never(t, "a machine starts for the job", func() bool {
+	// Several polls pass, and the job gets no second line, no reservation, no finish, and no
+	// machine.
+	never(t, "the controller acts on the job again", func() bool {
 		_, found := machineNamed(t, machineOf(carried))
 
-		return found
-	})
+		lines := 0
 
-	if calls := len(stacks.Finished()); calls != 1 {
-		t.Errorf("the controller finished the job %d times, want once", calls)
-	}
+		for _, notification := range stacks.Notifications() {
+			if notification.JobUUID == carried {
+				lines++
+			}
+		}
+
+		return found || lines > 1 || slices.Contains(stacks.Reserved(), carried) ||
+			finished(stacks.Finished(), carried)
+	})
 
 	stopController(t, process)
 }

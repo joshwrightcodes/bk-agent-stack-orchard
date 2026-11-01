@@ -221,6 +221,32 @@ func TestMismatchMessageListsTheTagsAndEveryProfile(t *testing.T) {
 	}
 }
 
+// The summary goes to a notification that Buildkite cuts at 256 characters. It names the reason and
+// the tags of the job, and it leaves the long list of profiles to the log.
+func TestMismatchSummaryNamesTheReasonAndTheTagsButNotEveryProfile(t *testing.T) {
+	_, err := match.Match([]string{"queue=macos", "xcode=99"}, profiles())
+
+	var mismatch *match.Mismatch
+	if !errors.As(err, &mismatch) {
+		t.Fatalf("Match() = %v, want a mismatch", err)
+	}
+
+	summary := mismatch.Summary()
+	for _, want := range []string{match.ReasonNoProfile, "xcode=99"} {
+		if !strings.Contains(summary, want) {
+			t.Errorf("the summary does not contain %q: %s", want, summary)
+		}
+	}
+
+	if strings.Contains(summary, "xcode-27-large") {
+		t.Errorf("the summary lists a profile, which the log keeps: %s", summary)
+	}
+
+	if len([]rune(summary)) > 256 {
+		t.Errorf("the summary has %d characters, want at most 256", len([]rune(summary)))
+	}
+}
+
 func TestMatchWithNoProfileGivesAMismatch(t *testing.T) {
 	if _, err := match.Match([]string{"queue=macos"}, nil); err == nil {
 		t.Error("Match() with no profile = nil, want a mismatch")

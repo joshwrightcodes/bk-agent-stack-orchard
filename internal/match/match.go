@@ -45,8 +45,8 @@ const (
 	ReasonAmbiguous = "more than one profile has these tags"
 )
 
-// Mismatch says why a job has no profile. Its message goes to the job page, so it names the tags
-// of the job and the tags of every profile.
+// Mismatch says why a job has no profile. Its message goes to the log, so it names the tags of the
+// job and the tags of every profile. Its summary goes to the job page.
 type Mismatch struct {
 	Reason   string
 	Tags     map[string]string
@@ -81,6 +81,25 @@ func (m *Mismatch) Error() string {
 	}
 	b.WriteString(strings.Join(offers, ", "))
 	b.WriteString(".")
+
+	return b.String()
+}
+
+// Summary gives the short line for the job page. It names the reason and the tags of the job, and
+// it leaves the profiles to Error, whose message is too long for a notification. The tags come
+// last, so that a cut by the notification limit takes the end of them and not the reason.
+func (m *Mismatch) Summary() string {
+	var b strings.Builder
+
+	b.WriteString("This stack skips the job: ")
+	b.WriteString(m.Reason)
+
+	if m.Rule != "" {
+		fmt.Fprintf(&b, " (%q)", m.Rule)
+	}
+
+	fmt.Fprintf(&b, ". Another runner of the queue can carry it. The job asks for {%s}.",
+		formatTags(m.Tags))
 
 	return b.String()
 }
@@ -149,8 +168,8 @@ func Tags(rules []string) (map[string]string, error) {
 
 // Match selects the one profile whose match map equals the tags of the job.
 //
-// The error is a *Mismatch, and its message is what the controller writes on the job page when
-// it finishes the job.
+// The error is a *Mismatch. Its message is what the controller writes in the log when it skips the
+// job, and its summary is what the controller writes on the job page.
 func Match(rules []string, profiles []profile.Profile) (profile.Profile, error) {
 	tags, err := Tags(rules)
 	if err != nil {

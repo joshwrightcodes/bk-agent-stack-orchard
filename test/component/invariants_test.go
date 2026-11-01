@@ -281,6 +281,18 @@ func (f *fleet) violate(format string, args ...any) {
 
 // Check runs after every action, and fails the sequence at the first violation.
 func (f *fleet) Check(rt *rapid.T) {
+	// I-8: the controller leaves an unmatched job scheduled. It never reserves it, never
+	// finishes it, and never gives it a machine, for another stack may carry it.
+	for id, w := range f.stacks.jobs {
+		if w.matched {
+			continue
+		}
+
+		if w.state == stateReserved || slices.Contains(f.stacks.finished, id) {
+			f.violate("I-8: the controller took the unmatched job %s (state %s)", id, w.state)
+		}
+	}
+
 	if len(f.violations) > 0 {
 		rt.Fatalf("at %s: %v", f.now.Format(time.TimeOnly), f.violations)
 	}

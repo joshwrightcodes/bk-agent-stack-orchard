@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
@@ -33,9 +34,10 @@ import (
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/vmspec"
 )
 
-// unmatchedExitStatus is what the controller gives a job that no profile carries. The design
-// states it, and a pipeline reads it as a failure of the job and not of the agent.
-const unmatchedExitStatus = -1
+// NotifiedLimit is the most job identifiers that the launcher remembers as notified. It is the
+// most jobs that one read of the queue gives: 3 pages of 1000 (target design, section 6.3). A
+// decision cannot name more unmatched jobs than the queue read gave.
+const NotifiedLimit = 3000
 
 // requested is the first line that a job page gets from this controller.
 const requested = "VM requested"
@@ -44,7 +46,6 @@ const requested = "VM requested"
 type Stacks interface {
 	Reserve(ctx context.Context, ids []job.ID, expiry time.Duration) (buildkite.Reservation, error)
 	Tokens(ctx context.Context, ids []job.ID, lifetime time.Duration) (buildkite.Tokens, error)
-	Finish(ctx context.Context, id job.ID, exitStatus int, detail string) error
 	Notify(ctx context.Context, notifications []buildkite.Notification) error
 }
 
@@ -101,6 +102,13 @@ type Launcher struct {
 	// carry the name of its profile, so this is the only place that has them. A restart loses
 	// them, and the reaper treats an unknown reservation as one to extend at once.
 	held *memory
+
+	// notified holds the unmatched jobs that this process wrote a notification for, so that it
+	// writes one line for each job and not one at each tick. A restart loses it, and the next
+	// tick writes the line once more, which is acceptable. The mutex is for the readers outside
+	// the loop.
+	notifiedMu sync.Mutex
+	notified   map[job.ID]struct{}
 }
 
 // New builds the launcher.
@@ -169,6 +177,7 @@ func New(options Options) (*Launcher, error) {
 		tracer:       tracer,
 		now:          now,
 		held:         newMemory(),
+		notified:     make(map[job.ID]struct{}),
 	}, nil
 }
 
@@ -215,7 +224,13 @@ func (l *Launcher) Launch(ctx context.Context, decision admission.Result,
 ) error {
 	defer l.held.keep(fleet)
 
-	if len(decision.Admit) == 0 && len(decision.Unmatched) == 0 {
+	// An unmatched job is left alone: another stack or agent of the queue may carry it, so the
+	// controller neither reserves nor finishes it, and it uses no capacity. A pipeline author
+	// reads on the job page that this stack skipped the job. This runs for an empty list too,
+	// because the set of notified jobs drops the jobs that left the list.
+	l.skip(ctx, decision.Unmatched)
+
+	if len(decision.Admit) == 0 {
 		return nil
 	}
 
@@ -223,10 +238,6 @@ func (l *Launcher) Launch(ctx context.Context, decision admission.Result,
 	if err != nil {
 		return err
 	}
-
-	// An unmatched job ends here. It uses no capacity, and a pipeline author reads the reason on
-	// the job page instead of waiting for a machine that never comes.
-	l.finishUnmatched(ctx, decision, reserved)
 
 	wanted := make([]admission.Candidate, 0, len(decision.Admit))
 
@@ -289,20 +300,15 @@ func (l *Launcher) Extend(ctx context.Context, ids []job.ID) error {
 	return nil
 }
 
-// reserve holds every job of the decision, in one call. The unmatched jobs travel with the
-// admitted ones, because one call costs less of the rate limit than two.
+// reserve holds every admitted job of the decision, in one call.
 func (l *Launcher) reserve(ctx context.Context, decision admission.Result) (map[job.ID]bool, error) {
 	ctx, span := l.tracer.Start(ctx, "stacks.reserve")
 	defer span.End()
 
-	ids := make([]job.ID, 0, len(decision.Admit)+len(decision.Unmatched))
+	ids := make([]job.ID, 0, len(decision.Admit))
 
 	for _, candidate := range decision.Admit {
 		ids = append(ids, candidate.Job.ID)
-	}
-
-	for _, unmatched := range decision.Unmatched {
-		ids = append(ids, unmatched.Job.ID)
 	}
 
 	// The reservation starts when Buildkite handles the call, which is after the call leaves. An
@@ -348,31 +354,93 @@ func (l *Launcher) reserve(ctx context.Context, decision admission.Result) (map[
 	return held, nil
 }
 
-// finishUnmatched ends the jobs that no profile carries.
-func (l *Launcher) finishUnmatched(ctx context.Context, decision admission.Result,
-	reserved map[job.ID]bool,
+// Notified gives how many unmatched jobs the launcher remembers as notified.
+func (l *Launcher) Notified() int {
+	l.notifiedMu.Lock()
+	defer l.notifiedMu.Unlock()
+
+	return len(l.notified)
+}
+
+// skip tells each unmatched job that has no line yet, in one call, and forgets the jobs that are
+// no longer unmatched.
+//
+// The set after the call holds the jobs of this decision that were notified, now or before. A job
+// that left the list, or that a new configuration now matches, is not in it, so a job that comes
+// back is told again. A decision that names more jobs than NotifiedLimit gets lines for the first
+// jobs only, and one warning: a job that the set cannot hold would get a new line at each tick.
+func (l *Launcher) skip(ctx context.Context, unmatched []admission.Unmatched) {
+	l.notifiedMu.Lock()
+	defer l.notifiedMu.Unlock()
+
+	kept := make(map[job.ID]struct{}, len(unmatched))
+	fresh := make([]admission.Unmatched, 0, len(unmatched))
+	over := 0
+
+	for _, entry := range unmatched {
+		id := entry.Job.ID
+
+		if _, done := l.notified[id]; done {
+			kept[id] = struct{}{}
+
+			continue
+		}
+
+		fresh = append(fresh, entry)
+	}
+
+	// The jobs that were told before are in kept already, so they come first in the bound.
+	if room := NotifiedLimit - len(kept); len(fresh) > room {
+		over = len(fresh) - max(room, 0)
+		fresh = fresh[:max(room, 0)]
+	}
+
+	if over > 0 {
+		l.logger.WarnContext(ctx, "more unmatched jobs than the controller remembers; "+
+			"it leaves the extra jobs without a notification",
+			"jobs", over, "limit", NotifiedLimit)
+	}
+
+	if len(fresh) > 0 {
+		l.tell(ctx, fresh, kept)
+	}
+
+	l.notified = kept
+}
+
+// tell writes the notifications of the fresh jobs, and adds each one to kept when the call works.
+// A call that fails leaves the jobs out, so that the next tick tries again.
+func (l *Launcher) tell(ctx context.Context, fresh []admission.Unmatched,
+	kept map[job.ID]struct{},
 ) {
-	for _, unmatched := range decision.Unmatched {
-		if !reserved[unmatched.Job.ID] {
-			continue
-		}
+	ctx, span := l.tracer.Start(ctx, "stacks.notify_skipped")
+	defer span.End()
 
-		ctx, span := telemetry.StartJob(ctx, l.tracer, unmatched.Job.ID, "stacks.finish_job")
+	at := l.now()
+	lines := make([]buildkite.Notification, 0, len(fresh))
 
-		err := l.stacks.Finish(ctx, unmatched.Job.ID, unmatchedExitStatus, unmatched.Reason)
-		if err != nil {
-			span.RecordError(err)
-			l.logger.ErrorContext(ctx, "the controller could not end an unmatched job",
-				telemetry.LogJob, string(unmatched.Job.ID), "error", err)
-			span.End()
+	for _, entry := range fresh {
+		lines = append(lines, buildkite.Notification{
+			JobID: entry.Job.ID, Detail: entry.Summary, At: at,
+		})
+	}
 
-			continue
-		}
+	if err := l.stacks.Notify(ctx, lines); err != nil {
+		span.RecordError(err)
+		l.logger.WarnContext(ctx, "the controller could not write the notifications of "+
+			"the jobs that it skips", "jobs", len(fresh), "error", err)
 
-		l.metrics.Failed(ctx, "unmatched")
-		l.logger.InfoContext(ctx, "the controller ended a job that no profile carries",
-			telemetry.LogJob, string(unmatched.Job.ID), "reason", unmatched.Reason)
-		span.End()
+		return
+	}
+
+	for _, entry := range fresh {
+		kept[entry.Job.ID] = struct{}{}
+
+		l.metrics.Skipped(ctx)
+		l.logger.InfoContext(ctx, "the controller skips a job that no profile carries",
+			telemetry.LogJob, string(entry.Job.ID),
+			telemetry.LogPipeline, entry.Job.Pipeline,
+			"reason", entry.Reason)
 	}
 }
 

@@ -249,14 +249,6 @@ func (a *admitter) admit(ctx context.Context) error {
 
 	a.trace(ctx, queue.Jobs, result)
 
-	for _, unmatched := range result.Unmatched {
-		a.metrics.Unmatched(ctx)
-		a.logger.WarnContext(ctx, "no profile carries this job",
-			telemetry.LogJob, string(unmatched.Job.ID),
-			telemetry.LogPipeline, unmatched.Job.Pipeline,
-			"reason", unmatched.Reason)
-	}
-
 	a.mu.Lock()
 	a.latest = result
 	a.mu.Unlock()

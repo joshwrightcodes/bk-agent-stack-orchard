@@ -360,8 +360,8 @@ func TestAJobThatHasAMachineIsNotStartedAgain(t *testing.T) {
 	}
 }
 
-// A job that no profile carries must not wait for a machine that never comes. The launcher ends
-// it with the reason, which a pipeline author reads on the job page.
+// A job that no profile carries is not ours to run. The launcher leaves it alone and writes the
+// summary on the job page, so that a pipeline author learns why this stack does not start it.
 func TestAJobThatNoProfileCarriesIsUnmatched(t *testing.T) {
 	t.Parallel()
 
@@ -379,7 +379,11 @@ func TestAJobThatNoProfileCarriesIsUnmatched(t *testing.T) {
 	}
 
 	if result.Unmatched[0].Reason == "" {
-		t.Error("the unmatched job has no reason, and the job page needs one")
+		t.Error("the unmatched job has no reason, and the log needs one")
+	}
+
+	if result.Unmatched[0].Summary == "" {
+		t.Error("the unmatched job has no summary, and the job page needs one")
 	}
 
 	if len(result.Admit) != 0 {

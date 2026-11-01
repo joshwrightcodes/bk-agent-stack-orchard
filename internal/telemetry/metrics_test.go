@@ -52,7 +52,7 @@ func recordAll(t *testing.T) []metricdata.Metrics {
 	instruments.Observe(observation())
 
 	ctx := t.Context()
-	instruments.Unmatched(ctx)
+	instruments.Skipped(ctx)
 	instruments.QueueTruncated(ctx)
 	instruments.Failed(ctx, "no_profile")
 	instruments.Deleted(ctx, "job_ended")
@@ -148,7 +148,7 @@ var design = []struct {
 		[]string{"bk_agent_stack_orchard.profile"},
 		false,
 	},
-	{"bk_agent_stack_orchard.job.unmatched", "{job}", nil, true},
+	{"bk_agent_stack_orchard.job.skipped", "{job}", nil, true},
 	{"bk_agent_stack_orchard.queue.truncated", "{read}", nil, true},
 	{"bk_agent_stack_orchard.job.failed", "{job}", []string{"error.type"}, true},
 	{

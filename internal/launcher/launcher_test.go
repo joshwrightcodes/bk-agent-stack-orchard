@@ -5,14 +5,17 @@ package launcher_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/admission"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
@@ -138,16 +141,46 @@ type records struct {
 
 	mu     sync.Mutex
 	errors []string
+	infos  []string
 }
 
 func (r *records) Handle(_ context.Context, record slog.Record) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if record.Level >= slog.LevelError {
-		r.mu.Lock()
 		r.errors = append(r.errors, record.Message)
-		r.mu.Unlock()
+	}
+
+	if record.Level == slog.LevelInfo {
+		line := record.Message
+
+		record.Attrs(func(attr slog.Attr) bool {
+			line += " " + attr.Key + "=" + attr.Value.String()
+
+			return true
+		})
+
+		r.infos = append(r.infos, line)
 	}
 
 	return nil
+}
+
+// infoWith gives the info lines that contain the text.
+func (r *records) infoWith(text string) []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	var found []string
+
+	for _, line := range r.infos {
+		if strings.Contains(line, text) {
+			found = append(found, line)
+		}
+	}
+
+	return found
 }
 
 func (r *records) Enabled(context.Context, slog.Level) bool { return true }
@@ -290,9 +323,9 @@ func TestALaunchHoldsTheJobThenGetsATokenThenAsksForAMachine(t *testing.T) {
 	}
 }
 
-// The unmatched jobs travel in the same reservation as the admitted ones, because one call costs
-// less of the rate limit than two.
-func TestTheUnmatchedJobsTravelInTheSameReservation(t *testing.T) {
+// A batch with matched and unmatched jobs reserves only the matched ones. An unmatched job is not
+// ours to hold: another stack of the queue may carry it.
+func TestAMixedBatchReservesOnlyTheAdmittedJobs(t *testing.T) {
 	t.Parallel()
 
 	api, fleet := &stacks{}, &machines{}
@@ -301,8 +334,9 @@ func TestTheUnmatchedJobsTravelInTheSameReservation(t *testing.T) {
 	decision := admission.Result{
 		Admit: candidates(first),
 		Unmatched: []admission.Unmatched{{
-			Job:    buildkite.ScheduledJob{ID: second},
-			Reason: "no profile has these tags",
+			Job:     buildkite.ScheduledJob{ID: second},
+			Reason:  "no profile has these tags",
+			Summary: "no profile carries this job",
 		}},
 	}
 
@@ -310,21 +344,16 @@ func TestTheUnmatchedJobsTravelInTheSameReservation(t *testing.T) {
 		t.Fatalf("Launch() = %v, want no error", err)
 	}
 
-	if len(api.reserved) != 1 || len(api.reserved[0]) != 2 {
-		t.Fatalf("the controller made %v reservations, want one call of two jobs", api.reserved)
+	if len(api.reserved) != 1 || !slices.Equal(api.reserved[0], []job.ID{first}) {
+		t.Fatalf("the controller reserved %v, want one call with the admitted job only",
+			api.reserved)
 	}
 
-	// The job ends with the reason, which a pipeline author reads on the job page.
-	if len(api.finished) != 1 || api.finished[0] != string(second) {
-		t.Fatalf("the controller ended %v, want the unmatched job", api.finished)
+	if len(api.finished) != 0 {
+		t.Errorf("the controller ended %v, want no job ended", api.finished)
 	}
 
-	if api.exitStatuses[0] != -1 {
-		t.Errorf("the unmatched job ended with %d, want -1", api.exitStatuses[0])
-	}
-
-	// An unmatched job uses no capacity: no token, and no machine.
-	if len(api.tokenCalls) != 1 || len(api.tokenCalls[0]) != 1 {
+	if len(api.tokenCalls) != 1 || !slices.Equal(api.tokenCalls[0], []job.ID{first}) {
 		t.Errorf("the token call asked for %v, want the admitted job only", api.tokenCalls)
 	}
 
@@ -332,6 +361,29 @@ func TestTheUnmatchedJobsTravelInTheSameReservation(t *testing.T) {
 		t.Errorf("orchard saw %d machines, want only the one of the admitted job",
 			len(fleet.created))
 	}
+
+	// The skipped job has its own line, and the admitted job has its line.
+	var lines []buildkite.Notification
+	for _, call := range api.notified {
+		lines = append(lines, call...)
+	}
+
+	if n := countFor(lines, second); n != 1 {
+		t.Errorf("the skipped job has %d notifications, want 1", n)
+	}
+}
+
+// countFor counts the notifications of one job.
+func countFor(lines []buildkite.Notification, id job.ID) int {
+	n := 0
+
+	for _, line := range lines {
+		if line.JobID == id {
+			n++
+		}
+	}
+
+	return n
 }
 
 // Every stack of a queue reads the same list, so another stack can hold a job first. The jobs
@@ -645,53 +697,95 @@ func TestTheLauncherHoldsAReservedJobWithNoMachine(t *testing.T) {
 	}
 }
 
-// T-007. A pipeline author whose job no profile carries reads why on the job page: the tags that
-// the job asked for, and the tags that every profile offers.
-func TestAnUnmatchedJobEndsWithItsTagsAndTheProfiles(t *testing.T) {
+// An unmatched job is left alone: no reservation, no finish call, and no slot. The controller
+// writes one notification for it, and it does not write a second one at the next tick. The count
+// of skipped jobs rises once.
+func TestAnUnmatchedJobIsLeftAlone(t *testing.T) {
 	t.Parallel()
 
 	api, fleet := &stacks{}, &machines{}
-	started := build(t, api, fleet)
+	log := &records{Handler: slog.DiscardHandler}
+	started, reader := buildMeasured(t, api, fleet, log)
 
 	rules := []string{"queue=macos-prod", "xcode=99"}
 	_, err := match.Match(rules, []profile.Profile{pilot})
 
+	var mismatch *match.Mismatch
+	if !errors.As(err, &mismatch) {
+		t.Fatalf("Match() = %v, want a mismatch", err)
+	}
+
 	decision := admission.Result{Unmatched: []admission.Unmatched{{
-		Job: buildkite.ScheduledJob{ID: second, Rules: rules}, Reason: err.Error(),
+		Job:     buildkite.ScheduledJob{ID: second, Rules: rules},
+		Reason:  err.Error(),
+		Summary: mismatch.Summary(),
 	}}}
 
-	if err := started.Launch(t.Context(), decision, inventory.Snapshot{}); err != nil {
-		t.Fatalf("Launch() = %v, want no error", err)
-	}
-
-	if len(api.details) != 1 {
-		t.Fatalf("buildkite saw %d finishes, want 1", len(api.details))
-	}
-
-	detail := api.details[0]
-	for _, want := range []string{"xcode=99", pilot.Name, "xcode=27"} {
-		if !strings.Contains(detail, want) {
-			t.Errorf("the job page reads %q, want it to name %q", detail, want)
+	for tick := range 2 {
+		if err := started.Launch(t.Context(), decision, inventory.Snapshot{}); err != nil {
+			t.Fatalf("Launch() at tick %d = %v, want no error", tick, err)
 		}
+	}
+
+	if len(api.reserved) != 0 {
+		t.Errorf("the controller reserved %v, want no reservation", api.reserved)
+	}
+
+	if len(api.finished) != 0 {
+		t.Errorf("the controller ended %v, want no job ended", api.finished)
+	}
+
+	if len(api.tokenCalls) != 0 || len(fleet.created) != 0 {
+		t.Errorf("the controller asked for %d tokens and %d machines, want none",
+			len(api.tokenCalls), len(fleet.created))
+	}
+
+	if len(api.notified) != 1 || len(api.notified[0]) != 1 {
+		t.Fatalf("buildkite saw %v, want one call with one notification", api.notified)
+	}
+
+	line := api.notified[0][0]
+	if line.JobID != second || line.Detail == "" {
+		t.Errorf("the notification reads %+v, want the job and a line", line)
+	}
+
+	if n := utf8.RuneCountInString(line.Detail); n > buildkite.NotificationLimit {
+		t.Errorf("the notification has %d characters, want at most %d", n,
+			buildkite.NotificationLimit)
+	}
+
+	if !strings.Contains(line.Detail, "xcode=99") {
+		t.Errorf("the notification reads %q, want it to name the tags of the job", line.Detail)
+	}
+
+	if got := skipped(t, reader); got != 1 {
+		t.Errorf("the counter of skipped jobs is %d, want 1", got)
+	}
+
+	// The full message goes to the log, once, with the job identifier and every profile.
+	full := log.infoWith(string(second))
+	if len(full) != 1 || !strings.Contains(full[0], pilot.Name) {
+		t.Errorf("the log has %q for the job, want one line that names the profiles", full)
 	}
 }
 
-// A job whose rules the matcher refuses goes the path of an unmatched job: the controller
-// reserves it, finishes it with the message, and starts no machine for it. The profile of each
-// case has exactly the tags of the refused rule, so only the refusal keeps the job from it.
-func TestAJobWithARefusedRuleEndsUnmatchedAndStartsNoMachine(t *testing.T) {
+// A job whose rules the matcher refuses is left alone in the same way. The profile of each case has
+// exactly the tags of the refused rule, so only the refusal keeps the job from it.
+func TestAJobWithARefusedRuleIsLeftAlone(t *testing.T) {
 	t.Parallel()
 
 	for name, c := range map[string]struct{ rule, key, value string }{
 		"a reserved tag": {"profile=other", "profile", "other"},
 		"a comma":        {"xcode=27,gpu=yes", "xcode", "27,gpu=yes"},
 		"a padded value": {"xcode= 27", "xcode", " 27"},
+		"a wildcard":     {"xcode=2*", "xcode", "2*"},
+		"a negation":     {"xcode!=27", "xcode", "27"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
 			api, fleet := &stacks{}, &machines{}
-			started := build(t, api, fleet)
+			started, reader := buildMeasured(t, api, fleet, &records{Handler: slog.DiscardHandler})
 
 			carrier := pilot
 			carrier.Match = map[string]string{c.key: c.value}
@@ -709,20 +803,205 @@ func TestAJobWithARefusedRuleEndsUnmatchedAndStartsNoMachine(t *testing.T) {
 					len(decision.Admit), len(decision.Unmatched))
 			}
 
-			if err := started.Launch(t.Context(), decision, inventory.Snapshot{}); err != nil {
-				t.Fatalf("Launch() = %v, want no error", err)
+			for range 2 {
+				if err := started.Launch(t.Context(), decision, inventory.Snapshot{}); err != nil {
+					t.Fatalf("Launch() = %v, want no error", err)
+				}
 			}
 
-			if len(fleet.created) != 0 {
-				t.Errorf("orchard saw %d machines, want none", len(fleet.created))
+			if len(api.reserved) != 0 || len(api.finished) != 0 || len(fleet.created) != 0 {
+				t.Errorf("the controller reserved %v, ended %v, and made %d machines, want none",
+					api.reserved, api.finished, len(fleet.created))
 			}
 
-			if len(api.details) != 1 || !strings.Contains(api.details[0], c.rule) {
-				t.Errorf("the job page reads %q, want one finish that names %q", api.details,
-					c.rule)
+			if len(api.notified) != 1 || len(api.notified[0]) != 1 ||
+				api.notified[0][0].JobID != second {
+				t.Errorf("buildkite saw %v, want one notification for the job", api.notified)
+			}
+
+			if got := skipped(t, reader); got != 1 {
+				t.Errorf("the counter of skipped jobs is %d, want 1", got)
 			}
 		})
 	}
+}
+
+// unmatchedJobs gives a decision with n unmatched jobs, named by their number.
+func unmatchedJobs(from, n int) admission.Result {
+	var result admission.Result
+
+	for i := from; i < from+n; i++ {
+		id := job.ID(fmt.Sprintf("018f3b2c-1c4a-7e5b-9a3d-%012x", i))
+		result.Unmatched = append(result.Unmatched, admission.Unmatched{
+			Job: buildkite.ScheduledJob{ID: id}, Reason: "no profile has these tags",
+			Summary: "no profile carries this job",
+		})
+	}
+
+	return result
+}
+
+// The set of notified jobs gives each job one notification, and it drops a job that left the
+// list, so that a job that comes back is told again.
+func TestTheSetOfNotifiedJobsEvictsAJobThatLeftTheList(t *testing.T) {
+	t.Parallel()
+
+	api, fleet := &stacks{}, &machines{}
+	started := build(t, api, fleet)
+
+	one, two := unmatchedJobs(1, 1), unmatchedJobs(2, 1)
+	both := admission.Result{Unmatched: append(slices.Clone(one.Unmatched), two.Unmatched...)}
+
+	for _, decision := range []admission.Result{
+		both, // both notified
+		both, // nobody again
+		two,  // the first job left
+		both, // the first job is back, and is told again
+		{},   // both left
+		both, // both told again
+	} {
+		if err := started.Launch(t.Context(), decision, inventory.Snapshot{}); err != nil {
+			t.Fatalf("Launch() = %v, want no error", err)
+		}
+	}
+
+	var lines []buildkite.Notification
+	for _, call := range api.notified {
+		lines = append(lines, call...)
+	}
+
+	if got := countFor(lines, one.Unmatched[0].Job.ID); got != 3 {
+		t.Errorf("the first job has %d notifications, want 3", got)
+	}
+
+	if got := countFor(lines, two.Unmatched[0].Job.ID); got != 2 {
+		t.Errorf("the second job has %d notifications, want 2", got)
+	}
+}
+
+// The set has a bound. A decision with more unmatched jobs than the bound notifies only the jobs
+// that fit, and it never grows the set past it.
+func TestTheSetOfNotifiedJobsHasABound(t *testing.T) {
+	t.Parallel()
+
+	api, fleet := &stacks{}, &machines{}
+	started := build(t, api, fleet)
+
+	over := unmatchedJobs(1, launcher.NotifiedLimit+5)
+
+	for range 2 {
+		if err := started.Launch(t.Context(), over, inventory.Snapshot{}); err != nil {
+			t.Fatalf("Launch() = %v, want no error", err)
+		}
+	}
+
+	total := 0
+	for _, call := range api.notified {
+		total += len(call)
+	}
+
+	if total != launcher.NotifiedLimit {
+		t.Errorf("the controller wrote %d notifications over 2 ticks, want %d (the bound)",
+			total, launcher.NotifiedLimit)
+	}
+
+	if got := started.Notified(); got != launcher.NotifiedLimit {
+		t.Errorf("the set holds %d jobs, want at most %d", got, launcher.NotifiedLimit)
+	}
+}
+
+// A notification that fails is written again at the next tick, because the job has no line yet.
+func TestAFailedNotificationIsTriedAgain(t *testing.T) {
+	t.Parallel()
+
+	api, fleet := &stacks{notifyErr: errors.New("buildkite is not available")}, &machines{}
+	started, reader := buildMeasured(t, api, fleet, &records{Handler: slog.DiscardHandler})
+
+	decision := unmatchedJobs(1, 1)
+
+	_ = started.Launch(t.Context(), decision, inventory.Snapshot{})
+
+	if got := skipped(t, reader); got != 0 {
+		t.Errorf("the counter of skipped jobs is %d after a failed notification, want 0", got)
+	}
+
+	api.notifyErr = nil
+
+	if err := started.Launch(t.Context(), decision, inventory.Snapshot{}); err != nil {
+		t.Fatalf("Launch() = %v, want no error", err)
+	}
+
+	if len(api.notified) != 2 {
+		t.Errorf("buildkite saw %d notification calls, want 2", len(api.notified))
+	}
+
+	if got := skipped(t, reader); got != 1 {
+		t.Errorf("the counter of skipped jobs is %d, want 1", got)
+	}
+}
+
+// buildMeasured gives a launcher whose instruments a reader collects.
+func buildMeasured(t *testing.T, api *stacks, fleet launcher.Machines,
+	log *records,
+) (*launcher.Launcher, *sdkmetric.ManualReader) {
+	t.Helper()
+
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+
+	instruments, err := telemetryMetrics(t, provider)
+	if err != nil {
+		t.Fatalf("NewMetrics() = %v, want the instruments", err)
+	}
+
+	started, err := launcher.New(launcher.Options{
+		Stacks:            api,
+		Orchard:           fleet,
+		ControllerID:      controller,
+		Queue:             "macos-prod",
+		ReservationExpiry: 300 * time.Second,
+		TokenLifetime:     1800 * time.Second,
+		Metrics:           instruments,
+		Logger:            slog.New(log),
+		Now:               time.Now,
+	})
+	if err != nil {
+		t.Fatalf("New() = %v, want the launcher", err)
+	}
+
+	return started, reader
+}
+
+// skipped reads the counter of skipped jobs.
+func skipped(t *testing.T, reader *sdkmetric.ManualReader) int64 {
+	t.Helper()
+
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(t.Context(), &collected); err != nil {
+		t.Fatalf("Collect() = %v, want the metrics", err)
+	}
+
+	var total int64
+
+	for _, scope := range collected.ScopeMetrics {
+		for _, m := range scope.Metrics {
+			if m.Name != "bk_agent_stack_orchard.job.skipped" {
+				continue
+			}
+
+			sum, ok := m.Data.(metricdata.Sum[int64])
+			if !ok {
+				t.Fatalf("the skipped counter has data of type %T, want a sum", m.Data)
+			}
+
+			for _, point := range sum.DataPoints {
+				total += point.Value
+			}
+		}
+	}
+
+	return total
 }
 
 // buildAt gives a launcher that reads a clock that the test holds.
