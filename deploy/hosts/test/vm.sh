@@ -16,7 +16,7 @@ set -euo pipefail
 
 HOSTS=$(cd "$(dirname "$0")/.." && pwd)
 VM="${VM_NAME:-bkaso-host-test}"
-BASE="ghcr.io/cirruslabs/macos-golden-gate-base@sha256:9a2f20d179d6418a128dcb76c593588ea85a263dbfa286e757db63f3d949af7c"
+BASE="ghcr.io/cirruslabs/macos-golden-gate-base@sha256:14f4fc32a778763ccae1a4d543ea0f177720c570dd7f859eda10b9e0020c7d05"
 PORT=6120
 WORK=$(mktemp -d)
 ADMIN_TOKEN=$(openssl rand -hex 24)

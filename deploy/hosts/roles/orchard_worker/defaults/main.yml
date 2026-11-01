@@ -33,8 +33,9 @@ orchard_worker_config_file: ""
 orchard_worker_registry_username: ""
 orchard_worker_registry_password: ""
 
-# A macOS 27 guest needs a macOS 27 host (CO-07).
-orchard_worker_macos_minimum: 27
+# The job VMs run macOS 27.2, and a macOS guest needs a host of the same version or later
+# (CO-07). The owner decided on 2026-11-01 that the hosts run macOS 27.2.
+orchard_worker_macos_minimum: "27.2"
 # A host MUST run VMs. Only a test on a VM, which cannot run a macOS VM, turns this check off.
 orchard_worker_require_hypervisor: true
 
