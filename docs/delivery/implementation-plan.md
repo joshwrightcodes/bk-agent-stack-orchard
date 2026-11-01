@@ -289,10 +289,10 @@ estimates of an increment sum inside its range above. The project holds the valu
 This document holds the range for each increment. A change to one unit therefore does not need a
 change to this document.
 
-The sum of the ranges is 21 to 36 working days. The lower range meets the pilot date only in two
-cases. The image build (W-23) must start before the hosts arrive, and no increment must need a new
-decision. The
-owner SHOULD expect the pilot entry in the second half of October 2026.
+The sum of the ranges is 21 to 36 working days. The lower range meets the pilot date only when
+both conditions hold. The image build (W-23) must start before the hosts arrive, and no increment
+must need a new decision. The owner SHOULD expect the pilot entry in the second half of October
+2026.
 
 ## 7. Verification
 

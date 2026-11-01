@@ -26,10 +26,10 @@ This directory makes each Mac host an Orchard worker (target design, section 11)
    Softnet 0.24 gives each VM its own network. pf on macOS cannot name these interfaces or their
    addresses. Because of this, the rules block traffic by destination. Traffic from an interface
    that is not an admin interface can reach the host only for DHCP and DNS. It can reach a private
-   range only when a profile of the host permits that range (`softnetAllow`). The admin interfaces
-   (`orchard_worker_admin_interfaces`) are the interface of the default route. A launchd job loads
-   the rules into the anchor `com.apple/400.bkaso-vm-isolation` and enables pf at each start of the
-   host. For this reason, `/etc/pf.conf` stays as macOS ships it.
+   range only when a profile of the host permits that range (`softnetAllow`). By default, the admin
+   interfaces (`orchard_worker_admin_interfaces`) are the interface of the default route. A launchd
+   job loads the rules into the anchor `com.apple/400.bkaso-vm-isolation` and enables pf at each
+   start of the host. For this reason, `/etc/pf.conf` stays as macOS ships it.
 5. It runs `orchard worker run` from launchd, as root, and the worker drops to the worker user.
    This is the Orchard workaround for the Local Network permission of macOS.
 6. It pulls the image of each profile that the host can take.
