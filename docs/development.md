@@ -106,6 +106,24 @@ The `load` workflow runs it each night, on demand, and on a pull request that ch
 same runner as the integration tests. No branch protection requires it. While the runner is a VM
 on a laptop, a night on which the laptop sleeps gives no result.
 
+## The fuzz tests
+
+Each fuzz test states a property that must hold for any input, at a place where input comes from
+outside the controller:
+
+| Fuzz test | Input | Property |
+|---|---|---|
+| `FuzzTagsGiveOnlyLiteralRules` | The agent rules of a job, which pipeline authors write | An accepted rule is a literal `key=value` that a rule names, and a match is an equal match map |
+| `FuzzOwnedJobClaimsOnlyTheMachinesOfThisController` | A machine name in Orchard, which any tool can set | The controller claims only the exact name that it gives to a valid job |
+| `FuzzOwnedJobTellsControllersApart` | Two controller identifiers | A controller never claims a machine of another controller |
+| `FuzzParseIDAcceptsOnlyTheBuildkiteShape` | A job identifier from Buildkite | Only the lowercase UUID shape passes, unchanged |
+| `FuzzLoadGivesAnErrorOrAValidConfiguration` | The configuration file | Load gives an error or a valid configuration, and never panics |
+
+`go test ./...` runs the seed inputs of each one. `mise run fuzz` fuzzes each target for
+`FUZZTIME` (default `1m`). The `fuzz` workflow does this each night. When a target fails, go
+writes the input to `testdata/fuzz/` in its package, and the workflow keeps that directory as an
+artifact. Add the input to the seeds of the test, and correct the code, in one pull request.
+
 ## The integration tests
 
 The integration tests run against a real Orchard in synthetic mode, at the version that `mise.toml`

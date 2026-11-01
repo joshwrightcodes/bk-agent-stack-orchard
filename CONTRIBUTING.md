@@ -67,6 +67,9 @@ identifiers it implements, so the direction stays visible.
   recorded decision may name that ADR, because the reason is the useful part.
 * Go 1.27. `mise install` gives the pinned tool versions, and `mise run check` runs the gate.
 * Test-driven development. Each change of behaviour starts with a failing test.
+* Code that reads input from outside the controller, such as the agent rules of a job, a machine
+  name from Orchard, or the configuration file, has a fuzz test that states a property for any
+  input. `go test` runs its seed inputs, and `mise run fuzz` fuzzes it.
 * The Matcher, the Admission function, and the Reaper decision function stay pure, with an
   injected clock. The suppliers stay behind narrow interfaces, so tests replace them with fakes.
 * [`docs/quality/test-strategy.md`](docs/quality/test-strategy.md) decides the level of each test.
