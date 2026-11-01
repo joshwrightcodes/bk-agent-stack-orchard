@@ -372,12 +372,12 @@ Dependencies:
   defined.
 * The VM image runs the Tart guest agent, which the startup-script transport needs (ADR-0009).
 * Orchard 0.58.0 or later is in use (Orchard release 0.58.0, 2026-10-19; target design, section
-  9.2). Release 0.57.0 contains pull requests
-  #465 and #470 (2026-09-15), and release 0.58.0 contains them too.
+  9.2). Release 0.57.0 contains pull requests #465 and #470 (2026-09-15), and release 0.58.0
+  contains them too.
 * The Mac mini with M5 Pro ships from 2026-09-22 (Apple, as of 2026-09-14). The pilot needs the
   hosts. The date at which the hosts are ready is `UNKNOWN` (checked 2026-11-01). The owner is the
-  maintainer. The date becomes known when the Mac hosts are ready. The plan of
-  2026-09-14 estimated that the pilot needs the hosts before 2026-10-14.
+  maintainer. The date becomes known when the Mac hosts are ready. The plan of 2026-09-14 estimated
+  that the pilot needs the hosts before 2026-10-14.
 * The fleet operator builds each Tart image with the build of this project (`images/`), from
   `ghcr.io/cirruslabs/macos-golden-gate-vanilla`. The image has Xcode 27, the `buildkite-agent`
   binary, and the Tart guest agent. The operator stores it in an OCI registry (PR-026, ADR-0012).
@@ -413,7 +413,7 @@ Answered questions (2026-09-14):
 
 No product question needs an owner decision. Three values stay `UNKNOWN` until the pilot measures
 them: the maximum time from the job end to the VM deletion (PR-002, QA-06), the cost of one job
-minute, and the duration of the same job (section 6). Three more values stay `UNKNOWN` until a
+minute, and the duration of the same job (section 6). Two more values stay `UNKNOWN` until a
 trigger occurs: the dates of the phases (section 1; trigger: a Buildkite test cluster and the Mac
 hosts are ready), and the date at which the Mac hosts are ready (section 7; trigger: the Mac hosts
 are ready).
