@@ -12,7 +12,8 @@ Checks:
   3. no ADR cites an ADR with a higher number;
   4. every relative link resolves;
   5. every line outside a table row or a fenced block is 100 characters or less;
-  6. each ADR file name matches its title, and its status is a lifecycle value.
+  6. each ADR file name matches its title, and its status is a lifecycle value;
+  7. no "ADR-0001 to ADR-NNNN" range stops below the highest ADR that exists.
 """
 
 from __future__ import annotations
@@ -45,9 +46,11 @@ def fail(path: pathlib.Path, line: int | None, message: str) -> None:
 
 def markdown_files() -> list[pathlib.Path]:
     files = sorted(ROOT.glob("docs/**/*.md"))
+    for pattern in ("images/**/*.md", "deploy/**/*.md", "internal/**/README.md"):
+        files += sorted(ROOT.glob(pattern))
     files += [ROOT / name for name in ("README.md", "CONTRIBUTING.md", "SECURITY.md",
-                                       "CODE_OF_CONDUCT.md")]
-    return [f for f in files if f.exists()]
+                                       "CODE_OF_CONDUCT.md", ".github/pull_request_template.md")]
+    return sorted({f for f in files if f.exists()})
 
 
 def read(path: pathlib.Path) -> str:
@@ -122,19 +125,62 @@ def check_links() -> None:
                     fail(path, number, f"link target does not exist: {target}")
 
 
+URL = re.compile(r"\]\((?:[^()\s]|\([^()\s]*\))*\)|(?:https?|ftp)://[^\s)>\]]+")
+
+
 def check_width() -> None:
     for path in markdown_files():
         if path in GENERATED:
             continue
         in_fence = False
         for number, line in enumerate(read(path).split("\n"), 1):
-            if line.startswith("```"):
+            if line.lstrip().startswith("```"):
                 in_fence = not in_fence
                 continue
-            if in_fence or line.startswith("|") or "http" in line:
+            if in_fence or line.startswith("|"):
                 continue
-            if len(line) > MAX_WIDTH:
-                fail(path, number, f"line is {len(line)} characters, the limit is {MAX_WIDTH}")
+            # Only the URL is exempt, because a reader cannot wrap it. The prose is not.
+            width = len(URL.sub("", line))
+            if width > MAX_WIDTH:
+                fail(path, number, f"line is {width} characters, the limit is {MAX_WIDTH}")
+
+
+ADR_RANGE = re.compile(r"`?ADR-0001`?\s+(?:to|through)\s+`?ADR-(\d{4})`?")
+DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+
+
+def sentence_around(text: str, match: re.Match) -> str:
+    """Return the sentence that holds the match, across line breaks."""
+    ends = [m.end() for m in re.finditer(r"[.!?](?=\s)|\n\n", text[:match.start()])]
+    start = ends[-1] if ends else 0
+    after = re.search(r"[.!?](?=\s)|\n\n", text[match.end():])
+    stop = match.end() + after.end() if after else len(text)
+    return text[start:stop]
+
+
+def check_adr_ranges() -> None:
+    """A range that starts at ADR-0001 claims the whole set, so it must reach the last ADR.
+
+    An ADR file is exempt, because accepted content never changes. A sentence that carries a date
+    is dated history, so it is exempt too. A range can wrap across a line break, or sit in
+    backticks.
+    """
+    numbers = [int(p.name[:4]) for p in ADR_DIR.glob("0*.md")]
+    if not numbers:
+        return
+    highest = max(numbers)
+    for path in markdown_files():
+        if path.parent == ADR_DIR and path.name[:1] == "0":
+            continue
+        text = read(path)
+        for match in ADR_RANGE.finditer(text):
+            end = int(match.group(1))
+            if end >= highest:
+                continue
+            if DATE.search(sentence_around(text, match)):
+                continue
+            number = text.count("\n", 0, match.start()) + 1
+            fail(path, number, f"range ADR-0001 to ADR-{end:04d} stops below ADR-{highest:04d}")
 
 
 def check_adr_metadata() -> None:
@@ -166,6 +212,7 @@ def main() -> int:
     check_adr_direction()
     check_links()
     check_width()
+    check_adr_ranges()
     check_adr_metadata()
 
     if errors:

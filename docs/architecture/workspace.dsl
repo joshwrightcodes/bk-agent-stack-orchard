@@ -34,7 +34,7 @@ workspace "bk-agent-stack-orchard" "C4 model of the Buildkite agent stack that r
             tags "External"
         }
 
-        stack = softwareSystem "bk-agent-stack-orchard" "Runs each Buildkite job on a temporary macOS VM on self-hosted Apple Silicon Macs." {
+        stack = softwareSystem "bk-agent-stack-orchard" "Runs each Buildkite job on a temporary macOS VM on self-hosted Apple silicon Macs." {
 
             controller = container "Controller" "Monitors the Buildkite queue. Creates one Orchard VM for each job. Deletes the VM when the job ends." "Go 1.27, distroless container image or binary" {
                 config = component "Configuration" "Loads and validates the YAML file and the secret environment variables." "Go"

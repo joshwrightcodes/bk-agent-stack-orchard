@@ -9,9 +9,9 @@
   * [System design baseline](../architecture/system-design-baseline.md): identifiers such as
     `QA-01` and `SC-03`
   * [Target design](../architecture/target-design.md)
-  * [Test strategy](../quality/test-strategy.md): risks `R-01` to `R-20`, invariants `I-1` to
+  * [Test strategy](../quality/test-strategy.md): risks `R-01` to `R-21`, invariants `I-1` to
     `I-8`, and obligations `T-001` to `T-141`
-  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0009
+  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0014
 
 ## Conventions
 
@@ -33,8 +33,8 @@ it. It does not repeat the design.
 In scope: the controller, its two clients, the test harness, the release artifacts, the reference
 deployment, the host provisioning, and the pilot image.
 
-Out of scope: the pipelines of the iOS application, a second region, a warm pool, high
-availability, and any item in the roadmap of the target design.
+Out of scope are these items: the pipelines of the iOS application, a second region, a warm pool,
+high availability, and any item in the roadmap of the target design.
 
 One person does this work (OP-01). Because of this, the plan has no parallel work streams for
 people. It marks the work that can wait for hardware, so that the person always has work that is
@@ -61,34 +61,7 @@ complete, the controller MUST NOT serve the pilot queue.
 The layout follows the components of the target design, section 4. Each component is one package
 with one responsibility, so that the pure functions stay testable without a VM.
 
-```
-cmd/bk-agent-stack-orchard/     process entry point, flags, signal handling, the real clients
-internal/app/                   the wiring: the parts, both APIs, and the one clock
-internal/secret/                a value that no log, metric, or VM specification may carry
-internal/config/                configuration types, loading, and validation
-internal/profile/               profiles, the match map, and the VM size
-internal/match/                 Matcher: job tags to one profile (pure)
-internal/admission/             Admission: candidates, capacity, order (pure)
-internal/reaper/                Reaper: the decision table (pure) and its executor
-internal/vmspec/                the Orchard VM specification builder and the VM name
-internal/buildkite/             the Stacks interface, its client, and its errors
-internal/orchard/               the Orchard interface, this project's REST client (ADR-0010)
-internal/inventory/             worker and VM inventory with freshness
-internal/jobstates/             batched job states with observation times
-internal/launcher/              reserve, issue tokens, create VMs, notify
-internal/progress/              the steps of each VM: job page lines, span events, phase durations
-internal/stack/                 stack registration, the queue poll, and the paused value
-internal/controller/            the tick loop, which a test can run one tick at a time
-internal/telemetry/             OTel meter, tracer, and the slog bridge
-internal/health/                the gRPC health service: liveness and readiness
-test/fakestacks/                the fake Stacks API server
-test/component/                 T-020: in-memory fakes of both APIs and random event sequences
-test/integration/               tests against orchard dev --synthetic, and the load test (tag load)
-deploy/helm/                    the controller chart
-deploy/orchard/                 the Orchard StatefulSet and its bootstrap job
-deploy/hosts/                   Ansible for the Mac hosts
-images/                         the builds of the job VM images (agent and pilot: tart and the guest agent)
-```
+The package map is in the [development guide](../development.md#the-package-map).
 
 `internal/buildkite` and `internal/orchard` MUST expose narrow interfaces, and all other packages
 MUST depend on the interfaces only (target design, section 4). Because of this, the in-memory
@@ -98,7 +71,7 @@ T-020 in the same way, so the suite runs the controller that ships.
 ### 3.1 Tool versions and tasks
 
 `mise` pins the tool versions and runs the tasks. One `mise.toml` file gives Go, golangci-lint,
-GoReleaser, Packer, and Ansible, so a developer and CI use the same versions. CI runs `mise
+GoReleaser, and Ansible, so a developer and CI use the same versions. CI runs `mise
 install` and then `mise run check`.
 
 The alternatives and the reason for this selection:
@@ -109,7 +82,7 @@ The alternatives and the reason for this selection:
 | `make` | No | Yes | A second mechanism must pin the tool versions |
 | `task` (go-task) | No | Yes | Same limit as `make`, with a better syntax |
 | `just` | No | Yes | Same limit as `make` |
-| Go `tool` directives in `go.mod` | Go tools only | No | The golangci-lint documentation states that `go install`, the tools pattern, and `tool` directives "aren't guaranteed to work", because the local Go version builds the tool (2026-09-19). The project also needs Packer and Ansible, which are not Go tools |
+| Go `tool` directives in `go.mod` | Go tools only | No | The golangci-lint documentation states that `go install`, the tools pattern, and `tool` directives "aren't guaranteed to work", because the local Go version builds the tool (2026-09-19). The project also needs Ansible, which is not a Go tool |
 
 The golangci-lint documentation gives `mise` as a local installation method (2026-09-19).
 
@@ -123,7 +96,7 @@ give a configured response, status code, or error. Buildkite tests its own contr
 W-05 MUST use this fake, and it MUST NOT contain a new fake of the same API.
 
 W-05 measured the import first, and it copied the file. An import puts `k8s.io/apimachinery`,
-`k8s.io/klog/v2`, `k8s.io/utils`, and `go-logr` in the module graph for one test helper, and it
+`k8s.io/klog/v2`, `k8s.io/utils`, and `go-logr` in the module graph for one test helper. It also
 asks for `stacksapi` v1.0.2, which is older than the version that this project needs. The package
 carries no release tag, so an import also pins an untagged commit of a Kubernetes controller.
 `test/fakestacks` therefore holds the file with its MIT notice and its provenance, and the module
@@ -138,15 +111,16 @@ makes. Each change carries a comment in the file that starts with "Change of thi
 3. A test can set the headers of an answer, which the `Retry-After` case of T-040 needs.
 4. A reserved job leaves the scheduled-jobs list and takes the state `reserved`, as the API
    states. A test that runs the controller end to end (T-060) needs the list to move.
-5. A test can set a job state, schedule a job again as an expired reservation does (T-021), pause
-   the queue (T-022), and read the calls while the controller runs, under the lock of the server.
+5. A test can do these things while the controller runs, under the lock of the server:
+   set a job state, schedule a job again as an expired reservation does (T-021), pause the
+   queue (T-022), and read the calls.
 6. A finish call records the exit status and the detail that it sends, which T-062 reads.
 7. A test can revoke the token while the controller runs, and every call then gets HTTP 401
    (T-063).
 8. The routes are a handler that a test program serves itself, for the smoke deployment on
    Kubernetes (W-21).
 
-The fake is not a conformance suite. Open item O-1 of the test strategy stays: the fixtures of
+The fake is not a conformance suite. Open item O-1 of the test strategy stays. The fixtures of
 T-040 come from recorded responses of a real Buildkite test cluster.
 
 ## 4. Work units
@@ -195,7 +169,7 @@ from their number.
 | W-17 | An outage or a rate limit degrades the controller safely | `internal/controller`, both clients | W-15 | T-024; the controller obeys `Retry-After` | PR-010, QA-03 |
 | W-18 | The token replacement procedure works, and a runbook describes it | `docs/runbooks/`, `internal/health` | W-15 | The procedure of the target design, section 9.2 passes against a test cluster | PR-023 |
 | W-19 | CI detects dependency and model drift | CI workflows | W-01, W-06 | T-041, T-064, T-121 | CO-02, CO-06 |
-| W-20 | The load test measures the target scale | `test/load` | W-14 | T-080 runs nightly and reports | SC-05, CO-01 |
+| W-20 | The load test measures the target scale | `test/integration/load_test.go` | W-14 | T-080 runs nightly and reports | SC-05, CO-01 |
 
 ### 4.4 Increment 4 — fleet readiness
 
@@ -248,15 +222,15 @@ flowchart LR
 The critical path is W-26, W-01, W-02, W-04, W-08, W-10, W-11, W-13, W-16, W-21, W-24, W-25.
 W-27 is on no path, and it runs on a schedule after it exists.
 
-W-22 and W-23 are not on the software path, and the owner decided on 2026-09-20 that neither one
-starts early: the hosts are not necessary for increments 0 to 3, and the pilot image blocks no
+W-22 and W-23 are not on the software path. The owner decided on 2026-09-20 that neither one
+starts early. The hosts are not necessary for increments 0 to 3. The pilot image blocks no
 software work until W-24. W-23 therefore runs last.
 
 This has one consequence to watch. W-24 needs an image that contains `buildkite-agent` v4 and the
-Tart guest agent, so the end-to-end evidence, and with it the only proof that the guest-agent
-transport starts an agent (open item O-2), waits for W-23. If that wait becomes a problem, the
-smaller step is an image with the agent and the guest agent but no Xcode, which the end-to-end
-scenarios other than the iOS build can use.
+Tart guest agent. The end-to-end evidence therefore waits for W-23. This evidence includes the
+only proof that the guest-agent transport starts an agent (open item O-2). If the wait becomes a
+problem, a smaller step is possible. This step is an image with the agent and the guest agent but
+no Xcode. The end-to-end scenarios other than the iOS build can use this image.
 
 ## 6. Estimates
 
@@ -273,19 +247,28 @@ familiar Go, no interruption for other work, and no new decision during the incr
 
 Dates that the plan must respect:
 
-* The Mac hosts ship on 2026-09-22 (SC-04). W-22 cannot start before they arrive.
-* The pilot starts approximately one month after 2026-09-14 (SC-03), so about 2026-10-14.
-* The pilot exit criteria need two weeks of measurement (QA-04), so the earliest exit is about
-  2026-10-28.
+* The date at which the Mac hosts are ready is `UNKNOWN`. W-22 cannot start before they arrive.
+* The pilot start date is `UNKNOWN`.
+* The earliest pilot exit date is `UNKNOWN`. The pilot exit criteria need two weeks of measurement
+  (QA-04).
+
+The owner of these dates is the maintainer (checked 2026-11-01). The date of host readiness becomes
+known when the Mac hosts are ready. The pilot dates become known when a Buildkite test cluster and
+the Mac hosts are ready. The plan of 2026-09-14 had three estimates. The hosts ship on
+2026-09-22 (SC-04). The pilot starts about 2026-10-14 (SC-03). The earliest exit is about
+2026-10-28.
 
 Each work unit carries a day estimate and a size in the GitHub project of the maintainer. The
-estimates of an increment sum inside its range above. The project holds the value for each unit,
-and this document holds the range for each increment, so a change to one unit does not need a
+estimates of an increment sum inside its range above. The project holds the value for each unit.
+This document holds the range for each increment. A change to one unit therefore does not need a
 change to this document.
 
-The sum of the ranges is 21 to 36 working days. The lower range meets the pilot date only if the
-image build (W-23) starts before the hosts arrive, and if no increment needs a new decision. The
-owner SHOULD expect the pilot entry in the second half of October 2026.
+The sum of the ranges is 21 to 36 working days. This estimate covers the work units only. It
+holds for the lower range when no increment needs a new decision. W-23 runs last, as section 5
+states, so the estimate does not depend on an early image build. The pilot entry date is `UNKNOWN`
+(checked 2026-11-01). The owner of the date is the maintainer. It becomes known when a Buildkite
+test cluster and the Mac hosts are ready. The plan of 2026-09-14 expected the pilot entry in the
+second half of October 2026.
 
 ## 7. Verification
 
@@ -309,8 +292,8 @@ and W-25. No requirement has no unit.
 |---|---|---|---|
 | D-1 | The guest-agent transport fails on the first real VM (O-2) | W-24 stops | Set `startupTransport: ssh` on the pilot profile, and restore the VM credentials. ADR-0009 permits this per profile. The transport then needs a new experiment, not a design change |
 | D-2 | The fake Stacks server does not model the real API (O-1) | Increment 1 and 2 evidence is weaker than it looks | Record the responses of a Buildkite test cluster early in W-05, and use them as fixtures |
-| D-3 | A macOS 27 guest needs a macOS 27 host (O-4), and the hosts arrive with an older version | W-22 and W-24 stop | Test the assumption on the development Mac before 2026-09-22. If it holds, update the hosts before the worker installation |
-| D-4 | The hosts arrive later than 2026-09-22 | W-22, W-24, and the pilot move | Increments 1 to 3 and W-23 continue. Only W-22 and W-24 wait |
+| D-3 | A macOS 27 guest needs a macOS 27 host (O-4), and the hosts arrive with an older version | W-22 and W-24 stop | Test the assumption on the development Mac before the hosts arrive. If it holds, update the hosts before the worker installation |
+| D-4 | The hosts are ready later than increments 1 to 3 finish | W-22, W-24, and the pilot move | Increments 1 to 3 continue, and W-23 follows them (section 5). Only W-22 and W-24 wait |
 | D-5 | The image build takes longer than expected, or the host storage holds fewer images than the fleet needs (SC-09) | W-23 and the pilot profile change | Build one profile only for the pilot. Measure the image count for each host, which is evidence E-4 |
 | D-6 | An Orchard release changes the VM specification or a role | W-06, W-19, and the deployment change | T-064 detects this at the gate. Hold the pinned version, and open an ADR review |
 | D-7 | The demand model is wrong, so the fleet size is wrong (SC-05) | The pilot capacity plan changes, not the software | Pilot telemetry replaces the model. The plan needs no change |

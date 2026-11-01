@@ -10,15 +10,20 @@ Do this procedure:
 * when the token could be known to a person or a system that must not have it;
 * when the controller logs that Buildkite refused the agent token.
 
+## Conventions
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT",
+"RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be
+interpreted as described in BCP 14 [RFC 2119] [RFC 8174] when, and only when, they appear in
+all capitals, as shown here.
+
 ## Why the order is important
 
 The cluster agent token issues a job acquisition token for each job VM. Buildkite applies the
 restrictions of the cluster agent token when the agent in the VM registers with its job
-acquisition token. When you revoke a cluster agent token, the job acquisition tokens that it
-issued also stop.
-
-Thus, if you revoke the old token while a VM from before the restart exists, the agent in that VM
-cannot acquire its job, or it loses the job. Revoke the old token last.
+acquisition token. A revoked cluster agent token also stops each job acquisition token that it
+issued. If the operator revokes the old token while a VM from before the restart exists, the agent
+in that VM loses its job or cannot acquire it. Revoke the old token last.
 
 The controller keeps no durable state. A restart does not change the result of a job (PR-010).
 After the restart, the controller finds its VMs by name, and it extends every reservation at the
@@ -26,7 +31,7 @@ first pass.
 
 ## Before you start
 
-1. Get the `allowed_ip_addresses` of the current token. The new token MUST have the same list.
+1. Get the `allowed_ip_addresses` of the current token. Give the new token the same list.
 2. Confirm that the list contains:
    * the egress addresses of the controller;
    * the egress addresses of the job VMs.
@@ -66,15 +71,15 @@ while it runs.
 In the Kubernetes reference deployment:
 
 1. Replace the value in the Secret that supplies the variable.
-2. Restart the Deployment. The Deployment uses `strategy: Recreate`, so the old process stops
-   before the new process starts, and only one controller serves the queue at a time.
+2. Restart the Deployment. The Deployment uses `strategy: Recreate`. The old process therefore
+   stops before the new process starts, and only one controller serves the queue at a time.
 
 Write down the time of the restart. Step 4 needs it.
 
 ### 3. Confirm that the controller uses the new token
 
-1. Wait until the controller is ready. The sources answer in the first seconds after the start, so a
-   controller that stays unready for more than one minute has a problem.
+1. Wait until the controller is ready. The sources answer in the first seconds after the start.
+   A controller that stays unready for more than one minute has a problem.
 2. If the controller logs that Buildkite refused the agent token, the new token is not correct. Do
    the rollback below.
 3. Confirm on the Buildkite queue that the controller reserves jobs and that their VMs start.
@@ -82,15 +87,14 @@ Write down the time of the restart. Step 4 needs it.
 ### 4. Wait for the VMs from before the restart
 
 A VM that the controller created before the restart has a job acquisition token that the old
-token issued. The old token MUST stay valid until each of these VMs is gone.
+token issued. Keep the old token valid until each of these VMs is gone.
 
 List the VMs of the controller in Orchard. Their names start with `bk-<controllerID>-`. Compare
 the `createdAt` of each VM with the time of the restart. Wait until no VM has a `createdAt` before
 the restart.
 
 Most VMs go when their job ends. The `maxVMLifetime` (25 h by default) is the longest time that a
-VM can exist, because the Reaper deletes a VM that is older (row 2 of the target design, section
-7.2).
+VM can exist. The Reaper deletes a VM that is older (row 2 of the target design, section 7.2).
 
 ### 5. Revoke the old token
 
@@ -106,8 +110,8 @@ If the controller with the new token is not ready because Buildkite refused the 
 1. Supply the old token again, in the same way as step 2, and restart the controller.
 2. Confirm that the controller is ready.
 3. Do not revoke the old token.
-4. Find why Buildkite refused the new token, for example a token for a different cluster, and
-   start again at step 1.
+4. Find why Buildkite refused the new token, for example a token for a different cluster.
+   Then start again at step 1.
 
 The old token stays valid until step 5, so a rollback is always possible before step 5.
 
@@ -123,5 +127,5 @@ Record these values for the next review (T-141):
 
 Before the pilot, do this procedure one time against a Buildkite test cluster (W-18, W-24). Until
 then, the tests of this repository confirm only the part of the procedure that the controller
-controls: readiness fails, and the log names the token, when the Stacks API returns HTTP 401
+controls. When the Stacks API returns HTTP 401, readiness fails and the log names the token
 (T-063).

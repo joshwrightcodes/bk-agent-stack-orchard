@@ -7,7 +7,7 @@
   * [Product requirements](../product/requirements.md): requirement identifiers such as `PR-005`
   * [System design baseline](system-design-baseline.md): driver identifiers such
     as `QA-01`
-  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0008
+  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0014
 
 ## Conventions
 
@@ -22,7 +22,7 @@ state names in `code format` are technical names.
 ## 1. Purpose
 
 `bk-agent-stack-orchard` runs Buildkite jobs on temporary macOS virtual machines (VMs). The
-VMs operate on self-hosted Apple Silicon Macs.
+VMs operate on self-hosted Apple silicon Macs.
 
 The controller monitors a Buildkite queue for scheduled jobs. For each job, it starts one new
 Tart VM through Orchard. When the job ends, the controller deletes the VM. This behavior is the
@@ -274,9 +274,8 @@ smaller than the disk of the image, in bytes. A macOS 27 guest grows its APFS co
 at boot (2026-10-10), so a larger `diskSizeGB` gives a job more space.
 
 **Image contents.** Each profile image MUST contain `buildkite-agent` v4 and its hooks (CO-06).
-An image for the guest-agent transport MUST also run the Tart guest agent. The
-`cirruslabs/macos-image-templates` base template installs it and its launch agent (as of
-2026-09-19).
+An image for the guest-agent transport MUST also run the Tart guest agent. The image build of
+this project installs it and its launchd jobs (ADR-0012, 2026-11-01).
 
 **Implements.** PR-003, PR-004, PR-020, PR-021, PR-026, QA-05, SC-07, SC-08.
 
@@ -311,7 +310,7 @@ sequenceDiagram
     O->>O: Schedule on worker mac-03, clone, boot
     C->>O: List VMs (worker mac-03, status running)
     C->>BK: Notifications placed on mac-03, booting
-    O->>VM: Startup script over SSH
+    O->>VM: Startup script over the Tart guest agent
     VM->>BK: buildkite-agent start --acquire-job J
     BK-->>VM: Job J runs and finishes
     VM->>VM: Agent exits, script exits
@@ -333,11 +332,11 @@ decide what old data permits it to do.
 Admission does these steps:
 
 1. **Candidates.** Select the matched scheduled jobs that have no owned VM with the same name,
-   and that this process does not hold. A job that this process reserved, or whose VM it
-   requested, is its own even when the Inventory data does not show the VM yet: the Inventory
-   learns of a launch only at its next refresh, and a poll that fails keeps an answer that still
-   lists the job. Sort them by Buildkite `priority` (highest first), then by `scheduled_at` (oldest
-   first).
+   and that this process does not hold. This process owns each job that it reserved, and each
+   job whose VM it requested. This is also true when the Inventory does not show the VM yet. The
+   Inventory sees a launch only at its next refresh. A failed poll keeps the last answer, and that
+   answer can still list the job. Sort them by Buildkite `priority` (highest first), then by
+   `scheduled_at` (oldest first).
 2. **In-flight limit.** Stop when the number of owned VMs, plus the VMs that this process
    requested and the Inventory data does not show yet, plus admitted jobs, is equal to
    `maxInFlight`. The default value of `maxInFlight` is 0, which means the total VM slots of the
@@ -488,7 +487,7 @@ Orchard sets the VM status to `running` when the Tart VM process starts. At this
 not completed its boot. Because of this:
 
 * The `boot` timeout includes the image pull, the clone, and the configuration.
-* The `acquire` timeout includes the guest OS boot, SSH, and the agent start.
+* The `acquire` timeout includes the guest OS boot, the guest agent, and the agent start.
 
 If no row matches (for example, a job state that the controller does not know), the Reaper MUST
 take no action. The Reaper MUST write a warning log with the VM phase and the job state. Row 2
@@ -880,7 +879,7 @@ APIs.
 | bk-agent-stack-orchard | Kubernetes | A Helm chart that ArgoCD deploys. A `Deployment` with 1 replica and `strategy: Recreate`. A ConfigMap for the configuration. Secrets as environment variables. gRPC probes of the health service on `healthAddress`: `liveness` (the process is alive) and `readiness` (all sources synchronized in the last 30 s). `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME=bk-agent-stack-orchard`, and `OTEL_RESOURCE_ATTRIBUTES` (`controller.id`, and `k8s.*` from the downward API). A NetworkPolicy that permits egress only to `agent.buildkite.com:443`, Orchard `:6120`, and the collector. The image comes from §15. |
 | Orchard controller | Kubernetes | `deploy/orchard`, a kustomize base. The image is the Orchard release at the version of §9.2, built by `deploy/orchard/image` for the registry of the fleet, because `ghcr.io/openai/orchard` does not answer a pull without credentials (2026-09-26, [openai/orchard#501](https://github.com/openai/orchard/issues/501)). A 1-replica StatefulSet with a PVC at `/data`, a headless governing Service, and the certificate and key of a Secret that an authority of the operator signs. A StatefulSet, because Orchard keeps its state in an embedded database with one scheduler and no leader election, so at most one pod may write to `/data`, and a StatefulSet starts no replacement until the old pod is gone. A deletion of the StatefulSet leaves the PVC. An internal LoadBalancer on port 6120 that the Mac hosts can reach. `ORCHARD_BOOTSTRAP_ADMIN_TOKEN` from a Secret. A bootstrap Job that sets the `bk-agent-stack-orchard` service account and the worker service account through the REST API, on every run. An explicit `OTEL_EXPORTER_OTLP_ENDPOINT`. The loss of the PVC is recoverable, because workers register again and the controller removes in-flight VMs. A backup is not necessary. |
 | Mac hosts | Mac mini with M5 Pro, 64 GB memory, and 1 TB storage (SC-04) | Ansible and launchd (`deploy/hosts`). Install Tart, Softnet, and Orchard at pinned versions, from their release archives, checked against their SHA-256. Softnet has the setuid bit, because Tart starts it with root for each VM (§9.1), and without the bit Tart asks for a password on a terminal. Turn off the sleep of the system and the disks, and start the host again after a power failure (`pmset`): Orchard fails the VMs of a worker that does not report for its offline timeout, so a host that sleeps fails its jobs. Load a pf anchor at each start of the host that blocks traffic from the VM networks to the host, except DHCP and DNS, and to the private ranges, except the `softnetAllow` CIDRs of the profiles of the host (§9.1). The anchor is under `com.apple/`, which `/etc/pf.conf` evaluates, so the host keeps the `/etc/pf.conf` of macOS. Run `orchard worker run --bootstrap-token-stdin --labels pool=<pool>` as root with `--user`. The bootstrap token carries the CA of the controller certificate, so a host trusts that CA with no change of its trust settings, and a new certificate of the same CA needs no new token. The token is in a file that only root can read, not in an argument. The automatic login of the worker user unlocks the login keychain. On macOS 27, `sysadminctl -autologin set` failed and a written `/etc/kcpassword` was ignored (2026-09-27), so the operator turns it on in System Settings, and the playbook checks it. Set `OTEL_EXPORTER_OTLP_ENDPOINT`. Run `tart pull` for the image of each profile whose `workerLabels` the worker labels contain. Read the image list from the controller configuration file. Because of this, the pulled images always agree with the profiles. The pilot image has a 104 GB disk, of which the host stores 59 GB, and other Xcode images up to 140 GB, so a 1 TB host holds only a few images (SC-09). The images build from a vanilla macOS image with only the software of an explicit list, and the build fails on anything else (ADR-0012). The pilot image is `images/build.sh pilot`: Xcode 27 from an archive that the owner downloads with an Apple ID, so that no build signs in to Apple, its iOS simulator runtime, and the Homebrew formulae of its list (PR-026). The image contains `buildkite-agent` v4 and the Tart guest agent (§5). Each host MUST run macOS 27.2 or later, because the job VMs run macOS 27.2 and a macOS guest needs a host of the same version or later (CO-07). The playbook refuses an older host. |
-| Local development | One Mac | `orchard dev` and `bk-agent-stack-orchard` with a `dev.yaml` file. A separate Buildkite test cluster and queue. |
+| Local development | One Mac | `orchard dev` and `bk-agent-stack-orchard` with a configuration file. A separate Buildkite test cluster and queue. |
 
 The chart is `deploy/helm/bk-agent-stack-orchard`. A standard Kubernetes NetworkPolicy matches
 addresses, pods, and namespaces, and not DNS names. The chart therefore limits the egress to the
@@ -918,8 +917,8 @@ Development MUST use TDD. Each change of behavior MUST start with a failing test
 | Phase | Scope | Exit criteria |
 |---|---|---|
 | 0 — Development | One Mac, `orchard dev`, a Buildkite test cluster | The end-to-end scenarios and the synthetic load test pass. |
-| 1 — Pilot | Orchard on Kubernetes, 2 to 4 Macs, one queue, 1 or 2 profiles. Only non-critical pipelines that opt in. Telemetry and alerts are active. The pilot profile uses Xcode 27 (PR-026). The pilot starts in approximately 1 month (SC-03). | Two weeks with zero leaked VMs and zero jobs that the controller failed incorrectly. The start time and the wait time are measured against QA-01 and QA-02. |
-| 2 — Adoption | Increase to 10 Macs and more profiles. Move pipelines to the queue. Adjust timeouts from telemetry. Adoption and scale start in approximately 3 months (SC-03). | The warm-pool decision is examined again with measured `job.phase.duration` data. |
+| 1 — Pilot | Orchard on Kubernetes, 2 to 4 Macs, one queue, 1 or 2 profiles. Only non-critical pipelines that opt in. Telemetry and alerts are active. The pilot profile uses Xcode 27 (PR-026). The pilot start date is `UNKNOWN` (SC-03; owner: the maintainer; trigger: a Buildkite test cluster and the Mac hosts are ready). On 2026-09-14, the plan estimated approximately 1 month. | Two weeks with zero leaked VMs and zero jobs that the controller failed incorrectly. The start time and the wait time are measured against QA-01 and QA-02. |
+| 2 — Adoption | Increase to 10 Macs and more profiles. Move pipelines to the queue. Adjust timeouts from telemetry. The date of adoption and scale is `UNKNOWN` (SC-03; same owner and trigger). On 2026-09-14, the plan estimated approximately 3 months. | The warm-pool decision is examined again with measured `job.phase.duration` data. |
 | 3 — Scale | 10 to 50 Macs | The load test agrees with production behavior. High availability and controller placement are decided only if telemetry shows a need. |
 
 **Implements.** PR-026, SC-01, SC-03, QA-01, QA-02.
@@ -942,7 +941,7 @@ Each item MUST have its own ADR before implementation:
 * **Dependency updates:** Renovate proposes the Go module, the image, and the action updates each
   week, after a release is three days old. Its commit messages use the conventional types of the
   contributing guide. A Go module update is a `fix`, because it changes the release artifacts.
-* **Tool versions:** one `mise.toml` file pins Go, golangci-lint, GoReleaser, Packer, and
+* **Tool versions:** one `mise.toml` file pins Go, golangci-lint, GoReleaser, and
   Ansible. A developer and CI use the same versions. CI runs `mise install` before each task.
   The golangci-lint documentation gives `mise` as an installation method, and it states that
   `go install` and `tool` directives are not guaranteed to work, because the local Go version
@@ -1014,82 +1013,8 @@ archives, the SBOMs of the archives, the checksums, and the container image. GoR
 ko through its `kos` section to build the image. The image MUST be distroless. The repository
 MUST NOT have a `.ko.yaml` file, because GoReleaser sets all ko options.
 
-The `.goreleaser.yaml` file MUST contain this configuration. `goreleaser check` validates it.
-
-```yaml
-version: 2
-
-project_name: bk-agent-stack-orchard
-
-builds:
-  - id: bk-agent-stack-orchard
-    main: ./cmd/bk-agent-stack-orchard
-    binary: bk-agent-stack-orchard
-    env:
-      - CGO_ENABLED=0
-    goos: [linux, darwin]
-    goarch: [amd64, arm64]
-    ignore:
-      - goos: darwin
-        goarch: amd64
-    flags: [-trimpath]
-    ldflags:
-      - -s -w -X main.version={{ .Version }} -X main.commit={{ .ShortCommit }}
-    mod_timestamp: "{{ .CommitTimestamp }}"
-
-archives:
-  - id: bk-agent-stack-orchard
-    ids: [bk-agent-stack-orchard]
-    formats: [tar.gz]
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-
-# Each archive gets an SPDX SBOM from syft. The checksums cover the archives and the SBOMs, and one
-# keyless cosign signature covers the checksums (ADR-0013). The chart is not here: it carries the
-# digest of the image, so the release workflow packages it after the image exists.
-sboms:
-  - artifacts: archive
-
-changelog:
-  disable: true
-
-checksum:
-  name_template: checksums.txt
-
-signs:
-  - cmd: cosign
-    signature: "${artifact}.sigstore.json"
-    args: ["sign-blob", "--bundle=${signature}", "${artifact}", "--yes"]
-    artifacts: checksum
-
-# release-please creates the release as a draft, with its changelog as the notes. GoReleaser
-# uploads the assets to that draft and keeps the notes. The workflow publishes the draft after it
-# has verified each signature, because the repository makes a published release immutable.
-release:
-  draft: true
-  use_existing_draft: true
-  mode: keep-existing
-  # A run that fails after the upload can run again on the same draft.
-  replace_existing_artifacts: true
-  prerelease: auto
-
-kos:
-  - id: bk-agent-stack-orchard
-    build: bk-agent-stack-orchard
-    base_image: gcr.io/distroless/static-debian13:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99
-    repositories: [ghcr.io/joshwrightcodes/bk-agent-stack-orchard]
-    platforms: [linux/amd64, linux/arm64]
-    # No latest tag: it would move before the workflow signs the image, and an operator pins a
-    # version. The chart refers to the image by its digest.
-    tags:
-      - "{{ .Tag }}"
-      - "{{ .Version }}"
-    bare: true
-    creation_time: "{{ .CommitTimestamp }}"
-    ko_data_creation_time: "{{ .CommitTimestamp }}"
-    # The release workflow attests an SBOM of each platform image with syft and cosign. The SBOM
-    # of ko has no signature, so it is off.
-    sbom: none
-```
+The `.goreleaser.yaml` file ([`.goreleaser.yaml`](../../.goreleaser.yaml)) MUST hold the
+configuration that the rules below describe. `goreleaser check` validates it.
 
 These rules apply to the configuration:
 

@@ -1,15 +1,16 @@
 # The Orchard client
 
-This client belongs to the project: its wire types are generated from a pinned Orchard version,
-and its behaviour is written by hand. This file says why, what it covers, how the project notices
-when the contract moves, and how to change it.
+This client belongs to the project. The project generates its wire types from a pinned Orchard
+version and writes its behaviour by hand. This file says why, what the client covers, how the
+project notices when the contract moves, and how to change the client.
 
 ## Why the project owns it
 
 Orchard carries the FSL-1.1-ALv2 licence, which permits every purpose except a competing use.
 This project publishes a container image under the AGPL-3.0, which forbids a further restriction
-on a distributed work. A binary that imports the Orchard Go client, or that carries code which a
-generator produced from the Orchard OpenAPI file, cannot be distributed under the AGPL-3.0. The
+on a distributed work. A binary cannot be distributed under the AGPL-3.0 when it imports the
+Orchard Go client. The same is true when it carries code that a generator produced from the
+Orchard OpenAPI file. The
 decision record `docs/adrs/0010-call-the-orchard-api-with-a-client-of-this-project.md` holds the
 reasoning.
 
@@ -17,14 +18,15 @@ reasoning.
 
 `tools/orchardgen` writes `types_gen.go` from the Orchard resource types at the pinned commit,
 and `go generate ./internal/orchard/` runs it. The `go:generate` directive carries that commit,
-because a tag can move: the generator resolves the tag of the version that the design states and
-stops when it no longer points at the pinned commit. The generated file carries the field names, the
-JSON tags, and a type for each field. Everything else here is written by hand: the requests, the
-retries, the errors, and the decisions about a conflict or a machine that is already gone.
+because a tag can move. The generator resolves the tag of the version that the design states. It
+stops when the tag no longer points at the pinned commit. The generated file carries the field
+names, the JSON tags, and a type for each field. A person writes everything else by hand. This
+includes the requests, the retries, the errors, and the decisions about a conflict or a machine
+that is already gone.
 
 The generator reads the Go types rather than the published OpenAPI description, because the Go
 types are what the server marshals. At 0.58.0 that description omits `randomSerial`, `createdAt`,
-`last_seen`, and `scheduling_paused`, which the controller uses, and its paths leave out the
+`last_seen`, and `scheduling_paused`, which the controller uses. Its paths also leave out the
 `/v1` prefix that the server serves. A client generated from it would not work.
 
 `ADR-0011` records this decision, and `ADR-0010` records why the Orchard Go client stays out of

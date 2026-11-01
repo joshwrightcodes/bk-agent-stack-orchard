@@ -9,7 +9,7 @@
   * [System design baseline](../architecture/system-design-baseline.md): driver identifiers such as
     `QA-01`, and quality scenarios such as `QS-1`
   * [Target design](../architecture/target-design.md)
-  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0009
+  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0014
 
 ## Conventions
 
@@ -34,14 +34,15 @@ it. It does not contain test code, and it does not define the pipelines of the a
 the fleet builds.
 
 In scope: the controller, its two API clients, the VM specification that it sends to Orchard, the
-telemetry that measures the quality targets, and the release artifacts.
+telemetry that measures the quality targets, the release artifacts, and the build of the job VM
+images. The owner decided on 2026-10-10 that the project builds the job VM images (ADR-0012).
 
-Out of scope: the behaviour of Tart, Orchard, Buildkite, and Apple Virtualization; the build of
-the VM images; dashboards and alert rules for a specific telemetry backend (target design,
-section 10.6).
+Out of scope: the behaviour of Tart, Orchard, Buildkite, and Apple Virtualization; dashboards and
+alert rules for a specific telemetry backend (target design, section 10.6).
 
-No code exists. Each obligation in section 6 is therefore `ADD`. Section 9 gives the obligations
-that the project does not take, with the reason.
+Section 6 gives each obligation as `ADD` because the repository had no tests when this strategy was
+accepted (2026-09-20). The implementation plan records which work unit added each test. Section 9
+gives the obligations that the project does not take, with the reason.
 
 ## 2. Delivery shape and its effect on evidence
 
@@ -71,8 +72,8 @@ Until all thirteen rows exist and T-020 passes, these limits apply:
 |---|---|---|
 | 1 — Walking skeleton | Stack, Poller, Matcher, Launcher, Telemetry, Reaper rows 2 and 4 | T-001, T-002, T-003, T-004 (capacity only), T-005 (rows 2 and 4), T-040, T-060, T-120, T-122 |
 | 2 — Full lifecycle | Reaper rows 1 and 3, 5 to 13; Admission with unplaced accounting; JobStates | T-005 (all rows), T-020, T-021, T-022, T-023, T-025, T-061, T-062 |
-| 3 — Operability | Readiness, token replacement, full telemetry, outage behaviour | T-008, T-024, T-041, T-063, T-064, T-121 |
-| 4 — Fleet readiness | Real Tart, real Buildkite cluster, one Mac | T-080, T-100 to T-106 |
+| 3 — Operability | Readiness, token replacement, full telemetry, outage behaviour | T-008, T-009, T-024, T-041, T-063, T-064, T-121 |
+| 4 — Fleet readiness | Real Tart, real Buildkite cluster, one Mac | T-080, T-100 to T-106, T-140, T-141 |
 
 ## 3. Risk map
 
@@ -114,8 +115,8 @@ have a different failure mode at each level.
 | L1 | Unit | Decision logic in pure functions, and the generated VM specification | CI, Linux | 1 min |
 | L2 | Component | The tick loop with in-memory fakes: invariants over random event sequences, restart, outages | CI, Linux | 5 min |
 | L3 | Contract | The behaviour of the two clients against recorded responses and the real Orchard API | CI, Linux | 2 min |
-| L4 | Integration | The real Orchard API and scheduler with synthetic workers, and a fake Stacks server | CI, Linux | 10 min |
-| L5 | Load | Tick duration, API call budget, and leaks at the target scale | CI, nightly | 30 min |
+| L4 | Integration | The real Orchard API and scheduler with synthetic workers, and a fake Stacks server | CI, macOS arm64 | 10 min |
+| L5 | Load | Tick duration, API call budget, and leaks at the target scale | CI, macOS arm64, nightly | 30 min |
 | L6 | End-to-end | Real Tart VMs, the guest-agent transport, real Buildkite, and real isolation | One development Mac | 60 min |
 
 The Matcher, the Admission function, and the Reaper decision function MUST be pure functions with
@@ -141,9 +142,9 @@ assert them at the end of each scenario.
 
 ## 6. Test matrix
 
-All actions are `ADD`, because the repository had no tests when this strategy was accepted
-(2026-09-20). The [implementation plan](../delivery/implementation-plan.md) records which work unit
-added each test. "Gate" is `required` when the gate stops a merge or a release, and `diagnostic`
+All actions are `ADD`, as section 1 explains. The
+[implementation plan](../delivery/implementation-plan.md) records which work unit added each test.
+"Gate" is `required` when the gate stops a merge or a release, and `diagnostic`
 when it reports only.
 
 ### 6.1 Static analysis and build (L0)
@@ -311,5 +312,5 @@ Each item is an unknown that can change a level or a scenario. Each has the smal
 | O-1 | The Buildkite `FakeAgentServer` is a test double, not a conformance suite. Its fidelity is unproven for this controller. The finish call of the Stacks API takes an exit status and a detail and no `signal_reason`, so the `signal_reason: stack_error` of T-009 is what Buildkite gives a job that a stack finishes, which no fake can show. | T-040 and T-060 can prove behaviour that the real API does not have. T-009 proves `exit_status -1` locally, and not `signal_reason`. | During W-24, when a Buildkite test cluster exists, record its responses, compare them with the fake, and use them as the fixtures of T-040 (owner decision, 2026-09-20). Read the `signal_reason` of a job that the controller finished there, for T-009. |
 | O-2 | `orchard dev --synthetic` does not run a real startup script. | L4 proves only that the API accepts the guest-agent transport. The transport itself is unproven until L6. | Send one VM specification with `transport: tart-guest-agent` to a synthetic controller, and record whether validation accepts it. **Evidence (2026-09-27):** on the development Mac, `TestARealMachineRunsTheStartupScript` (`mise run tart-test`) ran the controller, `orchard dev` with a real Tart worker, and the agent image. The guest agent ran the startup script: `buildkite-agent` v4.0.6 started, and Buildkite refused its job token with `401 Unauthorized: Invalid job acquisition token`. The fake Stacks server issues a token that Buildkite does not know, so no job runs there. T-100 stays the only proof of a job that runs. |
 | O-3 | Agent v4 support for an injected `traceparent` is not verified (target design, section 10.4). | The agent spans can stay outside the job trace. | Run one job on the development Mac with `profile.otel.enabled: true`, and examine the trace. |
-| O-4 | The host macOS version that a macOS 27 guest needs is an assumption (CO-07). | L6 and the pilot can need a host update before the hosts arrive on 2026-09-22. | Start a Golden Gate VM on the development Mac before the pilot hosts arrive. **Evidence (2026-09-27):** macOS 27 Golden Gate VMs run on the macOS 27 development Mac (W-23, and the test of O-2). An older host is not tested. |
+| O-4 | The host macOS version that a macOS 27 guest needs is an assumption (CO-07). | L6 and the pilot can need a host update before the pilot hosts are ready. The date of the hosts is `UNKNOWN` (owner: the maintainer; trigger: the Mac hosts are ready). On 2026-09-14 the plan estimated that the hosts ship on 2026-09-22. | Start a Golden Gate VM on the development Mac before the pilot hosts arrive. **Evidence (2026-09-27):** macOS 27 Golden Gate VMs run on the macOS 27 development Mac (W-23, and the test of O-2). An older host is not tested. |
 | O-5 | The tick duration budget for T-080 has no value yet. | The load test has no pass condition for the tick. It reports the tick, and it judges the invariants and the request budget. | Take the p95 of the first run of the `load` workflow on the runner as the baseline, and set the repository variable `LOAD_TICK_BUDGET` to two times that value. |
