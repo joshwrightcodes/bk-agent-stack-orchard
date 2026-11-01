@@ -133,7 +133,7 @@ Every commit message MUST follow [Conventional Commits 1.0.0](https://www.conven
 | `refactor` | A change of structure with no change of behaviour |
 | `perf` | A change that makes the controller faster or smaller |
 | `build` | `go.mod`, `mise.toml`, GoReleaser, and the image |
-| `ci` | The workflows and the gates |
+| `ci` | The workflows, the gates, and the self-hosted runner |
 | `chore` | Work that fits no other type, such as a dependency bump |
 | `revert` | A revert of an earlier commit |
 
@@ -156,6 +156,14 @@ Rules for the rest of the message:
   characters, because the module path belongs in the subject. A description from Dependabot
   starts with a capital letter ("Bump …"), because its configuration sets only the type and the
   scope.
+* A change of a workflow or of the runner uses `ci:`. It MUST NOT use `fix(ci)` or `fix(runner)`,
+  because release-please hides a commit by its type and not by its scope, so a `fix` of this kind
+  would show in the release notes. `scripts/check-commits.py` rejects both subjects.
+* A commit that fixes a vulnerability names its identifier (`GO-`, `GHSA-`, or `CVE-`) in the
+  subject or in the body, so that the release notes and a reader of the history can find the
+  advisory. Renovate has no template field for an advisory identifier (checked 2026-11-01 in the
+  Renovate documentation of templates), so the maintainer adds it when a vulnerability update
+  merges.
 * A breaking change has `!` before the colon, and a `BREAKING CHANGE:` footer that says what
   a user of the project must do.
 * Footers name the source identifiers, for example `Refs: W-06, PR-001` and `Evidence: T-041`.
@@ -184,6 +192,9 @@ Conventional Commits on `main`
 * The major version is 0. It MUST stay 0 until the maintainer decides that the project is stable.
   Only the maintainer starts version 1.0.0, and a pull request MUST NOT set a major version of 1
   or more.
+* Every 0.x release is a GitHub pre-release until version 1.0.0, and it is not the latest release.
+  `scripts/release-finish.sh` sets the flag from the tag when it publishes the draft, because a
+  published release is immutable.
 * A published tag never moves, and the repository rules block the deletion of a tag. To correct a
   bad release, publish a new version.
 

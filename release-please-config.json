@@ -6,6 +6,8 @@
   "bump-minor-pre-major": true,
   "bump-patch-for-minor-pre-major": false,
   "draft": true,
+  "prerelease": true,
+  "pull-request-header": ":robot: Release pull request. Known limitations: the release gate is open and the pilot has not run. Read https://github.com/joshwrightcodes/bk-agent-stack-orchard#known-limitations before you merge.",
   "force-tag-creation": true,
   "changelog-sections": [
     {

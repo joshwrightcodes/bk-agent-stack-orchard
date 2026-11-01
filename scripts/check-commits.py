@@ -30,6 +30,10 @@ SUBJECT = re.compile(
     r": (?P<description>.+)$"
 )
 
+# release-please hides a commit by its type, not by its scope, so a fix with one of these scopes
+# would reach the release notes. The scopes name the workflows and the self-hosted runner.
+CI_SCOPES = ("ci", "runner")
+
 MAX_SUBJECT = 72
 MAX_BODY = 72
 MAX_TITLE = 65
@@ -94,6 +98,10 @@ def check(rev: str, message: str, author: str = "", subject_limit: int = 0) -> l
         )
     else:
         description = match.group("description")
+        if match.group("type") == "fix" and match.group("scope") in CI_SCOPES:
+            problems.append(
+                f"fix({match.group('scope')}) would show in the release notes. "
+                "Use ci: for a change of a workflow or of the runner")
         if len(subject) > subject_limit:
             problems.append(f"subject is {len(subject)} characters, the limit is {subject_limit}")
         # Dependabot writes "Bump …" with a capital letter, and its configuration sets only the

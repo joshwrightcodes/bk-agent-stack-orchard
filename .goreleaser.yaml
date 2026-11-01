@@ -69,6 +69,12 @@ release:
   mode: keep-existing
   # A run that fails after the upload can run again on the same draft.
   replace_existing_artifacts: true
+  # Checked 2026-11-01 in GoReleaser 2.18.2 (internal/pipe/release/release.go): the value is not a
+  # template. It is the string "auto" or "true", and "auto" marks only a tag with a suffix such as
+  # -rc.1, so it does not mark v0.1.0. In keep-existing mode the run still sends this flag to the
+  # existing draft (internal/client/github.go, createOrUpdateRelease), so it can reset the flag
+  # that release-please set. scripts/release-finish.sh decides the flag at the publication, from
+  # the tag, and no fixed value here could change to false at 1.0.0 by itself.
   prerelease: auto
 
 kos:

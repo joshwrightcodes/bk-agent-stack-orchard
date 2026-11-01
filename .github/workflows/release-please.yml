@@ -8,6 +8,15 @@ name: release-please
 # The token comes from a GitHub App, not GITHUB_TOKEN. GitHub starts no workflow for a pull request
 # or a tag that GITHUB_TOKEN creates, so with it the release pull request would get no CI, and the
 # tag would start no release.
+#
+# Settings of release-please-config.json that cannot carry a comment, checked 2026-11-01 in
+# release-please-action 5.0.0 (it bundles release-please 17.x, dist/index.js):
+# * "prerelease": true marks a release as a pre-release only while its major version is 0 (or it
+#   has a suffix). It is the same rule as scripts/release-finish.sh, which decides at publication.
+# * "pull-request-header" replaces the first lines of the release pull request body. It names the
+#   known limitations of the README.
+# * "changelog-sections" match the commit type, not the scope. scripts/check-commits.py rejects
+#   fix(ci) and fix(runner), so that a change of a workflow cannot reach the release notes.
 
 on:
   push:

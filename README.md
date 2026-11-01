@@ -36,6 +36,19 @@ that compiles.
 
 Do not use the controller for production work before increment 4 is complete.
 
+## Known limitations
+
+Each release pull request links to this section. As of 2026-11-01, from the
+[test strategy](docs/quality/test-strategy.md) and the status above:
+
+* The release gate is open. Tests T-100 to T-105 MUST pass on real hardware before version 0.1.0.
+  They cover a real job on a Tart VM, the network limits, a failed image, a restart, the
+  replacement of the token, and the storage of artifacts.
+* Increment 4 is in progress, and the pilot has not run. The token replacement has not run on a
+  live cluster (W-18).
+* Every 0.x release is a pre-release. A minor version can contain a breaking change
+  ([Versioning](#versioning)).
+
 ## The problem
 
 Buildkite does not start agents for a self-hosted queue, so the fleet must supply them. Each iOS

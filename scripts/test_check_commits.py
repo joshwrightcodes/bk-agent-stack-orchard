@@ -79,6 +79,13 @@ class CheckTest(unittest.TestCase):
         problems = check_commits.check("r", message, "Josh")
         self.assertTrue(any("body line" in p for p in problems), problems)
 
+    def test_a_person_uses_ci_for_workflow_changes(self) -> None:
+        for scope in ("ci", "runner"):
+            problems = check_commits.check("r", f"fix({scope}): start the job again", "Josh")
+            self.assertTrue(any("Use ci:" in p for p in problems), problems)
+        self.assertEqual(check_commits.check("r", "ci(runner): start the job again", "Josh"), [])
+        self.assertEqual(check_commits.check("r", "fix(reaper): delete the VM", "Josh"), [])
+
     def test_a_person_signs_off(self) -> None:
         email = "josh@example.org"
         signed = "docs: say more\n\nSigned-off-by: Josh <JOSH@example.org>"

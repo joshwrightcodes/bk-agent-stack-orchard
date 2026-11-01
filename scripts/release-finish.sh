@@ -56,5 +56,14 @@ if ! diff <(sort "$want") <(sort "$got"); then
   exit 1
 fi
 
-gh api --method PATCH "$api/releases/$id" -F draft=false > /dev/null
-echo "release-finish: published $tag"
+# The tag decides the pre-release flag, because a published release is immutable. Every 0.x release
+# is a pre-release until 1.0.0, and it is not the latest release. A tag of another major version
+# is neither. Checked 2026-11-01: GoReleaser 2.18.2 resets the flag on the draft, and its own
+# value cannot be a template (see .goreleaser.yaml), so this PATCH is the one place that decides.
+case "$tag" in
+  v0.*) flags=(-F prerelease=true -F make_latest=false) ;;
+  *) flags=(-F prerelease=false) ;;
+esac
+
+gh api --method PATCH "$api/releases/$id" -F draft=false "${flags[@]}" > /dev/null
+echo "release-finish: published $tag (${flags[1]})"
