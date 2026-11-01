@@ -32,6 +32,12 @@ uv = "0.12.19"
 # change the binary without a failed install.
 [tools."github:openai/orchard"]
 version = "0.58.0"
+# The macOS release binary fails its own signature check: its designated requirement looks for the
+# Developer ID marker on the root certificate (openai/orchard#456, still so in 0.58.0). macOS 26
+# kills it at launch. After mise has checked the SHA-256 above, this gives only this binary an ad
+# hoc signature, as a build from source gets. It runs on each install, so a restored cache also
+# gets it, and it changes nothing on Linux.
+postinstall = { run = '[ "$(uname -s)" != Darwin ] || codesign --force --sign - "$MISE_TOOL_INSTALL_PATH/orchard"', when = "always" }
 
 [tools."github:openai/orchard".platforms]
 linux-x64 = { asset_pattern = "orchard-linux-amd64.tar.gz", checksum = "sha256:55370716a7e5ad86643a9829afbdf99b57e0cc957bb7dcef2a8a2acd44b97051" }
@@ -87,7 +93,7 @@ run = "go test ./..."
 
 [tasks.integration]
 description = "Run the integration tests against orchard dev in synthetic mode"
-run = ["./scripts/sign-orchard.sh", "go test -tags integration -count=1 ./test/integration/..."]
+run = "go test -tags integration -count=1 ./test/integration/..."
 
 [tasks.check-deploy]
 description = "Lint the Helm chart, and validate the chart and the Orchard manifests against the Kubernetes schemas"
@@ -140,10 +146,7 @@ run = "go test -tags integration,tart -count=1 -timeout 30m -run TestAController
 
 [tasks.load]
 description = "Run the load test at the target scale (T-080), about 25 minutes"
-run = [
-  "./scripts/sign-orchard.sh",
-  "go test -tags integration,load -count=1 -timeout 45m -run TestTheControllerCarriesTheTargetScale -v ./test/integration/",
-]
+run = "go test -tags integration,load -count=1 -timeout 45m -run TestTheControllerCarriesTheTargetScale -v ./test/integration/"
 
 [tasks.orchard-image]
 description = "Build the image of the Orchard controller from its release (deploy/orchard/image)"

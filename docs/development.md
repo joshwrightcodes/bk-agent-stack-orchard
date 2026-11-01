@@ -161,9 +161,8 @@ These conditions also apply:
 * The macOS binary of Orchard 0.56.0 and later fails its own signature check
   ([openai/orchard#456](https://github.com/openai/orchard/issues/456), checked 2026-10-31). macOS 26
   kills it at launch, before it writes any output, so each test waits for workers that never
-  report. `mise run integration` and `mise run load` start with `scripts/sign-orchard.sh`, which
-  gives the binary an ad hoc signature when its own signature fails. mise checks the SHA-256 of
-  the archive first.
+  report. The `postinstall` of the Orchard entry in `mise.toml` gives that binary, and no other
+  tool, an ad hoc signature on each `mise install`. mise checks the SHA-256 of the archive first.
 
 ## The CI runner of the integration tests
 
