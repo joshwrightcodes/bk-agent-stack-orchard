@@ -10,6 +10,8 @@ config:
   buildkite:
     queue: smoke
     endpoint: http://fakestacks.smoke:8080
+    # The fake Stacks API of the smoke cluster serves no TLS.
+    plainHTTPEndpoint: true
   orchard:
     url: https://orchard.orchard.svc:6120
     serviceAccount: bk-agent-stack-orchard

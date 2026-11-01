@@ -9,7 +9,7 @@
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
   extends: ["config:recommended"],
 
-  enabledManagers: ["gomod", "dockerfile", "kubernetes", "github-actions", "custom.regex"],
+  enabledManagers: ["gomod", "dockerfile", "kubernetes", "github-actions", "custom.regex", "mise"],
   kubernetes: {
     // The image of the bootstrap Job of Orchard. No other manifest pins an image.
     managerFilePatterns: ["/^deploy/orchard/bootstrap-job\\.yaml$/"],
@@ -83,6 +83,25 @@
       matchManagers: ["custom.regex"],
       semanticCommitType: "fix",
       groupName: "release base image",
+    },
+    {
+      // Of the tools in mise.toml, only Go: a patch release of Go fixes the standard library in
+      // the binary. A new minor version changes the Go version that the design states, so a
+      // person decides it. The other tools follow their documents (upstream.yml).
+      matchManagers: ["mise"],
+      enabled: false,
+    },
+    {
+      matchManagers: ["mise"],
+      matchDepNames: ["go"],
+      enabled: true,
+      semanticCommitType: "fix",
+    },
+    {
+      matchManagers: ["mise"],
+      matchDepNames: ["go"],
+      matchUpdateTypes: ["minor", "major"],
+      enabled: false,
     },
     {
       matchManagers: ["github-actions"],
