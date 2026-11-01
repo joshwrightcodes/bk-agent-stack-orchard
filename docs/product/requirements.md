@@ -44,8 +44,11 @@ The intended outcome has five parts:
 * Source code stays on owner infrastructure, in the operating country.
 
 The horizon has four phases. Development uses one Mac, and the pilot uses 2 to 4 Macs. Adoption
-uses up to 10 Macs, and scale uses 10 to 50 Macs. The pilot starts in approximately 1 month, and
-adoption and scale follow in approximately 3 months (from 2026-09-14).
+uses up to 10 Macs, and scale uses 10 to 50 Macs. The dates of the
+phases are `UNKNOWN`. The owner of the dates is the maintainer. They become known when a Buildkite
+test cluster and the Mac hosts are ready (2026-11-01). The plan of 2026-09-14 estimated that the
+pilot starts in approximately 1 month, and that adoption and scale follow in approximately 3
+months.
 
 ## 2. Actors
 
@@ -63,6 +66,8 @@ In scope:
 * Selection of a VM profile from the agent tags of a job.
 * Visible failure of jobs that cannot run.
 * Configuration, credentials, readiness, and telemetry for the fleet operator.
+* The build of the job VM images. This was a non-goal until the owner decided on 2026-10-10 that
+  the project builds them (ADR-0012).
 
 Non-goals:
 
@@ -75,7 +80,6 @@ Non-goals:
 * Wildcard and negated tag rules.
 * More than one queue in one controller process.
 * Operation in more than one region. An additional region uses a new queue with its own fleet.
-* The build of the VM images.
 
 Protected experience:
 
@@ -285,9 +289,9 @@ requirements. The target design describes the job lifecycle and the failure proc
 * Source: owner answer Q-P4 (2026-09-14); owner comment (2026-09-19). Status: `accepted`.
 * Facts (as of 2026-09-19): Apple released macOS 27 (Golden Gate) and Xcode 27 (build 27A266a) on
   2026-09-14. Xcode 27 needs macOS Tahoe 26.6 or later and an Apple silicon Mac, and it contains
-  the iOS 27 SDK. `ghcr.io/cirruslabs/macos-golden-gate-base:latest` gives the macOS 27 base image.
-  No published Tart image has Xcode 27, so the fleet builds the Xcode layer with
-  `templates/xcode.pkr.hcl` and `macos_version = golden-gate`.
+  the iOS 27 SDK. No published Tart image had Xcode 27 on that date. Since 2026-10-10, the project
+  builds the pilot image from `ghcr.io/cirruslabs/macos-golden-gate-vanilla` and an Xcode archive
+  (ADR-0012).
 * Acceptance: Given the pilot profile. When a job builds and tests the iOS app. Then the job uses
   macOS 27, Xcode 27, and the iOS 27 SDK.
 
@@ -368,13 +372,15 @@ Dependencies:
   v4.9.0 is current (2026-10-30, checked 2026-11-01). Agent v4 stops immediately when a flag is not
   defined.
 * The VM image runs the Tart guest agent, which the startup-script transport needs (ADR-0009).
-* Orchard 0.57.0 or later is in use. This release contains pull requests #465 and #470
-  (2026-09-15).
+* Orchard 0.58.0 or later is in use (ADR-0005, 2026-10-19). Release 0.57.0 contains pull requests
+  #465 and #470 (2026-09-15), and release 0.58.0 contains them too.
 * The Mac mini with M5 Pro ships from 2026-09-22 (Apple, as of 2026-09-14). The pilot needs the
-  hosts before 2026-10-14.
-* The fleet operator builds a Tart image from `ghcr.io/cirruslabs/macos-golden-gate-base` with
-  Xcode 27, the `buildkite-agent` binary, and the Tart guest agent, and stores it in an OCI
-  registry (PR-026). No published Tart image has Xcode 27 (as of 2026-09-19).
+  hosts. The date at which the hosts are ready is `UNKNOWN`. The owner is the maintainer. The date
+  becomes known when a Buildkite test cluster and the Mac hosts are ready (2026-11-01). The plan of
+  2026-09-14 estimated that the pilot needs the hosts before 2026-10-14.
+* The fleet operator builds each Tart image with the build of this project (`images/`), from
+  `ghcr.io/cirruslabs/macos-golden-gate-vanilla`. The image has Xcode 27, the `buildkite-agent`
+  binary, and the Tart guest agent. The operator stores it in an OCI registry (PR-026, ADR-0012).
 * The fleet operator pulls each profile image to each host before use.
 * Owner-managed artifact storage exists in the operating country (PR-032).
 

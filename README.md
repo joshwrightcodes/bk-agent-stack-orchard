@@ -153,7 +153,7 @@ version.
 
 | Document | Contents |
 |---|---|
-| [Product requirements](docs/product/requirements.md) | The problem, the actors, the journeys, and requirements PR-001 to PR-033 |
+| [Product requirements](docs/product/requirements.md) | The problem, the actors, the journeys, and 23 requirements: PR-001 to PR-012, PR-020 to PR-026, and PR-030 to PR-033 |
 | [System design baseline](docs/architecture/system-design-baseline.md) | Quality scenarios, the assumed demand model, the quality targets, the cost comparison, and the driver register |
 | [Target design](docs/architecture/target-design.md) | Components, job lifecycle, failure handling, configuration, security, observability, deployment, and conventions |
 | [C4 model](docs/architecture/c4.md) | Levels 1 to 3, generated from [`workspace.dsl`](docs/architecture/workspace.dsl) |
@@ -190,10 +190,10 @@ version.
 | [Orchard](https://github.com/openai/orchard) | 0.58.0 or later | Schedules the VMs on the Mac hosts |
 | [Tart](https://github.com/openai/tart) | 2.41.1 | Runs macOS VMs on Apple Virtualization |
 | `buildkite-agent` | v4 | In the VM image |
-| Pilot image | macOS 27, Xcode 27 | Built from `macos-golden-gate-vanilla` (ADR-0012) |
+| Pilot image | macOS 27.2, Xcode 27 | Built from `macos-golden-gate-vanilla` (ADR-0012) |
 | Telemetry | OpenTelemetry (OTLP only) | No Prometheus endpoint |
 | Licence | AGPL-3.0-or-later | The controller holds no third-party code with a use restriction |
-| Tools and tasks | `mise` | Pins Go, golangci-lint, GoReleaser, Packer, and Ansible |
+| Tools and tasks | `mise` | Pins Go, golangci-lint, GoReleaser, and Ansible |
 
 ## Development
 

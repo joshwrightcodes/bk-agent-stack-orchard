@@ -9,7 +9,7 @@
   * [System design baseline](../architecture/system-design-baseline.md): driver identifiers such as
     `QA-01`, and quality scenarios such as `QS-1`
   * [Target design](../architecture/target-design.md)
-  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0009
+  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0014
 
 ## Conventions
 
@@ -34,14 +34,15 @@ it. It does not contain test code, and it does not define the pipelines of the a
 the fleet builds.
 
 In scope: the controller, its two API clients, the VM specification that it sends to Orchard, the
-telemetry that measures the quality targets, and the release artifacts.
+telemetry that measures the quality targets, the release artifacts, and the build of the job VM
+images. The owner decided on 2026-10-10 that the project builds the job VM images (ADR-0012).
 
-Out of scope: the behaviour of Tart, Orchard, Buildkite, and Apple Virtualization; the build of
-the VM images; dashboards and alert rules for a specific telemetry backend (target design,
-section 10.6).
+Out of scope: the behaviour of Tart, Orchard, Buildkite, and Apple Virtualization; dashboards and
+alert rules for a specific telemetry backend (target design, section 10.6).
 
-No code exists. Each obligation in section 6 is therefore `ADD`. Section 9 gives the obligations
-that the project does not take, with the reason.
+Section 6 gives each obligation as `ADD` because the repository had no tests when this strategy was
+accepted (2026-09-20). The implementation plan records which work unit added each test. Section 9
+gives the obligations that the project does not take, with the reason.
 
 ## 2. Delivery shape and its effect on evidence
 
@@ -71,8 +72,8 @@ Until all thirteen rows exist and T-020 passes, these limits apply:
 |---|---|---|
 | 1 — Walking skeleton | Stack, Poller, Matcher, Launcher, Telemetry, Reaper rows 2 and 4 | T-001, T-002, T-003, T-004 (capacity only), T-005 (rows 2 and 4), T-040, T-060, T-120, T-122 |
 | 2 — Full lifecycle | Reaper rows 1 and 3, 5 to 13; Admission with unplaced accounting; JobStates | T-005 (all rows), T-020, T-021, T-022, T-023, T-025, T-061, T-062 |
-| 3 — Operability | Readiness, token replacement, full telemetry, outage behaviour | T-008, T-024, T-041, T-063, T-064, T-121 |
-| 4 — Fleet readiness | Real Tart, real Buildkite cluster, one Mac | T-080, T-100 to T-106 |
+| 3 — Operability | Readiness, token replacement, full telemetry, outage behaviour | T-008, T-009, T-024, T-041, T-063, T-064, T-121 |
+| 4 — Fleet readiness | Real Tart, real Buildkite cluster, one Mac | T-080, T-100 to T-106, T-140, T-141 |
 
 ## 3. Risk map
 
@@ -114,8 +115,8 @@ have a different failure mode at each level.
 | L1 | Unit | Decision logic in pure functions, and the generated VM specification | CI, Linux | 1 min |
 | L2 | Component | The tick loop with in-memory fakes: invariants over random event sequences, restart, outages | CI, Linux | 5 min |
 | L3 | Contract | The behaviour of the two clients against recorded responses and the real Orchard API | CI, Linux | 2 min |
-| L4 | Integration | The real Orchard API and scheduler with synthetic workers, and a fake Stacks server | CI, Linux | 10 min |
-| L5 | Load | Tick duration, API call budget, and leaks at the target scale | CI, nightly | 30 min |
+| L4 | Integration | The real Orchard API and scheduler with synthetic workers, and a fake Stacks server | CI, macOS arm64 | 10 min |
+| L5 | Load | Tick duration, API call budget, and leaks at the target scale | CI, macOS arm64, nightly | 30 min |
 | L6 | End-to-end | Real Tart VMs, the guest-agent transport, real Buildkite, and real isolation | One development Mac | 60 min |
 
 The Matcher, the Admission function, and the Reaper decision function MUST be pure functions with
@@ -141,9 +142,9 @@ assert them at the end of each scenario.
 
 ## 6. Test matrix
 
-All actions are `ADD`, because the repository had no tests when this strategy was accepted
-(2026-09-20). The [implementation plan](../delivery/implementation-plan.md) records which work unit
-added each test. "Gate" is `required` when the gate stops a merge or a release, and `diagnostic`
+All actions are `ADD`, as section 1 explains. The
+[implementation plan](../delivery/implementation-plan.md) records which work unit added each test.
+"Gate" is `required` when the gate stops a merge or a release, and `diagnostic`
 when it reports only.
 
 ### 6.1 Static analysis and build (L0)

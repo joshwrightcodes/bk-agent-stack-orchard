@@ -9,9 +9,9 @@
   * [System design baseline](../architecture/system-design-baseline.md): identifiers such as
     `QA-01` and `SC-03`
   * [Target design](../architecture/target-design.md)
-  * [Test strategy](../quality/test-strategy.md): risks `R-01` to `R-20`, invariants `I-1` to
+  * [Test strategy](../quality/test-strategy.md): risks `R-01` to `R-21`, invariants `I-1` to
     `I-8`, and obligations `T-001` to `T-141`
-  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0009
+  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0014
 
 ## Conventions
 
@@ -98,7 +98,7 @@ T-020 in the same way, so the suite runs the controller that ships.
 ### 3.1 Tool versions and tasks
 
 `mise` pins the tool versions and runs the tasks. One `mise.toml` file gives Go, golangci-lint,
-GoReleaser, Packer, and Ansible, so a developer and CI use the same versions. CI runs `mise
+GoReleaser, and Ansible, so a developer and CI use the same versions. CI runs `mise
 install` and then `mise run check`.
 
 The alternatives and the reason for this selection:
@@ -109,7 +109,7 @@ The alternatives and the reason for this selection:
 | `make` | No | Yes | A second mechanism must pin the tool versions |
 | `task` (go-task) | No | Yes | Same limit as `make`, with a better syntax |
 | `just` | No | Yes | Same limit as `make` |
-| Go `tool` directives in `go.mod` | Go tools only | No | The golangci-lint documentation states that `go install`, the tools pattern, and `tool` directives "aren't guaranteed to work", because the local Go version builds the tool (2026-09-19). The project also needs Packer and Ansible, which are not Go tools |
+| Go `tool` directives in `go.mod` | Go tools only | No | The golangci-lint documentation states that `go install`, the tools pattern, and `tool` directives "aren't guaranteed to work", because the local Go version builds the tool (2026-09-19). The project also needs Ansible, which is not a Go tool |
 
 The golangci-lint documentation gives `mise` as a local installation method (2026-09-19).
 
@@ -195,7 +195,7 @@ from their number.
 | W-17 | An outage or a rate limit degrades the controller safely | `internal/controller`, both clients | W-15 | T-024; the controller obeys `Retry-After` | PR-010, QA-03 |
 | W-18 | The token replacement procedure works, and a runbook describes it | `docs/runbooks/`, `internal/health` | W-15 | The procedure of the target design, section 9.2 passes against a test cluster | PR-023 |
 | W-19 | CI detects dependency and model drift | CI workflows | W-01, W-06 | T-041, T-064, T-121 | CO-02, CO-06 |
-| W-20 | The load test measures the target scale | `test/load` | W-14 | T-080 runs nightly and reports | SC-05, CO-01 |
+| W-20 | The load test measures the target scale | `test/integration/load_test.go` | W-14 | T-080 runs nightly and reports | SC-05, CO-01 |
 
 ### 4.4 Increment 4 — fleet readiness
 
@@ -273,10 +273,15 @@ familiar Go, no interruption for other work, and no new decision during the incr
 
 Dates that the plan must respect:
 
-* The Mac hosts ship on 2026-09-22 (SC-04). W-22 cannot start before they arrive.
-* The pilot starts approximately one month after 2026-09-14 (SC-03), so about 2026-10-14.
-* The pilot exit criteria need two weeks of measurement (QA-04), so the earliest exit is about
-  2026-10-28.
+* The date at which the Mac hosts are ready is `UNKNOWN`. W-22 cannot start before they arrive.
+* The pilot start date is `UNKNOWN`.
+* The earliest pilot exit date is `UNKNOWN`. The pilot exit criteria need two weeks of measurement
+  (QA-04).
+
+The owner of these dates is the maintainer. The dates become known when a Buildkite test cluster
+and the Mac hosts are ready (2026-11-01). The plan of 2026-09-14 estimated that the hosts ship on
+2026-09-22 (SC-04), that the pilot starts about 2026-10-14 (SC-03), and that the earliest exit is
+about 2026-10-28.
 
 Each work unit carries a day estimate and a size in the GitHub project of the maintainer. The
 estimates of an increment sum inside its range above. The project holds the value for each unit,
@@ -309,8 +314,8 @@ and W-25. No requirement has no unit.
 |---|---|---|---|
 | D-1 | The guest-agent transport fails on the first real VM (O-2) | W-24 stops | Set `startupTransport: ssh` on the pilot profile, and restore the VM credentials. ADR-0009 permits this per profile. The transport then needs a new experiment, not a design change |
 | D-2 | The fake Stacks server does not model the real API (O-1) | Increment 1 and 2 evidence is weaker than it looks | Record the responses of a Buildkite test cluster early in W-05, and use them as fixtures |
-| D-3 | A macOS 27 guest needs a macOS 27 host (O-4), and the hosts arrive with an older version | W-22 and W-24 stop | Test the assumption on the development Mac before 2026-09-22. If it holds, update the hosts before the worker installation |
-| D-4 | The hosts arrive later than 2026-09-22 | W-22, W-24, and the pilot move | Increments 1 to 3 and W-23 continue. Only W-22 and W-24 wait |
+| D-3 | A macOS 27 guest needs a macOS 27 host (O-4), and the hosts arrive with an older version | W-22 and W-24 stop | Test the assumption on the development Mac before the hosts arrive. If it holds, update the hosts before the worker installation |
+| D-4 | The hosts arrive later than the date that the plan sets | W-22, W-24, and the pilot move | Increments 1 to 3 and W-23 continue. Only W-22 and W-24 wait |
 | D-5 | The image build takes longer than expected, or the host storage holds fewer images than the fleet needs (SC-09) | W-23 and the pilot profile change | Build one profile only for the pilot. Measure the image count for each host, which is evidence E-4 |
 | D-6 | An Orchard release changes the VM specification or a role | W-06, W-19, and the deployment change | T-064 detects this at the gate. Hold the pinned version, and open an ADR review |
 | D-7 | The demand model is wrong, so the fleet size is wrong (SC-05) | The pilot capacity plan changes, not the software | Pilot telemetry replaces the model. The plan needs no change |

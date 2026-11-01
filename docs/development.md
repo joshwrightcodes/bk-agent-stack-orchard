@@ -221,18 +221,16 @@ softnet_bin=$(realpath "$(brew --prefix)/bin/softnet")
 sudo chown root "$softnet_bin" && sudo chmod u+s "$softnet_bin"
 ```
 
-The runner needs only Tart. The Tart test below also needs Softnet, and it needs Tart 2.39.0 or
-later (target design, section 9.2). On 2026-09-27 the tap still gives Tart 2.38.0
-([openai/homebrew-tools#97](https://github.com/openai/homebrew-tools/pull/97) updates it). Until
-then, install Tart from its release, and check the SHA-256 that the release publishes:
+The runner needs only Tart. The Tart test below also needs Softnet. Install Tart at version
+2.41.1. The pin is `orchard_worker_tart_version` in
+`deploy/hosts/roles/orchard_worker/defaults/main.yml` (checked 2026-11-01), and the Mac hosts use
+the same version. The minimum version is 2.39.0 (target design, section 9.2). Install the release
+archive of the pinned version, and check it against the SHA-256 in the same file
+(`orchard_worker_tart_sha256`). A Homebrew formula MAY replace the archive when it gives the same
+version. Then check the version:
 
 ```sh
-gh release download 2.39.0 --repo openai/tart --pattern tart.tar.gz \
-  --pattern tart_2.39.0_checksums.txt
-grep ' tart.tar.gz$' tart_2.39.0_checksums.txt | shasum -a 256 -c -
-tar -xzf tart.tar.gz
-mkdir -p ~/Applications && cp -R tart.app ~/Applications/
-ln -sf ~/Applications/tart.app/Contents/MacOS/tart "$(brew --prefix)/bin/tart"
+tart --version
 ```
 
 Orchard comes from `mise install` (the version of `mise.toml`), so it needs no formula here.

@@ -147,9 +147,10 @@ can permit a smaller fleet at peak. The pilot must measure the real arrival rate
   image: the `xcode:N` variants exist only for `tahoe`, `sequoia`, and `sonoma`, and the newest
   released tag of `macos-tahoe-xcode` is 26.5 (the tags `27-beta-4` and `27-beta-6` are
   prereleases). The templates repository builds a new `xcode:N` image on the weekend after an
-  Xcode release, so a macOS 27 image with Xcode 27 can come later. The fleet therefore builds its
-  own image with `templates/xcode.pkr.hcl` and `macos_version = golden-gate`. This template uses
-  `macos-golden-gate-base:latest` as its base, and its default disk is 140 GB (as of 2026-09-19).
+  Xcode release, so a macOS 27 image with Xcode 27 can come later. The plan of 2026-09-19 was to
+  build the image with the template `templates/xcode.pkr.hcl` and `macos_version = golden-gate`.
+  That template uses `macos-golden-gate-base:latest` as its base, and its default disk is 140 GB
+  (as of 2026-09-19). The project does not use the template now (ADR-0012).
   Since 2026-09-22, Cirrus Labs publishes `macos-golden-gate-xcode:27` from that template: 68.9 GB
   compressed and an 85.4 GB disk (checked 2026-10-10). Since 2026-10-10, the pilot image builds
   from `macos-golden-gate-vanilla` and an Xcode archive instead (ADR-0012): a 104 GB disk, 59 GB on
@@ -280,7 +281,7 @@ can permit a smaller fleet at peak. The pilot must measure the real arrival rate
 | OP-03 | Operations | Host location | APPLICABLE | SUPPORTING | ASSUMED | Co-located with the controllers, in the operating country | Owner answer Q-A5 | Hosts at a different site |
 | OP-04 | Operations | Deployment platform | APPLICABLE | SUPPORTING | CONFIRMED | Platform neutral; Kubernetes reference | Owner statement (2026-09-13) | — |
 | OP-05 | Operations | Telemetry provider | APPLICABLE | SUPPORTING | CONFIRMED | Any OpenTelemetry-compatible provider; no source code in telemetry | Owner answers (2026-09-13 and Q-A6) | — |
-| OP-06 | Operations | Delivery cadence | APPLICABLE | INFORMATIONAL | UNKNOWN | No constraint assumed | — | A release schedule is set |
+| OP-06 | Operations | Delivery cadence | APPLICABLE | INFORMATIONAL | ASSUMED | No fixed schedule. release-please calculates each version from the commits, as ADR-0014 proposes (2026-10-31) | ADR-0014 | A release schedule is set |
 | CO-01 | Constraint | Buildkite Stacks API limits | APPLICABLE | SUPPORTING | CONFIRMED | 10 requests/s for list and reserve; 20 requests/s for get-states; reservation 900 s default, 3600 s maximum (2026-09-13) | Buildkite Stacks API documentation (2026-09-13) | Buildkite API change |
 | CO-02 | Constraint | Orchard | APPLICABLE | SUPPORTING | CONFIRMED | One controller; minimum server version 0.58.0 (2026-10-19), after 0.57.0 added pull requests #465 and #470; FSL-1.1-ALv2, so the controller contains no Orchard code | ADR-0005; ADR-0010 | Orchard release |
 | CO-03 | Constraint | Host scaling | NOT_APPLICABLE | — | CONFIRMED | The host pool is fixed | Product requirements, section 3 | Cloud Macs become necessary |
@@ -314,9 +315,10 @@ Answered questions (2026-09-14):
 | Q-A8 | Repository location | A Git provider. Its location is outside the scope of this system. |
 | Q-A9 | Layout for more than one region | Each region has its own fleet and a new queue. Assume one region for now. |
 
-No question needs an owner decision. Three values stay `UNKNOWN`, and each has an owner and a
-trigger: the number of images for each host (SC-09, pilot measurement), the time from the job end
-to the VM deletion (QA-06, pilot measurement), and the delivery cadence (OP-06, informational).
+No question needs an owner decision. Two values stay `UNKNOWN`, and each has an owner and a
+trigger: the number of images for each host (SC-09, pilot measurement), and the time from the job
+end to the VM deletion (QA-06, pilot measurement). The delivery cadence (OP-06, informational)
+follows ADR-0014.
 
 ## 12. Review triggers
 
