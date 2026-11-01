@@ -46,7 +46,8 @@ func run(args []string, out, problems io.Writer) int {
 	flags := flag.NewFlagSet("bk-agent-stack-orchard", flag.ContinueOnError)
 	flags.SetOutput(problems)
 
-	path := flags.String("config", "", "the path of the configuration file")
+	path := flags.String("config", "",
+		"the path of the configuration file ("+configEnvironment+" and "+defaultConfigPath+" follow)")
 	wanted := flags.Bool("version", false, "print the version and stop")
 
 	if err := flags.Parse(args); err != nil {
@@ -65,23 +66,38 @@ func run(args []string, out, problems io.Writer) int {
 		return 0
 	}
 
-	if *path == "" {
-		_, _ = fmt.Fprintln(problems, "bk-agent-stack-orchard: -config is necessary")
-
-		return 2
-	}
-
 	// A signal stops the loop, and the loop then withdraws the stack and stops the exporters.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	if err := serve(ctx, *path, out); err != nil {
+	if err := serve(ctx, configPath(*path, os.Getenv), out); err != nil {
 		_, _ = fmt.Fprintf(problems, "bk-agent-stack-orchard: %v\n", err)
 
 		return 1
 	}
 
 	return 0
+}
+
+// The configuration path comes from the flag first, then from the environment, then from this
+// default, which is where the Helm chart mounts the file.
+const (
+	configEnvironment = "BK_AGENT_STACK_ORCHARD_CONFIG"
+	defaultConfigPath = "/etc/bk-agent-stack-orchard/config.yaml"
+)
+
+// configPath gives the path of the configuration file: the flag when it is set, else the
+// environment variable, else the default.
+func configPath(flagged string, getenv func(string) string) string {
+	if flagged != "" {
+		return flagged
+	}
+
+	if fromEnvironment := getenv(configEnvironment); fromEnvironment != "" {
+		return fromEnvironment
+	}
+
+	return defaultConfigPath
 }
 
 // serve runs the controller until the context ends.

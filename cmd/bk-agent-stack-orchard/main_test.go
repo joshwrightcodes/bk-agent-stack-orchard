@@ -39,17 +39,49 @@ func TestVersionReportsUnknownWhenTheBuildDidNotSetOne(t *testing.T) {
 	}
 }
 
-// A process with no configuration cannot serve a queue, and the message must say what is
-// missing: an operator reads it in a pod that will not start.
-func TestRunNeedsAConfiguration(t *testing.T) {
+// The platform sets the path of the configuration in the environment, so a process that gets no
+// flag must read the file that the variable names.
+func TestTheConfigPathComesFromTheEnvironmentWhenTheFlagIsMissing(t *testing.T) {
+	environment := map[string]string{"BK_AGENT_STACK_ORCHARD_CONFIG": "/from/the/environment.yaml"}
+
+	if got := configPath("", func(key string) string { return environment[key] }); got !=
+		"/from/the/environment.yaml" {
+		t.Errorf("configPath() = %q, want the path of the environment", got)
+	}
+}
+
+func TestTheDefaultConfigPath(t *testing.T) {
+	got := configPath("", func(string) string { return "" })
+
+	if want := "/etc/bk-agent-stack-orchard/config.yaml"; got != want {
+		t.Errorf("configPath() = %q, want %q", got, want)
+	}
+}
+
+func TestTheFlagWinsOverTheEnvironment(t *testing.T) {
+	environment := map[string]string{"BK_AGENT_STACK_ORCHARD_CONFIG": "/from/the/environment.yaml"}
+
+	if got := configPath("/from/the/flag.yaml", func(key string) string {
+		return environment[key]
+	}); got != "/from/the/flag.yaml" {
+		t.Errorf("configPath() = %q, want the path of the flag", got)
+	}
+}
+
+// A process with no flag reads the path of the environment, and a file that is not there must
+// stop it with a message that names the configuration.
+func TestRunReadsTheConfigurationThatTheEnvironmentNames(t *testing.T) {
 	var out, problems bytes.Buffer
 
-	if status := run(nil, &out, &problems); status != 2 {
-		t.Fatalf("run() = %d, want 2", status)
+	missing := filepath.Join(t.TempDir(), "nothing.yaml")
+	t.Setenv("BK_AGENT_STACK_ORCHARD_CONFIG", missing)
+
+	if status := run(nil, &out, &problems); status != 1 {
+		t.Fatalf("run() = %d, want 1", status)
 	}
 
-	if !strings.Contains(problems.String(), "-config") {
-		t.Errorf("run() reported %q, want it to name the missing flag", problems.String())
+	if !strings.Contains(problems.String(), missing) {
+		t.Errorf("run() reported %q, want it to name %q", problems.String(), missing)
 	}
 }
 
