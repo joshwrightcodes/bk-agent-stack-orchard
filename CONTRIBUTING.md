@@ -146,7 +146,8 @@ Rules for the subject line:
 * The subject line has a maximum of 72 characters.
 * A pull request title has a maximum of 65 characters, because GitHub adds " (#NNN)" to the
   subject when it squashes. The `title` job of the `documents` workflow checks it, and it runs
-  again when the title changes.
+  again when the title changes. The job skips a pull request that a bot opens, because the
+  subject of a bot can pass the limit (see the rules for the rest of the message).
 
 Rules for the rest of the message:
 
@@ -256,7 +257,9 @@ address.
   Sign the commits again, for example with `git rebase --exec 'git commit --amend --no-edit -S'
   <base>`, before the push.
 * A bot that uses a GitHub App (Renovate, release-please, and github-actions) is exempt. Its
-  author email ends with `[bot]@users.noreply.github.com`.
+  author email ends with `[bot]@users.noreply.github.com`. The exemption trusts the author
+  email, so the maintainer checks during review that a bot pull request comes from the bot
+  account.
 
 `scripts/check-commits.py` checks the sign-off of each commit of a pull request, and the
 `commits` job fails the pull request when one is missing. The project squashes each pull request,

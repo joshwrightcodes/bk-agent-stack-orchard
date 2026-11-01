@@ -63,7 +63,9 @@ def check_signoff(rev: str, message: str, email: str) -> list[str]:
     """Return the problems with the sign-off of one commit. A bot of a GitHub App is exempt."""
     if email.lower().endswith(BOT_EMAIL_SUFFIX):
         return []
-    emails = [found.lower() for found in SIGNOFF.findall(message)]
+    # Only the trailer block counts: the last paragraph. A line in the body or in a quote does not.
+    trailers = message.rstrip("\n").split("\n\n")[-1] if "\n\n" in message else ""
+    emails = [found.lower() for found in SIGNOFF.findall(trailers)]
     if not emails:
         return [f"{rev}: no Signed-off-by trailer. Commit with 'git commit -s'"]
     if email.lower() not in emails:

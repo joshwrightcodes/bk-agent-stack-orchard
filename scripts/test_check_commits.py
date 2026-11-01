@@ -5,9 +5,13 @@ Run with: python3 -m unittest discover -s scripts -p 'test_*.py'
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import pathlib
+import sys
 import unittest
+from unittest import mock
 
 SPEC = importlib.util.spec_from_file_location(
     "check_commits", pathlib.Path(__file__).with_name("check-commits.py"))
@@ -98,6 +102,26 @@ class CheckTest(unittest.TestCase):
         self.assertTrue(any("65" in p for p in problems), problems)
         bad = check_commits.check_title("Update things")
         self.assertTrue(any("Conventional Commits" in p for p in bad), bad)
+
+    def test_a_sign_off_in_the_body_does_not_count(self) -> None:
+        message = ("docs: say more\n\nSigned-off-by: Josh <josh@example.org>\n\n"
+                   "More text after the line.")
+        problems = check_commits.check_signoff("r", message, "josh@example.org")
+        self.assertTrue(any("Signed-off-by" in p for p in problems), problems)
+
+    def test_several_sign_offs_pass_with_the_author_among_them(self) -> None:
+        message = ("docs: say more\n\nCo-authored-by: Ann <ann@example.org>\n"
+                   "Signed-off-by: Ann <ann@example.org>\n"
+                   "Signed-off-by: Josh <josh@example.org>")
+        self.assertEqual(check_commits.check_signoff("r", message, "josh@example.org"), [])
+
+    def test_the_title_mode_runs_through_main(self) -> None:
+        for length, code in ((65, 0), (66, 1)):
+            title = "feat: " + "a" * (length - len("feat: "))
+            with mock.patch.object(sys, "argv", ["check-commits.py", "--title", title]), \
+                    contextlib.redirect_stdout(io.StringIO()), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(check_commits.main(), code, length)
 
 
 if __name__ == "__main__":
