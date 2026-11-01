@@ -271,12 +271,23 @@ finish unmatched jobs.
   `OTEL_` (the collector credential and the per-signal headers variables), with a message that
   names the controller, as a second defence. The error names the profile, the field, and the
   variable.
+* Each `softnetAllow` entry is a CIDR range with a prefix length (`10.20.30.40/32`). The
+  controller refuses a bare address, an entry with host bits set (`10.0.0.1/16`, where the
+  error gives the written form `10.0.0.0/16`), an IPv4-mapped IPv6 range, a default route
+  (`0.0.0.0/0` and `::/0`), an IPv4 range wider than /16, an IPv6 range wider than /48, and a
+  duplicate. The CIDRs go unchanged into the VM specification and into the pf rules of the
+  hosts, so the controller does not correct an entry, and an error names the profile and the
+  entry. Source: `net/netip.ParsePrefix`, checked 2026-11-01. The bounds are a project choice.
+  Softnet and Tart accept more, and the project does not test a bare address.
 * When `profile.otel.enabled` is true, `profile.otel.endpoint` uses `https`. Plain HTTP is
   acceptable only on a loopback address (§10.4).
 * For each profile, `unplaced + boot + acquire ≤ jobTokenLifetime` (§7.3).
 
 If a profile `image` has no digest, the controller MUST write a warning. The controller then
 starts.
+
+If a profile has `softnetAllow` entries, the controller MUST write a warning at start that names
+the profile and says that every pipeline on the queue gets the allow (§9.1).
 
 The fleet operator MUST set `diskSizeGB` to at least the disk size of the profile image. The pilot
 image has a 104 GB disk, and other Xcode images up to 140 GB (SC-07). Tart refuses a disk that is
@@ -672,6 +683,13 @@ The controller MUST treat all builds as untrusted (PR-030). Each VM MUST have th
   nothing (2026-10-10, tested on a VM). The rules therefore block by destination: from any
   interface but the admin interfaces of the host, only DHCP and DNS reach the host, and only the
   `softnetAllow` CIDRs of the profiles of the host reach the private ranges.
+* The allow of a profile belongs to every pipeline on the queue. The pipeline author selects the
+  profile with the agent tags (§5), and the controller does not check who the author is. A job
+  that selects a profile with `softnetAllow` can therefore reach those CIDRs, whoever wrote the
+  pipeline. The CIDRs MUST be narrow (§5), and a profile MUST NOT permit an address that only a
+  trusted pipeline may reach. A separate trust level needs a separate queue, with its own
+  controller and its own profiles. ADR-0004 (accepted, so it stays unchanged) treats all builds
+  as untrusted, and this rule follows from it.
 * The VM has no host directory mounts. Profiles cannot configure them.
 * The VM gets only a job acquisition token for its own job. The token lifetime is a maximum of
   30 minutes. After the agent acquires the job, the token has no use.

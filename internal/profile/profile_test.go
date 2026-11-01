@@ -176,3 +176,84 @@ func TestStartTimeoutSumAddsTheThreeTimeoutsThatPrecedeTheAgent(t *testing.T) {
 		t.Errorf("StartSum() = %v, want %v", got, want)
 	}
 }
+
+func TestValidateRefusesASoftnetAllowThatIsNotACIDR(t *testing.T) {
+	cases := map[string]string{
+		"a bare address":          "10.20.30.40",
+		"a word":                  "everything",
+		"an empty entry":          "",
+		"an address with a zone":  "fe80::1%en0/64",
+		"a prefix with host bits": "10.0.0.1/16",
+		"an IPv4-mapped prefix":   "::ffff:10.0.0.0/112",
+		"a prefix too long":       "10.0.0.0/33",
+	}
+
+	for name, entry := range cases {
+		p := valid()
+		p.SoftnetAllow = []string{entry}
+
+		if err := p.Validate(); err == nil {
+			t.Errorf("Validate() with %s (%q) = nil, want an error", name, entry)
+		}
+	}
+}
+
+func TestValidateRefusesADuplicateInSoftnetAllow(t *testing.T) {
+	p := valid()
+	p.SoftnetAllow = []string{"10.20.30.40/32", "10.20.30.40/32"}
+
+	if err := p.Validate(); err == nil || !strings.Contains(err.Error(), "twice") {
+		t.Errorf("Validate() = %v, want an error that names the duplicate", err)
+	}
+}
+
+func TestValidateRefusesTheDefaultRoute(t *testing.T) {
+	for _, entry := range []string{"0.0.0.0/0", "::/0"} {
+		p := valid()
+		p.SoftnetAllow = []string{entry}
+
+		if err := p.Validate(); err == nil {
+			t.Errorf("Validate() with softnetAllow %q = nil, want an error", entry)
+		}
+	}
+}
+
+func TestValidateRefusesARangeWiderThanSlash16(t *testing.T) {
+	refused := []string{"10.0.0.0/15", "10.0.0.0/8", "128.0.0.0/1", "2001:db8::/47", "2000::/3"}
+	for _, entry := range refused {
+		p := valid()
+		p.SoftnetAllow = []string{entry}
+
+		if err := p.Validate(); err == nil {
+			t.Errorf("Validate() with softnetAllow %q = nil, want an error", entry)
+		}
+	}
+
+	accepted := []string{
+		"10.20.0.0/16", "10.20.30.0/24", "10.20.30.40/32", "2001:db8::/48",
+		"2001:db8:1:2::/64", "2001:db8::1/128",
+	}
+	p := valid()
+	p.SoftnetAllow = accepted
+
+	if err := p.Validate(); err != nil {
+		t.Errorf("Validate() with softnetAllow %v = %v, want no error", accepted, err)
+	}
+}
+
+// The pipeline author selects the profile with the agent tags, so the allow of a profile belongs to
+// every pipeline on the queue.
+func TestValidateWarnsThatEveryPipelineOnTheQueueGetsTheAllow(t *testing.T) {
+	p := valid()
+	p.SoftnetAllow = []string{"10.20.30.40/32"}
+
+	warnings := p.Warnings()
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "every pipeline on the queue") ||
+		!strings.Contains(warnings[0], p.Name) {
+		t.Errorf("Warnings() = %v, want one warning that names the profile and every pipeline", warnings)
+	}
+
+	if warnings := valid().Warnings(); len(warnings) != 0 {
+		t.Errorf("Warnings() without an allow = %v, want none", warnings)
+	}
+}

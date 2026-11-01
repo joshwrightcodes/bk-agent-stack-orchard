@@ -10,6 +10,7 @@ package profile
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	"regexp"
 	"strings"
 	"time"
@@ -96,6 +97,7 @@ func (p Profile) Validate() error {
 	problems = append(problems, p.validateMatch()...)
 	problems = append(problems, p.validateTransport()...)
 	problems = append(problems, p.validateVMVariables()...)
+	problems = append(problems, p.validateSoftnetAllow()...)
 
 	if p.Image == "" {
 		problems = append(problems, errors.New("image must name an image"))
@@ -161,6 +163,53 @@ func (p Profile) validateVMVariables() []error {
 	return problems
 }
 
+// The widest range that softnetAllow may open. The VM specification passes each entry to Softnet,
+// and the pf rules of the hosts open the same entries to every VM of the profile, so a wide range
+// would open a whole private network. An IPv6 site gets a /48, so that is the widest IPv6 range.
+const (
+	widestIPv4Allow = 16
+	widestIPv6Allow = 48
+)
+
+// validateSoftnetAllow keeps each softnetAllow entry to one narrow range that is written in
+// full: a bare address, a prefix with host bits set, a default route, and a duplicate are all
+// refused, because each of them hides what the profile opens.
+func (p Profile) validateSoftnetAllow() []error {
+	var problems []error
+
+	seen := make(map[netip.Prefix]bool, len(p.SoftnetAllow))
+	for _, entry := range p.SoftnetAllow {
+		prefix, err := netip.ParsePrefix(entry)
+		switch {
+		case err != nil:
+			problems = append(problems, fmt.Errorf(
+				"softnetAllow entry %q must be a CIDR range with a prefix length, such as 10.20.30.40/32: %w",
+				entry, err))
+		case prefix.Addr().Is4In6():
+			problems = append(problems, fmt.Errorf(
+				"softnetAllow entry %q must be an IPv4 range written as IPv4, not as an IPv4-mapped IPv6 range",
+				entry))
+		case prefix.Bits() == 0:
+			problems = append(problems, fmt.Errorf(
+				"softnetAllow entry %q is a default route, which opens every address", entry))
+		case prefix != prefix.Masked():
+			problems = append(problems, fmt.Errorf(
+				"softnetAllow entry %q has host bits set, so write %s", entry, prefix.Masked()))
+		case prefix.Addr().Is4() && prefix.Bits() < widestIPv4Allow,
+			prefix.Addr().Is6() && prefix.Bits() < widestIPv6Allow:
+			problems = append(problems, fmt.Errorf(
+				"softnetAllow entry %q is too wide: the widest IPv4 range is /%d and the widest IPv6 range is /%d",
+				entry, widestIPv4Allow, widestIPv6Allow))
+		case seen[prefix]:
+			problems = append(problems, fmt.Errorf("softnetAllow lists %s twice", prefix))
+		default:
+			seen[prefix] = true
+		}
+	}
+
+	return problems
+}
+
 // validateMatch keeps the match map to literal tags. A rule that is not a literal cannot select
 // exactly one profile, and the queue tag selects the queue, not the profile.
 func (p Profile) validateMatch() []error {
@@ -220,6 +269,13 @@ func (p Profile) Warnings() []string {
 		warnings = append(warnings, fmt.Sprintf(
 			"profile %q: image %q has no digest, so the image can change under the fleet",
 			p.Name, p.Image))
+	}
+
+	if len(p.SoftnetAllow) > 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"profile %q: softnetAllow %v opens those addresses for every pipeline on the queue, "+
+				"because the pipeline author selects the profile with the agent tags, so a "+
+				"separate trust level needs a separate queue", p.Name, p.SoftnetAllow))
 	}
 
 	return warnings
