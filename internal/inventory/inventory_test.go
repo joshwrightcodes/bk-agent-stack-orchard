@@ -364,3 +364,25 @@ func TestAnOfflineWorkerGivesNoSlots(t *testing.T) {
 			observation.Slots)
 	}
 }
+
+// Orchard keeps the worker of a machine that failed and sets its scheduled condition to false.
+// The machine is then neither carried by the worker nor waiting for one.
+func TestAFailedMachineIsNeitherCarriedNorWaiting(t *testing.T) {
+	t.Parallel()
+
+	failed := orchard.VM{
+		Name:       "someone-elses-failed-vm",
+		Worker:     "mac-01",
+		Status:     orchard.StatusFailed,
+		Conditions: []orchard.Condition{{Type: "scheduled", State: "false"}},
+	}
+	snapshot := inventory.Snapshot{VMs: []orchard.VM{failed}}
+
+	if carried := snapshot.Carried("mac-01"); len(carried) != 0 {
+		t.Errorf("Carried() = %+v, want none", carried)
+	}
+
+	if unplaced := snapshot.Unplaced(); len(unplaced) != 0 {
+		t.Errorf("Unplaced() = %+v, want none", unplaced)
+	}
+}

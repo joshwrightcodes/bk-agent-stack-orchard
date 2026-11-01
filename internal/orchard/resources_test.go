@@ -38,35 +38,3 @@ func TestPlacedReadsTheScheduledConditionAsOrchardDoes(t *testing.T) {
 		})
 	}
 }
-
-// Orchard keeps the worker name of a machine that failed and sets its scheduled condition to
-// false. Such a machine of another owner must not use a slot of the worker.
-func TestAFailedVMOfAnotherOwnerHoldsNoSlot(t *testing.T) {
-	worker := orchard.Worker{Name: "mac-01", Resources: map[string]uint64{orchard.ResourceVMs: 2}}
-
-	failed := orchard.VM{
-		Name:       "bk-other-0001",
-		Status:     "failed",
-		Worker:     "mac-01",
-		Resources:  map[string]uint64{orchard.ResourceVMs: 1},
-		Conditions: []orchard.Condition{{Type: "scheduled", State: "false"}},
-	}
-	running := orchard.VM{
-		Name:      "bk-other-0002",
-		Status:    "running",
-		Worker:    "mac-01",
-		Resources: map[string]uint64{orchard.ResourceVMs: 1},
-	}
-
-	var carried []orchard.VM
-
-	for _, vm := range []orchard.VM{failed, running} {
-		if vm.Placed() {
-			carried = append(carried, vm)
-		}
-	}
-
-	if got := orchard.Free(worker, carried)[orchard.ResourceVMs]; got != 1 {
-		t.Errorf("free machines = %d, want 1: the failed machine holds no slot", got)
-	}
-}

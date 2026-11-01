@@ -328,3 +328,32 @@ func TestTheClientRefusesAResponseBodyOverTheLimit(t *testing.T) {
 		t.Errorf("ListVMs() = %v, want an error that names the limit", err)
 	}
 }
+
+// A body of exactly the limit is allowed.
+func TestTheClientAcceptsAResponseBodyAtTheLimit(t *testing.T) {
+	const limit = 16 << 20
+
+	client, _ := server(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("[]"))
+		_, _ = w.Write([]byte(strings.Repeat(" ", limit-2)))
+	})
+
+	if _, err := client.ListVMs(context.Background()); err != nil {
+		t.Errorf("ListVMs() = %v, want a body of exactly the limit to pass", err)
+	}
+}
+
+// Only the message of an error body matters, so a body over its limit gives no message.
+func TestTheClientReadsNoMessageFromAnErrorBodyOverTheLimit(t *testing.T) {
+	client, _ := server(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"message":"too long to read"}`))
+		_, _ = w.Write([]byte(strings.Repeat(" ", 64<<10)))
+	})
+
+	_, err := client.ListVMs(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "no message") ||
+		strings.Contains(err.Error(), "too long to read") {
+		t.Errorf("ListVMs() = %v, want the no-message path", err)
+	}
+}

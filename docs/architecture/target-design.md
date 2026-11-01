@@ -432,6 +432,8 @@ Admission does these steps:
    Orchard sets the condition to `false` for a VM that reached a terminal state, and the VM keeps
    its worker name. Such a VM holds no resources (Orchard 0.58.0, commit 22bd63c34674, checked
    2026-11-01).
+   The controller also gives no hypothetical placement to a VM in the `failed` status, because the
+   Orchard scheduler skips a VM in a terminal state when it places VMs.
 5. **Unplaced VMs.** Give a hypothetical placement to the VMs of all owners that have no worker,
    and to the VMs that this process requested and the Inventory data does not show yet. Use the
    first eligible worker with sufficient free resources. For a VM of Orchard, a worker is eligible

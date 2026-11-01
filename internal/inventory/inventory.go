@@ -68,12 +68,14 @@ func (s Snapshot) Job(id job.ID) (orchard.VM, bool) {
 	return orchard.VM{}, false
 }
 
-// Carried gives the machines that one worker runs.
+// Carried gives the machines that one worker runs. A machine that Orchard has not scheduled
+// does not count, even when it keeps the name of a worker: Orchard keeps the worker of a machine
+// that failed and frees its resources through the scheduled condition.
 func (s Snapshot) Carried(worker string) []orchard.VM {
 	var carried []orchard.VM
 
 	for _, vm := range s.VMs {
-		if vm.Worker == worker {
+		if vm.Worker == worker && vm.Placed() {
 			carried = append(carried, vm)
 		}
 	}
@@ -83,11 +85,15 @@ func (s Snapshot) Carried(worker string) []orchard.VM {
 
 // Unplaced gives the machines that Orchard holds and no worker runs yet. They are the sign that
 // the fleet is full, and their resources are not spent on any worker.
+//
+// A machine that failed is left out. Orchard does not place it again: its unscheduled pass skips
+// a machine in a terminal state, and the only terminal status is failed (scheduler.go and
+// pkg/resource/v1/v1.go of Orchard 0.58.0, commit 22bd63c34674, checked 2026-11-01).
 func (s Snapshot) Unplaced() []orchard.VM {
 	var waiting []orchard.VM
 
 	for _, vm := range s.VMs {
-		if !vm.Placed() {
+		if !vm.Placed() && vm.Status != orchard.StatusFailed {
 			waiting = append(waiting, vm)
 		}
 	}
