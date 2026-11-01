@@ -34,6 +34,17 @@ mise run check   # the gates: documents, commits, dependencies, lint, tests, and
 The gates are also tasks of their own: `check-docs`, `check-commits`, `check-deps`, `lint`,
 `lint-format`, `test`, `check-generate`, and `snapshot`. `mise tasks` lists them.
 
+If `check-deps` fails because NOTICE does not name a module, a dependency update added a module
+that the binary links. Fix it in this order:
+
+1. Run `mise run licenses`, or `go-licenses`, to see the new module and its licence. The texts are
+   in `build/licenses`.
+2. Add the module to the list of its licence in `NOTICE`, in the existing format: one line,
+   `  * <module path>`, in alphabetical order.
+3. Copy `NOTICE` to `deploy/helm/bk-agent-stack-orchard/NOTICE`, because the chart carries a copy
+   that equals the file of the root.
+4. Run `mise run check-deps`.
+
 ## The package map
 
 Each component of the target design (section 4) is one package with one responsibility, so that

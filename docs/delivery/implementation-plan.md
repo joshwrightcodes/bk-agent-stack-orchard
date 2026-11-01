@@ -11,7 +11,7 @@
   * [Target design](../architecture/target-design.md)
   * [Test strategy](../quality/test-strategy.md): risks `R-01` to `R-21`, invariants `I-1` to
     `I-8`, and obligations `T-001` to `T-141`
-  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0014
+  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0015
 
 ## Conventions
 

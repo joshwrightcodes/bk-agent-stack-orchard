@@ -217,11 +217,10 @@ release-please keeps one release pull request open, with the title `chore(main):
 Each merge to `main` that changes behaviour updates it: the next version, `CHANGELOG.md`, and the
 version in `Chart.yaml`. The pull request collects all changes until the maintainer merges it.
 
-1. Read the release pull request. Make sure that the version and the changelog are correct. For
-   version 0.1.0, edit the pull request so that `CHANGELOG.md` does not list the `fix(ci)` and
-   `fix(runner)` commits that are on `main` before the rule of `scripts/check-commits.py`. Also
-   update the `pull-request-header` text of `release-please-config.json` to the known limitations
-   that remain, and remove the text when none remain.
+1. Read the release pull request. Make sure that the version and the changelog are correct. Read
+   the Known limitations section of `README.md`, and make sure that each item is closed or
+   accepted. For version 0.1.0, the legal review of ADR-0015 MUST be done first: a lawyer
+   confirms the licence position, and the maintainer records the result in the ADR.
 2. Merge the release pull request. release-please creates the tag and a draft release with the
    changelog.
 3. The tag starts the release workflow in the `release` environment. Make sure that the SHA of the
@@ -229,6 +228,12 @@ version in `Chart.yaml`. The pull request collects all changes until the maintai
    workflow builds and signs the artifacts, verifies the signatures and the assets, and then
    publishes the release
    ([ADR-0013](docs/adrs/0013-sign-releases-with-keyless-cosign-signatures.md)).
+   release-please creates the draft release when the release pull request merges, before the
+   workflow waits for the approval. For version 0.1.0, edit the notes of the draft release before
+   the approval: remove the entries of the `fix(ci)` and `fix(runner)` commits that are on `main`
+   before the rule of `scripts/check-commits.py`. release-please rebuilds the release pull request
+   on each push to `main`, so an edit of `CHANGELOG.md` there does not stay. `CHANGELOG.md` keeps
+   these entries for version 0.1.0, and the project accepts this.
 
 To set a version that the commits do not give, for example a release candidate such as
 `0.4.0-rc.1`, or `1.0.0`, add `"release-as": "<version>"` to `release-please-config.json` in a
@@ -313,8 +318,8 @@ The maintainer is the product owner. The kinds of change have these deciders:
 
 [`.github/CODEOWNERS`](.github/CODEOWNERS) names the maintainer as the owner of each path. To
 move this to a team, replace the one user handle with a GitHub team handle (`@org/team`) on each
-line. The team MUST have write access to the repository. Contact is through GitHub only: an issue,
-a discussion, or a private security advisory.
+line. The team MUST have write access to the repository. Contact is through GitHub only: an issue
+or a private security advisory.
 
 ## Security
 

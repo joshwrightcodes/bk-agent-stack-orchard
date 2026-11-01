@@ -48,6 +48,9 @@ Each release pull request links to this section. As of 2026-11-01, from the
   live cluster (W-18).
 * Every 0.x release is a pre-release. A minor version can contain a breaking change
   ([Versioning](#versioning)).
+* The legal review of the position in
+  [ADR-0015](docs/adrs/0015-generate-only-the-orchard-fields-the-controller-uses.md) is `UNKNOWN`:
+  a lawyer has not confirmed it. Owner: the maintainer. Trigger: before v0.1.0 is published.
 
 ## The problem
 
@@ -385,4 +388,5 @@ Competing Use is to make the software available to others in a commercial produc
 that substitutes for the software, substitutes for another product or service of the licensor that
 uses the software, or offers the same or substantially similar functionality. An operator that
 offers a commercial macOS build service to others MUST check this definition first. The licence
-text controls. The Orchard licence was not checked separately on 2026-11-01.
+text controls. ADR-0015 records a check of the Orchard licence on 2026-11-01, in the LICENSE
+file of the pinned commit.

@@ -36,7 +36,7 @@ then had three problems, which ADR-0011 recorded and which still hold:
 * A check needs a description of the contract, and a description that a person maintains is a
   second place to forget.
 * The Go types, not the published description, are the contract. The OpenAPI file of Orchard
-  0.57.0 omits `randomSerial`, `createdAt`, `last_seen`, and `scheduling_paused`, which the
+  0.58.0 omits `randomSerial`, `createdAt`, `last_seen`, and `scheduling_paused`, which the
   controller uses, and its paths leave out the `/v1` prefix that the server serves.
 
 A review on 2026-11-01 found two faults in the state after ADR-0011:

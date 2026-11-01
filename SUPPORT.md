@@ -6,7 +6,7 @@ This is a personal project with one maintainer. This file tells you where to ask
 
 * Ask a question, report a bug, or request a change through an
   [issue form](https://github.com/joshwrightcodes/bk-agent-stack-orchard/issues/new/choose).
-  Use the form that fits your report.
+  Use the form that fits your report: the question form is for a question.
 * Read [README.md](README.md) and the documents in [docs](docs) before you open an issue.
 * The maintainer answers when time permits. The project makes no promise of a response time.
 

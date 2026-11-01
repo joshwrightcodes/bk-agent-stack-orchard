@@ -14,7 +14,7 @@ for it and requests a CVE through that advisory.
 
 ## Supported versions
 
-No release exists yet. The first release will be v0.1.0. Until 1.0.0, only the latest 0.x minor
+No release exists yet. The first release is v0.1.0. Until 1.0.0, only the latest 0.x minor
 release receives security fixes. A fix does not go to an older minor release. A user of an older
 release has to upgrade to the latest minor release to get a fix.
 

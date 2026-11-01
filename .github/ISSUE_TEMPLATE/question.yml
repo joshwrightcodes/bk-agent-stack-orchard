@@ -1,0 +1,20 @@
+name: Question
+description: A question about how to use or run the controller.
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never paste a Buildkite agent token, a job acquisition token, an Orchard token, or source
+        code. Remove them before you send this question.
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What you want to know, and what you already read in the documents.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Controller version or commit
