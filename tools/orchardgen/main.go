@@ -6,9 +6,11 @@
 // pipeline that runs `go generate ./...` and then `git diff --exit-code` reports a contract that
 // moved.
 //
-// What it writes: the field names, the JSON tags, and a type for each field. It writes no logic
-// of Orchard, and it reads the source of the pinned version over the network without keeping a
-// copy in this repository.
+// What it writes: the field names, the JSON tags, and a type for each field, and only for the
+// fields on the allow list of the `wanted` variable, which are the fields that the controller
+// uses. It writes no logic of Orchard, and it reads the source of the pinned version over the
+// network without keeping a copy in this repository. The file that it writes carries a header
+// that names the source, the version, the commit, the licence, and the copyright notice.
 //
 // A field whose type this generator cannot express becomes json.RawMessage, because the
 // controller does not read it and a placeholder keeps the structure complete.
@@ -33,21 +35,43 @@ import (
 	"time"
 )
 
-// wanted lists the Orchard types that this project follows, and the name that it gives each one.
+// wanted lists the Orchard types that this project follows, the name that it gives each one, and
+// the fields that it writes for each one. A field that is not on a list is not copied, because
+// the generated file copies only what the controller needs for interoperability. The fields come
+// from the code of internal/ that reads or sets them, which includes its tests. A field that the
+// controller sets in a create request stays here even if no code reads it back, because the
+// server needs it in the request body.
 var wanted = []struct {
 	upstream string
 	local    string
 	comment  string
+	fields   []string // the Go names of the upstream fields, which are the only ones written
 }{
-	{"VM", "VM", "VM is one virtual machine of the fleet, as Orchard holds it."},
-	{"VMScript", "Script", "Script is the startup script that the worker runs in the guest."},
-	{"Worker", "Worker", "Worker is one Mac host that runs virtual machines."},
-	{"Event", "Event", "Event is one line that the startup script of a machine wrote."},
+	{"VM", "VM", "VM is one virtual machine of the fleet, as Orchard holds it.", []string{
+		"CPU", "CreatedAt", "DiskSize", "Headless", "HostDirs", "Image", "ImagePullPolicy",
+		"Labels", "Memory", "Name", "NetSoftnet", "NetSoftnetAllow", "OS", "Password",
+		"RandomSerial", "Resources", "RestartPolicy", "ScheduledAt", "StartedAt",
+		"StartupScript", "Status", "StatusMessage", "Username", "Worker",
+	}},
+	{
+		"VMScript", "Script", "Script is the startup script that the worker runs in the guest.",
+		[]string{"Env", "ScriptContent", "Transport"},
+	},
+	{"Worker", "Worker", "Worker is one Mac host that runs virtual machines.", []string{
+		"Arch", "Labels", "LastSeen", "Name", "Resources", "Runtime", "SchedulingPaused",
+	}},
+	{
+		"Event", "Event", "Event is one line that the startup script of a machine wrote.",
+		[]string{"Kind", "Payload", "Timestamp"},
+	},
 }
 
 const (
 	upstreamRepo = "openai/orchard"
 	generatedBy  = "tools/orchardgen"
+
+	// upstreamCopyright is the notice of the LICENSE file of the source at the pinned commit.
+	upstreamCopyright = "Copyright 2023-2026 OpenAI"
 )
 
 // sources are the upstream files that declare the types this project follows, and the named

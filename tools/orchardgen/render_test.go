@@ -92,3 +92,78 @@ func TestResolveLinksATypeThatTheGeneratorAlsoWrites(t *testing.T) {
 		t.Errorf("resolve(*VMScript) = %q, want *Script", got)
 	}
 }
+
+// upstreamOfTheTests declares each type that the generator follows, with every field on its allow
+// list and one more field that the controller does not read.
+func upstreamOfTheTests(extra string) string {
+	var b strings.Builder
+
+	b.WriteString("package v1\n\n")
+
+	for _, want := range wanted {
+		b.WriteString("type " + want.upstream + " struct {\n")
+
+		for _, name := range want.fields {
+			b.WriteString("\t" + name + " string `json:\"" + strings.ToLower(name) + ",omitempty\"`\n")
+		}
+
+		b.WriteString(extra + "}\n\n")
+	}
+
+	return b.String()
+}
+
+const unusedField = "\tNonsense string `json:\"nonsense,omitempty\"`\n"
+
+// The controller reads a few fields of each Orchard type, so the generated file carries those and
+// nothing more.
+func TestRenderKeepsOnlyTheFieldsTheControllerUses(t *testing.T) {
+	types := parse(t, upstreamOfTheTests(unusedField))
+
+	got, err := render("0.58.0", "22bd63c34674a1422896aa208a464f4340cdb0b8", types)
+	if err != nil {
+		t.Fatalf("render() failed: %v", err)
+	}
+
+	if !strings.Contains(string(got), `json:"scriptcontent,omitempty"`) {
+		t.Errorf("render() lost the field that the controller reads:\n%s", got)
+	}
+
+	if strings.Contains(string(got), "Nonsense") || strings.Contains(string(got), "nonsense") {
+		t.Errorf("render() wrote a field that is not on the allow list:\n%s", got)
+	}
+}
+
+// The file copies names from a licensed source, so a reader must see where they come from and
+// under which terms.
+func TestRenderWritesTheSourceAndLicenceHeader(t *testing.T) {
+	types := parse(t, upstreamOfTheTests(unusedField))
+
+	got, err := render("0.58.0", "22bd63c34674a1422896aa208a464f4340cdb0b8", types)
+	if err != nil {
+		t.Fatalf("render() failed: %v", err)
+	}
+
+	header, _, _ := strings.Cut(string(got), "package orchard")
+
+	for _, want := range []string{
+		"github.com/openai/orchard",
+		"0.58.0",
+		"22bd63c34674",
+		"FSL-1.1-ALv2",
+		"Copyright 2023-2026 OpenAI",
+	} {
+		if !strings.Contains(header, want) {
+			t.Errorf("the header lacks %q:\n%s", want, header)
+		}
+	}
+}
+
+// A field that upstream renames or removes must fail the gate, not vanish from the file.
+func TestRenderFailsWhenAnAllowedFieldIsGone(t *testing.T) {
+	types := parse(t, strings.Replace(upstreamOfTheTests(""), "\tStatus string", "\tState string", 1))
+
+	if _, err := render("0.58.0", "", types); err == nil || !strings.Contains(err.Error(), "Status") {
+		t.Errorf("render() error = %v, want one that names the field Status", err)
+	}
+}
