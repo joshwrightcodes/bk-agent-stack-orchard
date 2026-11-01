@@ -36,10 +36,21 @@ jobs:
       # The rules of the checker have tests of their own, with real messages, such as one from
       # Dependabot and one from Renovate.
       - run: mise run test-scripts
+      # The checkout is the test merge of GitHub: its first parent is the base branch as it is
+      # now, and its second parent is the pull request, so HEAD^1 leaves only the commits of the
+      # pull request. The base SHA of the event can be older than the base branch, and then the
+      # gate also checks commits that are already on the base branch.
       - env:
           # Event data never reaches the shell directly, even when it is a commit SHA.
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: python3 scripts/check-commits.py "$BASE_SHA"
+        run: |
+          set -euo pipefail
+          if [ "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 3 ]; then
+            base="$(git rev-parse HEAD^1)"
+          else
+            base="$BASE_SHA"
+          fi
+          python3 scripts/check-commits.py "$base"
 
   c4:
     name: c4 model
