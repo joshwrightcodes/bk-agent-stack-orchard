@@ -7,7 +7,7 @@
 | `agent` | A job that needs no Xcode, every end-to-end scenario of W-24 except the iOS build, and the real-VM tests of this repository |
 | `pilot` | The pilot profile (PR-026): build, test, sign, and publish an iOS or macOS app with Xcode 27 |
 
-Both start from `ghcr.io/cirruslabs/macos-golden-gate-vanilla`, pinned by digest: macOS 27 from
+Both start from `ghcr.io/cirruslabs/macos-golden-gate-vanilla`, pinned by digest: macOS 27.2 from
 the restore image of Apple, with the setup assistant done, `admin` with passwordless sudo,
 automatic login, and SSH, and no Homebrew, no tools, and no Tart guest agent
 ([cirruslabs/macos-image-templates](https://github.com/cirruslabs/macos-image-templates),
@@ -20,9 +20,9 @@ The build adds:
 | The Command Line Tools | `agent` | `softwareupdate`, which gives git and the compilers of Apple |
 | Xcode 27.0 | `pilot` | The archive that the owner downloads (below), as `/Applications/Xcode.app`, with its license accepted and its first launch done |
 | The iOS simulator runtime | `pilot` | `xcodebuild -downloadPlatform iOS`, from Apple, with no Apple ID |
-| Homebrew 7.0.9 | `pilot` | The package of its release, checked against its SHA-256 |
+| Homebrew 7.0.11 | `pilot` | The package of its release, checked against its SHA-256 |
 | carthage, cocoapods, fastlane, swiftlint, xcbeautify | `pilot` | Homebrew formulae, at the versions that Homebrew gives on the day of the build |
-| `buildkite-agent` 4.3.0 | Both | Its release, checked against the SHA-256 of its `SHA256SUMS`, in `/usr/local/bin` |
+| `buildkite-agent` 4.9.0 | Both | Its release, checked against the SHA-256 of its `SHA256SUMS`, in `/usr/local/bin` |
 | The configuration of the agent | Both | `files/buildkite-agent.cfg`: the build, hooks, and plugins paths. The startup script of the controller gives the token, the job, the name, and the tags |
 | The `environment` hook | Both | `files/environment`: the artifacts of a job go to the owner-managed storage (PR-032). In the pilot, it also puts Homebrew on the `PATH` and sets a UTF-8 locale |
 
@@ -72,14 +72,14 @@ those screens itself. `tart run --vnc` does not work, because it needs Screen Sh
 
 `build.sh` drives the VM with `tart exec`, through the guest agent. It uses SSH once, with the
 password of the vanilla image, to put the guest agent in place. It needs an Apple silicon Mac with
-Tart 2.40.1 or later: a macOS VM cannot run another macOS VM, and a hosted GitHub macOS runner is
+Tart 2.41.1 or later: a macOS VM cannot run another macOS VM, and a hosted GitHub macOS runner is
 a VM with 14 GB of disk (2026-10-10), so neither a hosted runner nor the runner VM of this
 repository can build it.
 
 The build shuts the VM down from inside, because `tart stop` does not wait for macOS to write its
 caches, and a file written just before it is lost. It then starts the VM again, without the
 directory of the archive, and checks it as a job VM finds it: the guest agent answers as `admin`,
-`buildkite-agent` 4.3.0 runs from `/usr/local/bin`, the hook sets the destination, ports 22 and 5900
+`buildkite-agent` 4.9.0 runs from `/usr/local/bin`, the hook sets the destination, ports 22 and 5900
 are closed, and the image holds only what its list names. The pilot also selects Xcode 27, has an
 iOS simulator runtime, gives a job fastlane, CocoaPods, Carthage, xcbeautify, and SwiftLint through
 the hook, and has 20 GB free. A check that fails fails the build. The ports are checked from the

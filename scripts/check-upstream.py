@@ -32,7 +32,8 @@ import urllib.request
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DESIGN = ROOT / "docs/architecture/target-design.md"
 BASELINE = ROOT / "docs/architecture/system-design-baseline.md"
-ADR_TART = ROOT / "docs/adrs/0005-run-and-schedule-vms-with-tart-and-orchard.md"
+# The Tart that the Mac hosts install. An accepted ADR never changes, so it cannot be the source.
+HOSTS = ROOT / "deploy/hosts/roles/orchard_worker/defaults/main.yml"
 IMAGE_BUILD = ROOT / "images/build.sh"
 
 TIMEOUT = 20
@@ -105,7 +106,7 @@ def main() -> int:
 
     orchard_min = stated(DESIGN, r"minimum Orchard version MUST be ([0-9.]+)",
                          "a minimum Orchard version")
-    tart_version = stated(ADR_TART, r"Tart ([0-9.]+) \(", "a Tart version")
+    tart_version = stated(HOSTS, r'(?m)^orchard_worker_tart_version: "([0-9.]+)"', "a Tart version")
     agent_version = stated(BASELINE, r"v(\d+\.\d+\.\d+) current", "a Buildkite agent version")
     stacks_version = stated(DESIGN, r"`github.com/buildkite/stacksapi` v([0-9.]+)",
                             "a stacksapi version")
