@@ -317,9 +317,10 @@ Answered questions (2026-09-14):
 | Q-A8 | Repository location | A Git provider. Its location is outside the scope of this system. |
 | Q-A9 | Layout for more than one region | Each region has its own fleet and a new queue. Assume one region for now. |
 
-No question needs an owner decision. Two values stay `UNKNOWN`, and each has an owner and a
-trigger: the number of images for each host (SC-09, pilot measurement), and the time from the job
-end to the VM deletion (QA-06, pilot measurement). The delivery cadence (OP-06, informational)
+No question needs an owner decision. Three values stay `UNKNOWN`, and each has an owner and a
+trigger: the number of images for each host (SC-09, pilot measurement), the time from the job
+end to the VM deletion (QA-06, pilot measurement), and the dates of the phases (SC-03, a Buildkite
+test cluster and the Mac hosts are ready). The delivery cadence (OP-06, informational)
 follows ADR-0014.
 
 ## 12. Review triggers

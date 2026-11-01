@@ -44,11 +44,10 @@ The intended outcome has five parts:
 * Source code stays on owner infrastructure, in the operating country.
 
 The horizon has four phases. Development uses one Mac, and the pilot uses 2 to 4 Macs. Adoption
-uses up to 10 Macs, and scale uses 10 to 50 Macs. The dates of the
-phases are `UNKNOWN`. The owner of the dates is the maintainer. They become known when a Buildkite
-test cluster and the Mac hosts are ready (2026-11-01). The plan of 2026-09-14 estimated that the
-pilot starts in approximately 1 month, and that adoption and scale follow in approximately 3
-months.
+uses up to 10 Macs, and scale uses 10 to 50 Macs. The dates of the phases are `UNKNOWN`
+(checked 2026-11-01). The owner of the dates is the maintainer. They become known when a Buildkite
+test cluster and the Mac hosts are ready. The plan of 2026-09-14 estimated that the pilot starts
+in approximately 1 month, and that adoption and scale follow in approximately 3 months.
 
 ## 2. Actors
 
@@ -372,11 +371,12 @@ Dependencies:
   v4.9.0 is current (2026-10-30, checked 2026-11-01). Agent v4 stops immediately when a flag is not
   defined.
 * The VM image runs the Tart guest agent, which the startup-script transport needs (ADR-0009).
-* Orchard 0.58.0 or later is in use (ADR-0005, 2026-10-19). Release 0.57.0 contains pull requests
+* Orchard 0.58.0 or later is in use (Orchard release 0.58.0, 2026-10-19; target design, section
+  9.2). Release 0.57.0 contains pull requests
   #465 and #470 (2026-09-15), and release 0.58.0 contains them too.
 * The Mac mini with M5 Pro ships from 2026-09-22 (Apple, as of 2026-09-14). The pilot needs the
-  hosts. The date at which the hosts are ready is `UNKNOWN`. The owner is the maintainer. The date
-  becomes known when a Buildkite test cluster and the Mac hosts are ready (2026-11-01). The plan of
+  hosts. The date at which the hosts are ready is `UNKNOWN` (checked 2026-11-01). The owner is the
+  maintainer. The date becomes known when the Mac hosts are ready. The plan of
   2026-09-14 estimated that the pilot needs the hosts before 2026-10-14.
 * The fleet operator builds each Tart image with the build of this project (`images/`), from
   `ghcr.io/cirruslabs/macos-golden-gate-vanilla`. The image has Xcode 27, the `buildkite-agent`
@@ -407,10 +407,13 @@ Answered questions (2026-09-14):
 | Q-P2 | Maximum time from `scheduled` to `accepted` | 60 s |
 | Q-P3 | Maximum wait time when all slots are in use | 15 min, dependent on capacity |
 | Q-P4 | Pilot pipelines and versions | The latest macOS and the latest Xcode, for an iOS app. The pilot uses macOS 27 (Golden Gate) with Xcode 27. |
-| Q-P5 | Dates of the phases | Pilot in 1 month; adoption and scale in 3 months |
+| Q-P5 | Dates of the phases | Pilot in 1 month; adoption and scale in 3 months. History: on 2026-11-01 the dates became `UNKNOWN`, with the maintainer as owner and a trigger (section 1) |
 | Q-P6 | Start point of the phase dates | Not applicable. The dates are approximate. |
 | Q-P7 | Pilot profile | Xcode 27. The owner selected Xcode 26.6 on 2026-09-14 and changed this to Xcode 27 on 2026-09-19, after its release. |
 
 No product question needs an owner decision. Three values stay `UNKNOWN` until the pilot measures
 them: the maximum time from the job end to the VM deletion (PR-002, QA-06), the cost of one job
-minute, and the duration of the same job (section 6).
+minute, and the duration of the same job (section 6). Three more values stay `UNKNOWN` until a
+trigger occurs: the dates of the phases (section 1; trigger: a Buildkite test cluster and the Mac
+hosts are ready), and the date at which the Mac hosts are ready (section 7; trigger: the Mac hosts
+are ready).

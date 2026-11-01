@@ -56,15 +56,15 @@ The `status` field has one of these values:
 * `deprecated`: the decision no longer applies, and no new decision replaces it.
 * `superseded by ADR-NNNN`: a newer ADR replaces this decision.
 
-The content of an accepted ADR does not change. To replace a decision:
+The content of an accepted ADR does not change, except for an Errata note. To replace a decision:
 
 1. Create a new ADR with the new decision. Add `supersedes: ADR-NNNN` to its front matter.
 2. Change the status of the old ADR to `superseded by ADR-NNNN`.
 
 A dated "Errata" section at the end of an accepted ADR can correct a fact that changed later, such
 as a version, a date, or a name. Each note in it states its date, the old fact, and the new fact.
-An errata note cannot change the decision, the options considered, or the consequences. A change
-of any of these needs a new ADR.
+An errata note cannot change the decision, or the meaning of an option or a consequence. It can
+correct a fact inside them. A change of the decision, or of a meaning, needs a new ADR.
 
 ## Index
 

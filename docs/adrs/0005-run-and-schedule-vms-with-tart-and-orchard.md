@@ -133,6 +133,5 @@ Review trigger:
   blocks access to the host. Softnet 0.24 lets a VM reach the gateway of its network, which is the
   host, so the hosts add pf rules (target design, section 9.1). The decision, the options, and the
   consequences are the same.
-* 2026-10-10: the consequence about the size of an Xcode image now gives a disk of 85 to 140 GB,
-  not 140 GB. The measured size of the published Xcode base is 85.4 GB of disk (2026-10-10). The
-  decision is the same.
+* 2026-10-10: the measured size of the published Xcode base is 85.4 GB of disk (2026-10-10), not
+  140 GB. The decision is the same.

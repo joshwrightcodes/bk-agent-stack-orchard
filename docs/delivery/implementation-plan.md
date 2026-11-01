@@ -252,8 +252,9 @@ Dates that the plan must respect:
 * The earliest pilot exit date is `UNKNOWN`. The pilot exit criteria need two weeks of measurement
   (QA-04).
 
-The owner of these dates is the maintainer. The dates become known when a Buildkite test cluster and
-the Mac hosts are ready (2026-11-01). The plan of 2026-09-14 had three estimates. The hosts ship on
+The owner of these dates is the maintainer (checked 2026-11-01). The date of host readiness becomes
+known when the Mac hosts are ready. The pilot dates become known when a Buildkite test cluster and
+the Mac hosts are ready. The plan of 2026-09-14 had three estimates. The hosts ship on
 2026-09-22 (SC-04). The pilot starts about 2026-10-14 (SC-03). The earliest exit is about
 2026-10-28.
 
@@ -262,11 +263,12 @@ estimates of an increment sum inside its range above. The project holds the valu
 This document holds the range for each increment. A change to one unit therefore does not need a
 change to this document.
 
-The sum of the ranges is 21 to 36 working days. The lower range meets the pilot date only when
-both conditions hold. The image build (W-23) must start before the hosts arrive, and no increment
-must need a new decision. The pilot entry date is `UNKNOWN`. The owner of the date is the
-maintainer. It becomes known when a Buildkite test cluster and the Mac hosts are ready
-(2026-11-01). The plan of 2026-09-14 expected the pilot entry in the second half of October 2026.
+The sum of the ranges is 21 to 36 working days. This estimate covers the work units only. It
+holds for the lower range when no increment needs a new decision. W-23 runs last, as section 5
+states, so the estimate does not depend on an early image build. The pilot entry date is `UNKNOWN`
+(checked 2026-11-01). The owner of the date is the maintainer. It becomes known when a Buildkite
+test cluster and the Mac hosts are ready. The plan of 2026-09-14 expected the pilot entry in the
+second half of October 2026.
 
 ## 7. Verification
 
@@ -291,7 +293,7 @@ and W-25. No requirement has no unit.
 | D-1 | The guest-agent transport fails on the first real VM (O-2) | W-24 stops | Set `startupTransport: ssh` on the pilot profile, and restore the VM credentials. ADR-0009 permits this per profile. The transport then needs a new experiment, not a design change |
 | D-2 | The fake Stacks server does not model the real API (O-1) | Increment 1 and 2 evidence is weaker than it looks | Record the responses of a Buildkite test cluster early in W-05, and use them as fixtures |
 | D-3 | A macOS 27 guest needs a macOS 27 host (O-4), and the hosts arrive with an older version | W-22 and W-24 stop | Test the assumption on the development Mac before the hosts arrive. If it holds, update the hosts before the worker installation |
-| D-4 | The hosts arrive later than the date that the plan sets | W-22, W-24, and the pilot move | Increments 1 to 3 and W-23 continue. Only W-22 and W-24 wait |
+| D-4 | The hosts are ready later than increments 1 to 3 finish | W-22, W-24, and the pilot move | Increments 1 to 3 continue, and W-23 follows them (section 5). Only W-22 and W-24 wait |
 | D-5 | The image build takes longer than expected, or the host storage holds fewer images than the fleet needs (SC-09) | W-23 and the pilot profile change | Build one profile only for the pilot. Measure the image count for each host, which is evidence E-4 |
 | D-6 | An Orchard release changes the VM specification or a role | W-06, W-19, and the deployment change | T-064 detects this at the gate. Hold the pinned version, and open an ADR review |
 | D-7 | The demand model is wrong, so the fleet size is wrong (SC-05) | The pilot capacity plan changes, not the software | Pilot telemetry replaces the model. The plan needs no change |

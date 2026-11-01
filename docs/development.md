@@ -17,7 +17,7 @@ all capitals, as shown here.
   `test`, and `check-docs` run on any host.
 * [`mise`](https://mise.jdx.dev/). It installs every other tool, Go and Orchard included.
 * Docker. Two tasks need it: `check-c4` (it renders the C4 model) and `snapshot` (it builds the
-  image). `mise run check` runs both, so it also needs Docker. `smoke` needs it too, for kind.
+  image). `mise run check` runs `check-c4`, so it also needs Docker. `smoke` needs it too, for kind.
 * Tart. Install Tart from the `openai/tools` tap as the section "Install Tart" says, or let the
   Ansible role of `deploy/hosts` install it on a Mac host. Only the real-VM tests (`tart-test`,
   `failures-test`, `restart-test`, `softnet-test`) need Tart. The other tasks do not.
