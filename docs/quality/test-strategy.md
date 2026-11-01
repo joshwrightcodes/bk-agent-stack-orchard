@@ -141,8 +141,10 @@ assert them at the end of each scenario.
 
 ## 6. Test matrix
 
-All actions are `ADD`, because the repository has no tests. "Gate" is `required` when the gate
-stops a merge or a release, and `diagnostic` when it reports only.
+All actions are `ADD`, because the repository had no tests when this strategy was accepted
+(2026-09-20). The [implementation plan](../delivery/implementation-plan.md) records which work unit
+added each test. "Gate" is `required` when the gate stops a merge or a release, and `diagnostic`
+when it reports only.
 
 ### 6.1 Static analysis and build (L0)
 
