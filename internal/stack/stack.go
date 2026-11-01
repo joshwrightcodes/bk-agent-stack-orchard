@@ -42,6 +42,10 @@ type Queue struct {
 	// machine, and the machines in progress continue.
 	Paused bool
 
+	// Truncated reports a read that stopped at MaxPages with a page left. Jobs behind the pages
+	// are hidden, so a job that is not in Jobs may still be in the queue.
+	Truncated bool
+
 	// At is when Buildkite answered. The control loop reads it to decide whether the answer is
 	// still fresh enough to act on.
 	At time.Time
@@ -236,7 +240,7 @@ func (p *Poller) Refresh(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.latest = Queue{Jobs: jobs, Paused: paused, At: p.now()}
+	p.latest = Queue{Jobs: jobs, Paused: paused, Truncated: cursor != "", At: p.now()}
 	p.got = true
 
 	return nil

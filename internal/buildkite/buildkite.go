@@ -356,6 +356,26 @@ func (c *Client) Finish(ctx context.Context, id job.ID, exitStatus int, detail s
 	return c.classifyJob(err)
 }
 
+// NotificationsPerRequest is the most lines that one request can carry (Stacks API documentation,
+// https://buildkite.com/docs/apis/agent-api/stacks, read on 2026-11-01).
+const NotificationsPerRequest = 1000
+
+// RefusedError is the answer to a request in which Buildkite refused some lines and created the
+// others. Indexes are the 0-based places of the refused lines in the request.
+type RefusedError struct {
+	Indexes []int
+	Total   int
+	Reason  string
+}
+
+// Error gives the count and the reason of the first refusal.
+func (e *RefusedError) Error() string {
+	return fmt.Sprintf("%s: %d of %d lines: %s", ErrRefused, len(e.Indexes), e.Total, e.Reason)
+}
+
+// Is makes a RefusedError match ErrRefused.
+func (e *RefusedError) Is(target error) bool { return target == ErrRefused }
+
 // NotificationLimit is the longest detail of a notification, in characters, that Buildkite
 // accepts (Stacks API documentation, read on 2026-11-01). The library does not cut.
 const NotificationLimit = 256
@@ -382,6 +402,11 @@ func (c *Client) Notify(ctx context.Context, notifications []Notification) error
 		return nil
 	}
 
+	if len(notifications) > NotificationsPerRequest {
+		return fmt.Errorf("a request takes at most %d notifications, and this one has %d",
+			NotificationsPerRequest, len(notifications))
+	}
+
 	lines := make([]stacksapi.StackNotification, 0, len(notifications))
 	for _, notification := range notifications {
 		lines = append(lines, stacksapi.StackNotification{
@@ -402,8 +427,13 @@ func (c *Client) Notify(ctx context.Context, notifications []Notification) error
 	// A notification is a line on a job page. A refused line loses information, and it must not
 	// stop the launch of a VM, so the caller logs the answer and continues.
 	if len(answer.Errors) > 0 {
-		return fmt.Errorf("%w: %d of %d lines: %s", ErrRefused,
-			len(answer.Errors), len(lines), answer.Errors[0].Error)
+		refused := &RefusedError{Total: len(lines), Reason: answer.Errors[0].Error}
+
+		for _, refusal := range answer.Errors {
+			refused.Indexes = append(refused.Indexes, refusal.Indexes...)
+		}
+
+		return refused
 	}
 
 	return nil

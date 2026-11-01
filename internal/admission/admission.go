@@ -72,6 +72,10 @@ type Request struct {
 	// that the limit follows the hardware and holds no slot empty.
 	MaxInFlight uint64
 
+	// Truncated reports that the read of the queue stopped at the page cap. The decision passes
+	// it on, because the launcher forgets a notified job only after a whole listing.
+	Truncated bool
+
 	// Now is the time that the ages are measured from.
 	Now time.Time
 }
@@ -83,6 +87,9 @@ type Result struct {
 
 	// Unmatched are the jobs to leave alone and to say so once.
 	Unmatched []Unmatched
+
+	// Truncated is the flag of the request: the listing that this decision read was cut.
+	Truncated bool
 
 	// Matched are the jobs that a profile carries and that have no machine yet, in the order of
 	// admission. Admit is the part of them that the fleet has room for.
@@ -105,6 +112,7 @@ func (r Result) Observe(observation *telemetry.Observation) {
 // Decide gives the jobs to start and the jobs to end.
 func Decide(request Request) Result {
 	result := Result{
+		Truncated:     request.Truncated,
 		Waiting:       map[string]int64{},
 		OldestWaiting: map[string]time.Duration{},
 	}

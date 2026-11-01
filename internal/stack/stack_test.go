@@ -394,6 +394,31 @@ func TestTheSourceStopsAtTheLastPage(t *testing.T) {
 	if api.polls != 2 {
 		t.Errorf("the poll made %d calls, want 2: the last page has no next page", api.polls)
 	}
+
+	if queue, _ := poller.Latest(); queue.Truncated {
+		t.Error("the queue is truncated after a read that reached the last page, want a whole one")
+	}
+}
+
+// The launcher evicts only after a whole listing, so the queue says when the read stopped at the cap.
+func TestAReadThatStopsAtTheCapIsMarkedTruncated(t *testing.T) {
+	t.Parallel()
+
+	api := &fake{pages: map[string]buildkite.Page{
+		"":       {NextCursor: "page-2"},
+		"page-2": {NextCursor: "page-3"},
+		"page-3": {NextCursor: "page-4"},
+	}}
+
+	poller, _ := stack.NewPoller(stack.PollerOptions{Stacks: api, Interval: time.Second, Now: time.Now})
+
+	if err := poller.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh() = %v, want no error", err)
+	}
+
+	if queue, _ := poller.Latest(); !queue.Truncated {
+		t.Error("the queue is whole after a read that stopped at the cap with a page left, want truncated")
+	}
 }
 
 // A page that fails in the middle of a read must not leave half a queue in place of a whole one.

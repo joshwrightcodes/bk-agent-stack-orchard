@@ -5,12 +5,18 @@
 package integration_test
 
 import (
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/buildkite/stacksapi"
+	collector "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/test/fakestacks"
 )
@@ -80,12 +86,16 @@ func TestAFullFleetHoldsAJobBackUntilASlotIsFree(t *testing.T) {
 }
 
 // T-062. A job whose tags match no profile is skipped: the controller never reserves it or
-// finishes it, the job page gets one notification, and no machine starts for it (QS-3).
+// finishes it, the job page gets one notification at the next poll, the counter of skipped jobs
+// rises by 1, and no machine starts for it (QS-3).
 func TestAJobThatNoProfileCarriesIsLeftAlone(t *testing.T) {
 	startOrchard(t, orchardBinary(t))
 
 	stacks := stacksWith(t, scheduled(carried, "xcode=99", time.Minute))
-	process := startController(t, writeConfig(t, stacks.URL()))
+	sink := newMetricSink(t)
+
+	started := time.Now()
+	process := startControllerWith(t, writeConfig(t, stacks.URL()), sink.environment())
 
 	var line stacksapi.StackNotification
 
@@ -101,12 +111,23 @@ func TestAJobThatNoProfileCarriesIsLeftAlone(t *testing.T) {
 		return false
 	})
 
+	// The poll runs each second. The limit leaves room for the start of the process and a slow
+	// runner, and it is still far inside the scheduled-job expiry that QS-3 measures against.
+	if took := time.Since(started); took > 15*time.Second {
+		t.Errorf("the job got its line %s after the controller started, want it at the next poll",
+			took)
+	}
+
 	if !strings.Contains(line.Detail, "xcode=99") {
 		t.Errorf("the job page reads %q, want it to name the tags of the job", line.Detail)
 	}
 
+	eventually(t, "the counter of skipped jobs reads 1", func() bool {
+		return sink.skipped() == 1
+	})
+
 	// Several polls pass, and the job gets no second line, no reservation, no finish, and no
-	// machine.
+	// machine, and the counter stays at 1.
 	never(t, "the controller acts on the job again", func() bool {
 		_, found := machineNamed(t, machineOf(carried))
 
@@ -119,10 +140,85 @@ func TestAJobThatNoProfileCarriesIsLeftAlone(t *testing.T) {
 		}
 
 		return found || lines > 1 || slices.Contains(stacks.Reserved(), carried) ||
-			finished(stacks.Finished(), carried)
+			finished(stacks.Finished(), carried) || sink.skipped() > 1
 	})
 
 	stopController(t, process)
+}
+
+// metricSink is an OTLP receiver over HTTP that keeps the last value of the skipped counter.
+type metricSink struct {
+	server *httptest.Server
+
+	mu    sync.Mutex
+	value int64
+}
+
+func newMetricSink(t *testing.T) *metricSink {
+	t.Helper()
+
+	sink := &metricSink{}
+	sink.server = httptest.NewServer(http.HandlerFunc(sink.receive))
+	t.Cleanup(sink.server.Close)
+
+	return sink
+}
+
+// environment points the exporter of the controller at the sink, with a short interval.
+func (m *metricSink) environment() map[string]string {
+	return map[string]string{
+		"OTEL_METRICS_EXPORTER":                  "otlp",
+		"OTEL_EXPORTER_OTLP_METRICS_PROTOCOL":    "http/protobuf",
+		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT":    m.server.URL + "/v1/metrics",
+		"OTEL_METRIC_EXPORT_INTERVAL":            "500",
+		"OTEL_EXPORTER_OTLP_METRICS_COMPRESSION": "none",
+	}
+}
+
+func (m *metricSink) receive(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+
+		return
+	}
+
+	var request collector.ExportMetricsServiceRequest
+	if err := proto.Unmarshal(body, &request); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+
+		return
+	}
+
+	for _, resource := range request.GetResourceMetrics() {
+		for _, scope := range resource.GetScopeMetrics() {
+			for _, metric := range scope.GetMetrics() {
+				if metric.GetName() != "bk_agent_stack_orchard.job.skipped" {
+					continue
+				}
+
+				var total int64
+				for _, point := range metric.GetSum().GetDataPoints() {
+					total += point.GetAsInt()
+				}
+
+				m.mu.Lock()
+				m.value = total
+				m.mu.Unlock()
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/x-protobuf")
+	w.WriteHeader(http.StatusOK)
+}
+
+// skipped gives the last value of the counter that the controller exported.
+func (m *metricSink) skipped() int64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.value
 }
 
 // stacksWith gives a fake Stacks server for this controller with the jobs scheduled.

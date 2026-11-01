@@ -63,9 +63,16 @@ type stacks struct {
 	tokenErr    error
 	finishErr   error
 	notifyErr   error
+
+	// refuse holds the jobs whose lines Buildkite refuses, as it does for a job that ended.
+	refuse map[job.ID]bool
+
+	// order is the calls in the sequence that they came.
+	order []string
 }
 
 func (s *stacks) Reserve(_ context.Context, ids []job.ID, expiry time.Duration) (buildkite.Reservation, error) {
+	s.order = append(s.order, "reserve")
 	s.reserved = append(s.reserved, ids)
 	s.expiries = append(s.expiries, expiry)
 
@@ -87,6 +94,7 @@ func (s *stacks) Reserve(_ context.Context, ids []job.ID, expiry time.Duration) 
 }
 
 func (s *stacks) Tokens(_ context.Context, ids []job.ID, lifetime time.Duration) (buildkite.Tokens, error) {
+	s.order = append(s.order, "tokens")
 	s.tokenCalls = append(s.tokenCalls, ids)
 	s.lifetimes = append(s.lifetimes, lifetime)
 
@@ -117,7 +125,20 @@ func (s *stacks) Finish(_ context.Context, id job.ID, exitStatus int, detail str
 }
 
 func (s *stacks) Notify(_ context.Context, lines []buildkite.Notification) error {
+	s.order = append(s.order, "notify")
 	s.notified = append(s.notified, lines)
+
+	var refused []int
+
+	for index, line := range lines {
+		if s.refuse[line.JobID] {
+			refused = append(refused, index)
+		}
+	}
+
+	if len(refused) > 0 {
+		return &buildkite.RefusedError{Indexes: refused, Total: len(lines), Reason: "job is finished"}
+	}
 
 	return s.notifyErr
 }
@@ -347,10 +368,6 @@ func TestAMixedBatchReservesOnlyTheAdmittedJobs(t *testing.T) {
 	if len(api.reserved) != 1 || !slices.Equal(api.reserved[0], []job.ID{first}) {
 		t.Fatalf("the controller reserved %v, want one call with the admitted job only",
 			api.reserved)
-	}
-
-	if len(api.finished) != 0 {
-		t.Errorf("the controller ended %v, want no job ended", api.finished)
 	}
 
 	if len(api.tokenCalls) != 1 || !slices.Equal(api.tokenCalls[0], []job.ID{first}) {
@@ -727,12 +744,10 @@ func TestAnUnmatchedJobIsLeftAlone(t *testing.T) {
 		}
 	}
 
+	// Finish is not part of what the launcher uses, so no finish call can happen. The component
+	// check of invariant I-8 covers the whole controller.
 	if len(api.reserved) != 0 {
 		t.Errorf("the controller reserved %v, want no reservation", api.reserved)
-	}
-
-	if len(api.finished) != 0 {
-		t.Errorf("the controller ended %v, want no job ended", api.finished)
 	}
 
 	if len(api.tokenCalls) != 0 || len(fleet.created) != 0 {
@@ -809,9 +824,9 @@ func TestAJobWithARefusedRuleIsLeftAlone(t *testing.T) {
 				}
 			}
 
-			if len(api.reserved) != 0 || len(api.finished) != 0 || len(fleet.created) != 0 {
-				t.Errorf("the controller reserved %v, ended %v, and made %d machines, want none",
-					api.reserved, api.finished, len(fleet.created))
+			if len(api.reserved) != 0 || len(fleet.created) != 0 {
+				t.Errorf("the controller reserved %v and made %d machines, want none",
+					api.reserved, len(fleet.created))
 			}
 
 			if len(api.notified) != 1 || len(api.notified[0]) != 1 ||
@@ -841,9 +856,26 @@ func unmatchedJobs(from, n int) admission.Result {
 	return result
 }
 
-// The set of notified jobs gives each job one notification, and it drops a job that left the
-// list, so that a job that comes back is told again.
-func TestTheSetOfNotifiedJobsEvictsAJobThatLeftTheList(t *testing.T) {
+// notices gives every job that has a line, in the order of the lines.
+func notices(api *stacks) []job.ID {
+	var ids []job.ID
+
+	for _, call := range api.notified {
+		for _, line := range call {
+			ids = append(ids, line.JobID)
+		}
+	}
+
+	return ids
+}
+
+func idOf(number int) job.ID {
+	return job.ID(fmt.Sprintf("018f3b2c-1c4a-7e5b-9a3d-%012x", number))
+}
+
+// After a complete listing, the set drops a job that left the list, so that a job that comes back
+// is told again.
+func TestACompleteListingEvictsTheJobsThatLeftTheList(t *testing.T) {
 	t.Parallel()
 
 	api, fleet := &stacks{}, &machines{}
@@ -853,7 +885,7 @@ func TestTheSetOfNotifiedJobsEvictsAJobThatLeftTheList(t *testing.T) {
 	both := admission.Result{Unmatched: append(slices.Clone(one.Unmatched), two.Unmatched...)}
 
 	for _, decision := range []admission.Result{
-		both, // both notified
+		both, // both told
 		both, // nobody again
 		two,  // the first job left
 		both, // the first job is back, and is told again
@@ -865,48 +897,195 @@ func TestTheSetOfNotifiedJobsEvictsAJobThatLeftTheList(t *testing.T) {
 		}
 	}
 
-	var lines []buildkite.Notification
-	for _, call := range api.notified {
-		lines = append(lines, call...)
-	}
+	lines := notices(api)
 
-	if got := countFor(lines, one.Unmatched[0].Job.ID); got != 3 {
+	if got := count(lines, idOf(1)); got != 3 {
 		t.Errorf("the first job has %d notifications, want 3", got)
 	}
 
-	if got := countFor(lines, two.Unmatched[0].Job.ID); got != 2 {
+	if got := count(lines, idOf(2)); got != 2 {
 		t.Errorf("the second job has %d notifications, want 2", got)
 	}
 }
 
-// The set has a bound. A decision with more unmatched jobs than the bound notifies only the jobs
-// that fit, and it never grows the set past it.
-func TestTheSetOfNotifiedJobsHasABound(t *testing.T) {
+// After a truncated listing, a job that is not listed may only be hidden behind the pages, so the
+// set keeps it, and the job gets no second line when it comes back into view.
+func TestATruncatedListingEvictsNothing(t *testing.T) {
 	t.Parallel()
 
 	api, fleet := &stacks{}, &machines{}
 	started := build(t, api, fleet)
 
-	over := unmatchedJobs(1, launcher.NotifiedLimit+5)
+	one, two := unmatchedJobs(1, 1), unmatchedJobs(2, 1)
+	both := admission.Result{Unmatched: append(slices.Clone(one.Unmatched), two.Unmatched...)}
 
-	for range 2 {
-		if err := started.Launch(t.Context(), over, inventory.Snapshot{}); err != nil {
+	truncated := two
+	truncated.Truncated = true
+
+	for _, decision := range []admission.Result{
+		both,      // both told
+		truncated, // the first job is out of view, and stays in the set
+		both,      // the first job is back in view: no second line
+	} {
+		if err := started.Launch(t.Context(), decision, inventory.Snapshot{}); err != nil {
 			t.Fatalf("Launch() = %v, want no error", err)
 		}
 	}
 
-	total := 0
-	for _, call := range api.notified {
-		total += len(call)
+	if got := notices(api); len(got) != 2 {
+		t.Errorf("the controller wrote %d lines, want 2: %v", len(got), got)
+	}
+}
+
+func count(ids []job.ID, id job.ID) int {
+	return len(slices.DeleteFunc(slices.Clone(ids), func(other job.ID) bool { return other != id }))
+}
+
+// The set has a cap, and over the cap it drops the jobs that it saw least recently. A job that it
+// dropped gets a line when it comes back.
+func TestTheSetOfNotifiedJobsDropsTheLeastRecentlySeenOverItsCap(t *testing.T) {
+	t.Parallel()
+
+	api, fleet := &stacks{}, &machines{}
+	started := build(t, api, fleet)
+
+	full := unmatchedJobs(1, launcher.NotifiedLimit)
+
+	more := unmatchedJobs(launcher.NotifiedLimit+1, 5)
+	more.Truncated = true
+
+	// The first jobs came first, so they are the least recently seen when the 5 new jobs arrive.
+	back := unmatchedJobs(1, 10)
+	back.Truncated = true
+
+	for _, decision := range []admission.Result{full, more, back} {
+		if err := started.Launch(t.Context(), decision, inventory.Snapshot{}); err != nil {
+			t.Fatalf("Launch() = %v, want no error", err)
+		}
 	}
 
-	if total != launcher.NotifiedLimit {
-		t.Errorf("the controller wrote %d notifications over 2 ticks, want %d (the bound)",
-			total, launcher.NotifiedLimit)
+	lines := notices(api)
+
+	if len(lines) != launcher.NotifiedLimit+5+5 {
+		t.Fatalf("the controller wrote %d lines, want %d: the cap, 5 new jobs, and 5 dropped jobs",
+			len(lines), launcher.NotifiedLimit+5+5)
 	}
 
-	if got := started.Notified(); got != launcher.NotifiedLimit {
-		t.Errorf("the set holds %d jobs, want at most %d", got, launcher.NotifiedLimit)
+	// Jobs 1 to 5 were dropped, and told again. Jobs 6 to 10 were kept, and told once.
+	for number := 1; number <= 10; number++ {
+		want := 1
+		if number <= 5 {
+			want = 2
+		}
+
+		if got := count(lines, idOf(number)); got != want {
+			t.Errorf("job %d has %d lines, want %d", number, got, want)
+		}
+	}
+}
+
+// Buildkite takes at most 1000 lines in one request. More fresh jobs go in more calls.
+func TestTheSkipNoticesGoInCallsOfAtMostOneRequestLimit(t *testing.T) {
+	t.Parallel()
+
+	api, fleet := &stacks{}, &machines{}
+	started := build(t, api, fleet)
+
+	total := 2*buildkite.NotificationsPerRequest + 10
+
+	if err := started.Launch(t.Context(), unmatchedJobs(1, total), inventory.Snapshot{}); err != nil {
+		t.Fatalf("Launch() = %v, want no error", err)
+	}
+
+	for number, call := range api.notified {
+		if len(call) > buildkite.NotificationsPerRequest {
+			t.Errorf("call %d has %d lines, want at most %d", number, len(call),
+				buildkite.NotificationsPerRequest)
+		}
+	}
+
+	if got := len(notices(api)); got != total || len(api.notified) != 3 {
+		t.Errorf("the controller wrote %d lines in %d calls, want %d lines in 3", got,
+			len(api.notified), total)
+	}
+
+	// A second tick writes none: every job is in the set.
+	if err := started.Launch(t.Context(), unmatchedJobs(1, total), inventory.Snapshot{}); err != nil {
+		t.Fatalf("Launch() = %v, want no error", err)
+	}
+
+	if got := len(notices(api)); got != total {
+		t.Errorf("the controller wrote %d lines after 2 ticks, want %d", got, total)
+	}
+}
+
+// Buildkite creates the valid lines of a call even when it refuses some. The set keeps the jobs
+// that got a line, and the next tick tries only the refused jobs.
+func TestAPartlyRefusedCallIsTriedAgainForTheRefusedJobsOnly(t *testing.T) {
+	t.Parallel()
+
+	api, fleet := &stacks{refuse: map[job.ID]bool{idOf(2): true}}, &machines{}
+	started, reader := buildMeasured(t, api, fleet, &records{Handler: slog.DiscardHandler})
+
+	decision := unmatchedJobs(1, 3)
+
+	for range 2 {
+		_ = started.Launch(t.Context(), decision, inventory.Snapshot{})
+	}
+
+	lines := notices(api)
+
+	if count(lines, idOf(1)) != 1 || count(lines, idOf(3)) != 1 {
+		t.Errorf("the accepted jobs got lines %v, want one line each", lines)
+	}
+
+	if got := count(lines, idOf(2)); got != 2 {
+		t.Errorf("the refused job got %d lines, want 2 (one for each tick)", got)
+	}
+
+	// Only the accepted jobs are counted, and the refused job is counted when Buildkite takes it.
+	if got := skipped(t, reader); got != 2 {
+		t.Errorf("the counter of skipped jobs is %d, want 2", got)
+	}
+
+	// Buildkite takes the job later.
+	api.refuse = nil
+
+	_ = started.Launch(t.Context(), decision, inventory.Snapshot{})
+
+	if got := skipped(t, reader); got != 3 {
+		t.Errorf("the counter of skipped jobs is %d, want 3", got)
+	}
+}
+
+// A slow notification call must not delay an admitted job, so the skip notices come after the
+// reservation, the tokens, and the machines of the same tick.
+func TestTheSkipNoticesComeAfterTheAdmittedJobsStart(t *testing.T) {
+	t.Parallel()
+
+	api, fleet := &stacks{}, &machines{}
+	started := build(t, api, fleet)
+
+	decision := unmatchedJobs(5, 1)
+	decision.Admit = candidates(first)
+
+	if err := started.Launch(t.Context(), decision, inventory.Snapshot{}); err != nil {
+		t.Fatalf("Launch() = %v, want no error", err)
+	}
+
+	want := []string{"reserve", "tokens", "notify", "notify"}
+	if !slices.Equal(api.order, want) {
+		t.Fatalf("the calls came in the order %v, want %v", api.order, want)
+	}
+
+	if len(fleet.created) != 1 {
+		t.Errorf("orchard saw %d machines, want 1", len(fleet.created))
+	}
+
+	// The first line is "VM requested" of the admitted job, and the last is the skip notice.
+	if api.notified[0][0].JobID != first || api.notified[1][0].JobID != idOf(5) {
+		t.Errorf("the lines went to %v, want the admitted job and then the skipped job",
+			notices(api))
 	}
 }
 

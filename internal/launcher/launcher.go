@@ -13,11 +13,12 @@
 package launcher
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
-	"sync"
+	"slices"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
@@ -34,10 +35,10 @@ import (
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/vmspec"
 )
 
-// NotifiedLimit is the most job identifiers that the launcher remembers as notified. It is the
-// most jobs that one read of the queue gives: 3 pages of 1000 (target design, section 6.3). A
-// decision cannot name more unmatched jobs than the queue read gave.
-const NotifiedLimit = 3000
+// NotifiedLimit is the most job identifiers that the launcher remembers as notified. One read of
+// the queue gives at most 3000 jobs (3 pages of 1000, target design section 6.3), so the cap holds
+// only while the listing stays truncated.
+const NotifiedLimit = 10_000
 
 // requested is the first line that a job page gets from this controller.
 const requested = "VM requested"
@@ -104,11 +105,14 @@ type Launcher struct {
 	held *memory
 
 	// notified holds the unmatched jobs that this process wrote a notification for, so that it
-	// writes one line for each job and not one at each tick. A restart loses it, and the next
-	// tick writes the line once more, which is acceptable. The mutex is for the readers outside
-	// the loop.
-	notifiedMu sync.Mutex
-	notified   map[job.ID]struct{}
+	// writes one line for each job and not one at each tick. Each job has the number of its last
+	// sighting, which orders the eviction at the cap. A restart loses the set, and the next tick
+	// writes the line once more, which is acceptable. Only the loop goroutine reads and writes
+	// it.
+	notified map[job.ID]uint64
+
+	// seq counts the sightings of notified jobs. A higher number is a later sighting.
+	seq uint64
 }
 
 // New builds the launcher.
@@ -177,7 +181,7 @@ func New(options Options) (*Launcher, error) {
 		tracer:       tracer,
 		now:          now,
 		held:         newMemory(),
-		notified:     make(map[job.ID]struct{}),
+		notified:     make(map[job.ID]uint64),
 	}, nil
 }
 
@@ -226,9 +230,10 @@ func (l *Launcher) Launch(ctx context.Context, decision admission.Result,
 
 	// An unmatched job is left alone: another stack or agent of the queue may carry it, so the
 	// controller neither reserves nor finishes it, and it uses no capacity. A pipeline author
-	// reads on the job page that this stack skipped the job. This runs for an empty list too,
-	// because the set of notified jobs drops the jobs that left the list.
-	l.skip(ctx, decision.Unmatched)
+	// reads on the job page that this stack skipped the job. The notices come last, so that a
+	// slow call cannot delay an admitted job, and they run for an empty list too, because the
+	// set of notified jobs drops the jobs that left the list.
+	defer l.skip(ctx, decision)
 
 	if len(decision.Admit) == 0 {
 		return nil
@@ -354,34 +359,22 @@ func (l *Launcher) reserve(ctx context.Context, decision admission.Result) (map[
 	return held, nil
 }
 
-// Notified gives how many unmatched jobs the launcher remembers as notified.
-func (l *Launcher) Notified() int {
-	l.notifiedMu.Lock()
-	defer l.notifiedMu.Unlock()
-
-	return len(l.notified)
-}
-
-// skip tells each unmatched job that has no line yet, in one call, and forgets the jobs that are
-// no longer unmatched.
+// skip tells each unmatched job that has no line yet, and it keeps the set of notified jobs.
 //
-// The set after the call holds the jobs of this decision that were notified, now or before. A job
-// that left the list, or that a new configuration now matches, is not in it, so a job that comes
-// back is told again. A decision that names more jobs than NotifiedLimit gets lines for the first
-// jobs only, and one warning: a job that the set cannot hold would get a new line at each tick.
-func (l *Launcher) skip(ctx context.Context, unmatched []admission.Unmatched) {
-	l.notifiedMu.Lock()
-	defer l.notifiedMu.Unlock()
+// A job enters the set when Buildkite takes its line. After a whole listing, a job that is not
+// unmatched in this decision leaves the set, so a job that comes back is told again. After a
+// truncated listing nothing leaves, because a job that is not listed may be hidden behind the
+// pages. Over NotifiedLimit the jobs seen least recently leave.
+func (l *Launcher) skip(ctx context.Context, decision admission.Result) {
+	fresh := make([]admission.Unmatched, 0, len(decision.Unmatched))
+	listed := make(map[job.ID]bool, len(decision.Unmatched))
 
-	kept := make(map[job.ID]struct{}, len(unmatched))
-	fresh := make([]admission.Unmatched, 0, len(unmatched))
-	over := 0
-
-	for _, entry := range unmatched {
+	for _, entry := range decision.Unmatched {
 		id := entry.Job.ID
+		listed[id] = true
 
 		if _, done := l.notified[id]; done {
-			kept[id] = struct{}{}
+			l.see(id)
 
 			continue
 		}
@@ -389,30 +382,55 @@ func (l *Launcher) skip(ctx context.Context, unmatched []admission.Unmatched) {
 		fresh = append(fresh, entry)
 	}
 
-	// The jobs that were told before are in kept already, so they come first in the bound.
-	if room := NotifiedLimit - len(kept); len(fresh) > room {
-		over = len(fresh) - max(room, 0)
-		fresh = fresh[:max(room, 0)]
+	for start := 0; start < len(fresh); start += buildkite.NotificationsPerRequest {
+		end := min(start+buildkite.NotificationsPerRequest, len(fresh))
+
+		if !l.tell(ctx, fresh[start:end]) {
+			break
+		}
 	}
 
-	if over > 0 {
-		l.logger.WarnContext(ctx, "more unmatched jobs than the controller remembers; "+
-			"it leaves the extra jobs without a notification",
-			"jobs", over, "limit", NotifiedLimit)
+	if !decision.Truncated {
+		for id := range l.notified {
+			if !listed[id] {
+				delete(l.notified, id)
+			}
+		}
 	}
 
-	if len(fresh) > 0 {
-		l.tell(ctx, fresh, kept)
-	}
-
-	l.notified = kept
+	l.trim()
 }
 
-// tell writes the notifications of the fresh jobs, and adds each one to kept when the call works.
-// A call that fails leaves the jobs out, so that the next tick tries again.
-func (l *Launcher) tell(ctx context.Context, fresh []admission.Unmatched,
-	kept map[job.ID]struct{},
-) {
+// see marks a job as seen now.
+func (l *Launcher) see(id job.ID) {
+	l.seq++
+	l.notified[id] = l.seq
+}
+
+// trim drops the jobs that the set saw least recently, down to NotifiedLimit.
+func (l *Launcher) trim() {
+	over := len(l.notified) - NotifiedLimit
+	if over <= 0 {
+		return
+	}
+
+	ids := make([]job.ID, 0, len(l.notified))
+	for id := range l.notified {
+		ids = append(ids, id)
+	}
+
+	slices.SortFunc(ids, func(a, b job.ID) int { return cmp.Compare(l.notified[a], l.notified[b]) })
+
+	for _, id := range ids[:over] {
+		delete(l.notified, id)
+	}
+}
+
+// tell writes the notifications of up to one request of fresh jobs, and puts each accepted job in
+// the set. It reports whether the next call may go on: a call that fails as a whole stops the
+// tick, and the jobs try again at the next one. A call that Buildkite refuses in part keeps the
+// valid lines, so only the refused jobs try again.
+func (l *Launcher) tell(ctx context.Context, fresh []admission.Unmatched) bool {
 	ctx, span := l.tracer.Start(ctx, "stacks.notify_skipped")
 	defer span.End()
 
@@ -425,23 +443,47 @@ func (l *Launcher) tell(ctx context.Context, fresh []admission.Unmatched,
 		})
 	}
 
-	if err := l.stacks.Notify(ctx, lines); err != nil {
-		span.RecordError(err)
-		l.logger.WarnContext(ctx, "the controller could not write the notifications of "+
-			"the jobs that it skips", "jobs", len(fresh), "error", err)
+	refused := map[int]bool{}
 
-		return
+	if err := l.stacks.Notify(ctx, lines); err != nil {
+		var partial *buildkite.RefusedError
+
+		if !errors.As(err, &partial) {
+			span.RecordError(err)
+			l.logger.WarnContext(ctx, "the controller could not write the notifications of "+
+				"the jobs that it skips", "jobs", len(fresh), "error", err)
+
+			return false
+		}
+
+		l.logger.WarnContext(ctx, "buildkite refused some notifications of the jobs that "+
+			"the controller skips", "refused", len(partial.Indexes), "jobs", len(fresh),
+			"reason", partial.Reason)
+
+		// A refusal with no index is a refusal of every line.
+		if len(partial.Indexes) == 0 {
+			return true
+		}
+
+		for _, index := range partial.Indexes {
+			refused[index] = true
+		}
 	}
 
-	for _, entry := range fresh {
-		kept[entry.Job.ID] = struct{}{}
+	for index, entry := range fresh {
+		if refused[index] {
+			continue
+		}
 
+		l.see(entry.Job.ID)
 		l.metrics.Skipped(ctx)
 		l.logger.InfoContext(ctx, "the controller skips a job that no profile carries",
 			telemetry.LogJob, string(entry.Job.ID),
 			telemetry.LogPipeline, entry.Job.Pipeline,
 			"reason", entry.Reason)
 	}
+
+	return true
 }
 
 // tokens gets one job acquisition token for each reserved job.

@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/admission"
@@ -244,6 +243,7 @@ func (a *admitter) admit(ctx context.Context) error {
 		Held:        a.starter.Held(held),
 		Eligible:    a.fleet.Eligible,
 		MaxInFlight: a.settings.MaxInFlight,
+		Truncated:   queue.Truncated,
 		Now:         a.now(),
 	})
 
@@ -296,7 +296,9 @@ func (a *admitter) trace(ctx context.Context, waiting []buildkite.ScheduledJob,
 				attribute.String(telemetry.SpanProfile, profile),
 			))
 		if unmatched {
-			span.SetStatus(codes.Error, reason)
+			// A skip is not an error of the controller: another runner may carry the job.
+			span.SetAttributes(attribute.Bool(telemetry.SpanSkipped, true))
+			span.AddEvent("no profile", trace.WithAttributes(attribute.String("reason", reason)))
 		}
 		span.End()
 

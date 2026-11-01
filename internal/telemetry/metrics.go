@@ -39,6 +39,7 @@ const (
 const (
 	SpanProfile = prefix + "profile"
 	SpanMatched = prefix + "job.matched"
+	SpanSkipped = prefix + "job.skipped"
 )
 
 // The attributes of the reaper.decide span (target design, section 10.2).

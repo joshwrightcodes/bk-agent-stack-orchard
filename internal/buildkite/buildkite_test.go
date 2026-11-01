@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -671,5 +672,34 @@ func TestARefusedLineIsAnAnswerAboutTheJob(t *testing.T) {
 	})
 	if !errors.Is(err, buildkite.ErrRefused) || !strings.Contains(err.Error(), "job is finished") {
 		t.Errorf("Notify() = %v, want ErrRefused with the reason of Buildkite", err)
+	}
+
+	// The caller learns which lines Buildkite refused, because it created the others.
+	var refused *buildkite.RefusedError
+	if !errors.As(err, &refused) || !slices.Equal(refused.Indexes, []int{0}) {
+		t.Errorf("Notify() = %v, want a RefusedError with the index 0", err)
+	}
+}
+
+func TestNotifyRefusesMoreLinesThanOneRequestTakes(t *testing.T) {
+	t.Parallel()
+
+	client, err := buildkite.New(buildkite.Options{
+		Token:    secret.String("bkct_a-cluster-agent-token"),
+		Endpoint: "http://127.0.0.1:1",
+		StackKey: "bk-macos-prod",
+		Queue:    "macos-prod",
+	})
+	if err != nil {
+		t.Fatalf("New() = %v, want a client", err)
+	}
+
+	lines := make([]buildkite.Notification, buildkite.NotificationsPerRequest+1)
+	for i := range lines {
+		lines[i] = buildkite.Notification{JobID: first, Detail: "x", At: time.Now()}
+	}
+
+	if err := client.Notify(t.Context(), lines); err == nil {
+		t.Error("Notify() with one line more than a request takes = nil, want an error")
 	}
 }
