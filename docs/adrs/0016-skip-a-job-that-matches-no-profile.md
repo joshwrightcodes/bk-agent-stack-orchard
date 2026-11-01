@@ -78,7 +78,7 @@ Skip a job that matches no profile.
   profile carries the job, and it fits in 256 characters.
 * The controller MUST write the full message once, at info level, in the log. It has the job
   identifier, the tags of the job, and the `match` map of each profile.
-* The controller MUST count each skipped job once, when it first notifies it. The counter has no
+* The controller MUST count a skipped job each time that it writes the notice. The counter has no
   job identifier (§10 of the target design).
 * The controller keeps the identifiers of the jobs that it notified in a bounded set in memory,
   so that it does not notify or log again at each tick. After a restart, it MAY notify a job

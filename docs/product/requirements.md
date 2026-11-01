@@ -155,10 +155,12 @@ the VMs of ended jobs and starts VMs for waiting jobs.
   skip the job. The product MUST NOT reserve the job, MUST NOT finish the job, and MUST NOT give
   it a VM slot. The job stays `scheduled`, so that another stack or agent of the queue can carry
   it. The product MUST write one stack notification on the job page, which says in short why no
-  profile carries the job. The product MUST NOT write that notification again for the same job
-  while the process runs. The product MUST write the full message, with the tags of the job and
-  the `match` maps of all profiles, once in the log. The product MUST count each skipped job
-  once.
+  profile carries the job. The product MUST write that notification once for a job while the job
+  stays listed and the process runs. The product MAY write it again after a restart, and after
+  the job left the list and came back. The product MUST write the full message, with the tags of
+  the job and the `match` maps of all profiles, in the log each time that it writes the
+  notification. The product MUST count a skipped job each time that it writes the notification.
+  A job can have at most 100 notifications, so the product keeps the number of notices low.
 * Status: `accepted`. Decision D1 of the owner, 2026-11-01, replaced "fail immediately" with
   "skip". ADR-0016 records it.
 * Acceptance: Given a job whose tags match no profile, and a free VM slot. When Buildkite

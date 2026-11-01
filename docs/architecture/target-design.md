@@ -76,6 +76,7 @@ The design depends on these facts. Each fact was verified against source code or
 | A job acquisition token (`bkjat_`) connects an agent to one reserved job. The token expires early if the reservation expires. At agent registration, Buildkite applies the expiry and the allowed IP addresses of the agent token that issued the JAT. | `buildkite/stacksapi` v1.2.0 `IssueJobAcquisitionTokens`; `buildkite/docs` `pages/agent/self_hosted/job_acquisition_tokens.md` (2026-08-26) | Only a job acquisition token goes into a VM (§9.1). The agent token allowlist MUST contain the job VM egress addresses (§9.2). |
 | `token_lifetime_seconds` of a job acquisition token has a minimum of 1, a maximum of 3600, and a default of 900. `reservation_expiry_seconds` has a default of 900 and a maximum of 3600. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The limits of 3600 s are the limits of the API. The controller refuses `reservationExpiry` and `jobTokenLifetime` values that are more than 3600 s or less than 1 s, so that the refusal comes at start-up and not at the first job (§8). |
 | The `detail` of a stack notification must not be empty and cannot exceed 256 characters. The unit is characters. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The controller cuts a detail to 256 characters, counted as runes and cut between characters, and ends a cut detail with an ellipsis. It sends "(no detail)" in place of an empty detail (§10.5). |
+| A stack notification needs no reservation, and the job does not have to be in a particular state. Only a job that finished more than 300 s ago cannot get one. A job can have at most 100 notifications. A request can carry at most 1000 notifications. When some lines fail, the response has `errors` entries with 0-based `indexes`, and the valid notifications are still created. The limit is 200 requests per second for each stack. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The controller sends a skip notice for a job that it does not hold. It sends at most 1000 lines in one call (`NotificationsPerRequest`), and it reads the refused indexes of a partial answer. A notice for each job is written once while the job stays listed (§5), so that the 100-line limit of one job stays far away. |
 | The `detail` of a finish request has a maximum of 4 KB. The documentation does not state the unit. `exit_status` defaults to -1. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The controller counts the 4 KB in bytes, which is never more than a count in characters, and it shortens the detail to the budget before it finishes a job (§6). |
 | The finish request has no `signal_reason` field, so the controller cannot set it. The Buildkite platform generates a `signal_reason` of `stack_error` for such a job. Pipeline authors use `signal_reason: stack_error` with `limit: 0` in their automatic retry rules. Whether the platform generates `stack_error` for every job that the controller finishes is `UNKNOWN` (owner: the maintainer; trigger: the first runs of T-100 to T-105). | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01); `buildkite/stacksapi` v1.2.0 `finish.go` | The controller finishes a failed job with exit status -1 and a detail (§7.6). |
 | `maxVMLifetime` is 25 h by default. The Reaper deletes a VM that is older than this, for any job state (row 2 of §7.2). A job that still runs at 25 h loses its VM and its agent. After the agent acquired the job, the Buildkite lost-agent procedure controls the result, and the controller does not finish the job (§7.1, rule 5). The job result that Buildkite gives in this case is `UNKNOWN` (owner: the maintainer; trigger: the first end-to-end run of a job that outlives `maxVMLifetime`). | Derived from `internal/reaper/decide.go` and §7.2, §7.1 (checked 2026-11-01) | A pipeline step with a run time near 25 h MUST set a lower job timeout. The default of 25 h is the safety limit in SC-06, not a job limit. |
@@ -264,8 +265,7 @@ The controller MUST skip an unmatched job (ADR-0016). It MUST NOT reserve the jo
 it, and MUST NOT give it capacity (I-8). The job stays `scheduled`, so that another stack or agent
 of the queue can carry it. Buildkite times the job out, or a person cancels it.
 
-For each unmatched job, the controller MUST do these things once, at the first tick that sees the
-job:
+For each unmatched job that has no entry in the notified set, the controller MUST do these things:
 
 * Write one stack notification. The detail says in short why no profile carries the job: the
   reason, then the tags of the job. The Notify call cuts a detail at 256 characters
@@ -273,21 +273,32 @@ job:
 * Write the full message at info level in the log. It has the job identifier, the tags of the job,
   and the `match` map of each profile. The job identifier is in the log, and not in a metric
   (I-7).
-* Add 1 to the counter `bkaso.job.skipped` (§10.1).
+* Add 1 to the counter `bkaso.job.skipped` (§10.1), for each notice that it writes.
 
-The controller keeps the identifiers of the jobs that it notified in a set in memory. The set has
-one rule of eviction and one bound:
+The controller writes these notices after it reserves and starts the admitted jobs of the same
+tick, so that a slow notification call cannot delay an admitted job. It sends at most 1000 lines
+in one call (`NotificationsPerRequest`, §3).
 
-* After each tick, the set holds only the jobs that are unmatched in the decision of that tick. A
-  job that left the list, or that a new configuration now matches, leaves the set. A job that
-  comes back is notified again.
-* The bound is 3000 identifiers, which is the most jobs that one read of the queue gives (3 pages
-  of 1000, §6.3). A decision cannot name more unmatched jobs than that. If it does, the
-  controller notifies only the jobs that fit in the bound, and it writes one warning for the tick.
-* If the notification call fails, the controller does not add the jobs to the set, and it tries
-  again at the next tick.
-* The set is not stored. After a restart, the controller MAY notify and log a job once more. This
-  is acceptable: it costs one extra line on the job page.
+The controller keeps the identifiers of the jobs that it notified in a set in memory, so that it
+writes the notice for a job once while the job stays listed and the process runs. The set has
+these rules:
+
+* A job enters the set when Buildkite accepts its line. If a call fails, the jobs of the call do
+  not enter the set, and the controller tries again at the next tick. If a call is partly
+  refused, the response has the 0-based indexes of the refused lines. The accepted jobs enter the
+  set, and only the refused jobs are tried again at the next tick.
+* The controller evicts jobs from the set only after a complete listing: the read was not cut at
+  `MaxPages`, and the last page had no cursor (§6.3). After a complete listing, a job that is
+  not unmatched in the decision leaves the set. A job that comes back is notified again, and
+  counted again.
+* After a truncated listing, the controller keeps every entry, because a job that is not in the
+  listing may only be hidden behind the pages.
+* The set has a cap of 10 000 identifiers (`NotifiedLimit`). When the set is over the cap, the
+  controller evicts the identifiers that it saw least recently. A decision cannot name more than
+  3000 jobs (3 pages of 1000), so the cap holds only when the listing is truncated for a long time.
+* The set is not stored. After a restart, the controller MAY write the notice for a job again,
+  and it counts the job again. This costs one extra line on the job page, and a job gets at most
+  100 lines (§3).
 
 While the queue is paused, the controller MUST NOT start VMs, and it MUST NOT write new
 notifications for unmatched jobs.
@@ -899,9 +910,11 @@ tolerance of ±`jobStatesInterval`. Outgoing HTTP clients MUST use `otelhttp`.
   Orchard state changes (placement on a worker, `running`) are span events. A span carries
   `cicd.pipeline.task.run.id` for its job, and the HTTP client spans come from `otelhttp`.
   `job.match` is written once for each job that a process sees in the queue, with
-  `bkaso.job.matched` and `bkaso.profile`, and an error status with the reason when no profile
-  matches. `job.admit` is written when admission starts the job. A span at each tick would put
-  one span each second into the trace of a job that waits.
+  `bkaso.job.matched` and `bkaso.profile`. When no profile matches, it also has the attribute
+  `bkaso.job.skipped` set to true, and the reason as the event `no profile`. A skip is not an
+  error of the controller, so the span has no error status. `job.admit` is written when admission
+  starts the job. `stacks.notify_skipped` is written when the controller writes skip notices. A
+  span at each tick would put one span each second into the trace of a job that waits.
 * **Tick spans** (`tick.poll`, `tick.inventory`, `tick.job_states`, `tick.reap`, `tick.admit`)
   are separate short traces. They have span links to the job traces that they affect.
 

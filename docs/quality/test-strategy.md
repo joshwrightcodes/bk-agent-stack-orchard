@@ -138,7 +138,7 @@ assert them at the end of each scenario.
 * **I-5:** the controller sends no finish call for a job after an agent acquired it.
 * **I-6:** at the end of a scenario, no owned VM remains in Orchard.
 * **I-7:** no metric attribute contains a job UUID or a VM name.
-* **I-8:** an unmatched job uses no VM slot.
+* **I-8:** an unmatched job uses no VM slot, and the controller never reserves it or finishes it.
 
 ## 6. Test matrix
 
