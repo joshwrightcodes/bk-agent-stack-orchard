@@ -267,7 +267,8 @@ requirements. The target design describes the job lifecycle and the failure proc
 **PR-024: Report readiness.**
 
 * Requirement: The controller MUST report that it is not ready when a data source is not
-  synchronized within 30 s. It MUST also report this when the Stacks API returns HTTP 401.
+  synchronized within `stateFreshness`. It MUST also report this when the Stacks API returns
+  HTTP 401.
 * Status: `accepted`.
 * Acceptance: Given a revoked cluster agent token. When the controller calls the Stacks API. Then
   the readiness check fails.

@@ -185,6 +185,7 @@ func serve(ctx context.Context, path string, out io.Writer) error {
 	checks, err := health.New(health.Options{
 		Sources:      sources,
 		Unauthorized: stacks.Unauthorized,
+		Window:       settings.StateFreshness,
 		Now:          now,
 		Logger:       recorder.Logger,
 	})

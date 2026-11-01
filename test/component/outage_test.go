@@ -48,6 +48,7 @@ func (f *fleet) readiness(t *testing.T) *health.Checks {
 
 	checks, err := health.New(health.Options{
 		Sources:      sources,
+		Window:       60 * time.Second, // the default of stateFreshness
 		Unauthorized: func() bool { return false },
 		Now:          func() time.Time { return f.now },
 		Logger:       slog.New(slog.DiscardHandler),
