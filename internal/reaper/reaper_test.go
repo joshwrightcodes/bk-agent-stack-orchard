@@ -99,6 +99,7 @@ type fleet struct {
 	read      bool
 	refuse    map[string]bool
 	deleted   []string
+	forgot    []string
 	events    []orchard.Event
 	eventsErr error
 }
@@ -108,6 +109,8 @@ func (f *fleet) Events(context.Context, string) ([]orchard.Event, error) {
 }
 
 func (f *fleet) Latest() (inventory.Snapshot, bool) { return f.snapshot, f.read }
+
+func (f *fleet) Forget(name string) { f.forgot = append(f.forgot, name) }
 
 func (f *fleet) DeleteVM(_ context.Context, name string) error {
 	if f.refuse[name] {
@@ -714,5 +717,29 @@ func TestAnExtensionIsLeftToTheRenewal(t *testing.T) {
 
 	if len(machines.deleted) != 0 || len(jobPages.finished) != 0 || len(jobPages.notified) != 0 {
 		t.Error("the executor acted on a machine whose reservation only needs an extension")
+	}
+}
+
+// Admission reads the answer of the inventory after the reaper in the same tick, so the reaper
+// tells the inventory about each machine that it deleted. A machine that stays must stay in it.
+func TestADeletedMachineIsForgottenAndARefusedDeletionIsNot(t *testing.T) {
+	t.Parallel()
+
+	api := &observed{states: map[job.ID]string{ended: "finished", ancient: "finished"}}
+	machines := &fleet{
+		read: true,
+		snapshot: inventory.Snapshot{
+			Owned: []inventory.Owned{owned(ended, time.Hour), owned(ancient, time.Hour)},
+		},
+		refuse: map[string]bool{"bk-macos-prod-" + string(ancient): true},
+	}
+
+	if err := build(t, api, machines, &decisions{}).Reap(t.Context()); err == nil {
+		t.Fatal("Reap() = nil, want the error of the refused deletion")
+	}
+
+	if len(machines.forgot) != 1 || machines.forgot[0] != "bk-macos-prod-"+string(ended) {
+		t.Errorf("the reaper told the fleet to forget %v, want only the machine that went",
+			machines.forgot)
 	}
 }

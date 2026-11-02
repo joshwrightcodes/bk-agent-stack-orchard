@@ -3,6 +3,7 @@
 package component_test
 
 import (
+	"cmp"
 	"context"
 	"maps"
 	"slices"
@@ -38,21 +39,38 @@ type orchardFake struct {
 	// deleteFails is the answer of every delete while it is set. The other calls work, so a
 	// machine that has to go stays in the listing.
 	deleteFails error
+
+	// answerLost makes the next create reach Orchard and the answer get lost: the machine exists,
+	// and the controller sees a transport error. The knob clears itself when a create uses it.
+	answerLost bool
+
+	// conflictNext makes the next create answer 409, with the machine in place, as the retry of a
+	// create that an earlier process made shows. The knob clears itself when a create uses it.
+	conflictNext bool
 }
 
-func newOrchard(now func() time.Time, offline time.Duration, hosts int) *orchardFake {
+// hostShape is what one worker offers: the slots for machines, the cores, and the memory.
+type hostShape struct {
+	slots, cores, memoryMiB uint64
+}
+
+// defaultHost is the Mac of the fixed scenarios: two slots, as Apple permits.
+var defaultHost = hostShape{slots: 2, cores: 16, memoryMiB: 65536}
+
+// newOrchardOf builds an Orchard with one worker for each shape.
+func newOrchardOf(now func() time.Time, offline time.Duration, shapes []hostShape) *orchardFake {
 	fake := &orchardFake{now: now, offline: offline, vms: map[string]*orchard.VM{}}
 
-	for i := range hosts {
+	for i, shape := range shapes {
 		fake.hosts = append(fake.hosts, &host{worker: orchard.Worker{
 			Name:     "mac-0" + string(rune('1'+i)),
 			Arch:     "arm64",
 			Runtime:  "tart",
 			LastSeen: now(),
 			Resources: map[string]uint64{
-				orchard.ResourceVMs:       2,
-				orchard.ResourceCores:     16,
-				orchard.ResourceMemoryMiB: 65536,
+				orchard.ResourceVMs:       shape.slots,
+				orchard.ResourceCores:     shape.cores,
+				orchard.ResourceMemoryMiB: shape.memoryMiB,
 			},
 		}})
 	}
@@ -90,7 +108,9 @@ func (o *orchardFake) sync() {
 	}
 
 	waiting := slices.Collect(maps.Values(o.vms))
-	slices.SortFunc(waiting, func(a, b *orchard.VM) int { return a.CreatedAt.Compare(b.CreatedAt) })
+	slices.SortFunc(waiting, func(a, b *orchard.VM) int {
+		return cmp.Or(a.CreatedAt.Compare(b.CreatedAt), strings.Compare(a.Name, b.Name))
+	})
 
 	for _, vm := range waiting {
 		if vm.Worker != "" {
@@ -175,6 +195,18 @@ func (o *orchardFake) CreateVM(_ context.Context, spec orchard.VM) error {
 	vm.Status = orchard.StatusPending
 	vm.CreatedAt = o.now()
 	o.vms[spec.Name] = &vm
+
+	if o.answerLost {
+		o.answerLost = false
+
+		return errLostAnswer
+	}
+
+	if o.conflictNext {
+		o.conflictNext = false
+
+		return orchard.ErrAlreadyExists
+	}
 
 	return nil
 }

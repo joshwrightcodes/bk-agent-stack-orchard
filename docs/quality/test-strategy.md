@@ -205,7 +205,7 @@ when it reports only.
 
 | ID | Basis | Scenario | Oracle | Gate |
 |---|---|---|---|---|
-| T-080 | R-05, R-17, SC-05, CO-01 | 50 synthetic workers with 2 slots and 500 generated jobs, with the arrival pattern of the demand model | The tick duration stays inside its budget; list and reserve stay under 10 requests each second; get-states stays under 20 requests each second; I-1, I-2, and I-6 hold; `jobs.oldest_waiting.age` follows the queue | diagnostic |
+| T-080 | R-05, R-17, SC-05, CO-01 | 50 synthetic workers with 2 slots and 500 generated jobs, with the arrival pattern of the demand model | The tick duration stays inside its budget; list and reserve stay under 10 requests each second; get-states stays under 20 requests each second; I-1, I-2, and I-6 hold; `bk_agent_stack_orchard.job.waiting.oldest.age` follows the queue | diagnostic |
 
 ### 6.7 End-to-end (L6, one Mac)
 
@@ -261,13 +261,40 @@ Rules for data and secrets:
 
 Pilot evidence replaces estimates. It is measurement, not a test:
 
-* **E-1:** two weeks with 0 VMs that remain after their job ends, and 0 jobs that the controller
-  failed incorrectly (QA-04, requirements section 6).
+* **E-1:** two weeks with `bk_agent_stack_orchard.vm.leftover` at 0, except for the window in which
+  the reaper did not delete a VM whose job it saw as terminal, and 0 jobs that the controller failed
+  incorrectly (QA-04, requirements section 6). The gauge counts the VMs whose job is terminal, so it
+  shows a VM that remains. The deletion counter `bk_agent_stack_orchard.vm.deletions` does not,
+  because it counts only the VMs that were deleted. The window is 10 consecutive ticks, which is 10
+  s with the default poll interval (target design, section 10.1). Two exports in a row that are more
+  than 0 are a leak. A Buildkite outage keeps the gauge above 0 for longer than the window, because
+  the reaper waits for fresh job states (target design, section 7.2, row 3). E-1 excludes such
+  periods, and the staleness signal of E-5 shows them. The jobs that the controller failed
+  incorrectly are the increases of `bk_agent_stack_orchard.job.failed`, each one checked against its
+  job.
 * **E-2:** the measured start time and wait time against QA-01 and QA-02, with the percentile that
-  the baseline assumes.
+  the baseline assumes. The load condition is the one of T-080: 50 synthetic workers of 2 slots, 500
+  generated jobs, and the arrival pattern of the demand model (baseline section 4.2, SC-05), with
+  the tick duration at or below `LOAD_TICK_BUDGET`, which is 34 ms (O-5). The 34 ms is the budget of
+  T-080 against local fakes only. It does not apply to the pilot, because a real tick makes calls to
+  the Buildkite API and to Orchard. The tick budget of the pilot: `UNKNOWN`; owner: the maintainer;
+  trigger: the first week of pilot `bk_agent_stack_orchard.tick.duration` data. The start time
+  includes the starts that pulled an image, because the controller cannot tell them apart (cold or
+  warm start: `UNKNOWN`; owner: the maintainer; trigger: O-7; target design, section 10.1).
 * **E-3:** the measured time from the job end to the VM deletion, which gives the value that QA-06
-  does not have.
+  does not have. It is the histogram `bk_agent_stack_orchard.job.phase.duration` with the phase
+  value `finished_to_deleted`. The histogram starts at the first tick in which the reaper saw the
+  job as terminal, so the true time from the job end to the deletion is not the histogram value.
+  It is between the histogram value and the histogram value plus `jobStatesInterval`.
 * **E-4:** the measured image count for each host, which gives the value that SC-09 does not have.
+* **E-5:** the measured recovery time against QA-03, which is less than 15 min. The measure uses the
+  existing signals. A recovery starts at the last answer of a source that was good, which is the
+  export time minus the value of `bk_agent_stack_orchard.source.staleness` in the first export that
+  is more than `stateFreshness` (60 s), and for a restart of the controller it starts at the last
+  export before the gap. It ends at the first export in which the
+  `bk_agent_stack_orchard.source.staleness` of all three sources is at or below `stateFreshness` and
+  the readiness probe (gRPC health, `Check`) gives `SERVING`. The pilot MUST record each outage of
+  Orchard, each outage of Buildkite, and each restart of the controller, and the time of each one.
 
 ## 9. Exclusions and accepted risks
 
@@ -300,7 +327,7 @@ Review this strategy when one of these events occurs:
   T-041, T-064, and T-122 change with it.
 * The Buildkite Stacks API changes a limit, a state, or a status code. T-040 changes with it.
 * Buildkite publishes an agent release line after v4. T-100 and the image contents change.
-* The pilot gives E-1 to E-4. The estimates in ADR-0001 and ADR-0003 and the values of QA-06 and
+* The pilot gives E-1 to E-5. The estimates in ADR-0001 and ADR-0003 and the values of QA-06 and
   SC-09 then come from measurement, and T-106 can retire.
 * The fleet uses a profile with the SSH transport. T-003 and T-100 then need an SSH case.
 * A new Xcode or macOS image changes the pilot profile (CO-05).
@@ -315,4 +342,6 @@ Each item is an unknown that can change a level or a scenario. Each has the smal
 | O-2 | `orchard dev --synthetic` does not run a real startup script. | L4 proves only that the API accepts the guest-agent transport. The transport itself is unproven until L6. | Send one VM specification with `transport: tart-guest-agent` to a synthetic controller, and record whether validation accepts it. **Evidence (2026-09-27):** on the development Mac, `TestARealMachineRunsTheStartupScript` (`mise run tart-test`) ran the controller, `orchard dev` with a real Tart worker, and the agent image. The guest agent ran the startup script: `buildkite-agent` v4.0.6 started, and Buildkite refused its job token with `401 Unauthorized: Invalid job acquisition token`. The fake Stacks server issues a token that Buildkite does not know, so no job runs there. T-100 stays the only proof of a job that runs. |
 | O-3 | Agent v4 support for an injected `traceparent` is not verified (target design, section 10.4). | The agent spans can stay outside the job trace. | Run one job on the development Mac with `profile.otel.enabled: true`, and examine the trace. |
 | O-4 | The host macOS version that a macOS 27 guest needs is an assumption (CO-07). | L6 and the pilot can need a host update before the pilot hosts are ready. The date of the hosts is `UNKNOWN` (owner: the maintainer; trigger: the Mac hosts are ready). On 2026-09-14 the plan estimated that the hosts ship on 2026-09-22. | Start a Golden Gate VM on the development Mac before the pilot hosts arrive. **Evidence (2026-09-27):** macOS 27 Golden Gate VMs run on the macOS 27 development Mac (W-23, and the test of O-2). An older host is not tested. |
-| O-5 | The tick duration budget for T-080 has no value yet. | The load test has no pass condition for the tick. It reports the tick, and it judges the invariants and the request budget. | Take the p95 of the first run of the `load` workflow on the runner as the baseline, and set the repository variable `LOAD_TICK_BUDGET` to two times that value. |
+| O-5 | The tick duration budget for T-080 had no value. **Closed on 2026-11-02.** | The load test judges the tick, together with the invariants and the request budget, when `LOAD_TICK_BUDGET` parses as a duration. | **Evidence (2026-11-01):** four runs of the `load` workflow on `macos-latest` (run IDs 41276671046, 41276715340, 41292677418, and 41297506926) gave a p95 of 17, 17, 15, and 16 ms. The budget is two times the highest p95, 17 ms, which is 34 ms. The repository variable `LOAD_TICK_BUDGET` is `34ms` (set 2026-11-02). |
+| O-6 | The Stacks API answers for the edge cases are not recorded: a finish of a job that is acquired, terminal, scheduled, or unknown, and a reserve of a job that is running or terminal. `test/fakestacks` assumes 422 and `not_reserved`. | The controller can treat a real answer incorrectly, and the fake hides it. | Record the real answers on the Buildkite test cluster, and put them in the fake. |
+| O-7 | Orchard 0.58.0 gives no event for an image pull (checked 2026-11-02, tag 0.58.0), so the start phase does not carry a cold or warm attribute. | The start time of QA-01 includes the starts that pulled an image. | Record the events and the status messages of real VMs on the pilot host, and add the attribute if a pull shows. |

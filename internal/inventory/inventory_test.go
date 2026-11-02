@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/inventory"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
@@ -384,5 +385,74 @@ func TestAFailedMachineIsNeitherCarriedNorWaiting(t *testing.T) {
 
 	if unplaced := snapshot.Unplaced(); len(unplaced) != 0 {
 		t.Errorf("Unplaced() = %+v, want none", unplaced)
+	}
+}
+
+// A machine that the reaper deleted is gone for the rest of the tick. Admission reads the same
+// answer after the reaper, and a machine that Orchard no longer holds must not take room in it.
+func TestForgetTakesAMachineOutOfTheLatestAnswerAndTheNextRefreshReplacesIt(t *testing.T) {
+	t.Parallel()
+
+	gone := "bk-" + controller + "-" + first
+	orphan := "bk-" + controller + "-not-a-job"
+	of := &fleet{vms: []orchard.VM{{Name: gone}, {Name: orphan}, {Name: "somebody-elses-machine"}}}
+
+	held := build(t, of)
+	if err := held.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh() = %v, want no error", err)
+	}
+
+	before, _ := held.Latest()
+
+	held.Forget(gone)
+	held.Forget(orphan)
+
+	snapshot, _ := held.Latest()
+	if len(snapshot.VMs) != 1 || snapshot.VMs[0].Name != "somebody-elses-machine" ||
+		len(snapshot.Owned) != 0 || len(snapshot.Orphans) != 0 {
+		t.Errorf("after Forget the answer holds %+v, want only the machine of somebody else", snapshot)
+	}
+
+	// A reader that took the answer before keeps what it read.
+	if len(before.VMs) != 3 || len(before.Owned) != 1 || len(before.Orphans) != 1 {
+		t.Errorf("Forget changed an answer that a reader held: %+v", before)
+	}
+
+	if err := held.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh() = %v, want no error", err)
+	}
+
+	snapshot, _ = held.Latest()
+	if len(snapshot.VMs) != 3 {
+		t.Errorf("after a refresh the answer holds %d machines, want the 3 that Orchard holds",
+			len(snapshot.VMs))
+	}
+}
+
+// The first exit criterion reads this count: a machine whose job ended has nothing left to do, so
+// the count is zero except for the short time before the reaper deletes the machine.
+func TestTheGaugeCountsOwnedVMsWhoseJobIsTerminal(t *testing.T) {
+	t.Parallel()
+
+	ended, running, unasked := job.ID("job-ended"), job.ID("job-running"), job.ID("job-unasked")
+	snapshot := inventory.Snapshot{
+		Owned: []inventory.Owned{
+			{VM: orchard.VM{Name: "bk-1"}, Job: ended},
+			{VM: orchard.VM{Name: "bk-2"}, Job: running},
+			{VM: orchard.VM{Name: "bk-3"}, Job: unasked},
+		},
+		// An orphan has no job, so it is not a leftover of a job.
+		Orphans: []orchard.VM{{Name: "bk-4"}},
+	}
+
+	states := map[job.ID]string{ended: "finished", running: "running"}
+	observation := telemetry.Observation{}
+
+	snapshot.Leftover(&observation, func(id job.ID) bool {
+		return buildkite.Terminal(states[id])
+	})
+
+	if observation.Leftover != 1 {
+		t.Errorf("the gauge counts %d machines, want 1: only the job that ended", observation.Leftover)
 	}
 }

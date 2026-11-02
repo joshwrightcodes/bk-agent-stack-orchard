@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/inventory"
@@ -208,5 +209,79 @@ func TestAFailedMachineWithoutLinesShowsItsStatus(t *testing.T) {
 				t.Errorf("the message reads %q, want the status of the machine", detail)
 			}
 		})
+	}
+}
+
+// A guest writes the lines of its startup script, and the status message of a machine can quote
+// them. The message keeps the line breaks and the tabs of the lines, and drops each other control
+// character, such as an escape sequence, so that a job page shows text and no terminal commands.
+func TestTheMessageOfAFailedMachineHoldsNoTerminalControl(t *testing.T) {
+	t.Parallel()
+
+	machine := failing(ended)
+	machine.VM.StatusMessage = "VM failed: \x1b[31mexit 1\x07"
+
+	detail := finished(t, &fleet{
+		read: true, snapshot: inventory.Snapshot{Owned: []inventory.Owned{machine}},
+		events: []orchard.Event{
+			{Kind: "log_line", Timestamp: 1, Payload: "\x1b[1mbuild\x1b[0m\r\tdone\u0085"},
+			{Kind: "log_line", Timestamp: 2, Payload: "last\nline"},
+		},
+	})
+
+	want := "VM failed: [31mexit 1"
+	if !strings.Contains(detail, want) {
+		t.Errorf("the message reads %q, want %q in it", detail, want)
+	}
+
+	if !strings.HasSuffix(detail, "[1mbuild[0m\tdone\nlast\nline") {
+		t.Errorf("the message reads %q, want the lines without control characters but with their "+
+			"tabs and line breaks", detail)
+	}
+}
+
+// The status message of a machine comes from Orchard, and a guest can influence it. A long one
+// must not take the room of the lines of the startup script, which say why the agent did not start.
+func TestALongStatusMessageLeavesRoomForTheLastLines(t *testing.T) {
+	t.Parallel()
+
+	machine := failing(ended)
+	machine.VM.StatusMessage = strings.Repeat("ビ", 5000)
+
+	detail := finished(t, &fleet{
+		read: true, snapshot: inventory.Snapshot{Owned: []inventory.Owned{machine}},
+		events: script(60, line),
+	})
+
+	if len(detail) > buildkite.DetailBudget {
+		t.Errorf("the message has %d bytes, want %d or fewer", len(detail), buildkite.DetailBudget)
+	}
+
+	if !strings.HasSuffix(detail, line(60)) || !strings.Contains(detail, line(50)) {
+		t.Errorf("the message lost the newest lines of the script:\n%s", detail)
+	}
+
+	if !utf8.ValidString(detail) {
+		t.Error("the message cuts a character of the status")
+	}
+}
+
+// A bidirectional override and a zero-width character change what a reader sees, and a line or
+// paragraph separator breaks a line that the page shows as one. The message drops them.
+func TestTheMessageOfAFailedMachineHoldsNoFormatCharacter(t *testing.T) {
+	t.Parallel()
+
+	machine := failing(ended)
+	machine.VM.StatusMessage = "VM failed\u202e: gnp.exe\u200b"
+
+	detail := finished(t, &fleet{
+		read: true, snapshot: inventory.Snapshot{Owned: []inventory.Owned{machine}},
+		events: []orchard.Event{
+			{Kind: "log_line", Timestamp: 1, Payload: "a\u2028b\u2029c\u2066d\ufeffe"},
+		},
+	})
+
+	if !strings.HasSuffix(detail, "abcde") || !strings.Contains(detail, "VM failed: gnp.exe") {
+		t.Errorf("the message reads %q, want the text without format characters", detail)
 	}
 }

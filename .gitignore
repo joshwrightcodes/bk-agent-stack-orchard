@@ -231,3 +231,6 @@ test/component/testdata/rapid/
 
 # Licence texts that scripts/licenses.sh copies for ko at build time (never committed).
 /cmd/bk-agent-stack-orchard/kodata/
+
+# Python bytecode that the script tests write.
+scripts/__pycache__/

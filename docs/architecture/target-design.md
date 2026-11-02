@@ -196,6 +196,10 @@ One goroutine runs the tick. Each tick does these steps in sequence:
 API calls in one step MAY run concurrently, with a concurrency limit. The steps MUST run in
 sequence. Because of this, Admission always sees the Reaper deletions of the same tick.
 
+An accepted delete, or a 404 for a VM that is already gone, takes the VM out of the last Inventory
+answer. The VM stays out until the next refresh replaces the answer. Admission counts the room
+that the delete freed for this reason. If Orchard is slow, the next refresh can list the VM again.
+
 The loop MUST decide when a source is due, and it MUST measure the interval of a source between
 ticks, not between the answers of the source. An answer arrives after its tick, and later still
 for a source that waits for the ones before it in the same tick, so a comparison of answers reads
@@ -423,8 +427,9 @@ Admission does these steps:
    `scheduled_at` (oldest first).
 2. **In-flight limit.** Stop when the number of owned VMs, plus the VMs that this process requested
    and the Inventory data does not show yet, plus admitted jobs, is equal to `maxInFlight`. The
-   count includes every owned VM, also a VM in the `failed` status, until the Reaper deletes it. The
-   Reaper deletes such a VM in the same tick or the next one, so the count is conservative and it
+   count includes every owned VM, also a VM in the `failed` status, until the Reaper deletes it. A
+   delete that Orchard accepts takes the VM out of the count in the same tick (§4). The Reaper
+   tries again at the next tick after a delete that failed, so the count is conservative and it
    lasts a short time. The default value of `maxInFlight` is 0, which means the total VM slots of
    the eligible workers. Because of this, the limit follows the fleet, and it does not hold slots
    empty at the target scale (SC-01, QA-02). A value more than 0 limits the controller to that
@@ -624,8 +629,14 @@ The controller MUST cut finish-job detail messages to a maximum of 4 KB at a run
 `stacksapi` library makes this cut, at the end of the detail, and it notes the cut there. A message
 whose end holds its reason MUST shorten itself below the limit of the library, so that the library
 cuts nothing: the message of an acquire timeout drops its oldest startup-script lines, and keeps its
-newest. The controller MUST send all reservation extensions of one tick in one `batch-reserve`
-call.
+newest. A guest writes the startup-script lines and can influence the status message of a VM, so
+the controller MUST drop each control character of this text, except the line break and the tab,
+and each Unicode format character (category Cf, such as the bidirectional overrides and the
+zero-width characters) and each line or paragraph separator, before it builds the message. The
+message MUST hold at most a quarter of the budget (`statusBudget`) of the status message of the
+VM, cut between characters, so that the lines of the startup script keep their room. The controller
+MUST send all reservation extensions of one tick in
+one `batch-reserve` call.
 
 ### 7.3 Timeout consistency
 
@@ -874,8 +885,9 @@ exporter that the value names. A rule that an environment variable can break is 
 
 ### 10.1 Metrics
 
-The instruments follow the OpenTelemetry semantic conventions. The prefix `bkaso` below is
-`bk_agent_stack_orchard`, which this table shortens for width only.
+The instruments follow the OpenTelemetry semantic conventions. In this section, the text `bkaso.` at
+the start of a name stands for `bk_agent_stack_orchard.`, which the text shortens for width only.
+The name that an operator queries has the full prefix.
 
 | Instrument | Name (unit) | Attributes |
 |---|---|---|
@@ -887,10 +899,11 @@ The instruments follow the OpenTelemetry semantic conventions. The prefix `bkaso
 | UpDownCounter | `bkaso.slot.count` (`{slot}`) | `bkaso.pool`, `bkaso.slot.state` = `total`/`used`/`free` |
 | UpDownCounter | `bkaso.vm.count` (`{vm}`) | `bkaso.profile`, `bkaso.vm.phase` = `unplaced`/`booting`/`running`/`failed` |
 | UpDownCounter | `cicd.worker.count` (`{worker}`) | `cicd.worker.state` = `available`/`busy`/`offline` |
-| Histogram | `bkaso.job.phase.duration` (`s`) | `bkaso.profile`, `bkaso.job.phase` = `scheduled_to_reserved`/`reserved_to_placed`/`placed_to_running`/`running_to_accepted`/`total` |
+| Histogram | `bkaso.job.phase.duration` (`s`) | `bkaso.profile`, `bkaso.job.phase` = `scheduled_to_reserved`/`reserved_to_placed`/`placed_to_running`/`running_to_accepted`/`finished_to_deleted`/`total` |
 | Counter | `bkaso.vm.deletions` (`{vm}`) | `bkaso.vm.delete.reason` (§7.2) |
 | Counter | `cicd.system.errors` (`{error}`) | `cicd.system.component` = `buildkite`/`orchard`, `error.type` |
 | Histogram | `bkaso.tick.duration` (`s`) | `bkaso.tick.step` |
+| Gauge | `bkaso.vm.leftover` (`{vm}`) | — |
 | Gauge | `bkaso.source.staleness` (`s`) | `bkaso.source` = `scheduled_jobs`/`job_states`/`inventory` |
 
 These rules come from the conventions and MUST hold:
@@ -918,11 +931,44 @@ These rules come from the conventions and MUST hold:
 * **`bkaso.source.staleness` is an age and not a time.** The readiness alert reads a number that
   needs no clock of its own, and the value cannot disagree with the clock of the backend.
 
+* **`bkaso.vm.leftover` counts the owned VMs whose job is terminal.** At each tick, the controller
+  counts the VMs in the last inventory whose job has a terminal state in the last job states
+  (`finished`, `canceled`, `expired`, `timed_out`, `skipped`, or `broken`, the states of row 4 of
+  §7.2). An orphan has no job, so it is not in the count. The Reaper acts before the controller
+  takes the count, in the same tick and on the same job states. Because of this, the value is more
+  than 0 only when the Reaper did not delete a VM whose job it saw as terminal. This can be a delete
+  that Orchard refused, a VM that row 3 of §7.2 holds because the job states are not fresh, or a
+  Reaper that did not run. The window is the number of consecutive ticks in which this is true. It
+  is 10 ticks (10 s with the default `pollInterval`). The delay before the controller sees that a
+  job ended (up to `jobStatesInterval`) is not in the window. A delete that Orchard refuses is tried
+  again at each tick, so 10 ticks give 10 tries. A VM that is in the count for more than 10 ticks is
+  a leak, except while Buildkite is down: the Reaper waits for fresh job states (§7.2, row 3), so
+  the count stays above 0 until the states are fresh again, and `bkaso.source.staleness` shows the
+  period. The default export interval is 60 s, which is longer than the window. Because of this, one
+  export that is more than 0 can be inside the window, and two exports in a row that are more than 0
+  are not.
+* **`finished_to_deleted` is the lag of the Reaper.** It starts at the first tick that saw the job
+  in a terminal state, and it ends at the deletion that Orchard accepted. A failed deletion does
+  not end it. A restart loses the start, so the first tick after a restart starts the time again.
+  It has the tolerance of `jobStatesInterval`, like the other phases. The value of the
+  attribute `bkaso.profile` is `unknown` for a VM that this process did not start.
+
 Metric attributes MUST NOT contain job UUIDs or VM names. The `bkaso.pool` attribute is the value
 of the worker `pool` label. If the worker has no `pool` label, the value is `none`.
 
 The controller observes phase changes at poll intervals. Because of this, phase durations have a
 tolerance of ±`jobStatesInterval`. Outgoing HTTP clients MUST use `otelhttp`.
+
+**Cold or warm start: `UNKNOWN`.** The target of QA-01 is for an image that is on the host, but the
+controller cannot say if a start pulled the image. The events of a VM from Orchard 0.58.0 have one
+kind, `log_line`, and it carries the lines of the startup script. The worker sets the status message
+"pulling VM image..." only while it pulls an image, and the next status message replaces it, so a
+poll can miss it. The worker also records a pull time in its own metric
+`org.cirruslabs.orchard.worker.vm.pull_time`, which the controller cannot read. Source: the Orchard
+repository at tag 0.58.0, `pkg/resource/v1/v1.go` and `internal/worker/vmmanager/tart/tart.go`
+(checked 2026-11-02). The controller therefore has no attribute for it, and the start phases include
+the cold starts. Owner: the maintainer. Trigger: O-7 of the test strategy records the events of real
+VMs; the attribute is added when they show a pull.
 
 ### 10.2 Traces
 
@@ -1003,6 +1049,10 @@ of §10.1.
 
 A notification detail MUST NOT be longer than 256 characters. The controller cuts a longer
 detail between characters, and the cut detail ends with an ellipsis (§3).
+A notification is one line of plain text, so the controller MUST replace each control character of
+a detail with a space, and it MUST do the same for each Unicode format character and each line
+or paragraph separator, before it counts the characters. A detail with only blanks left MUST give
+"(no detail)".
 
 ### 10.6 Alert conditions
 
@@ -1015,6 +1065,7 @@ are out of scope, because they depend on the backend behind the collector.
 | Controller is not ready | `bkaso.source.staleness` of a source is more than 2 min. |
 | Controller fails jobs | `bkaso.job.failed` increases for 15 min. |
 | Timeouts repeat | `bkaso.vm.deletions{bkaso.vm.delete.reason=~".*_timeout"}` increases. |
+| VMs remain | `bkaso.vm.leftover` is more than 0 in two exports in a row, at the default export interval of 60 s, which is longer than the window of 10 ticks (§10.1). Outages of Buildkite excluded. This value is the QA-04 target. |
 | Orphans exist | `bkaso.vm.deletions{bkaso.vm.delete.reason="orphan"}` is more than 0. |
 | Fleet is full | `bkaso.slot.count{bkaso.slot.state="free"}` is 0 for 30 min. |
 
@@ -1070,7 +1121,7 @@ Development MUST use TDD. Each change of behavior MUST start with a failing test
 | Phase | Scope | Exit criteria |
 |---|---|---|
 | 0 — Development | One Mac, `orchard dev`, a Buildkite test cluster | The end-to-end scenarios and the synthetic load test pass. |
-| 1 — Pilot | Orchard on Kubernetes, 2 to 4 Macs, one queue, 1 or 2 profiles. Only non-critical pipelines that opt in. Telemetry and alerts are active. The pilot profile uses Xcode 27 (PR-026). The pilot start date is `UNKNOWN` (SC-03; owner: the maintainer; trigger: a Buildkite test cluster and the Mac hosts are ready). On 2026-09-14, the plan estimated approximately 1 month. | Two weeks with zero leaked VMs and zero jobs that the controller failed incorrectly. The start time and the wait time are measured against QA-01 and QA-02. |
+| 1 — Pilot | Orchard on Kubernetes, 2 to 4 Macs, one queue, 1 or 2 profiles. Only non-critical pipelines that opt in. Telemetry and alerts are active. The pilot profile uses Xcode 27 (PR-026). The pilot start date is `UNKNOWN` (SC-03; owner: the maintainer; trigger: a Buildkite test cluster and the Mac hosts are ready). On 2026-09-14, the plan estimated approximately 1 month. | Two weeks with `bkaso.vm.leftover` at 0 outside its window (§10.1), and zero jobs that the controller failed incorrectly (E-1 to E-5 of the test strategy). The start time and the wait time are measured against QA-01 and QA-02. |
 | 2 — Adoption | Increase to 10 Macs and more profiles. Move pipelines to the queue. Adjust timeouts from telemetry. The date of adoption and scale is `UNKNOWN` (SC-03; same owner and trigger). On 2026-09-14, the plan estimated approximately 3 months. | The warm-pool decision is examined again with measured `job.phase.duration` data. |
 | 3 — Scale | 10 to 50 Macs | The load test agrees with production behavior. High availability and controller placement are decided only if telemetry shows a need. |
 

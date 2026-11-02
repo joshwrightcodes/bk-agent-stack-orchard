@@ -39,7 +39,9 @@ func TestAPausedQueueStartsNothingAndLetsMachinesContinue(t *testing.T) {
 	stacks.SetJobState(busy, "running")
 	stacks.Schedule(scheduled(held, "xcode=27", time.Minute), scheduled(stray, "xcode=99", time.Minute))
 
-	never(t, "the controller acts on a job while the queue is paused", func() bool {
+	// Admission and the notice of a skipped job run in the poll, which refreshes at each tick. A
+	// poll in flight may predate the pause, so one tick for it, one to act, and one for margin.
+	never(t, 3, "the controller acts on a job while the queue is paused", func() bool {
 		_, found := machineNamed(t, machineOf(held))
 
 		return found || slices.Contains(stacks.Reserved(), held) ||
@@ -106,8 +108,10 @@ func TestACancellationWhileTheMachineBootsDeletesIt(t *testing.T) {
 	})
 
 	// The controller ends nothing that Buildkite already ended, and it does not take the job
-	// again: a second reservation would give a cancelled job an agent.
-	never(t, "the controller finishes or reserves the cancelled job again", func() bool {
+	// again: a second reservation would give a cancelled job an agent. The machine is already gone,
+	// so the next job-states refresh no longer asks about the job, and only the poll could take it
+	// again: one tick for a stale answer, one to act, and one for margin.
+	never(t, 3, "the controller finishes or reserves the cancelled job again", func() bool {
 		return finished(stacks.Finished(), carried) || reservations(stacks.Reserved(), carried) > 1
 	})
 

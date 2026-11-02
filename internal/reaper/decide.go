@@ -69,17 +69,6 @@ const (
 	stateReserved  = "reserved"
 )
 
-// terminal holds the Buildkite states from which a job never returns. A machine of such a job has
-// nothing left to do.
-var terminal = map[string]bool{
-	"finished":  true,
-	"canceled":  true,
-	"expired":   true,
-	"timed_out": true,
-	"skipped":   true,
-	"broken":    true,
-}
-
 // Machine is everything that the decision reads about one machine of this controller.
 type Machine struct {
 	// VM is the machine as Orchard holds it.
@@ -164,7 +153,7 @@ func Decide(m Machine, now time.Time, rules Rules) Decision {
 	}
 
 	// Row 4. A job that ended needs no machine.
-	if terminal[m.State] {
+	if buildkite.Terminal(m.State) {
 		return Decision{Row: 4, Action: Delete, Reason: ReasonJobTerminal}
 	}
 

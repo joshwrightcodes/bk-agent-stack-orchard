@@ -95,3 +95,19 @@ var acquired = map[string]bool{
 func Acquired(state string) bool {
 	return acquired[state]
 }
+
+// terminal holds the states of a job from which it never returns. A machine of such a job has
+// nothing left to do.
+var terminal = map[string]bool{
+	"finished":  true,
+	"canceled":  true,
+	"expired":   true,
+	"timed_out": true,
+	"skipped":   true,
+	"broken":    true,
+}
+
+// Terminal reports a job state from which the job never returns.
+func Terminal(state string) bool {
+	return terminal[state]
+}

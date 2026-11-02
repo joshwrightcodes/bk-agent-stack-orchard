@@ -376,3 +376,187 @@ func TestAJobThatWaitsIsMatchedOnce(t *testing.T) {
 		t.Errorf("five ticks wrote %v, want job.match once and no job.admit", count)
 	}
 }
+
+// crowded is a fleet with one slot, and a machine that a person left in it. The machine stays in
+// the listing until the reaper deletes it.
+type crowded struct {
+	fleet
+	deleted bool
+}
+
+func (c *crowded) ListWorkers(context.Context) ([]orchard.Worker, error) {
+	return []orchard.Worker{{Name: "mac-01", LastSeen: clock, Resources: map[string]uint64{
+		orchard.ResourceVMs: 1, orchard.ResourceCores: 16, orchard.ResourceMemoryMiB: 65536,
+	}}}, nil
+}
+
+func (c *crowded) ListVMs(context.Context) ([]orchard.VM, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.deleted {
+		return nil, nil
+	}
+
+	return []orchard.VM{{
+		Name: "bk-app-test-left-behind", Worker: "mac-01", Status: orchard.StatusRunning,
+		Resources: map[string]uint64{orchard.ResourceVMs: 1, orchard.ResourceCores: 8},
+	}}, nil
+}
+
+func (c *crowded) DeleteVM(context.Context, string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.deleted = true
+
+	return nil
+}
+
+// The steps of a tick run in sequence, and admission sees the deletions of the same tick (target
+// design, section 4). A job that waits for the slot of a machine that the reaper deletes starts
+// in that tick, and not one tick later.
+func TestAdmissionSeesTheRoomThatTheReaperFreedInTheSameTick(t *testing.T) {
+	machines := &crowded{}
+
+	loop, err := app.Build(app.Options{
+		Config:    settings(t),
+		Telemetry: quiet(t),
+		Stacks:    stacks{},
+		Orchard:   machines,
+		Now:       func() time.Time { return clock },
+	})
+	if err != nil {
+		t.Fatalf("Build() = %v, want the loop", err)
+	}
+
+	loop.Tick(t.Context(), clock)
+
+	machines.mu.Lock()
+	defer machines.mu.Unlock()
+
+	if !machines.deleted || len(machines.created) != 1 {
+		t.Errorf("one tick deleted=%v and created %v, want the orphan deleted and a machine for the waiting job",
+			machines.deleted, machines.created)
+	}
+}
+
+// ended is the job of a machine that a person left running after its job finished.
+const ended = job.ID("018f3b2c-1c4a-7e5b-9a3d-2f1e4c5b6a7e")
+
+// afterwards answers for a job that finished, and that is not in the queue any more.
+type afterwards struct{ stacks }
+
+func (afterwards) ScheduledJobs(context.Context, string, int) (buildkite.Page, error) {
+	return buildkite.Page{}, nil
+}
+
+func (afterwards) States(_ context.Context, ids []job.ID) (map[job.ID]string, error) {
+	states := map[job.ID]string{}
+	for _, id := range ids {
+		states[id] = "finished"
+	}
+
+	return states, nil
+}
+
+// remnant is a fleet with the machine of a job that finished. Orchard refuses or accepts the
+// deletion of it, as the test says, and an accepted deletion removes it from the next listing.
+type remnant struct {
+	fleet
+	refuse bool
+	gone   bool
+}
+
+func (r *remnant) ListVMs(context.Context) ([]orchard.VM, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.gone {
+		return nil, nil
+	}
+
+	return []orchard.VM{{
+		Name: "bk-app-test-" + string(ended), Worker: "mac-01", Status: orchard.StatusRunning,
+		Resources: map[string]uint64{orchard.ResourceVMs: 1, orchard.ResourceCores: 8},
+	}}, nil
+}
+
+func (r *remnant) DeleteVM(context.Context, string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.refuse {
+		return errors.New("orchard refused the deletion")
+	}
+
+	r.gone = true
+
+	return nil
+}
+
+// leftover ticks the loop once over a machine whose job finished, and reads the gauge of the
+// machines that remain, which the first exit criterion watches.
+func leftover(t *testing.T, refuse bool) int64 {
+	t.Helper()
+
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+
+	instruments, err := telemetry.NewMetrics(provider.Meter("test"))
+	if err != nil {
+		t.Fatalf("NewMetrics() = %v, want the instruments", err)
+	}
+
+	loop, err := app.Build(app.Options{
+		Config:    settings(t),
+		Telemetry: &telemetry.Telemetry{Metrics: instruments, Logger: slog.New(slog.DiscardHandler), Tracer: tracenoop.NewTracerProvider().Tracer("")},
+		Stacks:    afterwards{},
+		Orchard:   &remnant{refuse: refuse},
+		Now:       func() time.Time { return clock },
+	})
+	if err != nil {
+		t.Fatalf("Build() = %v, want the loop", err)
+	}
+
+	loop.Tick(t.Context(), clock)
+
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(t.Context(), &collected); err != nil {
+		t.Fatalf("Collect() = %v, want the metrics", err)
+	}
+
+	for _, scope := range collected.ScopeMetrics {
+		for _, m := range scope.Metrics {
+			if m.Name != "bk_agent_stack_orchard.vm.leftover" {
+				continue
+			}
+
+			points := m.Data.(metricdata.Gauge[int64]).DataPoints
+			if len(points) != 1 {
+				t.Fatalf("the leftover gauge holds %+v, want one point", points)
+			}
+
+			return points[0].Value
+		}
+	}
+
+	t.Fatal("no instrument reports the leftover machines")
+
+	return 0
+}
+
+// The gauge of leftover machines counts a machine whose job ended and that the reaper did not
+// delete. It reads the machine after the reaper acted in the same tick, so a deletion that Orchard
+// accepted does not show. A gauge that stayed 0 would pass the pilot exit criterion without a
+// check, so the test reads it through the loop and not through the instrument alone.
+func TestTheLeftoverGaugeCountsOnlyAMachineThatTheReaperCouldNotDelete(t *testing.T) {
+	if got := leftover(t, true); got != 1 {
+		t.Errorf("the gauge holds %d after Orchard refused the deletion, want 1", got)
+	}
+
+	if got := leftover(t, false); got != 0 {
+		t.Errorf("the gauge holds %d after Orchard accepted the deletion, want 0", got)
+	}
+}

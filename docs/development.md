@@ -1,7 +1,6 @@
 # Development
 
-This guide tells a developer how to run the gates and the integration tests. It also tells how to
-operate a self-hosted runner for the integration tests in a private copy of the repository.
+This guide tells a developer how to run the gates and the integration tests.
 
 ## Conventions
 
@@ -32,7 +31,23 @@ mise run check   # the gates: documents, commits, dependencies, lint, tests, and
 ```
 
 The gates are also tasks of their own: `check-docs`, `check-commits`, `check-deps`, `lint`,
-`lint-format`, `test`, `check-generate`, and `snapshot`. `mise tasks` lists them.
+`lint-format`, `test`, `check-generate`, and `snapshot`. `mise tasks` lists them. `test` runs
+`go test -race`, so the race detector runs on each local and CI run.
+
+`mise run check` and `mise run ci` are different gates:
+
+* `check` is the gate before a pull request. It runs `check-c4`, so it needs Docker.
+* `ci` runs the checks that the required CI jobs run, so a pass predicts a pass in CI. It adds
+  `test-scripts`, `vuln`, `check-hook`, `check-hosts`, `check-generate`, and `integration`, which
+  `check` does not run. `check-generate` reads the GitHub API, so the command is
+  `GITHUB_TOKEN=$(gh auth token) mise run ci`. The token MUST stay in the environment. It MUST NOT
+  go into a file.
+  `ci` runs `check-generate` alone and first, because it rewrites the generated files that the
+  other checks compile. It then runs the other checks in parallel, through `ci-checks`.
+* `ci` runs the Docker jobs (`check-c4`, `orchard-image`, `smoke`, and `snapshot`) through
+  `ci-docker`. When Docker is absent, `ci-docker` prints that it skips them and exits 0. Those
+  jobs are then "CI only".
+* The title gate of a pull request is CI only, because it needs the pull request title.
 
 If `check-deps` fails because NOTICE does not name a module, a dependency update added a module
 that the binary links. Fix it in this order:
@@ -82,7 +97,7 @@ deploy/orchard/                 the Orchard StatefulSet and its bootstrap job
 deploy/hosts/                   Ansible for the Mac hosts
 images/                         the builds of the job VM images (agent and pilot: tart and the guest agent)
 tools/orchardgen/               the generator of the Orchard wire types (ADR-0015)
-scripts/                        the gate scripts, the smoke and release scripts, and the runner script
+scripts/                        the gate scripts, and the smoke and release scripts
 ```
 
 ## Run the controller locally
@@ -242,6 +257,16 @@ events. The events are:
 * The queue pauses.
 * Time passes.
 * The controller restarts.
+* Orchard stops answering, and answers again.
+* The Stacks API refuses each call with HTTP 429 or HTTP 503, and answers again.
+* A machine that another tool or controller owns appears. The controller MUST NOT delete it.
+* The answer of a create is lost, and the machine exists.
+* A create gets HTTP 409, because the machine exists.
+
+Each sequence also draws its inputs: one to three profiles with different names and match maps,
+one to three workers with drawn slots, cores, and memory, and a limit of machines. Each drawn
+configuration goes through the real configuration loader. A drawn input that the rules refuse
+fails the sequence, and the suite never repairs it.
 
 After each event the suite checks the invariants I-1, I-2, I-5, and I-8. At the end of each
 sequence it checks I-6.
@@ -251,9 +276,10 @@ scenarios on the same fakes (T-024): Buildkite not available, Orchard not availa
 that stops reporting. Each scenario also checks the request budget of the Stacks API in each
 second of the run. The client tests prove that the controller waits for `Retry-After` (T-040).
 
-`go test ./...` runs it, on any host, in a few seconds. When an invariant breaks, rapid shrinks the
-sequence to a short one, prints it, and writes a fail file under `test/component/testdata/rapid/`.
-The failure message gives the command that replays it:
+`go test ./...` runs it, on any host, in under a minute. The component suite also fails when a
+goroutine remains after the tests end (`go.uber.org/goleak`). When an invariant breaks, rapid
+shrinks the sequence to a short one, prints it, and writes a fail file under
+`test/component/testdata/rapid/`. The failure message gives the command that replays it:
 
 ```sh
 go test ./test/component/ -run TestRandomEventsHoldTheInvariants -rapid.failfile=<the file>
@@ -280,7 +306,8 @@ mise run load
 The test reports four values in its log and in the summary of the `load` workflow. They are the tick
 duration, the busiest second of each Stacks API endpoint, the most VMs at one time, and the wait for
 a VM. It fails on a broken invariant (I-1, I-2, I-6) or on a second above the limits of the Stacks
-API. It judges the tick only when `LOAD_TICK_BUDGET` is set (open item O-5).
+API. It judges the tick only when `LOAD_TICK_BUDGET` parses as a duration. The repository variable
+is `34ms`, two times the hosted p95 of 17 ms (open item O-5, closed on 2026-11-02).
 
 `LOAD_JOBS` runs fewer jobs, for example `LOAD_JOBS=60`, while a developer works on the test. The
 test writes a progress line each minute. On a failure it shows the end of the controller log.
@@ -290,8 +317,9 @@ go offline. The result is then not a measurement. Run the test with `caffeinate 
 open.
 
 The `load` workflow runs it each night, on demand, and on a pull request that changes it, on the
-same runner as the integration tests. No branch protection requires it. While the runner is a VM
-on a laptop, a night on which the laptop sleeps gives no result.
+same runner as the integration tests, a hosted macOS runner. No branch protection requires it. When
+a scheduled or manual run fails, the workflow opens an issue titled "Nightly load test failed", or
+comments on the issue that is open.
 
 ## The fuzz tests
 
@@ -306,11 +334,22 @@ outside the controller:
 | `FuzzOwnedJobTellsControllersApart` | Two controller identifiers | A controller never claims a machine of another controller |
 | `FuzzParseIDAcceptsOnlyTheBuildkiteShape` | A job identifier from Buildkite | Only the lowercase UUID shape passes, unchanged |
 | `FuzzLoadGivesAnErrorOrAValidConfiguration` | The configuration file | Load gives an error or a valid configuration, and never panics |
+| `FuzzTheFinishMessageOfAnyVMEvents` | The events of a VM, which the guest writes in part | The finish message is never empty, has at most `DetailBudget` bytes, is whole characters, and has no control character except the line break and the tab |
+| `FuzzANotificationDetailIsShortAndPlain` | The text of a job-page line, such as a VM status message | The line is never empty, has at most 256 characters, is whole characters, and has no control character |
+| `FuzzTheClientSurvivesAnyResponseBody` (Buildkite) | The status and the JSON body of an answer from Buildkite | Each call gives a value or an error and never panics, and a result has no more entries than the body has bytes |
+| `FuzzTheClientSurvivesAnyResponseBody` (Orchard) | The status and the body of an answer from Orchard | Each call gives a value or an error and never panics, and a result has no more entries than the body has bytes |
 
 `go test ./...` runs the seed inputs of each one. `mise run fuzz` fuzzes each target for
 `FUZZTIME` (default `1m`). The `fuzz` workflow does this each night. When a target fails, go
 writes the input to `testdata/fuzz/` in its package, and the workflow keeps that directory as an
 artifact. Add the input to the seeds of the test, and correct the code, in one pull request.
+
+A failed night opens an issue titled "Nightly fuzz run failed", or comments on the issue that is
+open. The `fuzz` workflow also runs the long property run of the component suite each night, with
+`-rapid.checks=20000 -rapid.steps=200`. It takes about 13 minutes on a development Mac
+(2026-11-02, estimated from a run of 5,000 checks). When it fails, the workflow keeps
+`test/component/testdata/rapid/` as an artifact. Replay a fail file as the component suite section
+describes.
 
 ## The integration tests
 
@@ -382,16 +421,9 @@ These conditions also apply:
 ## The CI runner of the integration tests
 
 CI runs the integration tests on macOS on arm64 for the same reason. The repository is public, so
-the job runs on a hosted macOS runner, which costs nothing. Leave `JOURNEY_RUNNER` unset,
-because a self-hosted runner MUST NOT serve a public repository.
-
-In a private copy of the repository, a hosted macOS runner costs ten times the minutes of a Linux
-runner. The job can therefore run on a self-hosted runner. The rest of this section describes that
-runner. It is inside a Tart macOS VM on an Apple silicon Mac, so the jobs do not reach the files of
-the Mac.
-
-The repository variable `JOURNEY_RUNNER` selects the runner. When it names the label
-`bk-orchard-mac`, the job runs on the VM. When it is empty, the job runs on a hosted macOS runner.
+the job runs on a hosted macOS runner (`macos-latest`), which costs nothing. The workflows fix the
+runner. A self-hosted runner MUST NOT serve a public repository, because a pull request from a
+fork can run code on it. The sections below are for a developer who runs the Tart tests on a Mac.
 
 ### Install Tart
 
@@ -414,7 +446,7 @@ softnet_bin=$(realpath "$(brew --prefix)/bin/softnet")
 sudo chown root "$softnet_bin" && sudo chmod u+s "$softnet_bin"
 ```
 
-The runner needs only Tart. The Tart test below also needs Softnet. Install Tart at version
+The Tart test below needs Tart and Softnet. Install Tart at version
 2.41.1. The pin is `orchard_worker_tart_version` in
 `deploy/hosts/roles/orchard_worker/defaults/main.yml` (checked 2026-11-01), and the Mac hosts use
 the same version. The minimum version is 2.39.0 (target design, section 9.2). Install the release
@@ -438,8 +470,8 @@ script (test strategy, open item O-2). Build the image with `mise run agent-imag
 BKASO_TART_IMAGE=bkaso-agent mise run tart-test
 ```
 
-The VM takes one of the two VM slots of the Mac, so the runner VM can run at the same time. CI does
-not run this test, because a VM cannot run a macOS VM.
+The VM takes one of the two VM slots of the Mac. CI does not run this test, because a VM cannot
+run a macOS VM.
 
 `mise run failures-test` runs three jobs that cannot start on real VMs. The jobs have a profile
 image digest that does not exist, an agent that exits, and an agent that runs and acquires nothing.
@@ -467,52 +499,3 @@ deploy/hosts/test/pf.sh unload
 
 `mise run hosts-test` needs the opposite: its test VM reaches an Orchard controller on the Mac,
 which the rules block, so remove them before it.
-
-### Operate the runner
-
-`scripts/journey-runner.sh` does each step. It needs `tart`, and `gh` signed in with an account that
-administers the repository.
-
-| Command | When | What it does |
-|---|---|---|
-| `create` | Once | Clones the macOS image (about 30 GiB), starts the VM, installs the runner after it checks the SHA-256, registers the runner with the label `bk-orchard-mac`, and sets `JOURNEY_RUNNER` |
-| `start` | After a restart of the Mac, or after `stop` | Starts the VM without a window. The runner starts in the VM when the VM starts, and launchd starts it again whenever it stops |
-| `stop` | When the Mac needs its resources | Stops the VM. The integration tests wait in the queue until the next `start` |
-| `restart` | When GitHub shows the runner offline and the VM runs | Starts the runner again in the VM. A job that the runner holds fails |
-| `status` | Any time | Shows the VM, the runner as GitHub sees it, and `JOURNEY_RUNNER` |
-| `remove` | When the runner is no longer necessary | Removes the runner from GitHub, deletes `JOURNEY_RUNNER`, and deletes the VM |
-
-```sh
-scripts/journey-runner.sh create
-scripts/journey-runner.sh status
-```
-
-A Mac that sleeps stops the clock of the VM. When the Mac wakes, the runner can renew its session
-with the old time. GitHub then refuses the token as expired, and the runner exits. The VM runs, and
-GitHub shows the runner offline. The service of the runner has `KeepAlive`. Launchd therefore
-starts the runner again within 30 s, when the clock of the VM is right again. `create` and `start`
-set `KeepAlive`, and `restart` starts a runner at once.
-
-A cancelled or timed-out job does not stop the processes that its tests started. The runner stops
-`go test`, but `orchard dev` and the controller continue in the VM. The next run then finds port
-6120 in use, and each test fails with "something already answers at http://127.0.0.1:6120". The
-integration and load jobs run `scripts/stop-leftovers.sh` before and after their tests, even when
-a run is cancelled. A new run therefore starts clean. The script stops only those two processes.
-It fails with the name of any other process that holds the port.
-
-The runner takes a job only while the VM runs and the Mac is awake. A job that finds no runner waits
-in the queue, and GitHub cancels it after 24 hours. While jobs are expected, `caffeinate -i` keeps
-the Mac awake.
-
-### Before the repository is public
-
-A self-hosted runner MUST NOT serve a public repository. A pull request from a fork can run code on
-a self-hosted runner, and that code runs on the Mac of the owner. Before the repository is public,
-run:
-
-```sh
-scripts/journey-runner.sh remove
-```
-
-This deletes `JOURNEY_RUNNER`, so the integration tests run on a hosted macOS runner, which costs
-nothing in a public repository.

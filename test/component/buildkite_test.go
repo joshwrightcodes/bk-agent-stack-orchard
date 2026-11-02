@@ -75,16 +75,23 @@ func newStacks(now func() time.Time, violations *[]string) *stacksFake {
 	}
 }
 
-// schedule adds a job to the queue.
+// schedule adds a job to the queue. The tags of a matched job are those of the profile of the
+// default configuration, and the tags of an unmatched job match no profile.
 func (s *stacksFake) schedule(id job.ID, matched bool) {
 	tag := "xcode=27"
 	if !matched {
 		tag = "xcode=99"
 	}
 
+	s.scheduleRules(id, []string{"queue=macos", tag}, matched)
+}
+
+// scheduleRules adds a job with the rules that the caller gives. The caller says whether a
+// profile carries the job.
+func (s *stacksFake) scheduleRules(id job.ID, rules []string, matched bool) {
 	s.jobs[id] = &work{
 		id:          id,
-		rules:       []string{"queue=macos", tag},
+		rules:       rules,
 		matched:     matched,
 		scheduledAt: s.now(),
 		state:       stateScheduled,

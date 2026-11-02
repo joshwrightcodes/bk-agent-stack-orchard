@@ -27,6 +27,7 @@ func observation() telemetry.Observation {
 		Slots:         map[telemetry.Slot]int64{{Pool: "pilot", State: telemetry.SlotsFree}: 3},
 		VMs:           map[telemetry.VM]int64{{Profile: "xcode-27", Phase: telemetry.VMRunning}: 2},
 		Workers:       map[telemetry.WorkerState]int64{telemetry.WorkerBusy: 2},
+		Leftover:      1,
 		Synced:        map[telemetry.Source]time.Time{telemetry.SourceInventory: time.Now()},
 	}
 }
@@ -178,6 +179,7 @@ var design = []struct {
 		[]string{"bk_agent_stack_orchard.tick.step"},
 		false,
 	},
+	{"bk_agent_stack_orchard.vm.leftover", "{vm}", nil, false},
 	{
 		"bk_agent_stack_orchard.source.staleness", "s",
 		[]string{"bk_agent_stack_orchard.source"},
@@ -367,4 +369,23 @@ func TestAWorkerWithNoPoolIsInThePoolNone(t *testing.T) {
 	if !ok || value.AsString() != "none" {
 		t.Errorf("the pool attribute is %q, want none", value.AsString())
 	}
+}
+
+func TestTheLeftoverGaugeReportsTheCountOfTheObservation(t *testing.T) {
+	t.Parallel()
+
+	for _, one := range recordAll(t) {
+		if one.Name != "bk_agent_stack_orchard.vm.leftover" {
+			continue
+		}
+
+		data, ok := one.Data.(metricdata.Gauge[int64])
+		if !ok || len(data.DataPoints) != 1 || data.DataPoints[0].Value != 1 {
+			t.Errorf("the leftover gauge holds %+v, want one point of value 1", one.Data)
+		}
+
+		return
+	}
+
+	t.Error("no instrument reports the leftover machines")
 }

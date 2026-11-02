@@ -51,9 +51,12 @@ type Machines interface {
 	Events(ctx context.Context, name string) ([]orchard.Event, error)
 }
 
-// Fleet gives the last snapshot of the machines.
+// Fleet gives the last snapshot of the machines, and takes a machine out of it after a delete.
+// Admission runs after the reaper in the same tick and reads the same snapshot, so it must not
+// count the room of a machine that Orchard no longer holds.
 type Fleet interface {
 	Latest() (inventory.Snapshot, bool)
+	Forget(name string)
 }
 
 // Options configures the reaper.
@@ -112,6 +115,13 @@ type Reaper struct {
 	// warned holds the state that the last warning named for a job whose state matches no row, so
 	// that a job stuck in one such state gives one record and not one at every tick.
 	warned map[job.ID]string
+
+	// ended holds when a tick first saw each job in a terminal state, until its machine leaves the
+	// owned set. It times the phase from the end of a job to the deletion of its machine. After
+	// Orchard accepts the deletion, the entry holds the zero time, so that a pass that still
+	// lists the machine records nothing more. A restart loses it, and the first tick after one
+	// then starts the time again, which the design states.
+	ended map[job.ID]time.Time
 }
 
 // New builds the reaper.
@@ -175,6 +185,7 @@ func New(options Options) (*Reaper, error) {
 		now:          now,
 		ignored:      map[job.ID]bool{},
 		warned:       map[job.ID]string{},
+		ended:        map[job.ID]time.Time{},
 	}, nil
 }
 
@@ -257,6 +268,10 @@ func (r *Reaper) collect(snapshot inventory.Snapshot) []Machine {
 			machine.Named = observation.Named
 			machine.Observed = true
 			machine.ObservedAt = observation.At
+
+			if _, counted := r.ended[owned.Job]; !counted && buildkite.Terminal(observation.State) {
+				r.ended[owned.Job] = r.now()
+			}
 		}
 
 		machines = append(machines, machine)
@@ -327,6 +342,7 @@ func (r *Reaper) carry(ctx context.Context, machine Machine, decision Decision) 
 	}
 
 	r.metrics.Deleted(ctx, decision.Reason)
+	r.deleted(ctx, machine)
 	r.logger.InfoContext(ctx, "the reaper acted on a machine", append(fields,
 		telemetry.SpanDecision, string(decision.Action))...)
 
@@ -450,6 +466,31 @@ func (r *Reaper) forget(snapshot inventory.Snapshot) {
 			delete(r.warned, id)
 		}
 	}
+
+	for id := range r.ended {
+		if !owned[id] {
+			delete(r.ended, id)
+		}
+	}
+}
+
+// deleted records the phase from the end of a job to the deletion that Orchard accepted, for a
+// job whose end a tick saw.
+func (r *Reaper) deleted(ctx context.Context, machine Machine) {
+	began, ended := r.ended[machine.Job]
+	if !ended || began.IsZero() {
+		return
+	}
+
+	// The entry stays, as recorded, until forget removes it with the machine.
+	r.ended[machine.Job] = time.Time{}
+
+	name := r.profile(machine.Job)
+	if name == "" {
+		name = inventory.UnknownProfile
+	}
+
+	r.metrics.JobPhase(ctx, name, telemetry.PhaseFinishedToDeleted, r.now().Sub(began))
 }
 
 // delete removes a machine from Orchard. Orchard answers a machine that is already gone as a
@@ -458,5 +499,11 @@ func (r *Reaper) delete(ctx context.Context, machine Machine) error {
 	ctx, span := r.tracer.Start(ctx, "orchard.vm.delete")
 	defer span.End()
 
-	return r.machines.DeleteVM(ctx, machine.VM.Name)
+	if err := r.machines.DeleteVM(ctx, machine.VM.Name); err != nil {
+		return err
+	}
+
+	r.fleet.Forget(machine.VM.Name)
+
+	return nil
 }

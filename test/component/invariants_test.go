@@ -24,9 +24,11 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/goleak"
 	"pgregory.net/rapid"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/app"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/config"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/controller"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
@@ -38,21 +40,25 @@ import (
 const controllerID = "prop"
 
 // TestMain searches wider than the defaults of rapid, which are 100 sequences of about 30
-// actions: a thousand sequences of about a hundred actions take a few seconds, and find the orders
-// of events that a short sequence cannot reach. A flag on the command line still wins.
+// actions: 400 sequences of about a hundred actions take about a minute with the race
+// detector, and find the orders of events that a short sequence cannot reach. The nightly run
+// searches far wider. A flag on the command line still wins.
+//
+// VerifyTestMain fails the run when a goroutine outlives the tests: a controller that leaves a
+// loop behind after the suite shuts it down is a leak that a long-lived process pays for.
 func TestMain(m *testing.M) {
 	flag.Parse()
 
 	given := map[string]bool{}
 	flag.Visit(func(f *flag.Flag) { given[f.Name] = true })
 
-	for name, value := range map[string]string{"rapid.checks": "1000", "rapid.steps": "100"} {
+	for name, value := range map[string]string{"rapid.checks": "400", "rapid.steps": "100"} {
 		if !given[name] {
 			_ = flag.Set(name, value)
 		}
 	}
 
-	os.Exit(m.Run())
+	goleak.VerifyTestMain(m)
 }
 
 // T-020. Random sequences of events hold I-1, I-2, I-5, and I-8 after every event, and I-6 at the
@@ -65,6 +71,63 @@ func TestRandomEventsHoldTheInvariants(t *testing.T) {
 		rt.Repeat(rapid.StateMachineActions(fleet))
 		fleet.drain(rt)
 	})
+}
+
+// shape is the configuration and the hardware of one sequence. Every field is drawn, and the
+// configuration goes through config.Load, so a drawn input that the rules refuse fails the
+// sequence and is never repaired.
+type shape struct {
+	maxInFlight uint64
+	profiles    string
+	hosts       []hostShape
+}
+
+// drawShape draws one to three profiles with distinct names and match maps, one to three
+// workers, and a limit that is sometimes below the slots and sometimes above them. A limit above
+// the slots leaves the fit of a machine on a worker as the only guard of a full fleet.
+func drawShape(rt *rapid.T) shape {
+	var drawn shape
+
+	drawn.maxInFlight = rapid.SampledFrom([]uint64{0, 1, 2, 3, 5, 8}).Draw(rt, "maxInFlight")
+
+	for i := range rapid.IntRange(1, 3).Draw(rt, "profiles") {
+		label := fmt.Sprintf("profile%d", i)
+		suffix := rapid.StringMatching(`[a-z0-9]{1,8}`).Draw(rt, label+" name")
+		cpu := rapid.IntRange(1, 8).Draw(rt, label+" cpu")
+		memory := rapid.IntRange(4, 28).Draw(rt, label+" memory GiB") * 1024
+		disk := rapid.IntRange(20, 150).Draw(rt, label+" disk GB")
+
+		// The xcode tag differs for each profile, so no two match maps are equal.
+		match := fmt.Sprintf("xcode: %q", fmt.Sprint(20+i))
+		if rapid.Bool().Draw(rt, label+" has a second tag") {
+			match += fmt.Sprintf(", os: %q", rapid.StringMatching(`[a-z0-9]{1,6}`).Draw(rt, label+" os"))
+		}
+
+		drawn.profiles += fmt.Sprintf(`  - name: p%d-%s
+    match: {%s}
+    image: ghcr.io/cirruslabs/macos-golden-gate-vanilla:27.0
+    cpu: %d
+    memoryMiB: %d
+    diskSizeGB: %d
+`, i, suffix, match, cpu, memory, disk)
+
+		if rapid.Bool().Draw(rt, label+" uses ssh") {
+			drawn.profiles += "    startupTransport: ssh\n" +
+				"    vmCredentials: {usernameEnv: VM_USER, passwordEnv: VM_PASSWORD}\n"
+		}
+	}
+
+	for i := range rapid.IntRange(1, 3).Draw(rt, "workers") {
+		label := fmt.Sprintf("worker%d", i)
+
+		drawn.hosts = append(drawn.hosts, hostShape{
+			slots:     rapid.Uint64Range(1, 2).Draw(rt, label+" slots"),
+			cores:     rapid.SampledFrom([]uint64{8, 16}).Draw(rt, label+" cores"),
+			memoryMiB: rapid.SampledFrom([]uint64{32768, 65536}).Draw(rt, label+" memory MiB"),
+		})
+	}
+
+	return drawn
 }
 
 // I-3. Whatever variables a profile names, a configuration that loads gives no machine the value
@@ -104,7 +167,7 @@ func TestNoControllerSecretReachesAnyVMSpecification(t *testing.T) {
 
 		loads++
 
-		fleet := newFleetOf(t, rt, recorder, loaded, environment)
+		fleet := newFleetOf(t, rt, recorder, loaded, environment, nil)
 		fleet.ArriveMatched(rt)
 		fleet.Wait(rt)
 		fleet.Check(rt)
@@ -136,13 +199,21 @@ type fleet struct {
 	loop       *controller.Controller
 	jobs       int
 	violations []string
+
+	// foreign holds the names of the machines that another tool or controller owns. This
+	// controller must never delete one.
+	foreign []string
 }
 
 func newFleet(t *testing.T, rt *rapid.T, recorder *telemetry.Telemetry) *fleet {
-	// Zero means the slots of the fleet, and three holds the controller below the four slots.
-	maxInFlight := rapid.SampledFrom([]uint64{0, 3}).Draw(rt, "maxInFlight")
+	drawn := drawShape(rt)
 
-	return newFleetWith(t, rt, recorder, maxInFlight)
+	loaded, environment, err := loadProfiles(t, drawn.maxInFlight, drawn.profiles)
+	if err != nil {
+		rt.Fatalf("a drawn configuration does not load: %v\n%s", err, drawn.profiles)
+	}
+
+	return newFleetOf(t, rt, recorder, loaded, environment, drawn.hosts)
 }
 
 // fataler is what the world needs of a test: *testing.T and *rapid.T both have it.
@@ -159,13 +230,18 @@ func newFleetWith(t *testing.T, fatal fataler, recorder *telemetry.Telemetry,
 		fatal.Fatalf("loading the configuration: %v", err)
 	}
 
-	return newFleetOf(t, fatal, recorder, loaded, environment)
+	return newFleetOf(t, fatal, recorder, loaded, environment, nil)
 }
 
-// newFleetOf builds the world around a configuration that loaded.
+// newFleetOf builds the world around a configuration that loaded, and around workers of the
+// shapes that the caller gives. No shape means the two workers of the fixed scenarios.
 func newFleetOf(t *testing.T, fatal fataler, recorder *telemetry.Telemetry, loaded *config.Config,
-	environment map[string]string,
+	environment map[string]string, hosts []hostShape,
 ) *fleet {
+	if len(hosts) == 0 {
+		hosts = []hostShape{defaultHost, defaultHost}
+	}
+
 	f := &fleet{
 		ctx:         t.Context(),
 		recorder:    recorder,
@@ -177,7 +253,7 @@ func newFleetOf(t *testing.T, fatal fataler, recorder *telemetry.Telemetry, load
 
 	clock := func() time.Time { return f.now }
 	f.stacks = newStacks(clock, &f.violations)
-	f.orchard = newOrchard(clock, f.settings.Orchard.WorkerOfflineTimeout, 2)
+	f.orchard = newOrchardOf(clock, f.settings.Orchard.WorkerOfflineTimeout, hosts)
 	f.orchard.created = f.created
 	f.start(fatal)
 
@@ -255,29 +331,88 @@ func (f *fleet) created(spec orchard.VM) {
 		f.violate("I-2: %d machines, and maxInFlight is %d", count, f.maxInFlight)
 	}
 
-	var slots, taken uint64
+	if !f.roomFor(spec) {
+		f.violate("I-2: no worker that is online has room for %s beside the machines of Orchard", spec.Name)
+	}
+}
+
+// roomFor reports whether Orchard can place a new machine beside the machines that it holds. It
+// places the machines that wait, oldest first, on the first worker with room, as Orchard does,
+// and then it places the new one. It does its own sums and not orchard.Fits, because the
+// function under test must not mark its own work.
+//
+// A failed machine takes no room, because Orchard frees its resources. A worker that is not
+// online, or that is paused, takes no machine.
+func (f *fleet) roomFor(spec orchard.VM) bool {
+	free := map[string]map[string]uint64{}
 
 	for _, h := range f.orchard.hosts {
-		if f.orchard.online(h.worker) && !h.worker.SchedulingPaused {
-			slots += h.worker.Resources[orchard.ResourceVMs]
-		}
-	}
-
-	// A failed machine waits for the Reaper and its resources are free, so it takes no slot.
-	for _, vm := range f.orchard.vms {
-		if vm.Status == orchard.StatusFailed {
+		if !f.orchard.online(h.worker) || h.worker.SchedulingPaused {
 			continue
 		}
 
-		if vm.Worker == "" {
-			taken++
-		} else if h := f.orchard.host(vm.Worker); f.orchard.online(h.worker) {
-			taken++
+		free[h.worker.Name] = maps.Clone(h.worker.Resources)
+	}
+
+	var waiting []*orchard.VM
+
+	for _, name := range slices.Sorted(maps.Keys(f.orchard.vms)) {
+		vm := f.orchard.vms[name]
+
+		switch {
+		case vm.Status == orchard.StatusFailed:
+		case vm.Worker != "":
+			// A worker that is not online or is paused has no entry, and a machine on it takes
+			// no room from any other worker.
+			if room, usable := free[vm.Worker]; usable {
+				subtract(room, vm.Resources)
+			}
+		default:
+			waiting = append(waiting, vm)
 		}
 	}
 
-	if taken+1 > slots {
-		f.violate("I-2: %d machines for the %d slots of the workers that are online", taken+1, slots)
+	slices.SortStableFunc(waiting, func(a, b *orchard.VM) int { return a.CreatedAt.Compare(b.CreatedAt) })
+
+	// A machine that waits and fits nowhere holds no room, and the machines after it still go to
+	// a worker with room (target design, section 6.3, step 5).
+	for _, vm := range waiting {
+		f.place(free, *vm)
+	}
+
+	return f.place(free, spec)
+}
+
+// place takes the room of a machine on the first worker that has it, and reports whether one had.
+func (f *fleet) place(free map[string]map[string]uint64, vm orchard.VM) bool {
+	for _, h := range f.orchard.hosts {
+		room, usable := free[h.worker.Name]
+		if !usable || !contains(h.worker.Labels, vm.Labels) {
+			continue
+		}
+
+		enough := true
+
+		for name, need := range vm.Resources {
+			if room[name] < need {
+				enough = false
+			}
+		}
+
+		if enough {
+			subtract(room, vm.Resources)
+
+			return true
+		}
+	}
+
+	return false
+}
+
+// subtract takes resources from the room of one worker, and stops at zero.
+func subtract(room, taken map[string]uint64) {
+	for name, value := range taken {
+		room[name] -= min(value, room[name])
 	}
 }
 
@@ -299,18 +434,51 @@ func (f *fleet) Check(rt *rapid.T) {
 		}
 	}
 
+	// A machine of another owner is not the business of this controller, however long it waits or
+	// whatever state it is in.
+	for _, name := range f.foreign {
+		if _, exists := f.orchard.vms[name]; !exists {
+			f.violate("the controller deleted %s, a machine that it does not own", name)
+		}
+	}
+
 	if len(f.violations) > 0 {
 		rt.Fatalf("at %s: %v", f.now.Format(time.TimeOnly), f.violations)
 	}
 }
 
-// ArriveMatched is a job that a profile carries.
-func (f *fleet) ArriveMatched(*rapid.T) {
-	f.stacks.schedule(f.nextJob(), true)
+// ArriveMatched is a job that a profile carries. The job carries the tags of one profile.
+func (f *fleet) ArriveMatched(rt *rapid.T) {
+	chosen := f.settings.Profiles[rapid.IntRange(0, len(f.settings.Profiles)-1).Draw(rt, "profile")]
+
+	rules := []string{"queue=" + f.settings.Buildkite.Queue}
+	for _, key := range slices.Sorted(maps.Keys(chosen.Match)) {
+		rules = append(rules, key+"="+chosen.Match[key])
+	}
+
+	f.stacks.scheduleRules(f.nextJob(), rules, true)
 	f.tick()
 }
 
-// ArriveUnmatched is a job whose tags match no profile.
+// ArriveWithLostCreateAnswer is a job whose create reaches Orchard, and the answer gets lost. The
+// controller sees an error, and the machine exists. The controller must not start a second
+// machine for the job, and must count the first one.
+func (f *fleet) ArriveWithLostCreateAnswer(rt *rapid.T) {
+	f.orchard.answerLost = true
+	f.ArriveMatched(rt)
+}
+
+// ArriveWithConflictAtCreate is a job whose machine already exists when the controller creates it,
+// as after the restart of the process that made it. Orchard answers 409, and the job has its
+// machine.
+func (f *fleet) ArriveWithConflictAtCreate(rt *rapid.T) {
+	f.orchard.conflictNext = true
+	f.ArriveMatched(rt)
+}
+
+// ArriveUnmatched is a job whose tags match no profile. The drawn profiles carry the tags xcode=20
+// to xcode=22, so xcode=99 matches none of them. The controller skips the job: it never reserves
+// it, never finishes it, and never gives it a machine (I-8).
 func (f *fleet) ArriveUnmatched(*rapid.T) {
 	f.stacks.schedule(f.nextJob(), false)
 	f.tick()
@@ -400,6 +568,58 @@ func (f *fleet) TogglePause(*rapid.T) {
 	f.tick()
 }
 
+// ToggleOrchardOutage is an Orchard controller that stops answering, or one that answers again.
+// The machines on the workers run on while it is down.
+func (f *fleet) ToggleOrchardOutage(*rapid.T) {
+	if f.orchard.down == nil {
+		f.orchard.down = errUnavailable
+	} else {
+		f.orchard.down = nil
+	}
+
+	f.tick()
+}
+
+// ToggleStacksFailure is a Stacks API that refuses every call, with 429 or with 503, or one that
+// answers again.
+func (f *fleet) ToggleStacksFailure(rt *rapid.T) {
+	switch {
+	case f.stacks.down != nil:
+		f.stacks.down = nil
+	case rapid.Bool().Draw(rt, "rate limited"):
+		f.stacks.down = fmt.Errorf("%w: answered 429 Too Many Requests", buildkite.ErrRateLimited)
+	default:
+		f.stacks.down = errUnavailable
+	}
+
+	f.tick()
+}
+
+// ForeignMachine is a machine that another tool or another controller created. It takes a slot
+// and it is none of the business of this controller.
+func (f *fleet) ForeignMachine(rt *rapid.T) {
+	var name string
+
+	if rapid.Bool().Draw(rt, "of another controller") {
+		name = "bk-other-" + string(f.nextJob())
+	} else {
+		name = fmt.Sprintf("manual-%d", len(f.foreign))
+	}
+
+	f.orchard.vms[name] = &orchard.VM{
+		Name:      name,
+		Status:    orchard.StatusPending,
+		CreatedAt: f.now,
+		Resources: map[string]uint64{
+			orchard.ResourceVMs:       1,
+			orchard.ResourceCores:     rapid.Uint64Range(1, 8).Draw(rt, "foreign cores"),
+			orchard.ResourceMemoryMiB: rapid.Uint64Range(4, 28).Draw(rt, "foreign memory GiB") * 1024,
+		},
+	}
+	f.foreign = append(f.foreign, name)
+	f.tick()
+}
+
 // Wait lets time pass, one tick each second, long enough for a reservation to need its renewal
 // and for a timeout of the reaper to pass.
 func (f *fleet) Wait(rt *rapid.T) {
@@ -418,6 +638,9 @@ func (f *fleet) Restart(rt *rapid.T) {
 // controller remains.
 func (f *fleet) drain(rt *rapid.T) {
 	f.stacks.paused = false
+	f.stacks.down = nil
+	f.orchard.down = nil
+	f.orchard.deleteFails = nil
 
 	for _, h := range f.orchard.hosts {
 		h.stopped = false
@@ -480,6 +703,22 @@ func loadSettings(t *testing.T, maxInFlight uint64, profileLines string) (*confi
 ) {
 	t.Helper()
 
+	return loadProfiles(t, maxInFlight, fmt.Sprintf(`  - name: xcode-27
+    match: {xcode: "27"}
+    image: ghcr.io/cirruslabs/macos-golden-gate-vanilla:27.0
+    cpu: 8
+    memoryMiB: 28672
+    diskSizeGB: 150
+%s`, profileLines))
+}
+
+// loadProfiles loads the configuration of the suite with the profiles that the caller gives, as
+// the lines of the profiles list.
+func loadProfiles(t *testing.T, maxInFlight uint64, profiles string) (*config.Config,
+	map[string]string, error,
+) {
+	t.Helper()
+
 	body := fmt.Sprintf(`controllerID: %s
 maxInFlight: %d
 buildkite:
@@ -488,13 +727,7 @@ orchard:
   url: https://orchard.internal:6120
   serviceAccount: bk-agent-stack-orchard
 profiles:
-  - name: xcode-27
-    match: {xcode: "27"}
-    image: ghcr.io/cirruslabs/macos-golden-gate-vanilla:27.0
-    cpu: 8
-    memoryMiB: 28672
-    diskSizeGB: 150
-%s`, controllerID, maxInFlight, profileLines)
+%s`, controllerID, maxInFlight, profiles)
 
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {

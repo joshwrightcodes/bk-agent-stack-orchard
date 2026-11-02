@@ -133,7 +133,7 @@ Every commit message MUST follow [Conventional Commits 1.0.0](https://www.conven
 | `refactor` | A change of structure with no change of behaviour |
 | `perf` | A change that makes the controller faster or smaller |
 | `build` | `go.mod`, `mise.toml`, GoReleaser, and the image |
-| `ci` | The workflows, the gates, and the self-hosted runner |
+| `ci` | The workflows and the gates |
 | `chore` | Work that fits no other type, such as a dependency bump |
 | `revert` | A revert of an earlier commit |
 
@@ -156,9 +156,9 @@ Rules for the rest of the message:
   characters, because the module path belongs in the subject. A description from Dependabot
   starts with a capital letter ("Bump …"), because its configuration sets only the type and the
   scope.
-* A change of a workflow or of the runner uses `ci:`. It MUST NOT use `fix(ci)` or `fix(runner)`,
-  because release-please hides a commit by its type and not by its scope, so a `fix` of this kind
-  would show in the release notes. `scripts/check-commits.py` rejects both subjects.
+* A change of a workflow uses `ci:`. It MUST NOT use `fix(ci)`, because release-please hides a
+  commit by its type and not by its scope, so a `fix` of this kind would show in the release
+  notes. `scripts/check-commits.py` rejects this subject.
 * A commit that fixes a vulnerability names its identifier (`GO-`, `GHSA-`, or `CVE-`) in the
   subject or in the body, so that the release notes and a reader of the history can find the
   advisory. Renovate has no template field for an advisory identifier (checked 2026-11-01 in the

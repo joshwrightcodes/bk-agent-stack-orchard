@@ -4,6 +4,10 @@ name: fuzz
 # each target for longer, each night and on demand. When a target fails, go writes the input to
 # testdata/fuzz in its package, and the run keeps those files as an artifact. docs/development.md
 # says what to do with one.
+#
+# The same workflow runs the property suite of the component tests for longer each night. A
+# failed night opens an issue, or comments on the issue that is open. A manual run reports the same
+# way. The workflow has no pull request trigger, so a pull request never opens an issue.
 
 on:
   schedule:
@@ -43,3 +47,49 @@ jobs:
           path: internal/**/testdata/fuzz/
           if-no-files-found: ignore
           retention-days: 30
+
+  # The default run of the suite draws 400 checks. This run draws 20000 checks of up to 200 steps.
+  # On 2026-11-02, 20000 checks of 200 steps took about 13 minutes on a development Mac, estimated
+  # from a run of 5000 checks (docs/development.md). The timeout leaves room for a slower hosted
+  # runner.
+  property:
+    name: long property run
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+      - run: >-
+          mise x -- go test ./test/component/ -run '^TestRandomEventsHoldTheInvariants$' -count=1
+          -timeout 40m -rapid.checks=20000 -rapid.steps=200
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rapid-failures
+          path: test/component/testdata/rapid/
+          if-no-files-found: ignore
+          retention-days: 30
+
+  report:
+    name: report failure
+    needs: [fuzz, property]
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The report opens or comments on the issue.
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          # Context values reach the shell through the environment, never by interpolation.
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: >-
+          ./scripts/report-failure.sh "Nightly fuzz run failed"
+          "A fuzz target or the long property run failed. The run keeps the failing inputs as an
+          artifact."

@@ -76,8 +76,8 @@ those screens itself. `tart run --vnc` does not work, because it needs Screen Sh
 `build.sh` drives the VM with `tart exec`, through the guest agent. It uses SSH once, with the
 password of the vanilla image, to put the guest agent in place. The build needs an Apple silicon
 Mac with Tart 2.41.1 or later. A macOS VM cannot run a second macOS VM. A hosted GitHub macOS
-runner is a VM with 14 GB of disk (2026-10-10). For these reasons, a hosted runner and the runner
-VM of this repository cannot build the image.
+runner is a VM with 14 GB of disk (2026-10-10). For these reasons, a hosted runner cannot build
+the image.
 
 The build stops the VM from inside the VM. `tart stop` does not wait for macOS to write its caches,
 and a file written just before it is lost. The build then starts the VM again, without the

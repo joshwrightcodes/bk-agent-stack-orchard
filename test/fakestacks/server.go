@@ -8,7 +8,7 @@
 // that file also holds a Kubernetes controller: an import puts k8s.io/apimachinery, k8s.io/klog,
 // and an older stacksapi into the module graph of this project for one test helper.
 //
-// This project made eight changes, because the original models only what its own controller
+// This project made ten changes, because the original models only what its own controller
 // calls. Each one carries a comment that starts with "Change of this project":
 //
 //  1. The stack key is a field. The original writes "test-stack" into every route.
@@ -25,6 +25,11 @@
 //     The original models no credential.
 //  8. The routes are a handler that a test program can serve itself, which the smoke deployment
 //     on Kubernetes needs. The original serves only through httptest.
+//  9. A reservation expires. A reserved job that no second reserve call extends returns to the
+//     list and to the state "scheduled" after its reservation_expiry_seconds, counted on a clock
+//     that a test can inject. The original keeps a reservation for ever.
+//  10. A finish call of a job that the stack does not hold answers HTTP 422. The original accepts
+//     every finish call.
 //
 // The fake is not a conformance suite. It answers as its author believed the API answers, so a
 // test against it proves the behaviour of this controller and not the behaviour of Buildkite.
@@ -67,6 +72,17 @@ import (
 	"github.com/buildkite/stacksapi"
 )
 
+// Option changes how New builds a server.
+type Option func(*Server)
+
+// WithClock sets the clock that the server reads for the expiry of a reservation, so a test
+// moves time without a sleep. The default is time.Now.
+//
+// Change of this project: the original models no expiry.
+func WithClock(now func() time.Time) Option {
+	return func(f *Server) { f.now = now }
+}
+
 // DefaultStackKey is the key that the routes carry when a test sets none.
 const DefaultStackKey = "test-stack"
 
@@ -78,6 +94,14 @@ type Server struct {
 
 	// handler holds the routes, which the httptest server serves, and Handler gives.
 	handler http.Handler
+
+	// now is the clock of the reservation expiry.
+	now func() time.Time
+
+	// held records the reservations that the server keeps: the end of each one and the job as the
+	// list showed it, so an expired job returns to the list unchanged. A job with a state that a
+	// test set has no entry.
+	held map[string]reservation
 
 	// revoked answers every call with HTTP 401, as Buildkite does for a token that an owner
 	// revoked.
@@ -103,6 +127,10 @@ type Server struct {
 
 	// ScheduledJobs is the page that the scheduled-jobs route gives. The zero value is an empty
 	// page, which is what the API gives for a queue with no waiting jobs.
+	//
+	// A test that sets this field directly bypasses Schedule, so the jobs have no state. A
+	// reservation of such a job works: reserve gives it the state "reserved". A test that wants
+	// the state "scheduled" from the start uses Schedule.
 	ScheduledJobs stacksapi.ListScheduledJobsResponse
 
 	// ScheduledJobsStatusCode is the status of the scheduled-jobs answer. Default 200.
@@ -169,6 +197,12 @@ type Server struct {
 	FinishJobError string
 }
 
+// reservation is the claim of this stack on a job.
+type reservation struct {
+	until time.Time
+	job   stacksapi.ScheduledJob
+}
+
 // ScheduledJobsQuery is one call of the scheduled-jobs route.
 //
 // Change of this project: the original models no scheduled-jobs route.
@@ -179,14 +213,20 @@ type ScheduledJobsQuery struct {
 }
 
 // New creates and starts a fake Stacks API server. Use URL() as the endpoint of a real client.
-func New() *Server {
+func New(options ...Option) *Server {
 	fake := &Server{
+		now:                           time.Now,
+		held:                          map[string]reservation{},
 		StackKey:                      DefaultStackKey,
 		ScheduledJobsStatusCode:       http.StatusOK,
 		ReserveStatusCode:             http.StatusOK,
 		JobAcquisitionTokenStatusCode: http.StatusCreated,
 		GetJobStatesStatusCode:        http.StatusOK,
 		FinishJobStatusCode:           http.StatusOK,
+	}
+
+	for _, option := range options {
+		option(fake)
 	}
 
 	// Change of this project: the routes carry the stack key as a wildcard, and each handler
@@ -257,6 +297,31 @@ func (f *Server) stack(w http.ResponseWriter, r *http.Request) bool {
 	f.writeJSON(w, http.StatusNotFound, map[string]string{"message": "stack not found"})
 
 	return false
+}
+
+// expire returns each job whose reservation ended to the scheduled-jobs list in the state
+// "scheduled". The caller holds the lock.
+//
+// Source: target design section 3, "When a reservation expires, the job becomes scheduled again"
+// (Stacks API documentation, read 2026-11-01). A second reserve call extends a reservation (same
+// source), which reserve models.
+//
+// Change of this project: the original models no expiry.
+func (f *Server) expire() {
+	now := f.now()
+
+	for id, claim := range f.held {
+		if now.Before(claim.until) {
+			continue
+		}
+
+		delete(f.held, id)
+
+		if f.JobStates[id] == "reserved" {
+			f.JobStates[id] = "scheduled"
+			f.ScheduledJobs.Jobs = append(f.ScheduledJobs.Jobs, claim.job)
+		}
+	}
 }
 
 // writeJSON encodes payload as JSON and writes it with the given status code.
@@ -344,6 +409,7 @@ func (f *Server) handleScheduledJobs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	f.mu.Lock()
+	f.expire()
 	page := f.ScheduledJobs
 	page.Jobs = append([]stacksapi.ScheduledJob{}, f.ScheduledJobs.Jobs...)
 	f.mu.Unlock()
@@ -374,37 +440,80 @@ func (f *Server) handleReserveJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	f.mu.Lock()
+	f.expire()
+
 	resp := f.ReserveResponse
 	if resp == nil {
-		// Default: all jobs reserved successfully
-		resp = &stacksapi.BatchReserveJobsResponse{
-			Reserved:    req.JobUUIDs,
-			NotReserved: []string{},
-		}
+		resp = f.partition(req.JobUUIDs)
 	}
+
+	f.mu.Unlock()
 
 	// Change of this project: a reserved job leaves the scheduled-jobs list and takes the state
 	// "reserved", which is what the API documents. The original keeps the list as a test set it.
+	//
+	// A call without reservation_expiry_seconds takes the default of 900 s (target design
+	// section 3, Stacks API documentation, read 2026-11-01).
+	seconds := req.ReservationExpirySeconds
+	if seconds <= 0 {
+		seconds = defaultReservationSeconds
+	}
+
 	f.mu.Lock()
-	f.reserve(resp.Reserved)
+	f.reserve(resp.Reserved, time.Duration(seconds)*time.Second)
 	f.mu.Unlock()
 
 	f.writeJSON(w, f.ReserveStatusCode, resp)
 }
 
-// reserve moves jobs from the scheduled-jobs list to the state "reserved". The caller holds the
-// lock.
+// defaultReservationSeconds is the lifetime of a reservation when the call names none.
+const defaultReservationSeconds = 900
+
+// partition splits the requested jobs into the ones that this stack can reserve and the ones
+// that it cannot. The caller holds the lock.
+//
+// Assumption pending O-6 (recording real Stacks API responses): a job in a state other
+// than "scheduled" or "reserved" (an agent runs it, or it ended) comes back as not reserved. The
+// documents say that the scheduled-jobs list holds no reserved job and say nothing of a reserve
+// call for another state. The fake refuses, because a controller that took such a job would start
+// a machine for a job that another agent runs.
+//
+// A job with no state at all counts as reservable, because a test can put a job on the list
+// through ScheduledJobs and not through Schedule. Such a job takes the state "reserved" in
+// reserve.
+func (f *Server) partition(ids []string) *stacksapi.BatchReserveJobsResponse {
+	resp := &stacksapi.BatchReserveJobsResponse{Reserved: []string{}, NotReserved: []string{}}
+
+	for _, id := range ids {
+		switch f.JobStates[id] {
+		case "", "scheduled", "reserved":
+			resp.Reserved = append(resp.Reserved, id)
+		default:
+			resp.NotReserved = append(resp.NotReserved, id)
+		}
+	}
+
+	return resp
+}
+
+// reserve moves jobs from the scheduled-jobs list to the state "reserved", and starts or extends
+// their reservations for the given time. The caller holds the lock.
 //
 // Change of this project: the original models no list for a reservation to change.
-func (f *Server) reserve(ids []string) {
+func (f *Server) reserve(ids []string, lifetime time.Duration) {
 	held := make(map[string]bool, len(ids))
 	for _, id := range ids {
 		held[id] = true
 	}
 
+	listed := make(map[string]stacksapi.ScheduledJob, len(ids))
 	waiting := f.ScheduledJobs.Jobs[:0:0]
+
 	for _, scheduled := range f.ScheduledJobs.Jobs {
-		if !held[scheduled.ID] {
+		if held[scheduled.ID] {
+			listed[scheduled.ID] = scheduled
+		} else {
 			waiting = append(waiting, scheduled)
 		}
 	}
@@ -420,6 +529,20 @@ func (f *Server) reserve(ids []string) {
 	for id := range held {
 		if state, known := f.JobStates[id]; !known || state == "scheduled" {
 			f.JobStates[id] = "reserved"
+		}
+
+		// Only a job that this stack holds in the state "reserved" has a reservation that ends.
+		// A second call for a job that is still reserved extends the reservation, from now.
+		if f.JobStates[id] == "reserved" {
+			claim := f.held[id]
+			if job, ok := listed[id]; ok {
+				claim.job = job
+			} else if claim.job.ID == "" {
+				claim.job = stacksapi.ScheduledJob{ID: id}
+			}
+
+			claim.until = f.now().Add(lifetime)
+			f.held[id] = claim
 		}
 	}
 }
@@ -461,7 +584,7 @@ func (f *Server) handleIssueJobAcquisitionTokens(w http.ResponseWriter, r *http.
 			resp.JobAcquisitionTokens = append(resp.JobAcquisitionTokens, stacksapi.JobAcquisitionToken{
 				JobUUID:   id,
 				Token:     "bkjat_" + id,
-				ExpiresAt: time.Now().Add(15 * time.Minute),
+				ExpiresAt: f.now().Add(15 * time.Minute),
 			})
 		}
 	}
@@ -494,6 +617,7 @@ func (f *Server) handleGetJobStates(w http.ResponseWriter, r *http.Request) {
 	states := make(map[string]string)
 
 	f.mu.Lock()
+	f.expire()
 	for _, id := range req.JobUUIDs {
 		if s, ok := f.JobStates[id]; ok {
 			states[id] = s
@@ -530,6 +654,40 @@ func (f *Server) handleFinishJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Change of this project: the original accepts every finish call.
+	//
+	// Documented: a second finish call of a job gives 422, and the controller treats 422 as
+	// final (target design section 7.4, a second finish after the first, and section 7.1 rule
+	// 4, checked 2026-11-01). The same document reads 422 for an acquire of a job that is taken,
+	// cancelled, or complete (section 3), which is a call of the agent and not of a stack.
+	//
+	// Assumption pending O-6 (recording real Stacks API responses): the fake also gives
+	// 422 for a finish of a job that an agent acquired (assigned, accepted, running, canceling,
+	// timing_out), of a job in another terminal state, of a job in the state "scheduled" (never
+	// reserved, or its reservation expired), and of a job that it does not know. The documents
+	// say that finish gives 404 or 422 for a permanent refusal and name none of these cases. 422
+	// is the refusal that the controller treats as final. A finish changes only a job that this
+	// stack holds in the state "reserved".
+	f.mu.Lock()
+	f.expire()
+
+	state := f.JobStates[req.JobUUID]
+	if state != "reserved" {
+		f.mu.Unlock()
+		f.writeJSON(w, http.StatusUnprocessableEntity,
+			map[string]string{"message": "the job is not reserved by this stack"})
+
+		return
+	}
+
+	// A configured status that is not 2xx is a failed call, which changes nothing.
+	if f.FinishJobStatusCode >= 200 && f.FinishJobStatusCode < 300 {
+		f.JobStates[req.JobUUID] = "finished"
+		delete(f.held, req.JobUUID)
+	}
+
+	f.mu.Unlock()
+
 	f.writeJSON(w, f.FinishJobStatusCode, struct{}{})
 }
 
@@ -565,6 +723,9 @@ func (f *Server) SetJobState(id, state string) {
 	}
 
 	f.JobStates[id] = state
+
+	// A state that a test sets replaces the reservation, so the job does not expire back.
+	delete(f.held, id)
 }
 
 // Schedule puts jobs on the scheduled-jobs list in the state "scheduled", as Buildkite does when a
@@ -583,6 +744,7 @@ func (f *Server) Schedule(jobs ...stacksapi.ScheduledJob) {
 	for _, scheduled := range jobs {
 		f.ScheduledJobs.Jobs = append(f.ScheduledJobs.Jobs, scheduled)
 		f.JobStates[scheduled.ID] = "scheduled"
+		delete(f.held, scheduled.ID)
 	}
 }
 

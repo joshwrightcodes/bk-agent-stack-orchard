@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -611,6 +612,7 @@ func finishWith(t *testing.T, detail string) string {
 
 	fake := fakestacks.New()
 	fake.StackKey = "bk-macos-prod"
+	fake.SetJobState(string(first), "reserved")
 	t.Cleanup(fake.Close)
 
 	wire := &recording{}
@@ -737,5 +739,120 @@ func TestNotifyRefusesMoreLinesThanOneRequestTakes(t *testing.T) {
 
 	if err := client.Notify(t.Context(), lines); err == nil {
 		t.Error("Notify() with one line more than a request takes = nil, want an error")
+	}
+}
+
+// The reaper treats ErrTerminal as done: it ignores the job and still deletes the machine (the
+// reaper test of a refused finish). This test shows that the stricter fake gives the real client
+// that error, for a reservation that expired and for a job that an agent acquired. The reaper
+// wiring with the real client is not built here, because the reaper test covers the reaction to
+// ErrTerminal.
+func TestFinishOfAnExpiredReservationOrAnAcquiredJobIsTerminal(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]func(*fakestacks.Server, *time.Time){
+		"an expired reservation": func(_ *fakestacks.Server, now *time.Time) {
+			*now = now.Add(time.Hour)
+		},
+		"an acquired job": func(fake *fakestacks.Server, _ *time.Time) {
+			fake.SetJobState(string(first), "running")
+		},
+	}
+
+	for name, change := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var mu sync.Mutex
+
+			now := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
+			clock := func() time.Time {
+				mu.Lock()
+				defer mu.Unlock()
+
+				return now
+			}
+
+			fake := fakestacks.New(fakestacks.WithClock(clock))
+			fake.StackKey = "bk-macos-prod"
+			t.Cleanup(fake.Close)
+			fake.Schedule(stacksapi.ScheduledJob{ID: string(first)})
+
+			client, err := buildkite.New(buildkite.Options{
+				Token:    secret.String("bkct_a-cluster-agent-token"),
+				Endpoint: fake.URL(),
+				StackKey: fake.StackKey,
+				Queue:    "macos-prod",
+			})
+			if err != nil {
+				t.Fatalf("New() = %v, want a client", err)
+			}
+
+			if _, err := client.Reserve(t.Context(), []job.ID{first}, 5*time.Minute); err != nil {
+				t.Fatalf("Reserve() = %v, want no error", err)
+			}
+
+			mu.Lock()
+			change(fake, &now)
+			mu.Unlock()
+
+			err = client.Finish(t.Context(), first, -1, "the machine failed")
+			if !errors.Is(err, buildkite.ErrTerminal) {
+				t.Errorf("Finish() = %v, want ErrTerminal", err)
+			}
+		})
+	}
+}
+
+// A detail can quote text that a guest wrote, and a line on a job page is one line. The client
+// replaces each control character with a space, so that no escape sequence or line break reaches
+// the page, and it counts the characters after that.
+func TestANotificationDetailHoldsNoControlCharacter(t *testing.T) {
+	t.Parallel()
+
+	client, fake := start(t)
+
+	if err := client.Notify(t.Context(), []buildkite.Notification{
+		{JobID: first, Detail: "failed: \x1b[31mred\r\nnext\ttab\u0085end", At: time.Now()},
+	}); err != nil {
+		t.Fatalf("Notify() = %v, want no error", err)
+	}
+
+	got := fake.NotificationCalls[0][0].Detail
+	if want := "failed:  [31mred  next tab end"; got != want {
+		t.Errorf("the line reads %q, want %q", got, want)
+	}
+}
+
+// A detail of only blanks and control characters says nothing, and Buildkite shows it as a blank
+// line. The client sends the word for empty text instead. A bidirectional override, a zero-width
+// character, and a line or paragraph separator become a space, as the control characters do.
+func TestANotificationDetailWithNothingToReadGivesTheWord(t *testing.T) {
+	t.Parallel()
+
+	client, fake := start(t)
+
+	for _, detail := range []string{"", " \t\r\n", "\x1b\u202e\u200b\u2028\u2029 "} {
+		if err := client.Notify(t.Context(), []buildkite.Notification{
+			{JobID: first, Detail: detail, At: time.Now()},
+		}); err != nil {
+			t.Fatalf("Notify(%q) = %v, want no error", detail, err)
+		}
+	}
+
+	for i, line := range fake.Notifications() {
+		if line.Detail != "(no detail)" {
+			t.Errorf("line %d reads %q, want (no detail)", i, line.Detail)
+		}
+	}
+
+	if err := client.Notify(t.Context(), []buildkite.Notification{
+		{JobID: first, Detail: "a\u202eb\u200bc\u2028d", At: time.Now()},
+	}); err != nil {
+		t.Fatalf("Notify() = %v, want no error", err)
+	}
+
+	if got := fake.Notifications()[3].Detail; got != "a b c d" {
+		t.Errorf("the line reads %q, want a b c d", got)
 	}
 }
