@@ -1,6 +1,9 @@
 # The images of the job VMs
 
-`images/build.sh` builds the image of a job VM into a local Tart VM (W-23):
+`images/build.sh` builds the image of a job VM into a local Tart VM. It is a reference build: the
+project publishes no image. An operator uses an upstream Tart image, or builds an image of its own,
+and the image meets the image requirements of the target design, section 6.4. This build is one
+way to meet them, and the project uses it for its own tests:
 
 | Image | Use |
 |---|---|
