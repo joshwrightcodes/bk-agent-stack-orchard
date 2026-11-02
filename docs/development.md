@@ -32,7 +32,21 @@ mise run check   # the gates: documents, commits, dependencies, lint, tests, and
 ```
 
 The gates are also tasks of their own: `check-docs`, `check-commits`, `check-deps`, `lint`,
-`lint-format`, `test`, `check-generate`, and `snapshot`. `mise tasks` lists them.
+`lint-format`, `test`, `check-generate`, and `snapshot`. `mise tasks` lists them. `test` runs
+`go test -race`, so the race detector runs on each local and CI run.
+
+`mise run check` and `mise run ci` are different gates:
+
+* `check` is the gate before a pull request. It runs `check-c4`, so it needs Docker.
+* `ci` runs the checks that the required CI jobs run, so a pass predicts a pass in CI. It adds
+  `test-scripts`, `vuln`, `check-hook`, `check-hosts`, `check-generate`, and `integration`, which
+  `check` does not run. `check-generate` reads the GitHub API, so the command is
+  `GITHUB_TOKEN=$(gh auth token) mise run ci`. The token MUST stay in the environment. It MUST NOT
+  go into a file.
+* `ci` runs the Docker jobs (`check-c4`, `orchard-image`, `smoke`, and `snapshot`) through
+  `ci-docker`. When Docker is absent, `ci-docker` prints that it skips them and exits 0. Those
+  jobs are then "CI only".
+* The title gate of a pull request is CI only, because it needs the pull request title.
 
 If `check-deps` fails because NOTICE does not name a module, a dependency update added a module
 that the binary links. Fix it in this order:
