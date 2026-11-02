@@ -386,19 +386,25 @@ const NotificationLimit = 256
 // because the API refuses an empty detail.
 //
 // A line on a job page is one line of plain text, and a detail can quote text that a guest wrote.
-// Each control character, such as a line break or an escape sequence, becomes a space, and the
-// count of characters is the count after that.
+// Each control character, such as a line break or an escape sequence, becomes a space. So does each
+// format character (Unicode category Cf, which holds the bidirectional overrides and the
+// zero-width characters) and each line or paragraph separator. The count of characters is the count
+// after that. A detail with nothing to read, only blanks, gets the same word as an empty one.
+//
+// The client replaces these characters with a space, where the finish message of the reaper drops
+// them. A notification is one line, and a space keeps its words apart. A finish message holds the
+// lines of a script, and a dropped character leaves the word that it sat in whole.
 func cut(text string, limit int) string {
 	text = strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029' {
 			return ' '
 		}
 
 		return r
 	}, text)
 
-	if text == "" {
-		// The API refuses an empty detail.
+	if strings.TrimSpace(text) == "" {
+		// The API refuses an empty detail, and a blank one shows as a blank line.
 		return "(no detail)"
 	}
 

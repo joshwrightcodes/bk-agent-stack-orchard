@@ -823,3 +823,36 @@ func TestANotificationDetailHoldsNoControlCharacter(t *testing.T) {
 		t.Errorf("the line reads %q, want %q", got, want)
 	}
 }
+
+// A detail of only blanks and control characters says nothing, and Buildkite shows it as a blank
+// line. The client sends the word for empty text instead. A bidirectional override, a zero-width
+// character, and a line or paragraph separator become a space, as the control characters do.
+func TestANotificationDetailWithNothingToReadGivesTheWord(t *testing.T) {
+	t.Parallel()
+
+	client, fake := start(t)
+
+	for _, detail := range []string{"", " \t\r\n", "\x1b\u202e\u200b\u2028\u2029 "} {
+		if err := client.Notify(t.Context(), []buildkite.Notification{
+			{JobID: first, Detail: detail, At: time.Now()},
+		}); err != nil {
+			t.Fatalf("Notify(%q) = %v, want no error", detail, err)
+		}
+	}
+
+	for i, line := range fake.Notifications() {
+		if line.Detail != "(no detail)" {
+			t.Errorf("line %d reads %q, want (no detail)", i, line.Detail)
+		}
+	}
+
+	if err := client.Notify(t.Context(), []buildkite.Notification{
+		{JobID: first, Detail: "a\u202eb\u200bc\u2028d", At: time.Now()},
+	}); err != nil {
+		t.Fatalf("Notify() = %v, want no error", err)
+	}
+
+	if got := fake.Notifications()[3].Detail; got != "a b c d" {
+		t.Errorf("the line reads %q, want a b c d", got)
+	}
+}

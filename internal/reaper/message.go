@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
@@ -117,21 +118,52 @@ func Deleted(reason string) string {
 	return "VM deleted: " + reason
 }
 
-// withStatus adds the status message of the machine, when Orchard gave one.
+// statusBudget is the most bytes of the status message of a machine that a message holds: a
+// quarter of the budget of the library. The status comes from Orchard and a guest can influence
+// it, and it sits before the lines of the startup script. A status without a limit could take the
+// whole budget and push out every line, which are the reason that an agent did not start. With
+// this limit the lines keep about three quarters of the budget.
+const statusBudget = buildkite.DetailBudget / 4
+
+// withStatus adds the status message of the machine, when Orchard gave one. It keeps at most
+// statusBudget bytes of it, cut between characters, and ends a cut status with an ellipsis.
 func withStatus(text string, machine Machine) string {
 	if machine.VM.StatusMessage == "" {
 		return text
 	}
 
-	return text + ": " + plain(machine.VM.StatusMessage)
+	status := plain(machine.VM.StatusMessage)
+
+	if len(status) > statusBudget {
+		const ellipsis = "…"
+
+		end := statusBudget - len(ellipsis)
+		for end > 0 && !utf8.RuneStart(status[end]) {
+			end--
+		}
+
+		status = status[:end] + ellipsis
+	}
+
+	return text + ": " + status
 }
 
 // plain drops each control character of a text that a guest can write, except the line break and
-// the tab. A job page then shows the text, and an escape sequence in it does not reach a terminal
-// or a log viewer.
+// the tab. It also drops each format character (Unicode category Cf, which holds the
+// bidirectional overrides and the zero-width characters) and the line and paragraph separators.
+// A job page then shows the text that a reader sees in it, in the order that it is written, and an
+// escape sequence in it does not reach a terminal or a log viewer.
+//
+// The message drops these characters, where the notification of the Buildkite client replaces
+// each one with a space. A message holds lines of a script, and a dropped character leaves the
+// word that it sat in whole. A notification is one line, and a space keeps its words apart.
 func plain(text string) string {
 	return strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+		if r == '\n' || r == '\t' {
+			return r
+		}
+
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029' {
 			return -1
 		}
 

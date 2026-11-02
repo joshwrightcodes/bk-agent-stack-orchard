@@ -626,7 +626,11 @@ whose end holds its reason MUST shorten itself below the limit of the library, s
 cuts nothing: the message of an acquire timeout drops its oldest startup-script lines, and keeps its
 newest. A guest writes the startup-script lines and can influence the status message of a VM, so
 the controller MUST drop each control character of this text, except the line break and the tab,
-before it builds the message. The controller MUST send all reservation extensions of one tick in
+and each Unicode format character (category Cf, such as the bidirectional overrides and the
+zero-width characters) and each line or paragraph separator, before it builds the message. The
+message MUST hold at most a quarter of the budget (`statusBudget`) of the status message of the
+VM, cut between characters, so that the lines of the startup script keep their room. The controller
+MUST send all reservation extensions of one tick in
 one `batch-reserve` call.
 
 ### 7.3 Timeout consistency
@@ -1006,7 +1010,9 @@ of §10.1.
 A notification detail MUST NOT be longer than 256 characters. The controller cuts a longer
 detail between characters, and the cut detail ends with an ellipsis (§3).
 A notification is one line of plain text, so the controller MUST replace each control character of
-a detail with a space before it counts the characters.
+a detail with a space, and it MUST do the same for each Unicode format character and each line
+or paragraph separator, before it counts the characters. A detail with only blanks left MUST give
+"(no detail)".
 
 ### 10.6 Alert conditions
 
