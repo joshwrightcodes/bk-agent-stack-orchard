@@ -1,0 +1,11 @@
+# A match value with a wildcard.
+# Applied after ci/values.yaml. helm lint MUST fail.
+config:
+  profiles:
+    - name: xcode-27
+      match: {xcode: "2*"}
+      image: ghcr.io/acme/x@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      cpu: 8
+      memoryMiB: 28672
+      diskSizeGB: 150
+

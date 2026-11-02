@@ -24,6 +24,7 @@ path = [
   "deploy/**/*.cfg",
   "deploy/**/*.tpl",
   "deploy/**/NOTES.txt",
+  "deploy/**/.helmignore",
   "deploy/orchard/image/Dockerfile",
   "images/**",
   "internal/orchard/*.md",

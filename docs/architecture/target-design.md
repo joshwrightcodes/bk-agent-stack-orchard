@@ -1091,6 +1091,12 @@ Stacks API by the port 443 and the peers that the values give, and not by the na
 `agent.buildkite.com`. A cluster whose CNI has a policy for DNS names, such as Cilium or Calico, can
 add that limit. The controller calls no Kubernetes API, so its pod mounts no service account token.
 
+The values of the chart have a JSON Schema with `additionalProperties: false`. It mirrors the
+rules of §8 that JSON Schema can express, and it is a first check only: the controller checks all
+rules when it starts, and it is the authority. A Secret change does not restart the pod, so the
+operator restarts the Deployment. The README of the chart explains this and the production
+NetworkPolicy.
+
 Exactly one controller replica MUST serve a queue. Two controllers MUST NOT use the same
 `controllerID`. The controller cannot detect a second replica with the same `controllerID`. Two
 replicas can reserve more jobs than the free slots. The unplaced-VM timeout then releases these

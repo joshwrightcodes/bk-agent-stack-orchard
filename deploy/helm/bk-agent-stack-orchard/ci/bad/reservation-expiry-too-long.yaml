@@ -1,0 +1,4 @@
+# A reservationExpiry of 3601 s, which is more than the limit of 3600 s. helm lint MUST fail.
+config:
+  buildkite:
+    reservationExpiry: 3601s

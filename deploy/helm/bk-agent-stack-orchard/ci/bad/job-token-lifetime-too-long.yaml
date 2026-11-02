@@ -1,0 +1,4 @@
+# A jobTokenLifetime of 1801 s, which is more than the limit of 1800 s. helm lint MUST fail.
+config:
+  buildkite:
+    jobTokenLifetime: 1801s

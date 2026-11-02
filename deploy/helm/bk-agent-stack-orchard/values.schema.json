@@ -1,11 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
   "title": "Values of bk-agent-stack-orchard",
+  "description": "A first check of the values, before the chart renders. It mirrors the rules of the controller that JSON Schema can express: names, tags, whole-second lifetimes, softnetAllow ranges, and VM_ variables. It cannot express every rule, for example host bits in a CIDR range, two profiles with the same match map, a timeout sum that is longer than jobTokenLifetime, and a list that repeats an entry in another spelling. The controller checks all of its rules when it starts, and it is the authority: a value that passes this schema can still stop the controller. See the README of the chart.",
   "type": "object",
+  "additionalProperties": false,
   "required": ["image", "config", "secret"],
   "properties": {
     "image": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["repository"],
       "properties": {
         "repository": {"type": "string", "minLength": 1},
@@ -17,51 +20,244 @@
     "config": {
       "description": "The configuration file of the controller (target design, section 8). The controller checks the rest when it starts.",
       "type": "object",
+      "additionalProperties": false,
       "required": ["controllerID", "healthAddress", "buildkite", "orchard"],
       "properties": {
-        "controllerID": {"type": "string", "pattern": "^[a-z0-9-]{1,23}$"},
+        "controllerID": {"type": "string", "pattern": "^[a-z0-9]([a-z0-9-]{0,21}[a-z0-9])?$"},
         "healthAddress": {"type": "string", "pattern": ":[0-9]+$"},
+        "maxInFlight": {"type": "integer", "minimum": 0},
+        "stateFreshness": {"$ref": "#/definitions/duration"},
         "buildkite": {
           "type": "object",
+          "additionalProperties": false,
           "required": ["queue"],
-          "properties": {"queue": {"type": "string", "minLength": 1}}
+          "properties": {
+            "queue": {"$ref": "#/definitions/queue"},
+            "endpoint": {"type": "string", "pattern": "^https?://.+"},
+            "plainHTTPEndpoint": {"type": "boolean"},
+            "pollInterval": {"$ref": "#/definitions/duration"},
+            "jobStatesInterval": {"$ref": "#/definitions/duration"},
+            "reservationExpiry": {
+              "description": "Whole seconds from 1 to 3600, written with the unit s, such as 300s.",
+              "type": "string",
+              "pattern": "^([1-9][0-9]{0,2}|[12][0-9]{3}|3[0-5][0-9]{2}|3600)s$"
+            },
+            "reservationRenewBefore": {"$ref": "#/definitions/duration"},
+            "jobTokenLifetime": {
+              "description": "Whole seconds from 1 to 1800, written with the unit s, such as 1800s.",
+              "type": "string",
+              "pattern": "^([1-9][0-9]{0,2}|1[0-7][0-9]{2}|1800)s$"
+            }
+          }
         },
         "orchard": {
           "type": "object",
+          "additionalProperties": false,
           "required": ["url"],
-          "properties": {"url": {"type": "string", "minLength": 1}}
-        }
+          "properties": {
+            "url": {"type": "string", "pattern": "^https?://.+"},
+            "serviceAccount": {"type": "string", "minLength": 1},
+            "inventoryInterval": {"$ref": "#/definitions/duration"},
+            "workerOfflineTimeout": {"$ref": "#/definitions/duration"}
+          }
+        },
+        "defaults": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {"timeouts": {"$ref": "#/definitions/timeouts"}}
+        },
+        "profiles": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/profile"}}
       }
     },
     "secret": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["name"],
       "properties": {"name": {"type": "string", "minLength": 1}}
     },
     "otel": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "endpoint": {"type": "string"},
         "protocol": {"enum": ["grpc", "http/protobuf"]}
       }
     },
+    "extraEnv": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "value": {"type": "string"},
+          "valueFrom": {"type": "object"}
+        }
+      }
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {"name": {"type": "string", "minLength": 1}}
+      }
+    },
+    "priorityClassName": {"type": "string"},
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requests": {"$ref": "#/definitions/quantities"},
+        "limits": {"$ref": "#/definitions/quantities"}
+      }
+    },
     "networkPolicy": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "enabled": {"type": "boolean"},
         "buildkite": {"$ref": "#/definitions/destination"},
         "orchard": {"$ref": "#/definitions/destination"},
         "collector": {"$ref": "#/definitions/destination"}
       }
+    },
+    "deploymentAnnotations": {"$ref": "#/definitions/stringMap"},
+    "podAnnotations": {"$ref": "#/definitions/stringMap"},
+    "podLabels": {"$ref": "#/definitions/stringMap"},
+    "nodeSelector": {"$ref": "#/definitions/stringMap"},
+    "tolerations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "key": {"type": "string"},
+          "operator": {"enum": ["Exists", "Equal"]},
+          "value": {"type": "string"},
+          "effect": {"enum": ["NoSchedule", "PreferNoSchedule", "NoExecute"]},
+          "tolerationSeconds": {"type": "integer"}
+        }
+      }
+    },
+    "affinity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "nodeAffinity": {"type": "object"},
+        "podAffinity": {"type": "object"},
+        "podAntiAffinity": {"type": "object"}
+      }
     }
   },
   "definitions": {
+    "duration": {
+      "description": "A Go duration, such as 5s, 2m, or 25h.",
+      "type": "string",
+      "pattern": "^(0|([0-9]+(\\.[0-9]*)?(ns|us|µs|μs|ms|s|m|h))+)$"
+    },
+    "queue": {
+      "description": "No comma, quote, newline or carriage return, and no white space at an end, because the agent reads its tags as one comma-separated list.",
+      "type": "string",
+      "pattern": "^[^,\\n\\r\"'\\s]$|^[^,\\n\\r\"'\\s][^,\\n\\r\"']*[^,\\n\\r\"'\\s]$"
+    },
+    "tagValue": {
+      "description": "A literal tag value: no wildcard (* ? !), no comma, quote, newline or carriage return, and no white space at an end.",
+      "type": "string",
+      "pattern": "^[^*?!,\\n\\r\"'\\s]$|^[^*?!,\\n\\r\"'\\s][^*?!,\\n\\r\"']*[^*?!,\\n\\r\"'\\s]$"
+    },
+    "vmVariable": {
+      "description": "The name of a variable that goes into the VMs. It MUST start with VM_.",
+      "type": "string",
+      "pattern": "^VM_"
+    },
+    "ipv4Range": {
+      "description": "An IPv4 CIDR range with a prefix length from 16 to 32. The controller also refuses host bits and a repeated range.",
+      "type": "string",
+      "pattern": "^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])/(1[6-9]|2[0-9]|3[0-2])$"
+    },
+    "timeouts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "unplaced": {"$ref": "#/definitions/duration"},
+        "boot": {"$ref": "#/definitions/duration"},
+        "acquire": {"$ref": "#/definitions/duration"},
+        "maxVMLifetime": {"$ref": "#/definitions/duration"}
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "match", "image", "cpu", "memoryMiB", "diskSizeGB"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[a-z0-9-]+$"},
+        "match": {
+          "description": "Literal tags. The keys queue, profile and agent-stack are reserved.",
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[a-z0-9][a-z0-9_.-]*$",
+            "not": {"enum": ["queue", "profile", "agent-stack"]}
+          },
+          "additionalProperties": {"$ref": "#/definitions/tagValue"}
+        },
+        "image": {"type": "string", "minLength": 1},
+        "cpu": {"type": "integer", "minimum": 1},
+        "memoryMiB": {"type": "integer", "minimum": 1},
+        "diskSizeGB": {"type": "integer", "minimum": 1},
+        "workerLabels": {"$ref": "#/definitions/stringMap"},
+        "softnetAllow": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/definitions/ipv4Range"}
+        },
+        "startupTransport": {"enum": ["tart-guest-agent", "ssh"]},
+        "vmCredentials": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["usernameEnv", "passwordEnv"],
+          "properties": {
+            "usernameEnv": {"$ref": "#/definitions/vmVariable"},
+            "passwordEnv": {"$ref": "#/definitions/vmVariable"}
+          }
+        },
+        "timeouts": {"$ref": "#/definitions/timeouts"},
+        "otel": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "endpoint": {"type": "string"},
+            "headersEnv": {"$ref": "#/definitions/vmVariable"}
+          }
+        }
+      }
+    },
+    "stringMap": {"type": "object", "additionalProperties": {"type": "string"}},
+    "quantities": {
+      "type": "object",
+      "additionalProperties": {"type": ["string", "number"]}
+    },
     "destination": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["port"],
       "properties": {
         "port": {"type": "integer", "minimum": 1, "maximum": 65535},
-        "to": {"type": "array"}
+        "to": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "ipBlock": {"type": "object"},
+              "namespaceSelector": {"type": "object"},
+              "podSelector": {"type": "object"}
+            }
+          }
+        }
       }
     }
   }

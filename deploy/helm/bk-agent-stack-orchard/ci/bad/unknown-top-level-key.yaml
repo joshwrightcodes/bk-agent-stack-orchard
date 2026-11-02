@@ -1,0 +1,2 @@
+# An unknown top-level key. helm lint MUST fail, so a typo cannot go unseen.
+replicas: 2

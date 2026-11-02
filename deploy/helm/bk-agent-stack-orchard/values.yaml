@@ -43,6 +43,13 @@ otel:
 # a VM, so give such a variable that name here.
 extraEnv: []
 
+# imagePullSecrets names the Secrets of type kubernetes.io/dockerconfigjson that the kubelet uses to
+# pull the image from a private registry. Each entry is {name: <secret>}.
+imagePullSecrets: []
+
+# priorityClassName names the PriorityClass of the pod. Empty means the default class.
+priorityClassName: ""
+
 resources:
   requests:
     cpu: 50m
@@ -66,7 +73,13 @@ networkPolicy:
     port: 4317
     to: []
 
+# deploymentAnnotations adds annotations to the Deployment, for example for a controller that
+# restarts it when the Secret changes (see the README of the chart).
+deploymentAnnotations: {}
 podAnnotations: {}
+# podLabels adds labels to the pod. The selector labels of the chart win over a label with the same
+# key.
+podLabels: {}
 nodeSelector: {}
 tolerations: []
 affinity: {}

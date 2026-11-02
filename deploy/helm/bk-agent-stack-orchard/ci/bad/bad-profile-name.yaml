@@ -1,0 +1,11 @@
+# A profile name with an upper-case letter and an underscore.
+# Applied after ci/values.yaml. helm lint MUST fail.
+config:
+  profiles:
+    - name: Xcode_27
+      match: {xcode: "27"}
+      image: ghcr.io/acme/x@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      cpu: 8
+      memoryMiB: 28672
+      diskSizeGB: 150
+
