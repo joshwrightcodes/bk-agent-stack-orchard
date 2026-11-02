@@ -54,17 +54,16 @@ The direction of the set is from the requirements to the design, the tests, and 
 
 ## Access checklist
 
-A new contributor needs these items. The maintainer (`@joshwrightcodes`) grants them. Ask in a
-GitHub issue or discussion, and do not send a secret in it.
+A new contributor needs these items. The maintainers grant them. Ask in a GitHub issue or
+discussion, and do not send a secret in it.
 
 * [ ] **A Buildkite test cluster.** The cluster gives a queue and a cluster agent token for the
   controller. Only a run against real Buildkite needs it. The local quick start does not.
 * [ ] **The Mac lab.** A Mac with Apple silicon, with Tart and Orchard, runs the real-VM tests. The
-  maintainer holds the lab, and the date of its first host is `UNKNOWN` (owner: the maintainer;
-  trigger: the Mac hosts are ready).
-* [ ] **The secret source.** The maintainer gives each secret through the secret manager of the
+  maintainers hold the lab.
+* [ ] **The secret source.** The maintainers give each secret through the secret manager of the
   team. A secret MUST NOT go into the repository, a log, or a document.
-* [ ] **The GitHub team.** Membership gives review rights. Until a team exists, the maintainer is
-  the owner of each path (`.github/CODEOWNERS`).
+* [ ] **The GitHub team.** Membership gives review rights. Until a team exists, the maintainers own
+  each path (`.github/CODEOWNERS`).
 * [ ] **The `release` environment reviewer.** A release publishes only after a reviewer of the
-  `release` environment of the repository approves it. Only a maintainer takes this role.
+  `release` environment of the repository approves it. Only the maintainers take this role.
