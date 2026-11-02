@@ -55,7 +55,8 @@ Copy `inventory.example.yml`, and give the values of the fleet:
 |---|---|
 | `orchard_worker_controller_url` | The address of the internal load balancer of the Orchard controller |
 | `orchard_worker_ca_cert` | `ca.crt` of the `orchard-tls` Secret, as PEM |
-| `orchard_worker_token` | `worker-token` of the `orchard-bootstrap` Secret. Keep it in Ansible Vault |
+| `orchard_worker_name` | Required, with no default. The name of the worker, a DNS label such as `mac-01`. Each host has its own name, and the playbook stops when a name is missing or two hosts share one. The account of the host is `worker-<name>` |
+| `orchard_worker_token` | The token of this host only: the key `worker-<name>` of the `orchard-worker-tokens` Secret. Keep one token for each host in Ansible Vault, for example `vault_orchard_worker_tokens[orchard_worker_name]`. The playbook stops when two hosts share a token |
 | `orchard_worker_labels` | The labels of the worker, for example `{pool: general}` |
 | `orchard_worker_otlp_endpoint` | The OTLP endpoint of the collector. Orchard exports its metrics to it |
 | `orchard_worker_config_file` | The configuration file of the controller, or the values of its Helm release |
@@ -81,6 +82,12 @@ cd deploy/hosts
 ansible-playbook -i inventory.yml site.yml --limit mac-01.hosts.internal
 ansible-playbook -i inventory.yml site.yml
 ```
+
+The check of the names and the tokens before the playbook covers the hosts of the run only. A run
+with `--limit mac-01.hosts.internal` does not compare that host with the other hosts of the
+inventory, so two hosts that share a name or a token pass when the operator runs them one at a
+time. The run of the whole fleet finds it. The operator therefore runs the whole fleet after a
+change of a name or a token.
 
 The worker writes its log to `/var/log/orchard-worker.log`, and launchd writes the output of a
 failed start to `/var/log/orchard-worker.stdout.log`.

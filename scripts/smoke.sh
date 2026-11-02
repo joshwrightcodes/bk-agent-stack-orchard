@@ -83,8 +83,10 @@ kubectl -n orchard create secret generic orchard-tls \
 controller_token="$(openssl rand -hex 24)"
 kubectl -n orchard create secret generic orchard-bootstrap \
 	--from-literal=bootstrap-admin-token="$(openssl rand -hex 24)" \
-	--from-literal=controller-token="$controller_token" \
-	--from-literal=worker-token="$(openssl rand -hex 24)"
+	--from-literal=controller-token="$controller_token"
+# One key for each Mac host. Smoke registers no worker, but the Job needs one host to complete.
+kubectl -n orchard create secret generic orchard-worker-tokens \
+	--from-literal=worker-smoke-host="$(openssl rand -hex 24)"
 
 agent_token="bkct_smoke_$(openssl rand -hex 16)"
 kubectl -n smoke create secret generic bk-agent-stack-orchard \

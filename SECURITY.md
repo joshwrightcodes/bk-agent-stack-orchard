@@ -52,6 +52,15 @@ These are known, recorded, and accepted. They are not vulnerabilities in this pr
   and an IP allowlist limit it.
 * The Orchard `compute:write` role also permits the creation and the deletion of workers, because
   Orchard has no narrower role.
+* Each Mac host has its own Orchard service account, but Orchard 0.58.0 does not tie an account to a
+  worker name. A stolen host token can register, update, and delete any worker name, and it can
+  read and write VMs, because the roles `compute:read` and `compute:write` are the roles that a
+  worker needs. The controls are a token for each host, so the operator revokes one host without
+  a change on the others (runbook
+  [`docs/runbooks/orchard-worker-accounts.md`](docs/runbooks/orchard-worker-accounts.md)), and the
+  alert on an unknown worker name (target design, section 10.6). The alert sees only a name that
+  the operator does not know. A stolen token that registers a known name, for example the record of
+  one host, is not detected. This is a residual risk.
 * Job logs go to Buildkite SaaS, and they can contain parts of source code, such as compiler
   errors.
 * Artifacts stay on owner infrastructure, in the operating country (PR-032), only as far as
@@ -67,6 +76,23 @@ These are known, recorded, and accepted. They are not vulnerabilities in this pr
   headers) enters the VM. A hostile build can read it. The mitigation is that the collector
   uses its own ingest token, with the lowest privilege, that can send telemetry and do nothing
   else.
+* Orchard 0.58.0 makes a `bootstrap-admin` account with all roles, and prints its random token in
+  its log, when it starts with an empty database and without `ORCHARD_BOOTSTRAP_ADMIN_TOKEN`. This
+  can happen after the loss of the PVC, when the operator has retired the bootstrap admin. The
+  control is the runbook
+  [`docs/runbooks/orchard-bootstrap-admin.md`](docs/runbooks/orchard-bootstrap-admin.md): put the
+  variable back before a start with an empty PVC, treat the log of the Orchard pod as a secret, and
+  delete the account if it was logged. The residual risk is that an operator forgets, and that a
+  log shipper keeps the token until the operator purges it.
+* The bootstrap admin of Orchard has all roles, and its token stays in the Kubernetes Secret
+  `orchard-bootstrap` after the first bootstrap, because each add, rotation, migration, or
+  revocation of a host runs the bootstrap Job again. The controls are that only the Job mounts
+  the Secret (the Orchard pod does not hold the token), that Kubernetes RBAC limits who can read
+  Secrets of the `orchard` namespace, and that the operator rotates the token (runbook
+  [`docs/runbooks/orchard-bootstrap-admin.md`](docs/runbooks/orchard-bootstrap-admin.md)). The
+  residual risk is that a person or a workload with the right to read Secrets of the namespace,
+  or a copy of the cluster state, gives full control of Orchard, and that a late rotation leaves
+  an old token valid. A fleet with no planned host change MAY delete the account.
 * Releases have one maintainer as the only reviewer, and the rules of the main branch have an
   administrator bypass. No second person reviews a release. The mitigation is that the release
   gate (T-100 to T-105) and the pipeline checks run before every release.

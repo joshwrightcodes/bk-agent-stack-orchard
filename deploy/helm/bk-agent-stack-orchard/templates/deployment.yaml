@@ -5,6 +5,10 @@ metadata:
   name: {{ include "bkaso.fullname" . }}
   labels:
     {{- include "bkaso.labels" . | nindent 4 }}
+  {{- with .Values.deploymentAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   # Exactly one controller serves a queue, and Recreate stops the old pod before the new one
   # starts, so a rollout never runs two (target design, section 11).
@@ -17,7 +21,9 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "bkaso.selectorLabels" . | nindent 8 }}
+        # The selector labels win over a label of podLabels with the same key.
+        {{- $selector := fromYaml (include "bkaso.selectorLabels" .) }}
+        {{- toYaml (merge $selector .Values.podLabels) | nindent 8 }}
       annotations:
         # The controller reads its configuration only when it starts, so a change restarts it.
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
@@ -26,6 +32,13 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: {{ include "bkaso.fullname" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
       automountServiceAccountToken: false
       # The image runs as the nonroot user of distroless. Kubernetes can check runAsNonRoot only
       # against a number, so the chart names the user by its number.

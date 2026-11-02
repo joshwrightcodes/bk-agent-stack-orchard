@@ -1,3 +1,35 @@
+# The checks of the name and the token of each host run first, on the control node, before any
+# task reaches a host. A host without its own name and token would get HTTP 401 at run time, after
+# the playbook succeeded. The messages name hosts and never a token.
+- name: Find the hosts that have no worker name, or share a name or a token
+  run_once: true
+  no_log: true
+  ansible.builtin.set_fact:
+    orchard_worker_problems: >-
+      {% for h in ansible_play_hosts %}
+      {% set n = hostvars[h].orchard_worker_name | default('') %}
+      {% set t = hostvars[h].orchard_worker_token | default('') %}
+      {% if n == '' %}
+      {{ h }} has no orchard_worker_name. Set it for each host.
+      {% endif %}
+      {% for h2 in ansible_play_hosts if h2 > h %}
+      {% if n != '' and n == (hostvars[h2].orchard_worker_name | default('')) %}
+      {{ h }} and {{ h2 }} have the same orchard_worker_name.
+      {% endif %}
+      {% if t != '' and t == (hostvars[h2].orchard_worker_token | default('')) %}
+      {{ h }} and {{ h2 }} have the same orchard_worker_token.
+      {% endif %}
+      {% endfor %}
+      {% endfor %}
+
+- name: Stop when a host has no worker name, or two hosts share a name or a token
+  run_once: true
+  ansible.builtin.fail:
+    msg: >-
+      Each host MUST have its own orchard_worker_name and its own orchard_worker_token. There is
+      no default name. {{ orchard_worker_problems | trim | regex_replace('\s+', ' ') }}
+  when: orchard_worker_problems | trim | length > 0
+
 # The play gathers no facts, because Ansible needs Python on the host, and macOS gets Python from
 # the Command Line Tools. raw needs no Python.
 - name: Look for the Command Line Tools
@@ -23,11 +55,16 @@
       - orchard_worker_controller_url is match('https://')
       - orchard_worker_ca_cert is search('-----BEGIN CERTIFICATE-----')
       - orchard_worker_token | length > 0
+      - orchard_worker_name is defined
+      - orchard_worker_name is match('^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$')
       - orchard_worker_otlp_endpoint | length > 0
       - orchard_worker_config_file | length > 0
     fail_msg: >-
       The inventory MUST give orchard_worker_controller_url (https), orchard_worker_ca_cert (PEM),
-      orchard_worker_token, orchard_worker_otlp_endpoint, and orchard_worker_config_file.
+      orchard_worker_token (the token of this host, not of another host),
+      orchard_worker_otlp_endpoint, and orchard_worker_config_file. orchard_worker_name MUST be
+      a DNS label (lower case letters, digits, and hyphens), because the account of the host is
+      worker-<name>.
 
 - name: Check the platform and the macOS version
   ansible.builtin.assert:

@@ -8,17 +8,22 @@ orchard_worker_softnet_version: "0.24.1"
 orchard_worker_softnet_sha256: "8ff8ff099c2b5ac1b1128e7999c4a730ac85f486c8a4cb0239eb98432859a0f7"
 
 # The controller. The inventory MUST give the URL, the CA certificate (ca.crt of the orchard-tls
-# Secret, as PEM), and the token of the worker account (worker-token of orchard-bootstrap).
+# Secret, as PEM), and the token of the account of this host (the key worker-<host> of the Secret
+# orchard-worker-tokens, where <host> is orchard_worker_name).
 orchard_worker_controller_url: ""
 orchard_worker_ca_cert: ""
-orchard_worker_account: worker
+orchard_worker_account: "worker-{{ orchard_worker_name }}"
 orchard_worker_token: ""
 
 # The macOS user that runs Tart and owns the VMs. The worker starts as root and drops to this user,
 # which is the workaround of Orchard for the Local Network permission. The user MUST log in
 # automatically, because Tart and the registry credentials need its login keychain.
 orchard_worker_user: "{{ ansible_user }}"
-orchard_worker_name: "{{ ansible_facts['hostname'] }}"
+# The name of the worker, and the <host> of its account worker-<host>. The inventory MUST set it for
+# each host, as a DNS label, and no two hosts may share it. It has no default, because a macOS host
+# name can have upper case letters, and a name from the host name can differ from the key of the
+# Secret orchard-worker-tokens.
+# orchard_worker_name:
 # The labels of the worker. A profile goes only to a worker whose labels contain its workerLabels.
 orchard_worker_labels: {}
 

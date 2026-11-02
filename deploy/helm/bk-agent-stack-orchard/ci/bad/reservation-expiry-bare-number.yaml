@@ -1,0 +1,5 @@
+# A reservationExpiry without a unit. The controller refuses a bare number too.
+# Applied after ci/values.yaml. helm lint MUST fail.
+config:
+  buildkite:
+    reservationExpiry: 300

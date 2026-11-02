@@ -50,8 +50,13 @@ spec:
             - --controller-cert=/etc/orchard/tls/tls.crt
             - --controller-key=/etc/orchard/tls/tls.key
           env:
-            # The bootstrap admin exists only for the bootstrap Job, which creates the service
-            # accounts of the controller and of the workers.
+            # The bootstrap admin exists for the bootstrap Job, which creates the service accounts
+            # of the controller and of the workers. While this variable is set, each start of
+            # Orchard makes the bootstrap-admin account again. After the first bootstrap the
+            # operator MUST remove the variable, so that this pod holds no admin token. The account
+            # and its token then stay only in the Secret orchard-bootstrap, which only the Job
+            # mounts, for the next change of a host (README, section "First start and after the
+            # first bootstrap").
             - name: ORCHARD_BOOTSTRAP_ADMIN_TOKEN
               valueFrom:
                 secretKeyRef:

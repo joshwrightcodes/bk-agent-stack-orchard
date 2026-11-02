@@ -1,0 +1,12 @@
+# A credential variable that does not start with VM_.
+# Applied after ci/values.yaml. helm lint MUST fail.
+config:
+  profiles:
+    - name: xcode-27
+      match: {xcode: "27"}
+      image: ghcr.io/acme/x@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      cpu: 8
+      memoryMiB: 28672
+      diskSizeGB: 150
+      startupTransport: ssh
+      vmCredentials: {usernameEnv: BUILD_USER, passwordEnv: VM_PASSWORD}

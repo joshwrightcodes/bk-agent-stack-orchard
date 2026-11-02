@@ -1,8 +1,8 @@
-# The Mac hosts reach Orchard on 6120 through an internal load balancer, and the controller of
-# this project reaches it by the name of the Service. The annotation that makes a load balancer
-# internal depends on the cloud, so an overlay adds it, for example
-# networking.gke.io/load-balancer-type: Internal, or
-# service.beta.kubernetes.io/aws-load-balancer-scheme: internal.
+# The controller of this project and the bootstrap Job reach Orchard on 6120 by the name of the
+# Service, so the base keeps Orchard inside the cluster: the Service is a ClusterIP. The Mac hosts
+# are outside the cluster, so an overlay adds an internal load balancer. The example is
+# deploy/orchard-overlays/internal-lb. networkpolicy.yaml limits which pods and which addresses
+# reach the port.
 apiVersion: v1
 kind: Service
 metadata:
@@ -10,8 +10,8 @@ metadata:
   labels:
     app.kubernetes.io/name: orchard
 spec:
-  # The governing Service of the StatefulSet, which gives the pod a stable name in DNS. The load
-  # balancer below is how the Mac hosts and the controller of this project reach Orchard.
+  # The governing Service of the StatefulSet, which gives the pod a stable name in DNS. The Service
+  # below is how the controller of this project reaches Orchard.
   clusterIP: None
   selector:
     app.kubernetes.io/name: orchard
@@ -28,7 +28,7 @@ metadata:
   labels:
     app.kubernetes.io/name: orchard
 spec:
-  type: LoadBalancer
+  type: ClusterIP
   selector:
     app.kubernetes.io/name: orchard
   ports:

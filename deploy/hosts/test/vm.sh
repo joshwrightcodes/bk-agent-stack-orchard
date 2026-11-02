@@ -116,7 +116,7 @@ ORCHARD_BOOTSTRAP_ADMIN_TOKEN="$ADMIN_TOKEN" orchard controller run --data-dir "
 controller=$!
 for _ in $(seq 1 30); do api GET /v1/workers >/dev/null 2>&1 && break; sleep 1; done
 api POST /v1/service-accounts \
-  "{\"name\":\"worker\",\"token\":\"$WORKER_TOKEN\",\"roles\":[\"compute:read\",\"compute:write\"]}" >/dev/null
+  "{\"name\":\"worker-$VM\",\"token\":\"$WORKER_TOKEN\",\"roles\":[\"compute:read\",\"compute:write\"]}" >/dev/null
 
 # The pf rules of the hosts, loaded on this Mac for the Softnet test, block the VM from this Mac,
 # and so from the controller of this test.

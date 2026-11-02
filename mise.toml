@@ -143,8 +143,31 @@ run = "go test -tags integration -count=1 ./test/integration/..."
 description = "Lint the Helm chart, and validate the chart and the Orchard manifests against the Kubernetes schemas"
 run = [
   "helm lint deploy/helm/bk-agent-stack-orchard -f deploy/helm/bk-agent-stack-orchard/ci/values.yaml --strict",
+  "helm lint deploy/helm/bk-agent-stack-orchard -f test/smoke/values.yaml --strict",
+  """
+  set -eu
+  chart=deploy/helm/bk-agent-stack-orchard
+  for good in "$chart"/ci/good/*.yaml; do
+    helm lint "$chart" -f "$chart/ci/values.yaml" -f "$good" --strict
+  done
+  # Each bad file MUST fail the schema. A lint that passes, or that fails for another reason,
+  # means that the schema lost a rule.
+  for bad in "$chart"/ci/bad/*.yaml; do
+    if out=$(helm lint "$chart" -f "$chart/ci/values.yaml" -f "$bad" --strict 2>&1); then
+      echo "check-deploy: $bad lints clean, so the schema lost a rule" >&2
+      exit 1
+    fi
+    case "$out" in
+      *"values don't meet the specifications of the schema"*) echo "refused as expected: $bad" ;;
+      *) printf '%s\n' "$out" >&2; echo "check-deploy: $bad failed, but not on the schema" >&2; exit 1 ;;
+    esac
+  done
+  """,
+  "rm -rf build/chart-check && helm package deploy/helm/bk-agent-stack-orchard --destination build/chart-check >/dev/null && ! tar -tzf build/chart-check/*.tgz | grep -q '/ci/'",
   "helm template bkaso deploy/helm/bk-agent-stack-orchard -f deploy/helm/bk-agent-stack-orchard/ci/values.yaml | kubeconform -strict -summary -kubernetes-version 1.37.0 -",
   "kustomize build deploy/orchard | kubeconform -strict -summary -kubernetes-version 1.37.0 -",
+  "kustomize build deploy/orchard-overlays/internal-lb | kubeconform -strict -summary -kubernetes-version 1.37.0 -",
+  "kustomize build test/smoke/orchard | kubeconform -strict -summary -kubernetes-version 1.37.0 -",
 ]
 
 [tasks.smoke]

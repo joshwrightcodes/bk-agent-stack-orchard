@@ -1,0 +1,72 @@
+# Every optional value, in a valid form. helm lint MUST pass with this file after ci/values.yaml.
+image:
+  tag: v0.1.0
+  pullPolicy: Always
+imagePullSecrets:
+  - name: registry-credentials
+priorityClassName: system-cluster-critical
+podLabels:
+  team: platform
+deploymentAnnotations:
+  secret.reloader.stakater.com/reload: bk-agent-stack-orchard
+podAnnotations:
+  example.com/note: full
+config:
+  maxInFlight: 4
+  stateFreshness: 60s
+  buildkite:
+    reservationExpiry: 5m
+    reservationRenewBefore: 1.5m
+    jobTokenLifetime: 1h30m
+    pollInterval: 1s
+    jobStatesInterval: 5s
+  orchard:
+    inventoryInterval: 1s
+    workerOfflineTimeout: 3m
+  defaults:
+    timeouts:
+      unplaced: 2m
+      boot: 15m
+      acquire: 5m
+      maxVMLifetime: 25h
+  profiles:
+    - name: xcode-27
+      match: {xcode: "27", arch: arm64}
+      image: ghcr.io/acme/x@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      cpu: 8
+      memoryMiB: 28672
+      diskSizeGB: 150
+      workerLabels: {pool: a}
+      softnetAllow: ["10.20.30.40/32", "192.168.0.0/16"]
+      timeouts: {boot: "0", acquire: 4m}
+      otel: {enabled: true, headersEnv: VM_OTEL_HEADERS}
+    - name: ssh-profile
+      match: {xcode: "26"}
+      image: ghcr.io/acme/y@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      cpu: 4
+      memoryMiB: 8192
+      diskSizeGB: 80
+      startupTransport: ssh
+      vmCredentials: {usernameEnv: VM_USER, passwordEnv: VM_PASSWORD}
+extraEnv:
+  - name: VM_USER
+    valueFrom:
+      secretKeyRef: {name: bk-agent-stack-orchard, key: vm-user}
+resources:
+  claims:
+    - name: gpu
+      request: main
+nodeSelector: {kubernetes.io/os: linux}
+tolerations:
+  - {key: dedicated, operator: Equal, value: ci, effect: NoSchedule}
+  - {key: all, operator: Exists, effect: ""}
+networkPolicy:
+  buildkite:
+    port: 443
+    to:
+      - ipBlock: {cidr: 203.0.113.0/24}
+  # A named port is a valid NetworkPolicyPort, as an integer is.
+  collector:
+    port: otlp-grpc
+    to:
+      - ipBlock: {cidr: 203.0.113.0/24}

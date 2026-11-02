@@ -1,0 +1,4 @@
+# A controllerID with an upper-case letter and a trailing dash.
+# Applied after ci/values.yaml. helm lint MUST fail.
+config:
+  controllerID: Macos-

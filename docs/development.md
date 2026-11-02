@@ -217,6 +217,12 @@ against the Kubernetes schemas:
 mise run check-deploy
 ```
 
+The chart has a values schema, `values.schema.json`, that mirrors the rules of the controller that
+JSON Schema can express. The controller stays the authority. The check also lints the chart with
+each file in `ci/bad/`, and it fails if one of them lints clean. When the controller gets a rule
+that the schema can express, add the rule to the schema and a bad file for it. The chart README
+explains the values, the NetworkPolicy, and a change of the Secret.
+
 CI validates against the schemas of Kubernetes 1.37. A values schema refuses a release without a
 `controllerID`, a queue, an Orchard URL, or the name of the Secret of the tokens. The chart creates
 no Secret.

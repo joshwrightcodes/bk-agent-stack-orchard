@@ -1,0 +1,5 @@
+# A queue with a comma, which splits the first agent tag in two.
+# Applied after ci/values.yaml. helm lint MUST fail.
+config:
+  buildkite:
+    queue: "macos,extra"

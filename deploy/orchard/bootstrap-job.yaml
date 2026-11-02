@@ -2,11 +2,22 @@
 # gives each account its new token (target design, section 9.2):
 #
 # - bk-agent-stack-orchard, the controller of this project: compute:read and compute:write only.
-# - worker, the Mac hosts: compute:read and compute:write.
+# - worker-<host>, one for each Mac host that the Secret orchard-worker-tokens lists: compute:read
+#   and compute:write, the roles that an Orchard worker needs.
 #
-# It calls the REST API of Orchard with the bootstrap admin, and trusts the authority of the
-# Secret orchard-tls. A PUT replaces an account that exists, and a POST creates one that does
-# not, so the Job gives the same result on every run.
+# The Secret orchard-worker-tokens holds one key for each host, worker-<host>, with the token of
+# that host. The host MUST be a DNS label (lower case letters, digits, and hyphens). The Job mounts
+# the Secret, so the keys are the list of hosts and the tokens stay in a Secret. The Job refuses a
+# key that does not start with worker-. The Job never deletes an account: a host that leaves the
+# list keeps its account until the operator revokes it (runbook orchard-worker-accounts).
+#
+# It calls the REST API of Orchard with the bootstrap admin, and gives curl the credentials and the
+# body on standard input, not on its argv, and trusts the authority of the Secret orchard-tls. The
+# bootstrap admin and its key bootstrap-admin-token stay after the first bootstrap, because each
+# change of a host runs this Job again. Only this Job mounts the key, and the Orchard pod no
+# longer holds it (README, section "First start and after the first bootstrap"). A PUT replaces an
+# account that exists, and a POST creates one that does not, so the Job gives the same result on
+# every run.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -35,14 +46,31 @@ spec:
           args:
             - |
               set -eu
+              # No token goes on the argv of curl, where a process list shows it. curl reads the
+              # account and the body from its configuration on standard input. A token MUST NOT
+              # hold a character that the quoted strings of that configuration read in another
+              # way, so the Job refuses such a token.
+              check() {
+                case "$2" in
+                  ""|*[!A-Za-z0-9._~+/=-]*)
+                    echo "the token of $1 is empty or holds a character that is not allowed" >&2
+                    return 1 ;;
+                esac
+              }
+              # The format of the curl configuration: the account, then the JSON body.
+              config='user = "bootstrap-admin:%s"\n'
+              config="$config"'data = "{\\"name\\":\\"%s\\",\\"token\\":\\"%s\\",'
+              config="$config"'\\"roles\\":[\\"compute:read\\",\\"compute:write\\"]}"\n'
               account() {
-                body="{\"name\":\"$1\",\"token\":\"$2\",\"roles\":[\"compute:read\",\"compute:write\"]}"
+                check "$1" "$2"
                 for method in PUT POST; do
                   path=/v1/service-accounts
                   [ "$method" = PUT ] && path="$path/$1"
-                  code=$(curl -sS -o /tmp/answer -w '%{http_code}' --cacert /etc/orchard/tls/ca.crt \
-                    -u "bootstrap-admin:$ORCHARD_BOOTSTRAP_ADMIN_TOKEN" -X "$method" \
-                    -H 'Content-Type: application/json' --data "$body" "$ORCHARD_URL$path")
+                  # shellcheck disable=SC2059
+                  code=$(printf "$config" "$ORCHARD_BOOTSTRAP_ADMIN_TOKEN" "$1" "$2" |
+                    curl -sS -K - -o /tmp/answer -w '%{http_code}' \
+                      --cacert /etc/orchard/tls/ca.crt -X "$method" \
+                      -H 'Content-Type: application/json' "$ORCHARD_URL$path")
                   case "$code" in
                     200) echo "the service account $1 is set"; return 0 ;;
                     404) continue ;;
@@ -51,8 +79,46 @@ spec:
                 done
                 return 1
               }
+              # The host of an account becomes part of a URL and of a body, so it MUST be a DNS
+              # label: lower case letters, digits, and hyphens, with no hyphen at the start or at
+              # the end, and a maximum of 63 characters.
+              host_check() {
+                case "$1" in
+                  ""|-*|*-|*[!a-z0-9-]*)
+                    echo "the host name \"$1\" is not a DNS label" >&2
+                    return 1 ;;
+                esac
+                if [ "${#1}" -gt 63 ]; then
+                  echo "the host name \"$1\" has more than 63 characters" >&2
+                  return 1
+                fi
+              }
+              check bootstrap-admin "$ORCHARD_BOOTSTRAP_ADMIN_TOKEN"
               account bk-agent-stack-orchard "$CONTROLLER_TOKEN"
-              account worker "$WORKER_TOKEN"
+              # A key that does not start with worker- is a mistake, for example Worker-mac-01, and
+              # the Job refuses it, so no host is lost without a message. The entries of the
+              # volume that start with two dots are not keys.
+              for file in /etc/orchard/workers/*; do
+                [ -e "$file" ] || continue
+                case "${file##*/}" in
+                  worker-*) ;;
+                  *) echo "the key ${file##*/} of orchard-worker-tokens does not start" \
+                          "with worker-" >&2
+                     exit 1 ;;
+                esac
+              done
+              hosts=0
+              for file in /etc/orchard/workers/worker-*; do
+                [ -f "$file" ] || continue
+                host=${file#/etc/orchard/workers/worker-}
+                host_check "$host"
+                account "worker-$host" "$(cat "$file")"
+                hosts=$((hosts + 1))
+              done
+              if [ "$hosts" -eq 0 ]; then
+                echo "the Secret orchard-worker-tokens has no key worker-<host>" >&2
+                exit 1
+              fi
           env:
             - name: ORCHARD_URL
               value: https://orchard:6120
@@ -66,11 +132,6 @@ spec:
                 secretKeyRef:
                   name: orchard-bootstrap
                   key: controller-token
-            - name: WORKER_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: orchard-bootstrap
-                  key: worker-token
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -80,9 +141,15 @@ spec:
             - name: tls
               mountPath: /etc/orchard/tls
               readOnly: true
+            - name: workers
+              mountPath: /etc/orchard/workers
+              readOnly: true
             - name: tmp
               mountPath: /tmp
       volumes:
+        - name: workers
+          secret:
+            secretName: orchard-worker-tokens
         - name: tls
           secret:
             secretName: orchard-tls
