@@ -205,7 +205,7 @@ when it reports only.
 
 | ID | Basis | Scenario | Oracle | Gate |
 |---|---|---|---|---|
-| T-080 | R-05, R-17, SC-05, CO-01 | 50 synthetic workers with 2 slots and 500 generated jobs, with the arrival pattern of the demand model | The tick duration stays inside its budget; list and reserve stay under 10 requests each second; get-states stays under 20 requests each second; I-1, I-2, and I-6 hold; `jobs.oldest_waiting.age` follows the queue | diagnostic |
+| T-080 | R-05, R-17, SC-05, CO-01 | 50 synthetic workers with 2 slots and 500 generated jobs, with the arrival pattern of the demand model | The tick duration stays inside its budget; list and reserve stay under 10 requests each second; get-states stays under 20 requests each second; I-1, I-2, and I-6 hold; `bkaso.job.waiting.oldest.age` follows the queue | diagnostic |
 
 ### 6.7 End-to-end (L6, one Mac)
 
@@ -261,13 +261,35 @@ Rules for data and secrets:
 
 Pilot evidence replaces estimates. It is measurement, not a test:
 
-* **E-1:** two weeks with 0 VMs that remain after their job ends, and 0 jobs that the controller
-  failed incorrectly (QA-04, requirements section 6).
+In these items, `bkaso` is the prefix `bk_agent_stack_orchard` (target design, section 10.1).
+
+* **E-1:** two weeks with `bkaso.vm.leftover` at 0, except for the window before the reaper
+  deletes a VM, and 0 jobs that the controller failed incorrectly (QA-04, requirements section 6).
+  The gauge counts the VMs whose job is terminal, so it shows a VM that remains. The deletion
+  counter `bkaso.vm.deletions` does not, because it counts only the VMs that were deleted. The
+  window is 10 ticks, which is 10 s with the default poll interval (target design, section 10.1).
+  Two exports in a row that are more than 0 are a leak. The jobs that the controller failed
+  incorrectly are the increases of `bkaso.job.failed`, each one checked against its job.
 * **E-2:** the measured start time and wait time against QA-01 and QA-02, with the percentile that
-  the baseline assumes.
+  the baseline assumes. The load condition is the one of T-080: 50 synthetic workers of 2 slots,
+  500 generated jobs, and the arrival pattern of the demand model (baseline section 4.2, SC-05),
+  with the tick duration at or below `LOAD_TICK_BUDGET`, which is 34 ms (O-5). The pilot MUST also
+  keep the 95th percentile of `bkaso.tick.duration` at or below 34 ms. The start time includes the
+  starts that pulled an image, because the controller cannot tell them apart (cold or warm start:
+  `UNKNOWN`; owner: the maintainer; trigger: task 9.2 records real events; target design,
+  section 10.1).
 * **E-3:** the measured time from the job end to the VM deletion, which gives the value that QA-06
-  does not have.
+  does not have. It is the histogram `bkaso.job.phase.duration` with the phase value
+  `finished_to_deleted`.
 * **E-4:** the measured image count for each host, which gives the value that SC-09 does not have.
+* **E-5:** the measured recovery time against QA-03, which is less than 15 min. The measure uses
+  the existing signals. A recovery starts at the last answer of a source that was good, which is
+  the export time minus the value of `bkaso.source.staleness` in the first export that is more
+  than `stateFreshness` (60 s), and for a restart of the controller it starts at the last export
+  before the gap. It ends at the first export in which the `bkaso.source.staleness` of all three
+  sources is at or below `stateFreshness` and the readiness probe (gRPC health, `Check`) gives
+  `SERVING`. The pilot MUST record each outage of Orchard, each outage of Buildkite, and each
+  restart of the controller, and the time of each one.
 
 ## 9. Exclusions and accepted risks
 
@@ -300,7 +322,7 @@ Review this strategy when one of these events occurs:
   T-041, T-064, and T-122 change with it.
 * The Buildkite Stacks API changes a limit, a state, or a status code. T-040 changes with it.
 * Buildkite publishes an agent release line after v4. T-100 and the image contents change.
-* The pilot gives E-1 to E-4. The estimates in ADR-0001 and ADR-0003 and the values of QA-06 and
+* The pilot gives E-1 to E-5. The estimates in ADR-0001 and ADR-0003 and the values of QA-06 and
   SC-09 then come from measurement, and T-106 can retire.
 * The fleet uses a profile with the SSH transport. T-003 and T-100 then need an SSH case.
 * A new Xcode or macOS image changes the pilot profile (CO-05).

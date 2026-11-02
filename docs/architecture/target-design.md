@@ -893,10 +893,11 @@ The instruments follow the OpenTelemetry semantic conventions. The prefix `bkaso
 | UpDownCounter | `bkaso.slot.count` (`{slot}`) | `bkaso.pool`, `bkaso.slot.state` = `total`/`used`/`free` |
 | UpDownCounter | `bkaso.vm.count` (`{vm}`) | `bkaso.profile`, `bkaso.vm.phase` = `unplaced`/`booting`/`running`/`failed` |
 | UpDownCounter | `cicd.worker.count` (`{worker}`) | `cicd.worker.state` = `available`/`busy`/`offline` |
-| Histogram | `bkaso.job.phase.duration` (`s`) | `bkaso.profile`, `bkaso.job.phase` = `scheduled_to_reserved`/`reserved_to_placed`/`placed_to_running`/`running_to_accepted`/`total` |
+| Histogram | `bkaso.job.phase.duration` (`s`) | `bkaso.profile`, `bkaso.job.phase` = `scheduled_to_reserved`/`reserved_to_placed`/`placed_to_running`/`running_to_accepted`/`finished_to_deleted`/`total` |
 | Counter | `bkaso.vm.deletions` (`{vm}`) | `bkaso.vm.delete.reason` (§7.2) |
 | Counter | `cicd.system.errors` (`{error}`) | `cicd.system.component` = `buildkite`/`orchard`, `error.type` |
 | Histogram | `bkaso.tick.duration` (`s`) | `bkaso.tick.step` |
+| Gauge | `bkaso.vm.leftover` (`{vm}`) | — |
 | Gauge | `bkaso.source.staleness` (`s`) | `bkaso.source` = `scheduled_jobs`/`job_states`/`inventory` |
 
 These rules come from the conventions and MUST hold:
@@ -924,11 +925,39 @@ These rules come from the conventions and MUST hold:
 * **`bkaso.source.staleness` is an age and not a time.** The readiness alert reads a number that
   needs no clock of its own, and the value cannot disagree with the clock of the backend.
 
+* **`bkaso.vm.leftover` counts the owned VMs whose job is terminal.** At each tick, the controller
+  counts the VMs in the last inventory whose job has a terminal state in the last job states
+  (`finished`, `canceled`, `expired`, `timed_out`, `skipped`, or `broken`, the states of row 4 of
+  §7.2). An orphan has no job, so it is not in the count. The value is 0, except for the window
+  before the Reaper deletes a VM. The window is 10 ticks (10 s with the default `pollInterval`).
+  The reason is the timing of §4: the controller reads a job state at each `jobStatesInterval`
+  (5 s) and the Reaper acts on that state in the same tick, so a state costs one interval to see
+  and one more interval to see again after a miss, and a deletion that Orchard refuses is tried
+  again at the next tick. A VM that is in the count for more than 10 ticks is a leak. The default
+  export interval is 60 s, which is longer than the window. Because of this, one export that is
+  more than 0 can be inside the window, and two exports in a row that are more than 0 are not.
+* **`finished_to_deleted` is the lag of the Reaper.** It starts at the first tick that saw the job
+  in a terminal state, and it ends at the deletion that Orchard accepted. A failed deletion does
+  not end it. A restart loses the start, so the first tick after a restart starts the time again.
+  It has the tolerance of `jobStatesInterval`, like the other phases. The value of the
+  attribute `bkaso.profile` is `unknown` for a VM that this process did not start.
+
 Metric attributes MUST NOT contain job UUIDs or VM names. The `bkaso.pool` attribute is the value
 of the worker `pool` label. If the worker has no `pool` label, the value is `none`.
 
 The controller observes phase changes at poll intervals. Because of this, phase durations have a
 tolerance of ±`jobStatesInterval`. Outgoing HTTP clients MUST use `otelhttp`.
+
+**Cold or warm start: `UNKNOWN`.** The target of QA-01 is for an image that is on the host, but
+the controller cannot say if a start pulled the image. The events of a VM from Orchard 0.58.0
+have one kind, `log_line`, and it carries the lines of the startup script. The worker sets the
+status message "pulling VM image..." only while it pulls an image, and the next status message
+replaces it, so a poll can miss it. The worker also records a pull time in its own metric
+`org.cirruslabs.orchard.worker.vm.pull_time`, which the controller cannot read. Source: the
+Orchard repository at tag 0.58.0, `pkg/resource/v1/v1.go` and
+`internal/worker/vmmanager/tart/tart.go` (checked 2026-11-02). The controller therefore has no
+attribute for it, and the start phases include the cold starts. Owner: the maintainer. Trigger:
+task 9.2 records the events of real VMs; the attribute is added when they show a pull.
 
 ### 10.2 Traces
 
@@ -1025,6 +1054,7 @@ are out of scope, because they depend on the backend behind the collector.
 | Controller is not ready | `bkaso.source.staleness` of a source is more than 2 min. |
 | Controller fails jobs | `bkaso.job.failed` increases for 15 min. |
 | Timeouts repeat | `bkaso.vm.deletions{bkaso.vm.delete.reason=~".*_timeout"}` increases. |
+| VMs remain | `bkaso.vm.leftover` is more than 0 for more than 10 ticks (§10.1). This value is the QA-04 target. |
 | Orphans exist | `bkaso.vm.deletions{bkaso.vm.delete.reason="orphan"}` is more than 0. |
 | Fleet is full | `bkaso.slot.count{bkaso.slot.state="free"}` is 0 for 30 min. |
 
@@ -1080,7 +1110,7 @@ Development MUST use TDD. Each change of behavior MUST start with a failing test
 | Phase | Scope | Exit criteria |
 |---|---|---|
 | 0 — Development | One Mac, `orchard dev`, a Buildkite test cluster | The end-to-end scenarios and the synthetic load test pass. |
-| 1 — Pilot | Orchard on Kubernetes, 2 to 4 Macs, one queue, 1 or 2 profiles. Only non-critical pipelines that opt in. Telemetry and alerts are active. The pilot profile uses Xcode 27 (PR-026). The pilot start date is `UNKNOWN` (SC-03; owner: the maintainer; trigger: a Buildkite test cluster and the Mac hosts are ready). On 2026-09-14, the plan estimated approximately 1 month. | Two weeks with zero leaked VMs and zero jobs that the controller failed incorrectly. The start time and the wait time are measured against QA-01 and QA-02. |
+| 1 — Pilot | Orchard on Kubernetes, 2 to 4 Macs, one queue, 1 or 2 profiles. Only non-critical pipelines that opt in. Telemetry and alerts are active. The pilot profile uses Xcode 27 (PR-026). The pilot start date is `UNKNOWN` (SC-03; owner: the maintainer; trigger: a Buildkite test cluster and the Mac hosts are ready). On 2026-09-14, the plan estimated approximately 1 month. | Two weeks with `bkaso.vm.leftover` at 0 outside its window (§10.1), and zero jobs that the controller failed incorrectly (E-1 to E-5 of the test strategy). The start time and the wait time are measured against QA-01 and QA-02. |
 | 2 — Adoption | Increase to 10 Macs and more profiles. Move pipelines to the queue. Adjust timeouts from telemetry. The date of adoption and scale is `UNKNOWN` (SC-03; same owner and trigger). On 2026-09-14, the plan estimated approximately 3 months. | The warm-pool decision is examined again with measured `job.phase.duration` data. |
 | 3 — Scale | 10 to 50 Macs | The load test agrees with production behavior. High availability and controller placement are decided only if telemetry shows a need. |
 

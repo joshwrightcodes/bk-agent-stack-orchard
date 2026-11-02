@@ -390,12 +390,18 @@ this section show whether the product gives the intended business effect.
 
 | Measure | Baseline | Target | Window | Evidence source |
 |---|---|---|---|---|
-| VMs that remain after their job ends | None, new product | 0 | Pilot, 2 weeks | Telemetry `vm.deletes`; pilot exit criteria of the target design |
-| Jobs that the controller fails incorrectly | None, new product | 0 | Pilot, 2 weeks | Telemetry `jobs.failed_by_controller`; pilot exit criteria of the target design |
-| Time from `scheduled` to `accepted`, with the image on the host | None | 60 s | From the pilot | Telemetry `job.phase.duration` |
-| Wait time of the oldest job when all slots are in use | None | 15 min at planned capacity | From the pilot | Telemetry `jobs.oldest_waiting.age` |
+| VMs that remain after their job ends | None, new product | 0 | Pilot, 2 weeks | Telemetry `bkaso.vm.leftover`; pilot exit criteria of the target design (E-1) |
+| Jobs that the controller fails incorrectly | None, new product | 0 | Pilot, 2 weeks | Telemetry `bkaso.job.failed`; pilot exit criteria of the target design (E-1) |
+| Time from `scheduled` to `accepted`, with the image on the host | None | 60 s | From the pilot | Telemetry `bkaso.job.phase.duration` |
+| Wait time of the oldest job when all slots are in use | None | 15 min at planned capacity | From the pilot | Telemetry `bkaso.job.waiting.oldest.age` |
 | Cost of one job minute, compared with Buildkite hosted macOS | Hosted Medium: 0.12 USD (A$0.17); hosted Large: 0.24 USD (A$0.34). Rate: 1 USD = 1.39842141 AUD (xe.com, 2026-09-14 04:37 UTC). Host: AU$5,099.00 each. | `UNKNOWN` | From adoption | Buildkite pricing; host cost |
 | Duration of the same job, compared with Buildkite hosted macOS | `UNKNOWN` | `UNKNOWN` | Pilot | Buildkite job durations for both |
+
+In this table, `bkaso` is the prefix `bk_agent_stack_orchard`, as section 10.1 of the target design
+uses it. The gauge `bkaso.vm.leftover` counts the VMs of this controller whose job is in a terminal
+state. It is 0, except for the short window before the reaper deletes a VM, which the target design
+defines. A deletion counter cannot show a VM that remains, because a VM that remains is not
+deleted.
 
 ## 7. Dependencies and assumptions
 
