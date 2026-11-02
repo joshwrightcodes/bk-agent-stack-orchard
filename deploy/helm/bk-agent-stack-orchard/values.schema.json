@@ -109,7 +109,16 @@
       "additionalProperties": false,
       "properties": {
         "requests": {"$ref": "#/definitions/quantities"},
-        "limits": {"$ref": "#/definitions/quantities"}
+        "limits": {"$ref": "#/definitions/quantities"},
+        "claims": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {"name": {"type": "string"}, "request": {"type": "string"}}
+          }
+        }
       }
     },
     "networkPolicy": {
@@ -135,7 +144,7 @@
           "key": {"type": "string"},
           "operator": {"enum": ["Exists", "Equal"]},
           "value": {"type": "string"},
-          "effect": {"enum": ["NoSchedule", "PreferNoSchedule", "NoExecute"]},
+          "effect": {"enum": ["", "NoSchedule", "PreferNoSchedule", "NoExecute"]},
           "tolerationSeconds": {"type": "integer"}
         }
       }
@@ -156,13 +165,17 @@
       "type": "string",
       "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$"
     },
+    "timeoutDuration": {
+      "description": "A Go duration, or the text 0, which means that the profile takes the default.",
+      "anyOf": [{"$ref": "#/definitions/duration"}, {"const": "0"}]
+    },
     "queue": {
-      "description": "No comma, quote, newline or carriage return, and no white space at an end, because the agent reads its tags as one comma-separated list.",
+      "description": "No comma, quote, newline or carriage return, and no ASCII white space at an end, because the agent reads its tags as one comma-separated list.",
       "type": "string",
       "pattern": "^[^,\\n\\r\"'\\s]$|^[^,\\n\\r\"'\\s][^,\\n\\r\"']*[^,\\n\\r\"'\\s]$"
     },
     "tagValue": {
-      "description": "A literal tag value: no wildcard (* ? !), no comma, quote, newline or carriage return, and no white space at an end.",
+      "description": "A literal tag value: no wildcard (* ? !), no comma, quote, newline or carriage return, and no ASCII white space at an end.",
       "type": "string",
       "pattern": "^[^*?!,\\n\\r\"'\\s]$|^[^*?!,\\n\\r\"'\\s][^*?!,\\n\\r\"']*[^*?!,\\n\\r\"'\\s]$"
     },
@@ -180,10 +193,10 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "unplaced": {"$ref": "#/definitions/duration"},
-        "boot": {"$ref": "#/definitions/duration"},
-        "acquire": {"$ref": "#/definitions/duration"},
-        "maxVMLifetime": {"$ref": "#/definitions/duration"}
+        "unplaced": {"$ref": "#/definitions/timeoutDuration"},
+        "boot": {"$ref": "#/definitions/timeoutDuration"},
+        "acquire": {"$ref": "#/definitions/timeoutDuration"},
+        "maxVMLifetime": {"$ref": "#/definitions/timeoutDuration"}
       }
     },
     "profile": {

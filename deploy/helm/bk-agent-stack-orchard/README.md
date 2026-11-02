@@ -39,7 +39,8 @@ The schema mirrors the rules of the controller that JSON Schema can express:
 
 * A profile name has only lower-case letters, digits, and dashes.
 * A `match` key is a lower-case literal, and it is not `queue`, `profile`, or `agent-stack`. A
-  `match` value is a literal with no wildcard, comma, quote, newline, or white space at an end.
+  `match` value is a literal with no wildcard, comma, quote, or newline, and no ASCII white space
+  at an end.
   `buildkite.queue` has the same limits, except for the wildcard.
 * Each duration is a Go duration as `time.ParseDuration` reads it, such as `500ms`, `5m`, `1h30m`,
   or `1.5m`. A bare number is not a duration. This includes `reservationExpiry` and

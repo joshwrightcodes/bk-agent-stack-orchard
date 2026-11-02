@@ -38,7 +38,7 @@ config:
       diskSizeGB: 150
       workerLabels: {pool: a}
       softnetAllow: ["10.20.30.40/32", "192.168.0.0/16"]
-      timeouts: {boot: 10m}
+      timeouts: {boot: "0", acquire: 4m}
       otel: {enabled: true, headersEnv: VM_OTEL_HEADERS}
     - name: ssh-profile
       match: {xcode: "26"}
@@ -52,9 +52,14 @@ extraEnv:
   - name: VM_USER
     valueFrom:
       secretKeyRef: {name: bk-agent-stack-orchard, key: vm-user}
+resources:
+  claims:
+    - name: gpu
+      request: main
 nodeSelector: {kubernetes.io/os: linux}
 tolerations:
   - {key: dedicated, operator: Equal, value: ci, effect: NoSchedule}
+  - {key: all, operator: Exists, effect: ""}
 networkPolicy:
   buildkite:
     port: 443
