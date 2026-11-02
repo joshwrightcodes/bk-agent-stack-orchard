@@ -22,8 +22,9 @@ import (
 
 // A line on a job page can quote text that a guest wrote, such as the status message of a machine.
 // Whatever the text, the line that leaves the controller is never empty, it is at most 256
-// characters, it is whole characters, and it holds no control character, because a line is one
-// line.
+// characters, it is whole characters, and it holds no control character, no format character
+// (such as a bidirectional override), and no line or paragraph separator, because a line is one
+// line. A line of blanks is never sent.
 func FuzzANotificationDetailIsShortAndPlain(f *testing.F) {
 	f.Add("the virtual machine stopped")
 	f.Add("")
@@ -32,6 +33,8 @@ func FuzzANotificationDetailIsShortAndPlain(f *testing.F) {
 	f.Add(strings.Repeat("x", 257))
 	f.Add("failed: \x1b[31mred\x1b[0m\r\nnext line\ttab")
 	f.Add("\u0085\u2028\u202e\x00\x7f")
+	f.Add("a\u202eb\u200bc\u2029d\ufeffe\u2066f")
+	f.Add(" \t\r\n\u2028 ")
 	f.Add("e\u0301" + strings.Repeat("\u0301", 400))
 
 	fake := fakestacks.New()
@@ -68,8 +71,8 @@ func FuzzANotificationDetailIsShortAndPlain(f *testing.F) {
 
 		sent := lines[0].Detail
 
-		if sent == "" {
-			t.Error("the line is empty, and Buildkite refuses an empty detail")
+		if strings.TrimSpace(sent) == "" {
+			t.Error("the line is blank, and Buildkite refuses an empty detail")
 		}
 
 		if utf8.RuneCountInString(sent) > buildkite.NotificationLimit {
@@ -82,8 +85,9 @@ func FuzzANotificationDetailIsShortAndPlain(f *testing.F) {
 		}
 
 		for _, r := range sent {
-			if unicode.IsControl(r) {
-				t.Fatalf("the line holds the control character %U", r)
+			if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029' {
+				t.Fatalf("the line holds the character %U, which a reader cannot see or which "+
+					"changes what a reader sees", r)
 			}
 		}
 	})
@@ -240,26 +244,38 @@ func TestACutAnswerGivesAnErrorForEachCall(t *testing.T) {
 				t.Fatalf("New() = %v, want a client", err)
 			}
 
-			ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
-			defer cancel()
-
 			ids := []job.ID{first}
 
-			if _, err := client.ScheduledJobs(ctx, "", 0); err == nil {
-				t.Error("ScheduledJobs() = no error, want an error")
+			// Each call has its own deadline, because a call that retries uses all of its own.
+			call := func(name string, run func(ctx context.Context) error) {
+				ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+				defer cancel()
+
+				if err := run(ctx); err == nil {
+					t.Errorf("%s = no error, want an error", name)
+				}
 			}
 
-			if _, err := client.Reserve(ctx, ids, 0); err == nil {
-				t.Error("Reserve() = no error, want an error")
-			}
+			call("ScheduledJobs()", func(ctx context.Context) error {
+				_, err := client.ScheduledJobs(ctx, "", 0)
 
-			if _, err := client.Tokens(ctx, ids, 0); err == nil {
-				t.Error("Tokens() = no error, want an error")
-			}
+				return err
+			})
+			call("Reserve()", func(ctx context.Context) error {
+				_, err := client.Reserve(ctx, ids, 0)
 
-			if _, err := client.States(ctx, ids); err == nil {
-				t.Error("States() = no error, want an error")
-			}
+				return err
+			})
+			call("Tokens()", func(ctx context.Context) error {
+				_, err := client.Tokens(ctx, ids, 0)
+
+				return err
+			})
+			call("States()", func(ctx context.Context) error {
+				_, err := client.States(ctx, ids)
+
+				return err
+			})
 		})
 	}
 }
