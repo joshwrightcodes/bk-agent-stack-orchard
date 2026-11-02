@@ -19,11 +19,6 @@ on:
 permissions:
   contents: read
 
-# One run at a time: two runs on one runner would both need the port of `orchard dev`.
-concurrency:
-  group: load
-  cancel-in-progress: false
-
 jobs:
   load:
     name: load test

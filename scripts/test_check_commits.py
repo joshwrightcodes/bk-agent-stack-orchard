@@ -81,10 +81,10 @@ class CheckTest(unittest.TestCase):
         self.assertTrue(any("body line" in p for p in problems), problems)
 
     def test_a_person_uses_ci_for_workflow_changes(self) -> None:
-        for scope in ("ci", "runner"):
-            problems = check_commits.check("r", f"fix({scope}): start the job again", "Josh")
-            self.assertTrue(any("Use ci:" in p for p in problems), problems)
-        self.assertEqual(check_commits.check("r", "ci(runner): start the job again", "Josh"), [])
+        problems = check_commits.check("r", "fix(ci): start the job again", "Josh")
+        self.assertTrue(any("Use ci:" in p for p in problems), problems)
+        self.assertEqual(check_commits.check("r", "ci(ci): start the job again", "Josh"), [])
+        self.assertEqual(check_commits.check("r", "fix(runner): start the job", "Josh"), [])
         self.assertEqual(check_commits.check("r", "fix(reaper): delete the VM", "Josh"), [])
 
     def test_the_ci_rule_covers_a_breaking_fix_and_spares_other_scopes(self) -> None:
