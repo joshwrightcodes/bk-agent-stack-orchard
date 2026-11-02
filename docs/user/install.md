@@ -14,8 +14,10 @@ You need these items:
 * **Apple silicon Mac hosts** that run an Orchard worker and Tart 2.39.0 or later.
 * **An Orchard controller**, version 0.58.0 or later, and an Orchard service account for this
   controller.
-* **A Tart image for each profile.** The image must contain `buildkite-agent` v4 and the Tart
-  guest agent.
+* **A Tart image for each profile.** The image must run the Tart guest agent. The upstream
+  `ghcr.io/cirruslabs/macos-golden-gate-base` image does. By default, each VM downloads a pinned
+  `buildkite-agent` release when it starts, so the image needs no agent, and the VMs must reach
+  GitHub or a mirror that you set (see [The agent in each VM](#the-agent-in-each-vm)).
 * **An OpenTelemetry collector** that receives OTLP, if you want metrics, traces, and logs.
 * **A place to run the controller.** The examples below use Kubernetes and Helm. The controller is
   one binary, so other platforms work too.
@@ -70,6 +72,31 @@ The [chart README](../../deploy/helm/bk-agent-stack-orchard/README.md) describes
 NetworkPolicy, and what to do when the Secret changes. Section 8 of the
 [target design](../architecture/target-design.md) lists every configuration key and environment
 variable.
+
+## The agent in each VM
+
+By default, the startup script of each VM downloads the `buildkite-agent` release that this
+controller was tested with, checks its SHA-256, and runs it. A changed archive fails the job before
+an agent starts, and the job page says which step failed.
+
+To use another release, or your own mirror, set the URL and the SHA-256 of the archive together:
+
+```yaml
+defaults:
+  agent:
+    url: https://mirror.example.com/buildkite-agent-darwin-arm64-4.9.0.tar.gz
+    sha256: faaf0084edf08a92a877253620604fbd6ce496d2851a7ae5126dd19f27429e76
+```
+
+If the mirror has a private address, also add it to `softnetAllow` of each profile, because the
+VMs cannot reach private ranges otherwise.
+
+To use the agent of the image instead, for example when the VMs cannot reach GitHub, set
+`agent.source: image` in the defaults or in one profile. The image must then contain
+`buildkite-agent` v4 on the `PATH`. If it has another major version, the job fails with a message
+that names the version.
+
+Each download is about 31 MB. If your fleet runs many jobs a day, use a mirror.
 
 ## Run the binary
 

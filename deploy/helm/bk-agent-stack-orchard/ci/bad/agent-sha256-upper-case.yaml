@@ -1,0 +1,11 @@
+# An agent.sha256 that is not lower-case hexadecimal.
+# Applied after ci/values.yaml. helm lint MUST fail.
+config:
+  profiles:
+    - name: xcode-27
+      match: {xcode: "27"}
+      image: ghcr.io/acme/x@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      cpu: 8
+      memoryMiB: 28672
+      diskSizeGB: 150
+      agent: {url: "https://mirror.example.com/a.tar.gz", sha256: FAAF0084EDF08A92A877253620604FBD6CE496D2851A7AE5126DD19F27429E76}

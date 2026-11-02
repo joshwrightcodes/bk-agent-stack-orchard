@@ -1,0 +1,11 @@
+# An agent.url that is not https.
+# Applied after ci/values.yaml. helm lint MUST fail.
+config:
+  profiles:
+    - name: xcode-27
+      match: {xcode: "27"}
+      image: ghcr.io/acme/x@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      cpu: 8
+      memoryMiB: 28672
+      diskSizeGB: 150
+      agent: {url: "http://mirror.example.com/a.tar.gz", sha256: faaf0084edf08a92a877253620604fbd6ce496d2851a7ae5126dd19f27429e76}

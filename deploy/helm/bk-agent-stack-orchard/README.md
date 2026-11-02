@@ -51,6 +51,8 @@ The schema mirrors the rules of the controller that JSON Schema can express:
   `@peers`, IPv6 ranges, and bare addresses fail. An exact repeat of an entry fails.
 * `vmCredentials.usernameEnv`, `vmCredentials.passwordEnv`, and `otel.headersEnv` start with `VM_`.
 * `controllerID` has 23 characters or fewer, and it starts and ends with a letter or a digit.
+* `agent.source` is `download` or `image`, `agent.url` is an `https` URL, and `agent.sha256` is 64
+  lower-case hexadecimal characters, in `defaults` and in each profile.
 
 The schema is a first check. It is not the authority. The controller checks its configuration
 again when it starts, and it refuses a value that the schema cannot express. For example:
@@ -63,6 +65,7 @@ again when it starts, and it refuses a value that the schema cannot express. For
 * a `reservationRenewBefore` that is not shorter than `reservationExpiry`;
 * a source interval that is not shorter than `stateFreshness`;
 * a `softnetAllow` list with the same range in two spellings;
+* an `agent.url` without its `agent.sha256`, or the reverse;
 * a `vmCredentials` block that does not agree with `startupTransport`;
 * a variable that holds no value in the Secret.
 
