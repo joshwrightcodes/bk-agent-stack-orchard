@@ -473,7 +473,7 @@ const defaultReservationSeconds = 900
 // partition splits the requested jobs into the ones that this stack can reserve and the ones
 // that it cannot. The caller holds the lock.
 //
-// Assumption pending task 9.2 (recording real Stacks API responses): a job in a state other
+// Assumption pending O-6 (recording real Stacks API responses): a job in a state other
 // than "scheduled" or "reserved" (an agent runs it, or it ended) comes back as not reserved. The
 // documents say that the scheduled-jobs list holds no reserved job and say nothing of a reserve
 // call for another state. The fake refuses, because a controller that took such a job would start
@@ -661,7 +661,7 @@ func (f *Server) handleFinishJob(w http.ResponseWriter, r *http.Request) {
 	// 4, checked 2026-11-01). The same document reads 422 for an acquire of a job that is taken,
 	// cancelled, or complete (section 3), which is a call of the agent and not of a stack.
 	//
-	// Assumption pending task 9.2 (recording real Stacks API responses): the fake also gives
+	// Assumption pending O-6 (recording real Stacks API responses): the fake also gives
 	// 422 for a finish of a job that an agent acquired (assigned, accepted, running, canceling,
 	// timing_out), of a job in another terminal state, of a job in the state "scheduled" (never
 	// reserved, or its reservation expired), and of a job that it does not know. The documents
