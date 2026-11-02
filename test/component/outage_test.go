@@ -19,7 +19,10 @@ import (
 // T-024. The outages of the target design, section 7.5, each from a steady fleet, on the clock of
 // the suite. The invariants of T-020 hold throughout, and the request budget of section 3 holds.
 
-var errUnavailable = errors.New("answered 503 Service Unavailable")
+var (
+	errUnavailable = errors.New("answered 503 Service Unavailable")
+	errLostAnswer  = errors.New("the connection closed before Orchard answered")
+)
 
 // scenario is a world of the component suite that a test drives step by step.
 type scenario struct {

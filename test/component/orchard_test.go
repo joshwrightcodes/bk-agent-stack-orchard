@@ -40,15 +40,13 @@ type orchardFake struct {
 	// machine that has to go stays in the listing.
 	deleteFails error
 
-	// answerLost makes the next create reach Orchard and get lost: the machine exists, and the
-	// answer is a conflict, as the retry of a create that arrived shows (409). The knob clears
-	// itself when a create uses it.
+	// answerLost makes the next create reach Orchard and the answer get lost: the machine exists,
+	// and the controller sees a transport error. The knob clears itself when a create uses it.
 	answerLost bool
 
-	// removed holds the machines that deletes took out since the suite last cleared it. The
-	// controller decides from one listing at the start of its tick, and a delete in the same tick
-	// frees room that the decision never counted.
-	removed []orchard.VM
+	// conflictNext makes the next create answer 409, with the machine in place, as the retry of a
+	// create that an earlier process made shows. The knob clears itself when a create uses it.
+	conflictNext bool
 }
 
 // hostShape is what one worker offers: the slots for machines, the cores, and the memory.
@@ -201,6 +199,12 @@ func (o *orchardFake) CreateVM(_ context.Context, spec orchard.VM) error {
 	if o.answerLost {
 		o.answerLost = false
 
+		return errLostAnswer
+	}
+
+	if o.conflictNext {
+		o.conflictNext = false
+
 		return orchard.ErrAlreadyExists
 	}
 
@@ -231,10 +235,6 @@ func (o *orchardFake) DeleteVM(_ context.Context, name string) error {
 
 	if o.deleteFails != nil {
 		return o.deleteFails
-	}
-
-	if vm, exists := o.vms[name]; exists {
-		o.removed = append(o.removed, *vm)
 	}
 
 	delete(o.vms, name)

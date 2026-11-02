@@ -258,10 +258,11 @@ events. The events are:
 * Orchard stops answering, and answers again.
 * The Stacks API refuses each call with HTTP 429 or HTTP 503, and answers again.
 * A machine that another tool or controller owns appears. The controller MUST NOT delete it.
-* The answer of a create is lost, and the retry gets HTTP 409.
+* The answer of a create is lost, and the machine exists.
+* A create gets HTTP 409, because the machine exists.
 
 Each sequence also draws its inputs: one to three profiles with different names and match maps,
-one to three workers with different slots, cores, and memory, and a limit of machines. Each drawn
+one to three workers with drawn slots, cores, and memory, and a limit of machines. Each drawn
 configuration goes through the real configuration loader. A drawn input that the rules refuse
 fails the sequence, and the suite never repairs it.
 

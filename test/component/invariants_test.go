@@ -283,7 +283,6 @@ func (f *fleet) start(rt fataler) {
 func (f *fleet) tick() {
 	f.now = f.now.Add(time.Second)
 	f.orchard.sync()
-	f.orchard.removed = nil
 	f.loop.Tick(f.ctx, f.now)
 }
 
@@ -344,11 +343,6 @@ func (f *fleet) created(spec orchard.VM) {
 //
 // A failed machine takes no room, because Orchard frees its resources. A worker that is not
 // online, or that is paused, takes no machine.
-//
-// The controller reads Orchard once at the start of its tick and decides from that. A machine
-// that a delete of the same tick removed still counts here, because the room that the delete
-// frees is room that the decision could not know. Orchard then places the machines that wait
-// first, and a new machine may wait: this costs time and never a second agent for a job.
 func (f *fleet) roomFor(spec orchard.VM) bool {
 	free := map[string]map[string]uint64{}
 
@@ -362,19 +356,17 @@ func (f *fleet) roomFor(spec orchard.VM) bool {
 
 	var waiting []*orchard.VM
 
-	known := maps.Clone(f.orchard.vms)
-
-	for _, gone := range f.orchard.removed {
-		known[gone.Name] = &gone
-	}
-
-	for _, name := range slices.Sorted(maps.Keys(known)) {
-		vm := known[name]
+	for _, name := range slices.Sorted(maps.Keys(f.orchard.vms)) {
+		vm := f.orchard.vms[name]
 
 		switch {
 		case vm.Status == orchard.StatusFailed:
 		case vm.Worker != "":
-			subtract(free[vm.Worker], vm.Resources)
+			// A worker that is not online or is paused has no entry, and a machine on it takes
+			// no room from any other worker.
+			if room, usable := free[vm.Worker]; usable {
+				subtract(room, vm.Resources)
+			}
 		default:
 			waiting = append(waiting, vm)
 		}
@@ -382,8 +374,8 @@ func (f *fleet) roomFor(spec orchard.VM) bool {
 
 	slices.SortStableFunc(waiting, func(a, b *orchard.VM) int { return a.CreatedAt.Compare(b.CreatedAt) })
 
-	// A machine that waits and fits nowhere holds nothing, and the machines after it still go
-	// to a worker with room.
+	// A machine that waits and fits nowhere holds no room, and the machines after it still go to
+	// a worker with room (target design, section 6.3, step 5).
 	for _, vm := range waiting {
 		f.place(free, *vm)
 	}
@@ -417,8 +409,7 @@ func (f *fleet) place(free map[string]map[string]uint64, vm orchard.VM) bool {
 	return false
 }
 
-// subtract takes resources from a worker. A worker that is not online has no entry, and a
-// machine on it takes nothing.
+// subtract takes resources from the room of one worker, and stops at zero.
 func subtract(room, taken map[string]uint64) {
 	for name, value := range taken {
 		room[name] -= min(value, room[name])
@@ -469,17 +460,20 @@ func (f *fleet) ArriveMatched(rt *rapid.T) {
 	f.tick()
 }
 
-// ArriveWithLostAnswer is a job whose create reaches Orchard, and the answer gets lost. The retry
-// of the controller gets a conflict (409), and the job has its machine.
-func (f *fleet) ArriveWithLostAnswer(rt *rapid.T) {
+// ArriveWithLostCreateAnswer is a job whose create reaches Orchard, and the answer gets lost. The
+// controller sees an error, and the machine exists. The controller must not start a second
+// machine for the job, and must count the first one.
+func (f *fleet) ArriveWithLostCreateAnswer(rt *rapid.T) {
 	f.orchard.answerLost = true
 	f.ArriveMatched(rt)
 }
 
-// ArriveUnmatched is a job whose tags match no profile.
-func (f *fleet) ArriveUnmatched(*rapid.T) {
-	f.stacks.schedule(f.nextJob(), false)
-	f.tick()
+// ArriveWithConflictAtCreate is a job whose machine already exists when the controller creates it,
+// as after the restart of the process that made it. Orchard answers 409, and the job has its
+// machine.
+func (f *fleet) ArriveWithConflictAtCreate(rt *rapid.T) {
+	f.orchard.conflictNext = true
+	f.ArriveMatched(rt)
 }
 
 func (f *fleet) nextJob() job.ID {
