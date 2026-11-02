@@ -19,9 +19,29 @@
 #   service.beta.kubernetes.io/azure-load-balancer-internal: "true"
 #   https://learn.microsoft.com/en-us/azure/aks/internal-lb
 #
+# externalTrafficPolicy: Local is REQUIRED for the policy of the base. With the default, Cluster,
+# kube-proxy source-NATs the traffic of a load balancer to a node address, so the ipBlock of the
+# Mac host CIDRs never matches and every worker is refused. Do not add the CIDR of the nodes to
+# the policy to get round this: that admits anything that comes through the load balancer. With
+# Local, only the node of the Orchard pod passes the health check of the load balancer, which is
+# right for one replica. A node without an Orchard pod is not ready for the load balancer on
+# purpose: it fails the health check that kube-proxy answers on the health check node port.
+# Source: Kubernetes documentation, "Using Source IP", section "Source IP for Services with
+# Type=LoadBalancer", checked 2026-11-02.
+#   https://kubernetes.io/docs/tutorials/services/source-ip/
+#
+# AWS: the controller keeps the client address for `instance` targets by default. For `ip`
+# targets it is off by default, so set this annotation too (checked 2026-11-02):
+#   service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+#   service.beta.kubernetes.io/aws-load-balancer-target-group-attributes:
+#     preserve_client_ip.enabled=true
+# With externalTrafficPolicy: Local, the controller guide says that the health check MUST NOT use
+# tcp. It defaults to http then, so keep the default. Source: the same annotations page, checked
+# 2026-11-02.
+#
 # An internal load balancer does not limit the callers by itself. networkpolicy.yaml of the base
-# lists the callers that may reach the pod, and the source addresses that the policy sees depend
-# on the load balancer and on externalTrafficPolicy, so test it from a Mac host.
+# lists the callers that may reach the pod, so test it from a Mac host and from another address:
+# the second MUST be refused.
 apiVersion: v1
 kind: Service
 metadata:
@@ -30,3 +50,4 @@ metadata:
     networking.gke.io/load-balancer-type: Internal
 spec:
   type: LoadBalancer
+  externalTrafficPolicy: Local
