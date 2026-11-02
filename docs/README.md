@@ -13,7 +13,7 @@ all capitals, as shown here.
 
 ## Reading order for the first day
 
-1. The [main README](../README.md). It says what the project does and where it stands.
+1. The [main README](../README.md). It says what the project does and what it does not do.
 2. The [glossary](glossary.md). It gives the terms and the identifier families that the other
    documents use.
 3. The [product requirements](product/requirements.md), sections 1 and 2 and the journeys. They
@@ -43,6 +43,8 @@ a number, such as the demand model or a quality target.
 | [Implementation plan](delivery/implementation-plan.md) | In which order does the work go, and what ends each unit? |
 | [Development guide](development.md) | How does a developer run the gates, the tests, and the controller? |
 | [Glossary](glossary.md) | What does a term or an identifier mean? |
+| [Install the controller](user/install.md) | What does an operator need, and how does an operator install, verify, and upgrade a release? |
+| [Third-party terms](user/third-party-terms.md) | Which terms of Apple, Tart, and Orchard affect a fleet? |
 | [Runbook: replace the agent token](runbooks/token-replacement.md) | How does an operator replace the cluster agent token? |
 | [Runbook: retire and rotate the Orchard bootstrap admin](runbooks/orchard-bootstrap-admin.md) | How does an operator take the `bootstrap-admin` token out of the Orchard pod and rotate it? |
 | [Runbook: Orchard worker accounts](runbooks/orchard-worker-accounts.md) | How does an operator add, rotate, and revoke the account of one Mac host? |

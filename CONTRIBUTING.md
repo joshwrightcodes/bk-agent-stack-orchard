@@ -218,8 +218,8 @@ Each merge to `main` that changes behaviour updates it: the next version, `CHANG
 version in `Chart.yaml`. The pull request collects all changes until the maintainer merges it.
 
 1. Read the release pull request. Make sure that the version and the changelog are correct. Read
-   the Known limitations section of `README.md`, and make sure that each item is closed or
-   accepted. For version 0.1.0, the legal review of ADR-0015 MUST be done first: a lawyer
+   the Limitations section of `README.md`, and make sure that it is still correct for the new
+   version. For version 0.1.0, the legal review of ADR-0015 MUST be done first: a lawyer
    confirms the licence position, and the maintainer records the result in the ADR.
 2. Merge the release pull request. release-please creates the tag and a draft release with the
    changelog.
