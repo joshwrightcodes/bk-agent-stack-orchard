@@ -305,8 +305,8 @@ open.
 
 The `load` workflow runs it each night, on demand, and on a pull request that changes it, on the
 same runner as the integration tests, a hosted macOS runner. No branch protection requires it. When
-a scheduled run fails, the workflow opens an issue titled "Nightly load test failed", or comments
-on the issue that is open.
+a scheduled or manual run fails, the workflow opens an issue titled "Nightly load test failed", or
+comments on the issue that is open.
 
 ## The fuzz tests
 

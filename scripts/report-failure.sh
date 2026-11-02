@@ -20,8 +20,8 @@ trap 'rm -f "$body"' EXIT
 	echo "Run: $run_url"
 } >"$body"
 
-existing="$(gh issue list --state open --search "$title in:title" \
-	--json number,title --jq "map(select(.title == \"$title\")) | .[0].number // empty")"
+existing="$(gh issue list --state open --search "$title in:title" --json number,title |
+	jq -r --arg t "$title" 'map(select(.title == $t)) | .[0].number // empty')"
 
 if [ -n "$existing" ]; then
 	gh issue comment "$existing" --body-file "$body"

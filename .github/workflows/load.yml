@@ -59,4 +59,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           # Context values reach the shell through the environment, never by interpolation.
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: ./scripts/report-failure.sh "Nightly load test failed" "The load test (T-080) failed."
+        run: >-
+          ./scripts/report-failure.sh "Nightly load test failed"
+          "The load test (T-080) failed."

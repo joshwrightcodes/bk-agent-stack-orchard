@@ -88,4 +88,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           # Context values reach the shell through the environment, never by interpolation.
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: ./scripts/report-failure.sh "Nightly fuzz run failed" "A fuzz target or the long property run failed. The run keeps the failing inputs as an artifact."
+        run: >-
+          ./scripts/report-failure.sh "Nightly fuzz run failed"
+          "A fuzz target or the long property run failed. The run keeps the failing inputs as an
+          artifact."
