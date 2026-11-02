@@ -55,8 +55,8 @@ Copy `inventory.example.yml`, and give the values of the fleet:
 |---|---|
 | `orchard_worker_controller_url` | The address of the internal load balancer of the Orchard controller |
 | `orchard_worker_ca_cert` | `ca.crt` of the `orchard-tls` Secret, as PEM |
-| `orchard_worker_name` | The name of the worker, a DNS label such as `mac-01`. Each host has its own name. The account of the host is `worker-<name>` |
-| `orchard_worker_token` | The token of this host only: the key `worker-<name>` of the `orchard-worker-tokens` Secret. Keep one token for each host in Ansible Vault, for example `vault_orchard_worker_tokens[orchard_worker_name]`. Never give one token to two hosts |
+| `orchard_worker_name` | Required, with no default. The name of the worker, a DNS label such as `mac-01`. Each host has its own name, and the playbook stops when a name is missing or two hosts share one. The account of the host is `worker-<name>` |
+| `orchard_worker_token` | The token of this host only: the key `worker-<name>` of the `orchard-worker-tokens` Secret. Keep one token for each host in Ansible Vault, for example `vault_orchard_worker_tokens[orchard_worker_name]`. The playbook stops when two hosts share a token |
 | `orchard_worker_labels` | The labels of the worker, for example `{pool: general}` |
 | `orchard_worker_otlp_endpoint` | The OTLP endpoint of the collector. Orchard exports its metrics to it |
 | `orchard_worker_config_file` | The configuration file of the controller, or the values of its Helm release |
