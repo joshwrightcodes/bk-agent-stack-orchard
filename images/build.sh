@@ -365,7 +365,7 @@ sed "s|__ARTIFACT_DESTINATION__|${DESTINATION}|" "$HERE/files/environment" |
 # shows what a machine runs (internal/vmspec). The values come from the VM, after every install.
 # Xcode has tags only when the image has Xcode: the Command Line Tools have no xcodebuild -version.
 say "writing the agent tags of the image"
-run IMAGE_NAME="$VM" IMAGE_TAG="$TAG" TAGS_PATH="$AGENT_TAGS_PATH" <<'SCRIPT'
+run IMAGE_NAME="bkaso-${IMAGE}" IMAGE_TAG="$TAG" TAGS_PATH="$AGENT_TAGS_PATH" <<'SCRIPT'
 set -euo pipefail
 xcode=$(/usr/bin/xcodebuild -version 2>/dev/null || true)
 {
@@ -415,7 +415,11 @@ printf 'xcode=%s\n' "$(/usr/bin/xcodebuild -version 2>/dev/null | sed -n 1p)"
 printf 'ios_runtime=%s\n' "$(xcrun simctl list runtimes 2>/dev/null | grep -c '^iOS ')"
 printf 'ios_runtime_ids=%s\n' "$(xcrun simctl list runtimes 2>/dev/null | sed -n 's/^iOS .* - \(com\.apple\.[^ ]*\).*/\1/p' | tr '\n' ' ')"
 printf 'free_gb=%s\n' "$(df -g / | awk 'NR == 2 {print $4}')"
-printf 'tags=%s\n' "$(tr '\n' ' ' </usr/local/etc/bk-agent-stack-orchard/agent-tags 2>/dev/null | sed 's/ $//')"
+if [[ -r /usr/local/etc/bk-agent-stack-orchard/agent-tags ]]; then
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		printf 'tag=%s\n' "$line"
+	done </usr/local/etc/bk-agent-stack-orchard/agent-tags
+fi
 printf 'apps=%s\n' "$(list /Applications)"
 printf 'daemons=%s\n' "$(list /Library/LaunchDaemons)"
 printf 'agents=%s\n' "$(list /Library/LaunchAgents)"
@@ -463,16 +467,21 @@ for line in "apps=${ALLOWED_APPS}" "daemons=${ALLOWED_DAEMONS}" "agents=${ALLOWE
 	want "$line" "the image holds what its list does not name"
 done
 want "extra=" "the image holds what a job does not need"
-tags="$(sed -n 's/^tags=//p' <<<"$check")"
-macos="$(sed -n 's/^macos=//p' <<<"${tags// /$'\n'}")"
-[[ "$tags" == "image-name=${VM} image-tag=${TAG} macos=${macos} macos-build="* && -n "$macos" ]] ||
+# Each line of the agent tags must pass the filter of the startup script (internal/vmspec), which
+# drops a line silently: a key, an =, and a value of the characters that a tag list can carry.
+tag_lines="$(sed -n 's/^tag=//p' <<<"$check")"
+while IFS= read -r line; do
+	[[ "$line" =~ ^[A-Za-z0-9._:/@+-]+=[A-Za-z0-9._:/@+=-]+$ ]] ||
+		die "the startup script would drop the agent tag \"$line\" of the image"
+done <<<"$tag_lines"
+tags="$(tr '\n' ' ' <<<"$tag_lines" | sed 's/ $//')"
+[[ "$tags" == "image-name=bkaso-${IMAGE} image-tag=${TAG} macos="*" macos-build="* ]] ||
 	die "the agent tags of the image are \"$tags\", want its name, its tag, and the version of macOS first"
-[[ "$tags" =~ ^[A-Za-z0-9._:/@+=\ -]+$ ]] ||
-	die "the agent tags of the image \"$tags\" have a character that the startup script drops"
 if [[ "$IMAGE" == pilot ]]; then
 	grep -q "^xcode=Xcode ${XCODE_VERSION%.0}" <<<"$check" || die "the pilot image does not select Xcode ${XCODE_VERSION}"
-	[[ " $tags " == *" xcode=${XCODE_VERSION%.0} xcode-build="* ]] ||
-		die "the agent tags of the pilot image \"$tags\" do not name Xcode ${XCODE_VERSION}"
+	xcode="$(sed -n 's/^xcode=Xcode //p' <<<"$check")"
+	[[ " $tags " == *" xcode=${xcode} xcode-build="* ]] ||
+		die "the agent tags of the pilot image \"$tags\" do not name Xcode ${xcode}"
 	grep -q '^ios_runtime=1$' <<<"$check" ||
 		die "the pilot image has $(sed -n 's/^ios_runtime=//p' <<<"$check") iOS simulator runtimes, and it needs exactly one"
 	grep -Eq '^ios_runtime_ids=com\.apple\.CoreSimulator\.SimRuntime\.iOS-[0-9]+-[0-9]+ $' <<<"$check" ||
