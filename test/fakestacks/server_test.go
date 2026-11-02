@@ -312,3 +312,69 @@ func TestNotificationsNeedNoReservation(t *testing.T) {
 		t.Errorf("the server holds %d notifications, want 1", got)
 	}
 }
+
+func TestReserveOfAJobThatIsNotScheduledAnswersNotReserved(t *testing.T) {
+	t.Parallel()
+
+	for _, state := range []string{
+		"assigned", "accepted", "running", "canceling", "timing_out",
+		"finished", "canceled", "expired", "timed_out", "skipped", "broken",
+	} {
+		fake := waiting(t, newClock().Now)
+		fake.SetJobState(someJob, state)
+
+		status, body := call(t, fake, http.MethodPut, "/scheduled-jobs/batch-reserve",
+			stacksapi.BatchReserveJobsRequest{JobUUIDs: []string{someJob}, ReservationExpirySeconds: reservedFor})
+		if status != http.StatusOK {
+			t.Fatalf("reserve answered %d, want 200", status)
+		}
+
+		var answer stacksapi.BatchReserveJobsResponse
+		if err := json.Unmarshal(body, &answer); err != nil {
+			t.Fatalf("decoding the answer: %v", err)
+		}
+
+		if len(answer.Reserved) != 0 || len(answer.NotReserved) != 1 {
+			t.Errorf("reserve of a %s job gave %+v, want it not reserved", state, answer)
+		}
+
+		if got := stateOf(t, fake); got != state {
+			t.Errorf("a refused reserve changed the state %q to %q", state, got)
+		}
+	}
+}
+
+func TestAReserveCallWithoutALifetimeHoldsTheJobForTheDefault(t *testing.T) {
+	t.Parallel()
+
+	clk := newClock()
+	fake := waiting(t, clk.Now)
+	reserve(t, fake, 0)
+	clk.advance(899 * time.Second)
+
+	if got := stateOf(t, fake); got != "reserved" {
+		t.Fatalf("899 s after a call with no lifetime the state is %q, want reserved", got)
+	}
+
+	clk.advance(time.Second)
+
+	if got := stateOf(t, fake); got != scheduledJob {
+		t.Errorf("900 s after the call the state is %q, want %q", got, scheduledJob)
+	}
+}
+
+func TestAFinishThatTheTestConfiguredToFailChangesNothing(t *testing.T) {
+	t.Parallel()
+
+	fake := waiting(t, newClock().Now)
+	reserve(t, fake, reservedFor)
+	fake.FinishJobStatusCode = http.StatusInternalServerError
+
+	if status := finish(t, fake); status != http.StatusInternalServerError {
+		t.Fatalf("finish answered %d, want 500", status)
+	}
+
+	if got := stateOf(t, fake); got != "reserved" {
+		t.Errorf("a failed finish left the state %q, want reserved", got)
+	}
+}

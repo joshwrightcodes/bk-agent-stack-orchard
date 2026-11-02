@@ -127,6 +127,10 @@ type Server struct {
 
 	// ScheduledJobs is the page that the scheduled-jobs route gives. The zero value is an empty
 	// page, which is what the API gives for a queue with no waiting jobs.
+	//
+	// A test that sets this field directly bypasses Schedule, so the jobs have no state. A
+	// reservation of such a job works: reserve gives it the state "reserved". A test that wants
+	// the state "scheduled" from the start uses Schedule.
 	ScheduledJobs stacksapi.ListScheduledJobsResponse
 
 	// ScheduledJobsStatusCode is the status of the scheduled-jobs answer. Default 200.
@@ -436,23 +440,61 @@ func (f *Server) handleReserveJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	f.mu.Lock()
+	f.expire()
+
 	resp := f.ReserveResponse
 	if resp == nil {
-		// Default: all jobs reserved successfully
-		resp = &stacksapi.BatchReserveJobsResponse{
-			Reserved:    req.JobUUIDs,
-			NotReserved: []string{},
-		}
+		resp = f.partition(req.JobUUIDs)
 	}
+
+	f.mu.Unlock()
 
 	// Change of this project: a reserved job leaves the scheduled-jobs list and takes the state
 	// "reserved", which is what the API documents. The original keeps the list as a test set it.
+	//
+	// A call without reservation_expiry_seconds takes the default of 900 s (target design
+	// section 3, Stacks API documentation, read 2026-11-01).
+	seconds := req.ReservationExpirySeconds
+	if seconds <= 0 {
+		seconds = defaultReservationSeconds
+	}
+
 	f.mu.Lock()
-	f.expire()
-	f.reserve(resp.Reserved, time.Duration(req.ReservationExpirySeconds)*time.Second)
+	f.reserve(resp.Reserved, time.Duration(seconds)*time.Second)
 	f.mu.Unlock()
 
 	f.writeJSON(w, f.ReserveStatusCode, resp)
+}
+
+// defaultReservationSeconds is the lifetime of a reservation when the call names none.
+const defaultReservationSeconds = 900
+
+// partition splits the requested jobs into the ones that this stack can reserve and the ones
+// that it cannot. The caller holds the lock.
+//
+// Assumption pending task 9.2 (recording real Stacks API responses): a job in a state other
+// than "scheduled" or "reserved" (an agent runs it, or it ended) comes back as not reserved. The
+// documents say that the scheduled-jobs list holds no reserved job and say nothing of a reserve
+// call for another state. The fake refuses, because a controller that took such a job would start
+// a machine for a job that another agent runs.
+//
+// A job with no state at all counts as reservable, because a test can put a job on the list
+// through ScheduledJobs and not through Schedule. Such a job takes the state "reserved" in
+// reserve.
+func (f *Server) partition(ids []string) *stacksapi.BatchReserveJobsResponse {
+	resp := &stacksapi.BatchReserveJobsResponse{Reserved: []string{}, NotReserved: []string{}}
+
+	for _, id := range ids {
+		switch f.JobStates[id] {
+		case "", "scheduled", "reserved":
+			resp.Reserved = append(resp.Reserved, id)
+		default:
+			resp.NotReserved = append(resp.NotReserved, id)
+		}
+	}
+
+	return resp
 }
 
 // reserve moves jobs from the scheduled-jobs list to the state "reserved", and starts or extends
@@ -614,19 +656,18 @@ func (f *Server) handleFinishJob(w http.ResponseWriter, r *http.Request) {
 
 	// Change of this project: the original accepts every finish call.
 	//
-	// A finish call changes a job that this stack holds in the state "reserved", and nothing
-	// else. A job that an agent acquired (assigned, accepted, running, canceling, timing_out),
-	// a job in a terminal state, and a job that finished before all answer HTTP 422. Source:
-	// target design section 7.4, "A second finish call returns 422", and section 3, "buildkite-
-	// agent start --acquire-job exits with code 27 if the job is already taken, cancelled, or
-	// complete (HTTP 422)" (checked 2026-11-01). The controller treats 422 as final (section 7.1,
-	// rule 4).
+	// Documented: a second finish call of a job gives 422, and the controller treats 422 as
+	// final (target design section 7.4, a second finish after the first, and section 7.1 rule
+	// 4, checked 2026-11-01). The same document reads 422 for an acquire of a job that is taken,
+	// cancelled, or complete (section 3), which is a call of the agent and not of a stack.
 	//
-	// Assumption pending task 9.2 (recording real Stacks API responses): a job in the state
-	// "scheduled" (never reserved, or its reservation expired), and a job that the server does
-	// not know, also give 422. The documents say that finish gives 404 or 422 for a permanent
-	// refusal and name no case for these jobs. The fake gives 422, which the controller also
-	// treats as final.
+	// Assumption pending task 9.2 (recording real Stacks API responses): the fake also gives
+	// 422 for a finish of a job that an agent acquired (assigned, accepted, running, canceling,
+	// timing_out), of a job in another terminal state, of a job in the state "scheduled" (never
+	// reserved, or its reservation expired), and of a job that it does not know. The documents
+	// say that finish gives 404 or 422 for a permanent refusal and name none of these cases. 422
+	// is the refusal that the controller treats as final. A finish changes only a job that this
+	// stack holds in the state "reserved".
 	f.mu.Lock()
 	f.expire()
 
@@ -639,8 +680,12 @@ func (f *Server) handleFinishJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	f.JobStates[req.JobUUID] = "finished"
-	delete(f.held, req.JobUUID)
+	// A configured status that is not 2xx is a failed call, which changes nothing.
+	if f.FinishJobStatusCode >= 200 && f.FinishJobStatusCode < 300 {
+		f.JobStates[req.JobUUID] = "finished"
+		delete(f.held, req.JobUUID)
+	}
+
 	f.mu.Unlock()
 
 	f.writeJSON(w, f.FinishJobStatusCode, struct{}{})

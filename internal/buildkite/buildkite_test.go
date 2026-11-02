@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -738,5 +739,67 @@ func TestNotifyRefusesMoreLinesThanOneRequestTakes(t *testing.T) {
 
 	if err := client.Notify(t.Context(), lines); err == nil {
 		t.Error("Notify() with one line more than a request takes = nil, want an error")
+	}
+}
+
+// The reaper treats ErrTerminal as done: it ignores the job and still deletes the machine (the
+// reaper test of a refused finish). This test shows that the stricter fake gives the real client
+// that error, for a reservation that expired and for a job that an agent acquired. The reaper
+// wiring with the real client is not built here, because the reaper test covers the reaction to
+// ErrTerminal.
+func TestFinishOfAnExpiredReservationOrAnAcquiredJobIsTerminal(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]func(*fakestacks.Server, *time.Time){
+		"an expired reservation": func(_ *fakestacks.Server, now *time.Time) {
+			*now = now.Add(time.Hour)
+		},
+		"an acquired job": func(fake *fakestacks.Server, _ *time.Time) {
+			fake.SetJobState(string(first), "running")
+		},
+	}
+
+	for name, change := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var mu sync.Mutex
+
+			now := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
+			clock := func() time.Time {
+				mu.Lock()
+				defer mu.Unlock()
+
+				return now
+			}
+
+			fake := fakestacks.New(fakestacks.WithClock(clock))
+			fake.StackKey = "bk-macos-prod"
+			t.Cleanup(fake.Close)
+			fake.Schedule(stacksapi.ScheduledJob{ID: string(first)})
+
+			client, err := buildkite.New(buildkite.Options{
+				Token:    secret.String("bkct_a-cluster-agent-token"),
+				Endpoint: fake.URL(),
+				StackKey: fake.StackKey,
+				Queue:    "macos-prod",
+			})
+			if err != nil {
+				t.Fatalf("New() = %v, want a client", err)
+			}
+
+			if _, err := client.Reserve(t.Context(), []job.ID{first}, 5*time.Minute); err != nil {
+				t.Fatalf("Reserve() = %v, want no error", err)
+			}
+
+			mu.Lock()
+			change(fake, &now)
+			mu.Unlock()
+
+			err = client.Finish(t.Context(), first, -1, "the machine failed")
+			if !errors.Is(err, buildkite.ErrTerminal) {
+				t.Errorf("Finish() = %v, want ErrTerminal", err)
+			}
+		})
 	}
 }
