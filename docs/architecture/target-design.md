@@ -196,6 +196,10 @@ One goroutine runs the tick. Each tick does these steps in sequence:
 API calls in one step MAY run concurrently, with a concurrency limit. The steps MUST run in
 sequence. Because of this, Admission always sees the Reaper deletions of the same tick.
 
+An accepted delete, or a 404 for a VM that is already gone, takes the VM out of the last Inventory
+answer. The VM stays out until the next refresh replaces the answer. Admission counts the room
+that the delete freed for this reason. If Orchard is slow, the next refresh can list the VM again.
+
 The loop MUST decide when a source is due, and it MUST measure the interval of a source between
 ticks, not between the answers of the source. An answer arrives after its tick, and later still
 for a source that waits for the ones before it in the same tick, so a comparison of answers reads
@@ -423,8 +427,9 @@ Admission does these steps:
    `scheduled_at` (oldest first).
 2. **In-flight limit.** Stop when the number of owned VMs, plus the VMs that this process requested
    and the Inventory data does not show yet, plus admitted jobs, is equal to `maxInFlight`. The
-   count includes every owned VM, also a VM in the `failed` status, until the Reaper deletes it. The
-   Reaper deletes such a VM in the same tick or the next one, so the count is conservative and it
+   count includes every owned VM, also a VM in the `failed` status, until the Reaper deletes it. A
+   delete that Orchard accepts takes the VM out of the count in the same tick (§4). The Reaper
+   tries again at the next tick after a delete that failed, so the count is conservative and it
    lasts a short time. The default value of `maxInFlight` is 0, which means the total VM slots of
    the eligible workers. Because of this, the limit follows the fleet, and it does not hold slots
    empty at the target scale (SC-01, QA-02). A value more than 0 limits the controller to that
@@ -929,17 +934,19 @@ These rules come from the conventions and MUST hold:
 * **`bkaso.vm.leftover` counts the owned VMs whose job is terminal.** At each tick, the controller
   counts the VMs in the last inventory whose job has a terminal state in the last job states
   (`finished`, `canceled`, `expired`, `timed_out`, `skipped`, or `broken`, the states of row 4 of
-  §7.2). An orphan has no job, so it is not in the count. The value is 0, except for the window
-  before the Reaper deletes a VM. The window is 10 ticks (10 s with the default `pollInterval`). It
-  is the worst case of 5 s and 5 s, with no margin. The reason is the timing of §4: the controller
-  reads a job state at each `jobStatesInterval` (5 s) and the Reaper acts on that state in the same
-  tick, so a state costs one interval to see and one more interval to see again after a miss, and a
-  deletion that Orchard refuses is tried again at the next tick. A VM that is in the count for more
-  than 10 ticks is a leak, except while Buildkite is down: the Reaper waits for fresh job states
-  (§7.2, row 3), so the count stays above 0 until the states are fresh again, and
-  `bkaso.source.staleness` shows the period. The default export interval is 60 s, which is longer
-  than the window. Because of this, one export that is more than 0 can be inside the window, and two
-  exports in a row that are more than 0 are not.
+  §7.2). An orphan has no job, so it is not in the count. The Reaper acts before the controller
+  takes the count, in the same tick and on the same job states. Because of this, the value is more
+  than 0 only when the Reaper did not delete a VM whose job it saw as terminal. This can be a delete
+  that Orchard refused, a VM that row 3 of §7.2 holds because the job states are not fresh, or a
+  Reaper that did not run. The window is the number of consecutive ticks in which this is true. It
+  is 10 ticks (10 s with the default `pollInterval`). The delay before the controller sees that a
+  job ended (up to `jobStatesInterval`) is not in the window. A delete that Orchard refuses is tried
+  again at each tick, so 10 ticks give 10 tries. A VM that is in the count for more than 10 ticks is
+  a leak, except while Buildkite is down: the Reaper waits for fresh job states (§7.2, row 3), so
+  the count stays above 0 until the states are fresh again, and `bkaso.source.staleness` shows the
+  period. The default export interval is 60 s, which is longer than the window. Because of this, one
+  export that is more than 0 can be inside the window, and two exports in a row that are more than 0
+  are not.
 * **`finished_to_deleted` is the lag of the Reaper.** It starts at the first tick that saw the job
   in a terminal state, and it ends at the deletion that Orchard accepted. A failed deletion does
   not end it. A restart loses the start, so the first tick after a restart starts the time again.

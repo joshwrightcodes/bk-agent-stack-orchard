@@ -261,26 +261,31 @@ Rules for data and secrets:
 
 Pilot evidence replaces estimates. It is measurement, not a test:
 
-* **E-1:** two weeks with `bk_agent_stack_orchard.vm.leftover` at 0, except for the window before
-  the reaper deletes a VM, and 0 jobs that the controller failed incorrectly (QA-04, requirements
-  section 6). The gauge counts the VMs whose job is terminal, so it shows a VM that remains. The
-  deletion counter `bk_agent_stack_orchard.vm.deletions` does not, because it counts only the VMs
-  that were deleted. The window is 10 ticks, which is 10 s with the default poll interval (target
-  design, section 10.1). Two exports in a row that are more than 0 are a leak. A Buildkite outage
-  keeps the gauge above 0 for longer than the window, because the reaper waits for fresh job states
-  (target design, section 7.2, row 3). E-1 excludes such periods, and the staleness signal of E-5
-  shows them. The jobs that the controller failed incorrectly are the increases of
-  `bk_agent_stack_orchard.job.failed`, each one checked against its job.
+* **E-1:** two weeks with `bk_agent_stack_orchard.vm.leftover` at 0, except for the window in which
+  the reaper did not delete a VM whose job it saw as terminal, and 0 jobs that the controller failed
+  incorrectly (QA-04, requirements section 6). The gauge counts the VMs whose job is terminal, so it
+  shows a VM that remains. The deletion counter `bk_agent_stack_orchard.vm.deletions` does not,
+  because it counts only the VMs that were deleted. The window is 10 consecutive ticks, which is 10
+  s with the default poll interval (target design, section 10.1). Two exports in a row that are more
+  than 0 are a leak. A Buildkite outage keeps the gauge above 0 for longer than the window, because
+  the reaper waits for fresh job states (target design, section 7.2, row 3). E-1 excludes such
+  periods, and the staleness signal of E-5 shows them. The jobs that the controller failed
+  incorrectly are the increases of `bk_agent_stack_orchard.job.failed`, each one checked against its
+  job.
 * **E-2:** the measured start time and wait time against QA-01 and QA-02, with the percentile that
   the baseline assumes. The load condition is the one of T-080: 50 synthetic workers of 2 slots, 500
   generated jobs, and the arrival pattern of the demand model (baseline section 4.2, SC-05), with
-  the tick duration at or below `LOAD_TICK_BUDGET`, which is 34 ms (O-5). The pilot MUST also keep
-  the 95th percentile of `bk_agent_stack_orchard.tick.duration` at or below 34 ms. The start time
+  the tick duration at or below `LOAD_TICK_BUDGET`, which is 34 ms (O-5). The 34 ms is the budget of
+  T-080 against local fakes only. It does not apply to the pilot, because a real tick makes calls to
+  the Buildkite API and to Orchard. The tick budget of the pilot: `UNKNOWN`; owner: the maintainer;
+  trigger: the first week of pilot `bk_agent_stack_orchard.tick.duration` data. The start time
   includes the starts that pulled an image, because the controller cannot tell them apart (cold or
   warm start: `UNKNOWN`; owner: the maintainer; trigger: O-7; target design, section 10.1).
 * **E-3:** the measured time from the job end to the VM deletion, which gives the value that QA-06
   does not have. It is the histogram `bk_agent_stack_orchard.job.phase.duration` with the phase
-  value `finished_to_deleted`.
+  value `finished_to_deleted`. The histogram starts at the first tick in which the reaper saw the
+  job as terminal, so the true time from the job end to the deletion is not the histogram value.
+  It is between the histogram value and the histogram value plus `jobStatesInterval`.
 * **E-4:** the measured image count for each host, which gives the value that SC-09 does not have.
 * **E-5:** the measured recovery time against QA-03, which is less than 15 min. The measure uses the
   existing signals. A recovery starts at the last answer of a source that was good, which is the
