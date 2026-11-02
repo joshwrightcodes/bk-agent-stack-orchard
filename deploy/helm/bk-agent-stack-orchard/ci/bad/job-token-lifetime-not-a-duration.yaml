@@ -1,0 +1,5 @@
+# A jobTokenLifetime that is not a Go duration.
+# Applied after ci/values.yaml. helm lint MUST fail.
+config:
+  buildkite:
+    jobTokenLifetime: abc

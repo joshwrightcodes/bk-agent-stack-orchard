@@ -41,10 +41,11 @@ The schema mirrors the rules of the controller that JSON Schema can express:
 * A `match` key is a lower-case literal, and it is not `queue`, `profile`, or `agent-stack`. A
   `match` value is a literal with no wildcard, comma, quote, newline, or white space at an end.
   `buildkite.queue` has the same limits, except for the wildcard.
-* `reservationExpiry` is from 1 s to 3600 s, and `jobTokenLifetime` is from 1 s to 1800 s. Write
-  them as whole seconds with the unit `s`, for example `300s`. The controller also accepts other
-  units, such as `5m`, but the schema asks for seconds, so that a range check is possible.
-* Each other duration is a Go duration, such as `500ms`, `2m`, or `25h`.
+* Each duration is a Go duration as `time.ParseDuration` reads it, such as `500ms`, `5m`, `1h30m`,
+  or `1.5m`. A bare number is not a duration. This includes `reservationExpiry` and
+  `jobTokenLifetime`. The schema does not check the ranges of these two values. The controller
+  refuses them at start-up when `reservationExpiry` is not a whole number of seconds from 1 to
+  3600, or `jobTokenLifetime` is not a whole number of seconds from 1 to 1800.
 * A `softnetAllow` entry is an IPv4 CIDR range with a prefix length from 16 to 32. `@host`,
   `@peers`, IPv6 ranges, and bare addresses fail. An exact repeat of an entry fails.
 * `vmCredentials.usernameEnv`, `vmCredentials.passwordEnv`, and `otel.headersEnv` start with `VM_`.
@@ -56,6 +57,8 @@ again when it starts, and it refuses a value that the schema cannot express. For
 * a CIDR range with host bits set, such as `10.0.0.1/24`;
 * two profiles with the same name or the same `match` map;
 * an `unplaced`, `boot`, and `acquire` sum that is longer than `jobTokenLifetime`;
+* a duration that is out of range, or not a whole number of seconds, for `reservationExpiry` and
+  `jobTokenLifetime`;
 * a `reservationRenewBefore` that is not shorter than `reservationExpiry`;
 * a source interval that is not shorter than `stateFreshness`;
 * a `softnetAllow` list with the same range in two spellings;

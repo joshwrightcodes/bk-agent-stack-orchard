@@ -15,9 +15,9 @@ config:
   maxInFlight: 4
   stateFreshness: 60s
   buildkite:
-    reservationExpiry: 300s
-    reservationRenewBefore: 120s
-    jobTokenLifetime: 1800s
+    reservationExpiry: 5m
+    reservationRenewBefore: 1.5m
+    jobTokenLifetime: 1h30m
     pollInterval: 1s
     jobStatesInterval: 5s
   orchard:
