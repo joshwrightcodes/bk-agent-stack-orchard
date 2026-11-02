@@ -133,7 +133,7 @@ Every commit message MUST follow [Conventional Commits 1.0.0](https://www.conven
 | `refactor` | A change of structure with no change of behaviour |
 | `perf` | A change that makes the controller faster or smaller |
 | `build` | `go.mod`, `mise.toml`, GoReleaser, and the image |
-| `ci` | The workflows, the gates, and the self-hosted runner |
+| `ci` | The workflows and the gates |
 | `chore` | Work that fits no other type, such as a dependency bump |
 | `revert` | A revert of an earlier commit |
 

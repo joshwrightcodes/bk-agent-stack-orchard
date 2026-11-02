@@ -387,8 +387,9 @@ func report(t *testing.T, run *loadRun, calls *counted) {
 		}
 	}
 
-	// Open item O-5: the budget is two times the first measured p95 on the runner. Until an owner
-	// sets it, the test reports and does not judge the tick.
+	// Open item O-5 (closed on 2026-11-02): the budget is two times the hosted p95, and the
+	// repository variable holds it. The test judges the tick only when the variable parses as a
+	// duration, so a run without it reports and does not judge.
 	if budget, err := time.ParseDuration(os.Getenv("LOAD_TICK_BUDGET")); err == nil &&
 		quantile(ticks, 0.95) > budget {
 		t.Errorf("the p95 of the tick is %s, and the budget is %s", quantile(ticks, 0.95), budget)

@@ -27,19 +27,36 @@ concurrency:
 jobs:
   load:
     name: load test
-    runs-on: ${{ vars.JOURNEY_RUNNER || 'macos-latest' }}
+    runs-on: macos-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      # A run that times out or is cancelled leaves `orchard dev` on a self-hosted runner, and the
-      # next run on it then fails on port 6120 (scripts/stop-leftovers.sh).
-      - run: ./scripts/stop-leftovers.sh
       - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
-      # Open item O-5: the budget of the tick is two times the first p95 that this workflow
-      # measures. Until an owner sets the repository variable, the run reports the tick and does
-      # not judge it.
+      # Open item O-5 (closed on 2026-11-02): the budget of the tick is two times the hosted p95.
+      # Four runs on 2026-11-01 gave 17, 17, 15, and 16 ms, so the variable is 34ms. The test
+      # judges the tick only when the variable parses as a duration.
       - run: mise run load
         env:
           LOAD_TICK_BUDGET: ${{ vars.LOAD_TICK_BUDGET }}
-      - if: always()
-        run: ./scripts/stop-leftovers.sh
+
+  # A failed scheduled or manual run opens an issue, or comments on the one that is open. A pull
+  # request run never does: a fork cannot get a token that writes issues, and a change under
+  # review is not a nightly signal.
+  report:
+    name: report failure
+    needs: load
+    if: failure() && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The report opens or comments on the issue.
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          # Context values reach the shell through the environment, never by interpolation.
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: ./scripts/report-failure.sh "Nightly load test failed" "The load test (T-080) failed."
