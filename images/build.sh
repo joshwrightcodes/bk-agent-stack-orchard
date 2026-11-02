@@ -71,6 +71,9 @@ XCODE_ARCHIVE="${XCODE_ARCHIVE:-${HOME}/XcodesCache/Xcode_${XCODE_VERSION}.xip}"
 # pilot test pipeline uses an iPhone 17.
 PILOT_SIMULATOR="${PILOT_SIMULATOR:-iPhone 17}"
 
+# The file of agent tags that the startup script of the controller reads (vmspec.ImageTagsPath).
+AGENT_TAGS_PATH="/usr/local/etc/bk-agent-stack-orchard/agent-tags"
+
 # Homebrew, from the package of its release, and the SHA-256 that GitHub gives for it.
 HOMEBREW_VERSION="7.0.11"
 HOMEBREW_SHA256="c780771227420177a6b19bd778e351976c2b5064d114f499ca94c0f01e31e8e8"
@@ -358,6 +361,28 @@ tart exec -i "$VM" /bin/sh -c 'cat > ~/.buildkite-agent/buildkite-agent.cfg' <"$
 sed "s|__ARTIFACT_DESTINATION__|${DESTINATION}|" "$HERE/files/environment" |
 	tart exec -i "$VM" /bin/sh -c 'cat > ~/.buildkite-agent/hooks/environment && chmod 0755 ~/.buildkite-agent/hooks/environment'
 
+# The startup script of the controller adds these tags to the tags of each agent, so that Buildkite
+# shows what a machine runs (internal/vmspec). The values come from the VM, after every install.
+# Xcode has tags only when the image has Xcode: the Command Line Tools have no xcodebuild -version.
+say "writing the agent tags of the image"
+run IMAGE_NAME="bkaso-${IMAGE}" IMAGE_TAG="$TAG" TAGS_PATH="$AGENT_TAGS_PATH" <<'SCRIPT'
+set -euo pipefail
+xcode=$(/usr/bin/xcodebuild -version 2>/dev/null || true)
+{
+	printf 'image-name=%s\n' "$IMAGE_NAME"
+	printf 'image-tag=%s\n' "$IMAGE_TAG"
+	printf 'macos=%s\n' "$(sw_vers -productVersion)"
+	printf 'macos-build=%s\n' "$(sw_vers -buildVersion)"
+	if [[ -n "$xcode" ]]; then
+		printf 'xcode=%s\n' "$(sed -n 's/^Xcode //p' <<<"$xcode")"
+		printf 'xcode-build=%s\n' "$(sed -n 's/^Build version //p' <<<"$xcode")"
+	fi
+} >/tmp/agent-tags
+sudo install -d -o root -g wheel -m 0755 "$(dirname "$TAGS_PATH")"
+sudo install -o root -g wheel -m 0644 /tmp/agent-tags "$TAGS_PATH"
+rm -f /tmp/agent-tags
+SCRIPT
+
 # No well-known credential opens the VM over the network (target design, section 9.2). The Tart
 # guest agent needs the automatic login of admin, and macOS 27 does not log in automatically after a
 # change of the password, so the image keeps admin/admin for the local login and closes every
@@ -390,6 +415,11 @@ printf 'xcode=%s\n' "$(/usr/bin/xcodebuild -version 2>/dev/null | sed -n 1p)"
 printf 'ios_runtime=%s\n' "$(xcrun simctl list runtimes 2>/dev/null | grep -c '^iOS ')"
 printf 'ios_runtime_ids=%s\n' "$(xcrun simctl list runtimes 2>/dev/null | sed -n 's/^iOS .* - \(com\.apple\.[^ ]*\).*/\1/p' | tr '\n' ' ')"
 printf 'free_gb=%s\n' "$(df -g / | awk 'NR == 2 {print $4}')"
+if [[ -r /usr/local/etc/bk-agent-stack-orchard/agent-tags ]]; then
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		printf 'tag=%s\n' "$line"
+	done </usr/local/etc/bk-agent-stack-orchard/agent-tags
+fi
 printf 'apps=%s\n' "$(list /Applications)"
 printf 'daemons=%s\n' "$(list /Library/LaunchDaemons)"
 printf 'agents=%s\n' "$(list /Library/LaunchAgents)"
@@ -437,8 +467,21 @@ for line in "apps=${ALLOWED_APPS}" "daemons=${ALLOWED_DAEMONS}" "agents=${ALLOWE
 	want "$line" "the image holds what its list does not name"
 done
 want "extra=" "the image holds what a job does not need"
+# Each line of the agent tags must pass the filter of the startup script (internal/vmspec), which
+# drops a line silently: a key, an =, and a value of the characters that a tag list can carry.
+tag_lines="$(sed -n 's/^tag=//p' <<<"$check")"
+while IFS= read -r line; do
+	[[ "$line" =~ ^[A-Za-z0-9._:/@+-]+=[A-Za-z0-9._:/@+=-]+$ ]] ||
+		die "the startup script would drop the agent tag \"$line\" of the image"
+done <<<"$tag_lines"
+tags="$(tr '\n' ' ' <<<"$tag_lines" | sed 's/ $//')"
+[[ "$tags" == "image-name=bkaso-${IMAGE} image-tag=${TAG} macos="*" macos-build="* ]] ||
+	die "the agent tags of the image are \"$tags\", want its name, its tag, and the version of macOS first"
 if [[ "$IMAGE" == pilot ]]; then
 	grep -q "^xcode=Xcode ${XCODE_VERSION%.0}" <<<"$check" || die "the pilot image does not select Xcode ${XCODE_VERSION}"
+	xcode="$(sed -n 's/^xcode=Xcode //p' <<<"$check")"
+	[[ " $tags " == *" xcode=${xcode} xcode-build="* ]] ||
+		die "the agent tags of the pilot image \"$tags\" do not name Xcode ${xcode}"
 	grep -q '^ios_runtime=1$' <<<"$check" ||
 		die "the pilot image has $(sed -n 's/^ios_runtime=//p' <<<"$check") iOS simulator runtimes, and it needs exactly one"
 	grep -Eq '^ios_runtime_ids=com\.apple\.CoreSimulator\.SimRuntime\.iOS-[0-9]+-[0-9]+ $' <<<"$check" ||
@@ -446,6 +489,8 @@ if [[ "$IMAGE" == pilot ]]; then
 	want "app=fastlane pod carthage xcbeautify swiftlint" "a job of the pilot does not find a tool to build or publish an app"
 	free="$(sed -n 's/^free_gb=//p' <<<"$check")"
 	((free >= PILOT_FREE_GB)) || die "the pilot image has $free GB free, and a job needs $PILOT_FREE_GB GB"
+else
+	[[ " $tags " != *" xcode="* ]] || die "the agent tags of the agent image \"$tags\" name an Xcode"
 fi
 
 # The ports are checked from this Mac, as the network sees the VM. A process that reaches a VM

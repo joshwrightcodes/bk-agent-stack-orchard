@@ -139,10 +139,47 @@ func Build(r Request) (orchard.VM, error) {
 	return vm, nil
 }
 
-// scriptContent starts one agent for one job. The token, the job identifier, and the tags stay in
-// the environment, so that a log of the script cannot carry them and no tag value is ever shell
-// text.
-const scriptContent = "buildkite-agent start"
+// ImageTagsPath is the file of agent tags that an image MAY hold: one key=value on each line, for
+// example the versions of macOS and of Xcode that the image was built with.
+const ImageTagsPath = "/usr/local/etc/bk-agent-stack-orchard/agent-tags"
+
+// scriptContent starts one agent for one job. The token, the job identifier, the name, and the tags
+// stay in the environment, so that a log of the script cannot carry them and no value is ever shell
+// text. The script is the same for every machine.
+//
+// Before the agent starts, the script:
+//
+//   - names the host after the machine, so that Buildkite shows which machine ran a job. Every
+//     machine is a clone of one image, so each has the host name of the image until then. A host
+//     name is a convenience: when sudo or scutil fails, the host keeps the name of the image, the
+//     script writes a line about it, and the agent still starts;
+//   - adds the tags of the image after the tags of the controller. A tag of the image with a key
+//     that the controller already set, or with a character that a tag list cannot carry, does
+//     not go to the agent.
+//
+// Orchard puts set -e and the export lines before the script, so the exit status of the agent is
+// that of the script.
+const scriptContent = `if ! sudo -n /usr/sbin/scutil --set HostName "$BUILDKITE_AGENT_NAME" ||
+	! sudo -n /usr/sbin/scutil --set LocalHostName "$BUILDKITE_AGENT_NAME" ||
+	! sudo -n /usr/sbin/scutil --set ComputerName "$BUILDKITE_AGENT_NAME"; then
+	echo "the host name stays that of the image, because sudo or scutil failed" >&2
+fi
+tags=$BUILDKITE_AGENT_TAGS
+if [ -r ` + ImageTagsPath + ` ]; then
+	while IFS= read -r tag || [ -n "$tag" ]; do
+		key=${tag%%=*}
+		case $tag in
+		"$key" | "="* | *[!A-Za-z0-9._:/@+=-]*) continue ;;
+		esac
+		case ",$tags," in
+		*",$key="*) continue ;;
+		esac
+		tags=$tags,$tag
+	done <` + ImageTagsPath + `
+fi
+export BUILDKITE_AGENT_TAGS="$tags"
+exec buildkite-agent start
+`
 
 // agentTags gives the tags of the agent as the list that the agent reads: the three fixed tags
 // first, then the tags of the job in the order of their keys.
