@@ -1,7 +1,7 @@
 ---
 status: proposed
 date: 2026-10-31
-decision-makers: Josh Wright
+decision-makers: maintainers
 ---
 
 # ADR-0014: Calculate releases with release-please
@@ -12,7 +12,7 @@ A release needs a version that follows the 0.x rules of the contributing guide, 
 collect all changes since the last release. A person who selects the version from a table and
 pushes a tag can select the wrong version. The decision is to let release-please calculate the
 version from the Conventional Commits on `main`, and to keep a release pull request that collects
-the changes until the maintainer merges it. The cost is a GitHub App with write access to the
+the changes until the maintainers merge it. The cost is a GitHub App with write access to the
 repository, and its private key.
 
 ## Context
@@ -43,7 +43,7 @@ Goals:
 
 * **The rules select the version.** The version follows the 0.x rules without a person who reads a
   table.
-* **The maintainer decides when.** Changes collect until the maintainer releases them, and many
+* **The maintainers decide when.** Changes collect until the maintainers release them, and many
   changes can go into one release.
 * **One version everywhere.** The binary, the image, the chart, and the changelog have the same
   version, and the repository holds it.
@@ -53,11 +53,11 @@ Goals:
 Non-goals:
 
 * The signatures and the SBOMs, which ADR-0013 decides.
-* Version 1.0.0, which the maintainer decides.
+* Version 1.0.0, which the maintainers decide.
 
 ## Options considered
 
-**A tag from the maintainer.** The maintainer selects the version from the table of the
+**A tag from the maintainers.** The maintainers select the version from the table of the
 contributing guide, and pushes a tag. It needs no tool and no credential. However, a person can
 select the wrong version, the chart version needs a separate step, and nothing writes a
 changelog.
@@ -67,24 +67,24 @@ releases each change alone, unless a person starts it by hand, and then it does 
 release before it happens.
 
 **An action that calculates a tag.** Actions such as `mathieudutour/github-tag-action` calculate
-the next version and push a tag. However, the maintainer must still decide when to run it, they
-write no changelog, and they update no other file.
+the next version and push a tag. However, the maintainers must still decide when to run one, and
+these actions write no changelog and update no other file.
 
 **release-please.** It keeps a release pull request that shows the next version and the
 changelog, and it updates both at each merge. The merge of that pull request is the release.
 However, it needs a token that starts workflows, which means a GitHub App and its private key.
 
-| Goal | Tag from the maintainer | semantic-release | Tag action | release-please |
+| Goal | Tag from the maintainers | semantic-release | Tag action | release-please |
 |---|---|---|---|---|
 | The rules select the version | No | Yes | Yes | Yes |
-| The maintainer decides when | Yes | No | Yes | Yes |
+| The maintainers decide when | Yes | No | Yes | Yes |
 | One version everywhere | No | Yes, with plugins | No | Yes |
 | The signed release still works | Yes | Yes | Yes | Yes, with a draft and an App token |
 
 ## Decision
 
-Calculate releases with release-please, and release when the maintainer merges its release pull
-request.
+Calculate releases with release-please, and release when the maintainers merge its release
+pull request.
 
 * release-please runs on each push to `main`, with `bump-minor-pre-major` and an initial version
   of 0.1.0. Without the initial version, its first release is 1.0.0. It writes the version into
@@ -102,14 +102,14 @@ request.
 * It uses a token of a GitHub App with contents, pull requests, and issues write access. The client
   ID and the private key MUST be secrets of the `release-please` environment, which permits only
   `main`.
-* The tag rules permit only the maintainer and the App to create a `v*` tag, and nobody can move or
+* The tag rules permit only the maintainers and the App to create a `v*` tag, and nobody can move or
   delete one. release-please ignores a refused tag, so without the App in the tag rules, a merge
   gives a draft with no tag and no release.
-* The repository rules permit only the App and the maintainer to create, change, or delete the
+* The repository rules permit only the App and the maintainers to create, change, or delete the
   branch of the release pull request, so a commit on it comes from release-please or from the
   maintainer.
 * The release workflow MUST run in the `release` environment, which permits only `v*` tags and
-  needs the approval of the maintainer. It MUST check that the version in `Chart.yaml` is the
+  needs the approval of the maintainers. It MUST check that the version in `Chart.yaml` is the
   version of the tag.
 * A Go module update is a `fix`, because it changes the release artifacts. An update of a
   deployment image or an action is not, because no release artifact contains it.
@@ -121,7 +121,7 @@ request.
 Good:
 
 * The version follows the rules, and the release pull request shows it before the release.
-* Many changes go into one release, and the maintainer selects the time.
+* Many changes go into one release, and the maintainers select the time.
 * The changelog and the chart version need no manual step.
 * The tag rules and the approval of the environment stop a tag that release-please did not
   create. The tag check of the workflow also refuses a tag outside `main`, or with another chart
@@ -132,7 +132,7 @@ Bad:
 
 * A GitHub App with write access to the repository exists, and its private key is a credential
   to protect and to rotate.
-* The release pull request adds commits from the App, and the maintainer must review them.
+* The release pull request adds commits from the App, and the maintainers must review them.
 * The release has two approvals: the merge of the release pull request, and the deployment to the
   `release` environment. With one maintainer, the same person gives both. The approver compares
   the SHA of the tag with the merge commit of the release pull request.

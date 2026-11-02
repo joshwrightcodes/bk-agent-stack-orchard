@@ -1,6 +1,6 @@
 # Support
 
-This is a personal project with one maintainer. This file tells you where to ask for help.
+This file tells you where to ask for help.
 
 ## Questions and bugs
 
@@ -8,7 +8,7 @@ This is a personal project with one maintainer. This file tells you where to ask
   [issue form](https://github.com/joshwrightcodes/bk-agent-stack-orchard/issues/new/choose).
   Use the form that fits your report: the question form is for a question.
 * Read [README.md](README.md) and the documents in [docs](docs) before you open an issue.
-* The maintainer answers when time permits. The project makes no promise of a response time.
+* The maintainers answer when time permits. The project makes no promise of a response time.
 
 ## Security reports
 

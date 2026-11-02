@@ -1,7 +1,7 @@
 ---
 status: proposed
 date: 2026-11-01
-decision-makers: Josh Wright
+decision-makers: maintainers
 supersedes: ADR-0011
 ---
 

@@ -1,7 +1,7 @@
 ---
 status: proposed
 date: 2026-10-31
-decision-makers: Josh Wright
+decision-makers: maintainers
 ---
 
 # ADR-0013: Sign releases with keyless cosign signatures
@@ -123,7 +123,7 @@ Bad:
 * The workflow file name is part of the identity. A rename of `release.yml` changes the identity
   that operators check.
 * The release workflow has `id-token: write`, `packages: write`, and `contents: write`. It runs only
-  for a `v*` tag, in an environment that needs the approval of the maintainer.
+  for a `v*` tag, in an environment that needs the approval of the maintainers.
 
 ## Confirmation
 

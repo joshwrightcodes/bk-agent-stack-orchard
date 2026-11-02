@@ -3,7 +3,7 @@
 * Status: accepted
 * Date: 2026-09-19
 * Approved: 2026-09-20
-* Owner: Josh Wright
+* Owner: the maintainers
 * Related documents:
   * [Target design](../architecture/target-design.md)
   * [Architecture decision records](../adrs/README.md)
@@ -46,7 +46,7 @@ The intended outcome has five parts:
 
 The horizon has four phases. Development uses one Mac, and the pilot uses 2 to 4 Macs. Adoption
 uses up to 10 Macs, and scale uses 10 to 50 Macs. The dates of the phases are `UNKNOWN`
-(checked 2026-11-01). The owner of the dates is the maintainer. They become known when a Buildkite
+(checked 2026-11-01). The maintainers own the dates. They become known when a Buildkite
 test cluster and the Mac hosts are ready. The plan of 2026-09-14 estimated that the pilot starts
 in approximately 1 month, and that adoption and scale follow in approximately 3 months.
 
@@ -238,7 +238,7 @@ the VMs of ended jobs and starts VMs for waiting jobs.
   cannot set the `signal_reason` itself, because the finish request has no such field. Pipelines
   on the queue use `signal_reason: stack_error` with `limit: 0` in their automatic retry rules
   (Buildkite Stacks API documentation, read on 2026-11-01). Whether the platform generates
-  `stack_error` for every job that the product finishes is `UNKNOWN` (owner: the maintainer;
+  `stack_error` for every job that the product finishes is `UNKNOWN` (owner: the maintainers;
   trigger: the first runs of T-100 to T-105).
 * Status: `accepted`.
 * Acceptance: Given a pipeline with the retry rule. When the product fails a job because a host
@@ -458,7 +458,7 @@ Answered questions (2026-09-14):
 | Q-P2 | Maximum time from `scheduled` to `accepted` | 60 s |
 | Q-P3 | Maximum wait time when all slots are in use | 15 min, dependent on capacity |
 | Q-P4 | Pilot pipelines and versions | The latest macOS and the latest Xcode, for an iOS app. The pilot uses macOS 27 (Golden Gate) with Xcode 27. |
-| Q-P5 | Dates of the phases | Pilot in 1 month; adoption and scale in 3 months. History: on 2026-11-01 the dates became `UNKNOWN`, with the maintainer as owner and a trigger (section 1) |
+| Q-P5 | Dates of the phases | Pilot in 1 month; adoption and scale in 3 months. History: on 2026-11-01 the dates became `UNKNOWN`, with the maintainers as owner and a trigger (section 1) |
 | Q-P6 | Start point of the phase dates | Not applicable. The dates are approximate. |
 | Q-P7 | Pilot profile | Xcode 27. The owner selected Xcode 26.6 on 2026-09-14 and changed this to Xcode 27 on 2026-09-19, after its release. |
 
