@@ -180,14 +180,16 @@ func TestOneJobGoesFromScheduledToADeletedMachine(t *testing.T) {
 	requireWork(t, "the log of the controller", logged, carried)
 	assertNoSecret(t, "the log of the controller", logged, secretAgentToken, secretOrchardToken)
 
-	for route, what := range map[string]string{
-		"/v1/traces":  "the spans of the controller",
-		"/v1/metrics": "the metrics of the controller",
-		"/v1/logs":    "the log records of the controller",
+	// The service name is in every export, so it proves only that an export happened. The log
+	// records carry the job identifier of the journey, so they must hold it.
+	for route, what := range map[string]struct{ what, marker string }{
+		"/v1/traces":  {"the spans of the controller", "bk-agent-stack-orchard"},
+		"/v1/metrics": {"the metrics of the controller", "bk-agent-stack-orchard"},
+		"/v1/logs":    {"the log records of the controller", carried},
 	} {
 		data := sink.received(route)
-		requireWork(t, what, data, "bk-agent-stack-orchard")
-		assertNoSecret(t, what, data, secretAgentToken, secretOrchardToken)
+		requireWork(t, what.what, data, what.marker)
+		assertNoSecret(t, what.what, data, secretAgentToken, secretOrchardToken)
 	}
 }
 
