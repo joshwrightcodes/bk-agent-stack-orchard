@@ -1,7 +1,7 @@
 # The Orchard base of deploy/orchard, as an operator deploys it, with the image that the smoke
 # test builds and loads into kind, the collector of the smoke namespace, and the namespace of the
-# controller in the NetworkPolicy. kind uses kindnet, which may not enforce a NetworkPolicy, so this
-# test does not prove the policy.
+# controller in the NetworkPolicy. kind uses kindnet, which enforces a NetworkPolicy, so this
+# test proves that the controller and the Job reach Orchard, and not that others are refused.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: orchard
