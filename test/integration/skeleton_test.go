@@ -284,6 +284,13 @@ func writeConfig(t *testing.T, endpoint string) string {
 	return path
 }
 
+// The intervals that the configuration of the controller under test sets. They are the source of
+// the waits in never, so a change here changes those waits too.
+const (
+	pollInterval      = time.Second
+	jobStatesInterval = 5 * time.Second
+)
+
 // writeConfigWithProbes writes the configuration of the controller under test, and gives the
 // address where the controller serves its probes. Each controller gets a port of its own, so a
 // test does not depend on a port that something else on the machine may hold.
@@ -297,6 +304,8 @@ healthAddress: %s
 buildkite:
   queue: %s
   endpoint: %s
+  pollInterval: %s
+  jobStatesInterval: %s
 orchard:
   url: %s
   serviceAccount: bk-agent-stack-orchard
@@ -307,7 +316,7 @@ profiles:
     cpu: 8
     memoryMiB: 28672
     diskSizeGB: 150
-`, controllerID, address, queue, endpoint, orchardURL)
+`, controllerID, address, queue, endpoint, pollInterval, jobStatesInterval, orchardURL)
 
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {

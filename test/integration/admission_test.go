@@ -47,8 +47,10 @@ func TestAFullFleetHoldsAJobBackUntilASlotIsFree(t *testing.T) {
 	})
 
 	// Several ticks pass, and the fleet stays full: the third job is neither reserved nor given a
-	// machine, so Buildkite still shows it as scheduled.
-	never(t, "the third job is reserved or gets a machine while the fleet is full", func() bool {
+	// machine, so Buildkite still shows it as scheduled. Admission runs in each tick on the poll
+	// and the inventory, which refresh at each tick: one tick for a stale answer, one to act, and
+	// one more for margin.
+	never(t, 3, "the third job is reserved or gets a machine while the fleet is full", func() bool {
 		_, found := machineNamed(t, machineOf(ids[2]))
 
 		return found || slices.Contains(stacks.Reserved(), ids[2])
@@ -127,8 +129,9 @@ func TestAJobThatNoProfileCarriesIsLeftAlone(t *testing.T) {
 	})
 
 	// Several polls pass, and the job gets no second line, no reservation, no finish, and no
-	// machine, and the counter stays at 1.
-	never(t, "the controller acts on the job again", func() bool {
+	// machine, and the counter stays at 1. The job comes back through the poll only, so one tick
+	// for a stale answer, one to act, and one more for margin.
+	never(t, 3, "the controller acts on the job again", func() bool {
 		_, found := machineNamed(t, machineOf(carried))
 
 		lines := 0
@@ -257,17 +260,20 @@ func running(t *testing.T, id string) bool {
 	return ok && found.Status == "running"
 }
 
-// never checks a condition for some ticks of the controller, and fails the test if it holds once.
-func never(t *testing.T, what string, condition func() bool) {
+// never checks a condition for a number of ticks of the controller, and fails the test if it holds
+// once. A tick is the poll interval that the configuration sets. A call states how many ticks the
+// path to the wrong behaviour needs: the slowest source that the behaviour rests on, plus the tick
+// that acts on it.
+func never(t *testing.T, ticks int, what string, condition func() bool) {
 	t.Helper()
 
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(time.Duration(ticks) * pollInterval)
 
 	for time.Now().Before(deadline) {
 		if condition() {
 			t.Fatalf("it happened: %s", what)
 		}
 
-		time.Sleep(250 * time.Millisecond)
+		time.Sleep(pollInterval / 4)
 	}
 }

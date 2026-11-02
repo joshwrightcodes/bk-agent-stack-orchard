@@ -79,8 +79,10 @@ func TestARestartAtEachCrashWindowKeepsOneMachinePerJob(t *testing.T) {
 	}
 
 	// After the reservation and before the machine creation: no machine names the job, so the new
-	// process cannot see it, and it starts nothing for it.
-	never(t, "the job reserved before the crash gets a machine", func() bool {
+	// process cannot see it, and it starts nothing for it. The reservation hides the job from the
+	// poll, and the job has no machine for the job states, so only a tick could start it: one tick
+	// for a stale answer, one to act, and one for margin.
+	never(t, 3, "the job reserved before the crash gets a machine", func() bool {
 		_, found := machineNamed(t, machineOf(unseen))
 
 		return found
