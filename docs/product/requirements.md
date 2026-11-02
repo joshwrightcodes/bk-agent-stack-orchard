@@ -414,9 +414,11 @@ Dependencies:
 
 * The Buildkite Stacks API and job acquisition tokens operate as their documentation states (as
   of 2026-09-13).
-* The VM image contains `buildkite-agent` v4. Buildkite made v4 the stable line on 2026-09-01, and
-  v4.9.0 is current (2026-10-30, checked 2026-11-01). Agent v4 stops immediately when a flag is not
-  defined.
+* Each VM runs `buildkite-agent` v4: a pinned release that the VM downloads when it starts, or the
+  agent of the image (target design, section 5; ADR-0017). Buildkite made v4 the stable line on
+  2026-09-01, and v4.9.0 is current (2026-10-30, checked 2026-11-01). Agent v4 stops immediately
+  when a flag is not defined. The release archives are on GitHub, and a VM that downloads the agent
+  reaches GitHub or a mirror that the operator sets.
 * The VM image runs the Tart guest agent, which the startup-script transport needs (ADR-0009).
 * Orchard 0.58.0 or later is in use (Orchard release 0.58.0, 2026-10-19; target design, section
   9.2). Release 0.57.0 contains pull requests #465 and #470 (2026-09-15), and release 0.58.0
@@ -428,7 +430,8 @@ Dependencies:
 * The fleet operator supplies each Tart image, and stores it in an OCI registry. The project
   publishes no image (owner decision, 2026-11-03). The operator uses an upstream Tart image, or
   builds an image of its own, and the image meets the image requirements of the target design,
-  section 6.4: the `buildkite-agent` v4 binary and the Tart guest agent. `images/` is a reference
+  section 5: the Tart guest agent, and the `buildkite-agent` v4 binary when the profile uses the
+  agent of the image. `images/` is a reference
   build of such an image, from `ghcr.io/cirruslabs/macos-golden-gate-vanilla`, with Xcode 27 for
   the pilot profile (PR-026, ADR-0012).
 * The fleet operator pulls each profile image to each host before use.

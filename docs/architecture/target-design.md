@@ -361,9 +361,27 @@ image has a 104 GB disk, and other Xcode images up to 140 GB (SC-07). Tart refus
 smaller than the disk of the image, in bytes. A macOS 27 guest grows its APFS container to the disk
 at boot (2026-10-10), so a larger `diskSizeGB` gives a job more space.
 
-**Image contents.** Each profile image MUST contain `buildkite-agent` v4 and its hooks (CO-06).
-An image for the guest-agent transport MUST also run the Tart guest agent. The image build of
-this project installs it and its launchd jobs (ADR-0012, 2026-11-01).
+**Image contents.** An image for the guest-agent transport MUST run the Tart guest agent. The
+image build of this project installs it and its launchd jobs (ADR-0012, 2026-11-01). The upstream
+image `ghcr.io/cirruslabs/macos-golden-gate-base` runs it too, and the upstream vanilla image does
+not (checked 2026-11-03).
+
+**Agent source.** `agent.source` selects where the agent of a VM comes from (CO-06):
+
+* `download`, the default: the startup script downloads the archive at `agent.url`, checks it
+  against `agent.sha256`, and runs the `buildkite-agent` of the archive (§6.4). The image needs no
+  agent. The VM MUST reach `agent.url`; a mirror in a private range also needs `softnetAllow`.
+* `image`: the image MUST contain `buildkite-agent` v4 on the `PATH` of the guest agent, and its
+  hooks. The script refuses an agent of another major version.
+
+A profile that sets no `agent` takes `defaults.agent` (§8). `agent.url` and `agent.sha256` are one
+pair: a profile or the defaults that set either one set both, and the controller refuses a pair
+with one value. When neither the profile nor the defaults set the pair, the controller uses its
+built-in pair, the release of `buildkite-agent` that the controller release was tested with:
+`https://github.com/buildkite/agent/releases/download/v4.9.0/buildkite-agent-darwin-arm64-4.9.0.tar.gz`,
+SHA-256 `faaf0084edf08a92a877253620604fbd6ce496d2851a7ae5126dd19f27429e76` (checked 2026-11-03,
+the same pin as `images/build.sh`). The controller MUST refuse an `agent.url` that is not `https`,
+and an `agent.sha256` that is not 64 lower-case hexadecimal characters.
 
 **Implements.** PR-003, PR-004, PR-020, PR-021, PR-026, QA-05, SC-07, SC-08.
 
@@ -525,7 +543,9 @@ For the admitted jobs, the Launcher MUST do these steps:
       "BUILDKITE_AGENT_TOKEN": "<job acquisition token>",
       "BUILDKITE_AGENT_ACQUIRE_JOB": "<job-uuid>",
       "BUILDKITE_AGENT_NAME": "bk-macos-prod-<job-uuid>",
-      "BUILDKITE_AGENT_TAGS": "queue=macos,agent-stack=orchard,profile=xcode-27,xcode=27"
+      "BUILDKITE_AGENT_TAGS": "queue=macos,agent-stack=orchard,profile=xcode-27,xcode=27",
+      "BKASO_AGENT_URL": "<agent.url, for agent.source download>",
+      "BKASO_AGENT_SHA256": "<agent.sha256, for agent.source download>"
     }
   }
 }
@@ -577,15 +597,30 @@ The startup script is the same text for each VM, so no value of a job is in it
    so a tag of the controller or of the job always stays as the controller set it. `images/build.sh`
    writes the name and the tag of the image, the version and build of macOS, and, for an image
    with Xcode, the version and build of Xcode.
-3. It starts the agent with `exec buildkite-agent start`, so the exit status of the agent is the
-   exit status of the script.
+3. It finds the agent, as `agent.source` says (§5):
+   * `download`: it makes a new temporary directory, downloads `BKASO_AGENT_URL` there with
+     `curl` (three retries, a 120 s limit), checks the file against `BKASO_AGENT_SHA256` with
+     `shasum -a 256`, and extracts only `buildkite-agent`. It sets `BUILDKITE_BUILD_PATH`,
+     `BUILDKITE_HOOKS_PATH`, and `BUILDKITE_PLUGINS_PATH` to `~/buildkite/builds`,
+     `~/.buildkite-agent/hooks`, and `~/buildkite/plugins`, which are the paths of the images of
+     this project, so a configuration file in the image cannot move them. If the download, the
+     check, or the extraction fails, the script writes which step failed and exits 1.
+   * `image`: it reads the version of `buildkite-agent` on the `PATH`. If the major version is not
+     4, the script writes the version that it found and exits 1.
+4. It starts the agent with `exec`, so the exit status of the agent is the exit status of the
+   script.
 
-The image is trusted: it holds the agent and its hooks. The rules of step 2 keep the tag list
-correct. They are not a security limit.
+A failure of step 3 ends the script before an agent starts. The VM then fails, and row 9 of §7.2
+finishes the job with the last lines of the script, which name the step that failed.
 
-The image MUST contain `buildkite-agent` v4 and its hooks (§5). The controller MUST add only
-the environment variables above. When `profile.otel.enabled` is true, the controller also adds
-the OTel variables of §10.4.
+The image is trusted: it holds the hooks, and for `image` also the agent. The pinned SHA-256 is
+the trust in a downloaded agent, because Buildkite does not sign its checksums. The rules of step
+2 keep the tag list correct. They are not a security limit.
+
+The script has one text for `download` and one for `image`. The URL and the SHA-256 are values in
+the environment, never script text. The controller MUST add only the environment variables
+above, and for `download` also `BKASO_AGENT_URL` and `BKASO_AGENT_SHA256`. When
+`profile.otel.enabled` is true, the controller also adds the OTel variables of §10.4.
 
 **Implements.** PR-001, PR-005, PR-006, PR-007, PR-009, QA-01, QA-02, DR-01, SC-02.
 
@@ -743,6 +778,10 @@ defaults:
     boot: 15m
     acquire: 5m
     maxVMLifetime: 25h
+  agent: # see §5; a profile can set its own agent
+    source: download # download or image
+    url: https://github.com/buildkite/agent/releases/download/v4.9.0/buildkite-agent-darwin-arm64-4.9.0.tar.gz
+    sha256: faaf0084edf08a92a877253620604fbd6ce496d2851a7ae5126dd19f27429e76
 profiles: [] # see §5
 ```
 
