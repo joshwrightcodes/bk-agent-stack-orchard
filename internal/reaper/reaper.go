@@ -116,9 +116,11 @@ type Reaper struct {
 	// that a job stuck in one such state gives one record and not one at every tick.
 	warned map[job.ID]string
 
-	// ended holds when a tick first saw each job in a terminal state, until the deletion of its
-	// machine. It times the phase from the end of a job to that deletion. A restart loses it,
-	// and the first tick after one then starts the time again, which the design states.
+	// ended holds when a tick first saw each job in a terminal state, until its machine leaves the
+	// owned set. It times the phase from the end of a job to the deletion of its machine. After
+	// Orchard accepts the deletion, the entry holds the zero time, so that a pass that still
+	// lists the machine records nothing more. A restart loses it, and the first tick after one
+	// then starts the time again, which the design states.
 	ended map[job.ID]time.Time
 }
 
@@ -476,11 +478,12 @@ func (r *Reaper) forget(snapshot inventory.Snapshot) {
 // job whose end a tick saw.
 func (r *Reaper) deleted(ctx context.Context, machine Machine) {
 	began, ended := r.ended[machine.Job]
-	if !ended {
+	if !ended || began.IsZero() {
 		return
 	}
 
-	delete(r.ended, machine.Job)
+	// The entry stays, as recorded, until forget removes it with the machine.
+	r.ended[machine.Job] = time.Time{}
 
 	name := r.profile(machine.Job)
 	if name == "" {

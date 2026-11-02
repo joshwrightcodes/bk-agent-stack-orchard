@@ -33,7 +33,7 @@ func TestTheFinishedToDeletedPhaseIsRecorded(t *testing.T) {
 	}
 
 	if got := finishedToDeleted(t, reader); len(got) != 0 {
-		t.Fatalf("the reaper recorded %v before Orchard accepted a deletion, want nothing", got)
+		t.Fatalf("the reaper recorded %+v before Orchard accepted a deletion, want nothing", got)
 	}
 
 	*clock = clock.Add(45 * time.Second)
@@ -45,8 +45,8 @@ func TestTheFinishedToDeletedPhaseIsRecorded(t *testing.T) {
 	}
 
 	got := finishedToDeleted(t, reader)
-	if len(got) != 1 || got[0] != 45 {
-		t.Errorf("the phase finished_to_deleted holds %v seconds, want one record of 45", got)
+	if len(got) != 1 || got[0].Count != 1 || got[0].Sum != 45 {
+		t.Errorf("the phase finished_to_deleted holds %+v, want one record of 45 seconds", got)
 	}
 }
 
@@ -120,8 +120,8 @@ func TestAMachineThatIsAlreadyGoneRecordsThePhaseOnce(t *testing.T) {
 		w.clock = w.clock.Add(5 * time.Second)
 	}
 
-	if got := finishedToDeleted(t, w.reader); len(got) != 1 || got[0] != 0 {
-		t.Errorf("the phase holds %v, want one record of 0 seconds", got)
+	if got := finishedToDeleted(t, w.reader); len(got) != 1 || got[0].Count != 1 || got[0].Sum != 0 {
+		t.Errorf("the phase holds %+v, want one record of 0 seconds", got)
 	}
 }
 
@@ -151,9 +151,16 @@ func TestTheStartOfThePhaseIsForgottenWhenTheMachineLeaves(t *testing.T) {
 	}
 }
 
-// finishedToDeleted gives the sums of the records of the phase from a job that ended to a machine
-// that Orchard deleted, in seconds, one for each series.
-func finishedToDeleted(t *testing.T, reader sdkmetric.Reader) []float64 {
+// phaseRecord is one series of the phase histogram: how many records it holds, and their sum in
+// seconds. A count is needed, because two records of 0 seconds give a sum of 0, as one does.
+type phaseRecord struct {
+	Count uint64
+	Sum   float64
+}
+
+// finishedToDeleted gives the records of the phase from a job that ended to a machine that
+// Orchard deleted, one for each series.
+func finishedToDeleted(t *testing.T, reader sdkmetric.Reader) []phaseRecord {
 	t.Helper()
 
 	var collected metricdata.ResourceMetrics
@@ -161,7 +168,7 @@ func finishedToDeleted(t *testing.T, reader sdkmetric.Reader) []float64 {
 		t.Fatalf("Collect() = %v, want the metrics", err)
 	}
 
-	var sums []float64
+	var sums []phaseRecord
 
 	for _, scope := range collected.ScopeMetrics {
 		for _, recorded := range scope.Metrics {
@@ -172,7 +179,7 @@ func finishedToDeleted(t *testing.T, reader sdkmetric.Reader) []float64 {
 			for _, point := range recorded.Data.(metricdata.Histogram[float64]).DataPoints {
 				phase, _ := point.Attributes.Value("bk_agent_stack_orchard.job.phase")
 				if phase.AsString() == "finished_to_deleted" {
-					sums = append(sums, point.Sum)
+					sums = append(sums, phaseRecord{Count: point.Count, Sum: point.Sum})
 				}
 			}
 		}
