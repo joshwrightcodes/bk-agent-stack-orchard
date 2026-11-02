@@ -86,6 +86,11 @@ func TestLoadRefusesAnAgentThatCannotStart(t *testing.T) {
 		"a SHA-256 without its URL in the defaults": {
 			withDefaultsAgent("    sha256: " + mirrorSHA256 + "\n"), "agent.url",
 		},
+		// YAML reads a value of digits as a number, so the message says to quote it.
+		"a SHA-256 of digits without quotes": {
+			withProfileAgent("    agent: {url: \"" + mirrorURL + "\", sha256: " + strings.Repeat("0", 64) + "}\n"),
+			"in quotes",
+		},
 		"a URL without TLS": {
 			withProfileAgent("    agent: {url: \"http://mirror.example.com/a.tar.gz\", sha256: \"" +
 				mirrorSHA256 + "\"}\n"), "agent.url",

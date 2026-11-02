@@ -381,7 +381,8 @@ built-in pair, the release of `buildkite-agent` that the controller release was 
 `https://github.com/buildkite/agent/releases/download/v4.9.0/buildkite-agent-darwin-arm64-4.9.0.tar.gz`,
 SHA-256 `faaf0084edf08a92a877253620604fbd6ce496d2851a7ae5126dd19f27429e76` (checked 2026-11-03,
 the same pin as `images/build.sh`). The controller MUST refuse an `agent.url` that is not `https`,
-and an `agent.sha256` that is not 64 lower-case hexadecimal characters.
+and an `agent.sha256` that is not 64 lower-case hexadecimal characters. YAML reads a value of
+digits as a number, so the examples put the SHA-256 in quotes.
 
 **Implements.** PR-003, PR-004, PR-020, PR-021, PR-026, QA-05, SC-07, SC-08.
 
@@ -781,7 +782,7 @@ defaults:
   agent: # see §5; a profile can set its own agent
     source: download # download or image
     url: https://github.com/buildkite/agent/releases/download/v4.9.0/buildkite-agent-darwin-arm64-4.9.0.tar.gz
-    sha256: faaf0084edf08a92a877253620604fbd6ce496d2851a7ae5126dd19f27429e76
+    sha256: "faaf0084edf08a92a877253620604fbd6ce496d2851a7ae5126dd19f27429e76" # in quotes
 profiles: [] # see §5
 ```
 

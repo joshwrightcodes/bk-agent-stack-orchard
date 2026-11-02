@@ -85,8 +85,11 @@ To use another release, or your own mirror, set the URL and the SHA-256 of the a
 defaults:
   agent:
     url: https://mirror.example.com/buildkite-agent-darwin-arm64-4.9.0.tar.gz
-    sha256: faaf0084edf08a92a877253620604fbd6ce496d2851a7ae5126dd19f27429e76
+    sha256: "faaf0084edf08a92a877253620604fbd6ce496d2851a7ae5126dd19f27429e76"
 ```
+
+Put the SHA-256 in quotes. YAML reads a value of digits, or of digits and one `e`, as a number,
+and the controller then refuses it.
 
 If the mirror has a private address, also add it to `softnetAllow` of each profile, because the
 VMs cannot reach private ranges otherwise.

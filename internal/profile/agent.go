@@ -3,7 +3,6 @@
 package profile
 
 import (
-	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -71,8 +70,9 @@ func (a Agent) Validate() []error {
 			"agent.url %q must be an https URL of a buildkite-agent release archive", a.URL))
 	}
 	if !sha256Format.MatchString(a.SHA256) {
-		problems = append(problems, errors.New(
-			"agent.sha256 must be the SHA-256 of the archive at agent.url: 64 lower-case hexadecimal characters"))
+		problems = append(problems, fmt.Errorf(
+			"agent.sha256 %q must be the SHA-256 of the archive at agent.url: 64 lower-case hexadecimal "+
+				"characters, in quotes, because YAML reads a value of digits as a number", a.SHA256))
 	}
 
 	return problems
