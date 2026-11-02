@@ -16,7 +16,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 interpreted as described in BCP 14 [RFC 2119] [RFC 8174] when, and only when, they appear in
 all capitals, as shown here.
 
-This document uses ASD-STE100 Simplified Technical English and the third person.
+This document follows the [writing guide](../writing-guide.md), in the third person.
 
 This document is the source of truth for the quality attributes and constraints that drive the
 architecture. The [product requirements](../product/requirements.md) own the functional rules. The

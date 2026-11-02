@@ -80,7 +80,7 @@ all capitals, as shown here.
 
 ## Document conventions
 
-* [ASD-STE100 Simplified Technical English](https://www.asd-ste100.org), in the third person.
+* The [writing guide](docs/writing-guide.md).
 * RFC 2119 and RFC 8174 key words, in capitals, for obligations only.
 * Lines wrap at 100 columns, except table rows and code blocks. Only the text of a URL is exempt
   from the width check, because a reader cannot wrap it.

@@ -22,7 +22,7 @@ Each ADR has these sections:
 
 ## Writing rules
 
-* ADRs use ASD-STE100 Simplified Technical English and the third person.
+* ADRs follow the [writing guide](../writing-guide.md), in the third person.
 * An ADR references only earlier ADRs. The status fields `superseded by` are the only exception.
 * Facts that can change, such as versions, prices, and vendor terms, have a date.
 * An ADR records the reasons for a decision. The target design

@@ -16,8 +16,8 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 interpreted as described in BCP 14 [RFC 2119] [RFC 8174] when, and only when, they appear in
 all capitals, as shown here.
 
-This document uses ASD-STE100 Simplified Technical English. Code identifiers, API names, and
-state names in `code format` are technical names.
+This document follows the [writing guide](../writing-guide.md), in the third person. Code
+identifiers, API names, and state names are in `code format`.
 
 ## 1. Purpose
 
@@ -1394,7 +1394,9 @@ commands reports a problem.
 ## 16. References
 
 * BCP 14: RFC 2119 — https://www.rfc-editor.org/rfc/rfc2119 and RFC 8174 — https://www.rfc-editor.org/rfc/rfc8174
-* ASD-STE100 Simplified Technical English — https://www.asd-ste100.org
+* Writing guide of this project — [docs/writing-guide.md](../writing-guide.md)
+* Kubernetes documentation style guide — https://kubernetes.io/docs/contribute/style/style-guide/
+* Google developer documentation style guide — https://developers.google.com/style
 * Buildkite Stacks API — https://buildkite.com/docs/apis/agent-api/stacks
 * Buildkite job acquisition tokens — https://buildkite.com/docs/agent/self-hosted/job-acquisition-tokens
 * Buildkite agent `start` reference — https://buildkite.com/docs/agent/cli/reference/start
