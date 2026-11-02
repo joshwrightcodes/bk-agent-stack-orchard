@@ -48,9 +48,10 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
-  # The default run of the suite draws 100 sequences of 100 events. This run draws 20000 sequences
-  # of up to 200 events. On 2026-11-02, 200 sequences took about 5 s on a development Mac, so
-  # 20000 take about 9 minutes there. The timeout leaves room for a slower hosted runner.
+  # The default run of the suite draws 400 checks. This run draws 20000 checks of up to 200 steps.
+  # On 2026-11-02, 20000 checks of 200 steps took about 13 minutes on a development Mac, estimated
+  # from a run of 5000 checks (docs/development.md). The timeout leaves room for a slower hosted
+  # runner.
   property:
     name: long property run
     runs-on: ubuntu-latest

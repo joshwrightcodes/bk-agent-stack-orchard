@@ -332,6 +332,10 @@ outside the controller:
 | `FuzzOwnedJobTellsControllersApart` | Two controller identifiers | A controller never claims a machine of another controller |
 | `FuzzParseIDAcceptsOnlyTheBuildkiteShape` | A job identifier from Buildkite | Only the lowercase UUID shape passes, unchanged |
 | `FuzzLoadGivesAnErrorOrAValidConfiguration` | The configuration file | Load gives an error or a valid configuration, and never panics |
+| `FuzzTheFinishMessageOfAnyVMEvents` | The events of a VM, which the guest writes in part | The finish message is never empty, has at most `DetailBudget` bytes, is whole characters, and has no control character except the line break and the tab |
+| `FuzzANotificationDetailIsShortAndPlain` | The text of a job-page line, such as a VM status message | The line is never empty, has at most 256 characters, is whole characters, and has no control character |
+| `FuzzTheClientSurvivesAnyResponseBody` (Buildkite) | The status and the JSON body of an answer from Buildkite | Each call gives a value or an error and never panics, and a result has no more entries than the body has bytes |
+| `FuzzTheClientSurvivesAnyResponseBody` (Orchard) | The status and the body of an answer from Orchard | Each call gives a value or an error and never panics, and a result has no more entries than the body has bytes |
 
 `go test ./...` runs the seed inputs of each one. `mise run fuzz` fuzzes each target for
 `FUZZTIME` (default `1m`). The `fuzz` workflow does this each night. When a target fails, go
