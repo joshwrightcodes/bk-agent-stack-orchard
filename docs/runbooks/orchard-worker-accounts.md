@@ -4,6 +4,12 @@ This runbook adds a Mac host, rotates the token of one host, and revokes one hos
 has its own Orchard service account, `worker-<host>`, and its own token (target design, section
 9.2).
 
+**Interim procedure.** People copy, rotate, and remove tokens by hand in this procedure. That is
+not the target state. The owner decided on 2026-11-02 that only an engineer who sets or rotates a
+key in the secret store on a schedule does a manual step, that the tokens on the Mac hosts rotate
+automatically, and that each credential can be rotated on demand. Open item O-9 of the test
+strategy tracks the work that replaces this procedure.
+
 ## Conventions
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT",

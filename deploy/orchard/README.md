@@ -196,6 +196,12 @@ so it cannot list service accounts (`admin:read`). Use the controller account fo
 
 ## First start and after the first bootstrap
 
+**Interim procedure.** People copy, rotate, and remove tokens by hand in this procedure. That is
+not the target state. The owner decided on 2026-11-02 that only an engineer who sets or rotates a
+key in the secret store on a schedule does a manual step, that the tokens on the Mac hosts rotate
+automatically, and that each credential can be rotated on demand. Open item O-9 of the test
+strategy tracks the work that replaces this procedure.
+
 Orchard 0.58.0 behaves as follows (source: `internal/command/controller/bootstrap.go` at the tag
 `0.58.0` of the Orchard repository, read on 2026-11-02; `orchard delete service-account` from
 the orchard 0.58.0 binary that mise installs, `mise x -- orchard delete --help`):

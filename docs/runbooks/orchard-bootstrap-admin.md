@@ -5,6 +5,12 @@ it rotates the token. The `bootstrap-admin` account has all roles. Only the boot
 The Job runs again for each add, rotation, migration, or revocation of a host, so the account and
 its token stay in the Secret `orchard-bootstrap`, and nothing else holds them.
 
+**Interim procedure.** People copy, rotate, and remove tokens by hand in this procedure. That is
+not the target state. The owner decided on 2026-11-02 that only an engineer who sets or rotates a
+key in the secret store on a schedule does a manual step, that the tokens on the Mac hosts rotate
+automatically, and that each credential can be rotated on demand. Open item O-9 of the test
+strategy tracks the work that replaces this procedure.
+
 ## Conventions
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT",
