@@ -228,13 +228,19 @@ depends = ["check-docs", "check-commits", "check-c4", "check-deps", "check-deplo
 # integration, and test-scripts, which check does not run. It leaves out the title gate, which
 # needs the title of a pull request. check-commits reads the commits since origin/main.
 # check-generate reads the GitHub API, so run ci as: GITHUB_TOKEN=$(gh auth token) mise run ci
+# check-generate rewrites the generated files, and the other checks compile them, so ci runs
+# check-generate alone and first, and then runs the other checks in parallel (ci-checks).
 # The jobs that need Docker (check-c4, orchard-image, smoke, snapshot) run in ci-docker, which
 # skips them with a message when Docker is absent.
 [tasks.ci]
 description = "Run the checks that the required CI jobs run (needs GITHUB_TOKEN); Docker jobs skip without Docker"
+run = [{ task = "check-generate" }, { task = "ci-checks" }]
+
+[tasks.ci-checks]
+description = "Run the checks of ci in parallel, after check-generate (use mise run ci)"
 depends = ["check-docs", "check-commits", "test-scripts", "check-deps", "lint", "lint-format",
-           "lint-config", "test", "check-generate", "vuln", "check-deploy", "check-hook",
-           "check-hosts", "integration", "ci-docker"]
+           "lint-config", "test", "vuln", "check-deploy", "check-hook", "check-hosts",
+           "integration", "ci-docker"]
 
 [tasks.ci-docker]
 description = "Run the CI jobs that need Docker: c4 model, Orchard image, smoke deployment, snapshot"

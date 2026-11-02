@@ -42,6 +42,8 @@ The gates are also tasks of their own: `check-docs`, `check-commits`, `check-dep
   `check` does not run. `check-generate` reads the GitHub API, so the command is
   `GITHUB_TOKEN=$(gh auth token) mise run ci`. The token MUST stay in the environment. It MUST NOT
   go into a file.
+  `ci` runs `check-generate` alone and first, because it rewrites the generated files that the
+  other checks compile. It then runs the other checks in parallel, through `ci-checks`.
 * `ci` runs the Docker jobs (`check-c4`, `orchard-image`, `smoke`, and `snapshot`) through
   `ci-docker`. When Docker is absent, `ci-docker` prints that it skips them and exits 0. Those
   jobs are then "CI only".
