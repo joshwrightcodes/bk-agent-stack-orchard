@@ -97,8 +97,8 @@ func TestMain(m *testing.M) {
 // T-060. One job goes from scheduled to a deleted machine, and no machine of this controller
 // remains at the end (invariant I-6). Along the way no token leaves the controller: neither
 // secret is in the machine list of Orchard, in the log of the controller, or in its telemetry
-// (invariants I-3 and I-7, and the rule that a test that writes a token to a log or to
-// telemetry must fail).
+// (invariant I-3, and the rule that a test that writes a token to a log or to telemetry
+// must fail).
 func TestOneJobGoesFromScheduledToADeletedMachine(t *testing.T) {
 	startOrchard(t, orchardBinary(t))
 
