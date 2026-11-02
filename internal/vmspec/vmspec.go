@@ -151,8 +151,8 @@ const ImageTagsPath = "/usr/local/etc/bk-agent-stack-orchard/agent-tags"
 //
 //   - names the host after the machine, so that Buildkite shows which machine ran a job. Every
 //     machine is a clone of one image, so each has the host name of the image until then. A host
-//     name is a convenience: when sudo fails, the host keeps the name of the image, the script
-//     writes one line about it, and the agent still starts;
+//     name is a convenience: when sudo or scutil fails, the host keeps the name of the image, the
+//     script writes a line about it, and the agent still starts;
 //   - adds the tags of the image after the tags of the controller. A tag of the image with a key
 //     that the controller already set, or with a character that a tag list cannot carry, does
 //     not go to the agent.
@@ -162,7 +162,7 @@ const ImageTagsPath = "/usr/local/etc/bk-agent-stack-orchard/agent-tags"
 const scriptContent = `if ! sudo -n /usr/sbin/scutil --set HostName "$BUILDKITE_AGENT_NAME" ||
 	! sudo -n /usr/sbin/scutil --set LocalHostName "$BUILDKITE_AGENT_NAME" ||
 	! sudo -n /usr/sbin/scutil --set ComputerName "$BUILDKITE_AGENT_NAME"; then
-	echo "the host name stays that of the image, because sudo failed" >&2
+	echo "the host name stays that of the image, because sudo or scutil failed" >&2
 fi
 tags=$BUILDKITE_AGENT_TAGS
 if [ -r ` + ImageTagsPath + ` ]; then

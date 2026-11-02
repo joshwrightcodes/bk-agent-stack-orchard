@@ -568,8 +568,8 @@ The startup script is the same text for each VM, so no value of a job is in it
    `HostName`, `LocalHostName`, and `ComputerName`. Each VM is a clone of one image, so each VM
    has the host name of the image until this step, and the agent shows that name in Buildkite. The
    VM name has 63 characters or fewer, which is the limit of `LocalHostName`. The host name is
-   not necessary for the job. If `sudo` fails, the script writes one line to the event log, and it
-   continues.
+   not necessary for the job. If `sudo` or `scutil` fails, the script writes a line to the event
+   log, and it continues.
 2. It adds the tags of the image to the end of `BUILDKITE_AGENT_TAGS`. The image MAY contain the
    file `/usr/local/etc/bk-agent-stack-orchard/agent-tags`, with one `key=value` on each line.
    The script ignores a line that has no key, no `=`, or a character that is not a letter, a
