@@ -255,6 +255,15 @@ events. The events are:
 * The queue pauses.
 * Time passes.
 * The controller restarts.
+* Orchard stops answering, and answers again.
+* The Stacks API refuses each call with HTTP 429 or HTTP 503, and answers again.
+* A machine that another tool or controller owns appears. The controller MUST NOT delete it.
+* The answer of a create is lost, and the retry gets HTTP 409.
+
+Each sequence also draws its inputs: one to three profiles with different names and match maps,
+one to three workers with different slots, cores, and memory, and a limit of machines. Each drawn
+configuration goes through the real configuration loader. A drawn input that the rules refuse
+fails the sequence, and the suite never repairs it.
 
 After each event the suite checks the invariants I-1, I-2, I-5, and I-8. At the end of each
 sequence it checks I-6.
@@ -264,9 +273,10 @@ scenarios on the same fakes (T-024): Buildkite not available, Orchard not availa
 that stops reporting. Each scenario also checks the request budget of the Stacks API in each
 second of the run. The client tests prove that the controller waits for `Retry-After` (T-040).
 
-`go test ./...` runs it, on any host, in a few seconds. When an invariant breaks, rapid shrinks the
-sequence to a short one, prints it, and writes a fail file under `test/component/testdata/rapid/`.
-The failure message gives the command that replays it:
+`go test ./...` runs it, on any host, in under a minute. The component suite also fails when a
+goroutine remains after the tests end (`go.uber.org/goleak`). When an invariant breaks, rapid
+shrinks the sequence to a short one, prints it, and writes a fail file under
+`test/component/testdata/rapid/`. The failure message gives the command that replays it:
 
 ```sh
 go test ./test/component/ -run TestRandomEventsHoldTheInvariants -rapid.failfile=<the file>
@@ -329,9 +339,10 @@ artifact. Add the input to the seeds of the test, and correct the code, in one p
 
 A failed night opens an issue titled "Nightly fuzz run failed", or comments on the issue that is
 open. The `fuzz` workflow also runs the long property run of the component suite each night, with
-`-rapid.checks=20000 -rapid.steps=200`. It takes about 9 minutes on a development Mac (2026-11-02).
-When it fails, the workflow keeps `test/component/testdata/rapid/` as an artifact. Replay a fail
-file as the component suite section describes.
+`-rapid.checks=20000 -rapid.steps=200`. It takes about 13 minutes on a development Mac
+(2026-11-02, estimated from a run of 5,000 checks). When it fails, the workflow keeps
+`test/component/testdata/rapid/` as an artifact. Replay a fail file as the component suite section
+describes.
 
 ## The integration tests
 

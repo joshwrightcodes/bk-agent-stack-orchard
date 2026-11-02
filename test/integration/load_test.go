@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -59,6 +60,7 @@ func TestTheControllerCarriesTheTargetScale(t *testing.T) {
 	started := time.Now()
 
 	run := &loadRun{stacks: stacks, plan: plan, started: started, agents: map[string]*agent{}}
+	before := sampleProcess()
 
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -87,7 +89,42 @@ func TestTheControllerCarriesTheTargetScale(t *testing.T) {
 		}
 	}
 
-	report(t, run, calls)
+	report(t, run, calls, before, sampleProcess())
+}
+
+// The bounds of the leak check. The check compares the process at the start of the run, with the
+// controller built and no job yet, to the process at the end, when every job has ended and every
+// machine is gone. The process holds the controller, the clients, the fake Stacks server, and the
+// test itself.
+//
+// The bounds are estimates and not measurements. A healthy run adds the idle connections of the
+// HTTP pools, which are two goroutines each and about ten connections, so it adds some tens of
+// goroutines, and it adds the records of 500 jobs and the series of the instruments, which are a
+// few MiB. A leak of one goroutine for each job is 500, and a leak of one inventory snapshot for
+// each tick is more than a hundred MiB over the 1,800 ticks of a run. Each bound is five to ten
+// times what a healthy run needs, so that only a leak that grows with the work trips it. The
+// summary table shows both samples, and the first run in CI is the check of the estimates:
+// tighten a bound when the table shows that a healthy run uses a small part of it.
+const (
+	leakGoroutineGrowth = 100
+	leakHeapGrowthMiB   = 64
+)
+
+// processSample is what the leak check reads of the process.
+type processSample struct {
+	goroutines int
+	heapBytes  uint64
+}
+
+// sampleProcess reads the goroutines and the live heap. The collection comes first, so that the
+// heap holds what the process still references and not what it has dropped.
+func sampleProcess() processSample {
+	runtime.GC()
+
+	var stats runtime.MemStats
+	runtime.ReadMemStats(&stats)
+
+	return processSample{goroutines: runtime.NumGoroutine(), heapBytes: stats.HeapAlloc}
 }
 
 const (
@@ -333,7 +370,7 @@ func (r *loadRun) summary() string {
 
 // report writes the measurements to the log of the test and to the summary of the workflow, and
 // fails the test on a broken invariant or budget.
-func report(t *testing.T, run *loadRun, calls *counted) {
+func report(t *testing.T, run *loadRun, calls *counted, before, after processSample) {
 	t.Helper()
 
 	ticks := slices.Clone(run.ticks)
@@ -361,6 +398,10 @@ func report(t *testing.T, run *loadRun, calls *counted) {
 			busiest["list"], busiest["reserve"], busiest["states"]),
 		fmt.Sprintf("| Samples where oldest-waiting lagged the queue by more than 5 s | %d |",
 			run.lagged),
+		fmt.Sprintf("| Goroutines at the start, at the end (limit +%d) | %d, %d |",
+			leakGoroutineGrowth, before.goroutines, after.goroutines),
+		fmt.Sprintf("| Live heap at the start, at the end (limit +%d MiB) | %.1f MiB, %.1f MiB |",
+			leakHeapGrowthMiB, mebibytes(before.heapBytes), mebibytes(after.heapBytes)),
 		fmt.Sprintf("| Violations | %d |", len(run.violations)),
 	}
 
@@ -379,6 +420,17 @@ func report(t *testing.T, run *loadRun, calls *counted) {
 		t.Errorf("the run broke invariants: %v", run.violations)
 	}
 
+	if grown := after.goroutines - before.goroutines; grown > leakGoroutineGrowth {
+		t.Errorf("the process has %d goroutines more than at the start, and the limit is %d",
+			grown, leakGoroutineGrowth)
+	}
+
+	if after.heapBytes > before.heapBytes &&
+		mebibytes(after.heapBytes-before.heapBytes) > leakHeapGrowthMiB {
+		t.Errorf("the live heap grew by %.1f MiB, and the limit is %d MiB",
+			mebibytes(after.heapBytes-before.heapBytes), leakHeapGrowthMiB)
+	}
+
 	// The limits of the Stacks API (target design, section 3).
 	for endpoint, limit := range map[string]int{"list": 10, "reserve": 10, "states": 20} {
 		if busiest[endpoint] > limit {
@@ -395,6 +447,8 @@ func report(t *testing.T, run *loadRun, calls *counted) {
 		t.Errorf("the p95 of the tick is %s, and the budget is %s", quantile(ticks, 0.95), budget)
 	}
 }
+
+func mebibytes(bytes uint64) float64 { return float64(bytes) / (1 << 20) }
 
 func quantile(sorted []time.Duration, q float64) time.Duration {
 	if len(sorted) == 0 {
