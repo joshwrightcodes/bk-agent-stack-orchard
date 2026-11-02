@@ -13,7 +13,7 @@ all capitals, as shown here.
 
 ## Reading order for the first day
 
-1. The [main README](../README.md). It says what the project does and where it stands.
+1. The [main README](../README.md). It says what the project does and what it does not do.
 2. The [glossary](glossary.md). It gives the terms and the identifier families that the other
    documents use.
 3. The [product requirements](product/requirements.md), sections 1 and 2 and the journeys. They
@@ -43,6 +43,8 @@ a number, such as the demand model or a quality target.
 | [Implementation plan](delivery/implementation-plan.md) | In which order does the work go, and what ends each unit? |
 | [Development guide](development.md) | How does a developer run the gates, the tests, and the controller? |
 | [Glossary](glossary.md) | What does a term or an identifier mean? |
+| [Install the controller](user/install.md) | What does an operator need, and how does an operator install, verify, and upgrade a release? |
+| [Third-party terms](user/third-party-terms.md) | Which terms of Apple, Tart, and Orchard affect a fleet? |
 | [Runbook: replace the agent token](runbooks/token-replacement.md) | How does an operator replace the cluster agent token? |
 | [Runbook: retire and rotate the Orchard bootstrap admin](runbooks/orchard-bootstrap-admin.md) | How does an operator take the `bootstrap-admin` token out of the Orchard pod and rotate it? |
 | [Runbook: Orchard worker accounts](runbooks/orchard-worker-accounts.md) | How does an operator add, rotate, and revoke the account of one Mac host? |
@@ -52,17 +54,16 @@ The direction of the set is from the requirements to the design, the tests, and 
 
 ## Access checklist
 
-A new contributor needs these items. The maintainer (`@joshwrightcodes`) grants them. Ask in a
-GitHub issue or discussion, and do not send a secret in it.
+A new contributor needs these items. The maintainers grant them. Ask in a GitHub issue or
+discussion, and do not send a secret in it.
 
 * [ ] **A Buildkite test cluster.** The cluster gives a queue and a cluster agent token for the
   controller. Only a run against real Buildkite needs it. The local quick start does not.
 * [ ] **The Mac lab.** A Mac with Apple silicon, with Tart and Orchard, runs the real-VM tests. The
-  maintainer holds the lab, and the date of its first host is `UNKNOWN` (owner: the maintainer;
-  trigger: the Mac hosts are ready).
-* [ ] **The secret source.** The maintainer gives each secret through the secret manager of the
+  maintainers hold the lab.
+* [ ] **The secret source.** The maintainers give each secret through the secret manager of the
   team. A secret MUST NOT go into the repository, a log, or a document.
-* [ ] **The GitHub team.** Membership gives review rights. Until a team exists, the maintainer is
-  the owner of each path (`.github/CODEOWNERS`).
+* [ ] **The GitHub team.** Membership gives review rights. Until a team exists, the maintainers own
+  each path (`.github/CODEOWNERS`).
 * [ ] **The `release` environment reviewer.** A release publishes only after a reviewer of the
-  `release` environment of the repository approves it. Only a maintainer takes this role.
+  `release` environment of the repository approves it. Only the maintainers take this role.
