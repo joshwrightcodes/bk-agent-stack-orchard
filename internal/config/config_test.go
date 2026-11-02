@@ -196,6 +196,111 @@ profiles:`, 1)
 	}
 }
 
+// The Stacks API accepts a reservation of 3600 s at most, and a token of the same length at most.
+// A value above that fails at start-up, and not at the first job, where Buildkite would refuse it.
+func TestLoadRefusesAReservationOverOneHour(t *testing.T) {
+	body := strings.Replace(minimal, "buildkite:", "buildkite:\n  reservationExpiry: 3601s", 1)
+
+	_, err := load(t, body, secrets())
+	if err == nil || !strings.Contains(err.Error(), "buildkite.reservationExpiry") ||
+		!strings.Contains(err.Error(), "3600") {
+		t.Errorf("Load() with a reservation of 3601 s = %v, want an error that names it and the limit", err)
+	}
+}
+
+// The token goes into a virtual machine that runs untrusted code, so it lives 1800 s at most. That
+// is shorter than the limit of the API.
+func TestLoadRefusesATokenLifetimeOverThirtyMinutes(t *testing.T) {
+	for _, lifetime := range []string{"1801s", "3600s", "3601s"} {
+		t.Run(lifetime, func(t *testing.T) {
+			body := strings.Replace(minimal, "buildkite:",
+				"buildkite:\n  jobTokenLifetime: "+lifetime, 1)
+
+			_, err := load(t, body, secrets())
+			if err == nil || !strings.Contains(err.Error(), "buildkite.jobTokenLifetime") ||
+				!strings.Contains(err.Error(), "1800") {
+				t.Errorf("Load() with a token lifetime of %s = %v, want an error that names it and 1800",
+					lifetime, err)
+			}
+		})
+	}
+}
+
+// The API takes whole seconds, and a token lifetime of at least 1 s. A shorter value would turn
+// into 0, which the library leaves out of the request, and the API would then use its default.
+func TestLoadRefusesALifetimeUnderOneSecond(t *testing.T) {
+	//nolint:gosec // The keys name a lifetime and not a credential.
+	for name, change := range map[string]string{
+		"buildkite.reservationExpiry": "buildkite:\n  reservationExpiry: 500ms",
+		"buildkite.jobTokenLifetime":  "buildkite:\n  jobTokenLifetime: 500ms",
+	} {
+		t.Run(name, func(t *testing.T) {
+			body := strings.Replace(minimal, strings.SplitN(change, "\n", 2)[0], change, 1)
+
+			_, err := load(t, body, secrets())
+			if err == nil || !strings.Contains(err.Error(), name) ||
+				!strings.Contains(err.Error(), "at least 1 s") {
+				t.Errorf("Load() with %s = %v, want an error that names it and the minimum", change, err)
+			}
+		})
+	}
+}
+
+// The library sends whole seconds, so 1500 ms would become 1 s. The configuration refuses it, and
+// does not truncate it.
+func TestLoadRefusesALifetimeThatIsNotWholeSeconds(t *testing.T) {
+	//nolint:gosec // The keys name a lifetime and not a credential.
+	for name, change := range map[string]string{
+		"buildkite.reservationExpiry": "buildkite:\n  reservationExpiry: 1500ms",
+		"buildkite.jobTokenLifetime":  "buildkite:\n  jobTokenLifetime: 1500ms",
+	} {
+		t.Run(name, func(t *testing.T) {
+			body := strings.Replace(minimal, strings.SplitN(change, "\n", 2)[0], change, 1)
+
+			_, err := load(t, body, secrets())
+			if err == nil || !strings.Contains(err.Error(), name) ||
+				!strings.Contains(err.Error(), "whole seconds") {
+				t.Errorf("Load() with %s = %v, want an error that names it and whole seconds",
+					change, err)
+			}
+		})
+	}
+}
+
+func TestLoadAcceptsTheLongestLifetimes(t *testing.T) {
+	body := strings.Replace(minimal, "buildkite:",
+		"buildkite:\n  reservationExpiry: 3600s\n  jobTokenLifetime: 1800s", 1)
+
+	if _, err := load(t, body, secrets()); err != nil {
+		t.Errorf("Load() with a reservation of 3600 s and a token of 1800 s = %v, want no error", err)
+	}
+}
+
+// BUILDKITE_AGENT_TAGS is one comma-separated list, and the queue is its first tag.
+func TestLoadRefusesAQueueThatIsUnsafeInTheTagList(t *testing.T) {
+	for name, queue := range map[string]string{
+		"a comma":          `"a,b"`,
+		"a double quote":   `'a"b'`,
+		"a single quote":   `"a'b"`,
+		"a newline":        `"a\nb"`,
+		"a carriage":       `"a\rb"`,
+		"leading padding":  `" a"`,
+		"trailing padding": `"a "`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			body := strings.Replace(minimal, "queue: macos\n", "queue: "+queue+"\n", 1)
+			if body == minimal {
+				t.Fatal("the test fixture has no queue line to change")
+			}
+
+			_, err := load(t, body, secrets())
+			if err == nil || !strings.Contains(err.Error(), "buildkite.queue") {
+				t.Errorf("Load() with a queue with %s = %v, want an error that names the queue", name, err)
+			}
+		})
+	}
+}
+
 func TestLoadRejectsASourceThatIsReadLessOftenThanTheFreshnessLimit(t *testing.T) {
 	for name, change := range map[string]string{
 		"buildkite.pollInterval":      "buildkite:\n  pollInterval: 60s",
@@ -288,6 +393,19 @@ func TestLoadWarnsAboutAnImageWithoutADigest(t *testing.T) {
 	}
 }
 
+func TestLoadWarnsThatASoftnetAllowReachesEveryPipelineOnTheQueue(t *testing.T) {
+	body := strings.Replace(minimal, "    image: ghcr.io/acme/macos-golden-gate-xcode@sha256:abc",
+		"    image: ghcr.io/acme/macos-golden-gate-xcode@sha256:abc\n    softnetAllow: [\"10.20.30.40/32\"]", 1)
+
+	cfg, err := load(t, body, secrets())
+	if err != nil {
+		t.Fatalf("Load() = %v, want no error, because the allow is a warning", err)
+	}
+	if len(cfg.Warnings) != 1 || !strings.Contains(cfg.Warnings[0], "every pipeline on the queue") {
+		t.Errorf("Warnings = %v, want one warning about every pipeline", cfg.Warnings)
+	}
+}
+
 func TestLoadReportsEveryProblemAtOnce(t *testing.T) {
 	body := strings.Replace(minimal, "controllerID: macos-prod", "controllerID: MacOS", 1)
 	body = strings.Replace(body, "name: xcode-27", "name: Xcode_27", 1)
@@ -374,5 +492,129 @@ func TestLoadAcceptsAPlainHTTPBuildkiteEndpointThatTheConfigurationAllows(t *tes
 		return strings.Contains(w, "buildkite.endpoint") && strings.Contains(w, "plain HTTP")
 	}) {
 		t.Fatalf("Warnings = %q, want a warning about the plain HTTP endpoint", cfg.Warnings)
+	}
+}
+
+// A profile names the variables whose values go into its machines. A job runs untrusted code in
+// that machine, so a name that holds a controller secret would give the secret to the job.
+func TestLoadRefusesAProfileThatNamesAControllerSecret(t *testing.T) {
+	secretNames := []string{
+		"BK_AGENT_STACK_ORCHARD_BUILDKITE_AGENT_TOKEN",
+		"BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN",
+		"BK_AGENT_STACK_ORCHARD_ORCHARD_CA_CERT",
+		"OTEL_EXPORTER_OTLP_HEADERS",
+	}
+	fields := map[string]string{
+		"otel.headersEnv": `    otel: {enabled: true, endpoint: "https://otel.example.com", headersEnv: %s}
+`,
+		"vmCredentials.usernameEnv": `    startupTransport: ssh
+    vmCredentials: {usernameEnv: %s, passwordEnv: VM_PASSWORD}
+`,
+		"vmCredentials.passwordEnv": `    startupTransport: ssh
+    vmCredentials: {usernameEnv: VM_USER, passwordEnv: %s}
+`,
+	}
+
+	for field, template := range fields {
+		for _, name := range secretNames {
+			t.Run(field+" "+name, func(t *testing.T) {
+				environment := func(variable string) string {
+					return map[string]string{
+						"BK_AGENT_STACK_ORCHARD_BUILDKITE_AGENT_TOKEN": "bkct_test",
+						"BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN":         "orchard_test",
+					}[variable] + "x"
+				}
+
+				_, err := load(t, minimal+strings.Replace(template, "%s", name, 1), environment)
+				if err == nil {
+					t.Fatalf("Load() with %s naming %s = nil, want an error", field, name)
+				}
+				for _, want := range []string{`profile "xcode-27"`, field, name} {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("Load() = %q, want it to contain %q", err, want)
+					}
+				}
+			})
+		}
+	}
+}
+
+// A name that the controller does not use stays free for an operator to choose.
+func TestLoadAcceptsAProfileThatNamesItsOwnVariables(t *testing.T) {
+	body := minimal + `    otel: {enabled: true, endpoint: "https://otel.example.com", headersEnv: VM_OTEL_HEADERS}
+`
+
+	if _, err := load(t, body, secrets()); err != nil {
+		t.Fatalf("Load() = %v, want no error", err)
+	}
+}
+
+// The telemetry headers of the agent travel with every export, so the endpoint needs TLS as the
+// other endpoints do. A loopback address stays on the machine.
+func TestLoadRefusesAPlainHTTPAgentTelemetryEndpoint(t *testing.T) {
+	otel := func(endpoint string) string {
+		return minimal + `    otel: {enabled: true, endpoint: "` + endpoint + `"}
+`
+	}
+
+	_, err := load(t, otel("http://collector.example.com:4318"), secrets())
+	if err == nil || !strings.Contains(err.Error(), "otel.endpoint") ||
+		!strings.Contains(err.Error(), "https") || !strings.Contains(err.Error(), "xcode-27") {
+		t.Fatalf("Load() = %v, want an error that names the profile and otel.endpoint and asks for https", err)
+	}
+
+	for _, endpoint := range []string{
+		"https://collector.example.com:4318", "http://127.0.0.1:4318", "http://localhost:4318",
+		"http://[::1]:4318",
+	} {
+		if _, err := load(t, otel(endpoint), secrets()); err != nil {
+			t.Errorf("Load() with the endpoint %s = %v, want no error", endpoint, err)
+		}
+	}
+}
+
+// The controller pod holds other secrets than its own, such as a proxy URL with a password. Only a
+// variable that the operator marks for the VM with the VM_ prefix may go into a machine.
+func TestLoadRefusesAProfileVariableThatIsNotForTheVM(t *testing.T) {
+	for _, name := range []string{
+		"HTTPS_PROXY", "OTEL_EXPORTER_OTLP_TRACES_HEADERS", "MY_SECRET", "vm_password",
+	} {
+		t.Run(name, func(t *testing.T) {
+			body := minimal + `    otel: {enabled: true, endpoint: "https://otel.example.com", headersEnv: ` + name + `}
+`
+			_, err := load(t, body, func(string) string { return "x" })
+			if err == nil {
+				t.Fatalf("Load() with headersEnv %s = nil, want an error", name)
+			}
+			for _, want := range []string{`profile "xcode-27"`, "otel.headersEnv", name, "VM_"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("Load() = %q, want it to contain %q", err, want)
+				}
+			}
+		})
+	}
+}
+
+func TestLoadAcceptsAVMVariableForEachField(t *testing.T) {
+	body := minimal + `    startupTransport: ssh
+    vmCredentials: {usernameEnv: VM_USER, passwordEnv: VM_PASSWORD}
+    otel: {enabled: true, endpoint: "https://otel.example.com", headersEnv: VM_OTEL_HEADERS}
+`
+
+	if _, err := load(t, body, func(string) string { return "x" }); err != nil {
+		t.Fatalf("Load() = %v, want no error", err)
+	}
+}
+
+// The most specific message wins: a controller secret is a controller secret, not only a name
+// without the prefix.
+func TestLoadNamesTheControllerSecretBeforeTheVMPrefixRule(t *testing.T) {
+	body := minimal + `    otel: {enabled: true, endpoint: "https://otel.example.com", headersEnv: BK_AGENT_STACK_ORCHARD_TOKEN}
+`
+
+	_, err := load(t, body, secrets())
+	if err == nil || !strings.Contains(err.Error(), "belongs to the controller") ||
+		strings.Contains(err.Error(), "must start with") {
+		t.Errorf("Load() = %v, want only the controller secret message", err)
 	}
 }

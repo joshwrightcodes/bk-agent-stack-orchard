@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -317,12 +318,20 @@ type controller struct {
 func startController(t *testing.T, config string) *controller {
 	t.Helper()
 
+	return startControllerWith(t, config, nil)
+}
+
+// startControllerWith runs the controller binary with the variables of extra added to its
+// environment, or in place of the ones that the test sets.
+func startControllerWith(t *testing.T, config string, extra map[string]string) *controller {
+	t.Helper()
+
 	log := filepath.Join(t.TempDir(), "controller.log")
 
 	//nolint:gosec // G204: the binary is the one that TestMain built, with a config of this test.
 	command := exec.CommandContext(t.Context(), controllerBinary, "-config", config)
 	graceful(command)
-	command.Env = environment(map[string]string{
+	variables := map[string]string{
 		"HOME": t.TempDir(),
 		"BK_AGENT_STACK_ORCHARD_BUILDKITE_AGENT_TOKEN": "bkct_integration",
 		"BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN":         "integration",
@@ -330,7 +339,10 @@ func startController(t *testing.T, config string) *controller {
 		"OTEL_TRACES_EXPORTER":  "none",
 		"OTEL_METRICS_EXPORTER": "none",
 		"OTEL_LOGS_EXPORTER":    "none",
-	})
+	}
+	maps.Copy(variables, extra)
+
+	command.Env = environment(variables)
 	command.Stdout, command.Stderr = output(t, log), output(t, log)
 
 	if err := command.Start(); err != nil {

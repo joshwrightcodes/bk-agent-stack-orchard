@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -110,6 +111,42 @@ func TestRegisterAnnouncesACustomStackForTheQueue(t *testing.T) {
 
 	if fake.DeregisterCalls != 1 {
 		t.Errorf("the server saw %d deregistrations, want 1", fake.DeregisterCalls)
+	}
+}
+
+// stacksapi reads a whole body into memory. A body over the limit must fail the call, and a cut
+// body must never reach the decoder.
+func TestACallFailsWhenTheBodyOfTheAnswerIsOverTheLimit(t *testing.T) {
+	const limit = 16 << 20
+
+	for name, size := range map[string]int{"over": limit + 1, "at": limit} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"pad":"`))
+				_, _ = w.Write(bytes.Repeat([]byte("a"), size-len(`{"pad":"`)-2))
+				_, _ = w.Write([]byte(`"}`))
+			}))
+			t.Cleanup(server.Close)
+
+			client, err := buildkite.New(buildkite.Options{
+				Token:    secret.String("bkct_a-cluster-agent-token"),
+				Endpoint: server.URL,
+				StackKey: "bk-macos-prod",
+				Queue:    "macos-prod",
+			})
+			if err != nil {
+				t.Fatalf("New() = %v, want a client", err)
+			}
+
+			err = client.Register(t.Context())
+			if name == "over" && (err == nil || !strings.Contains(err.Error(), "over the limit")) {
+				t.Errorf("Register() with a body of %d bytes = %v, want an error about the limit", size, err)
+			}
+			if name == "at" && err != nil && strings.Contains(err.Error(), "over the limit") {
+				t.Errorf("Register() with a body of %d bytes = %v, want no error about the limit", size, err)
+			}
+		})
 	}
 }
 
@@ -335,6 +372,48 @@ func TestNotifyWritesTheLinesOfEachJob(t *testing.T) {
 
 	if fake.NotificationCalls[0][0].Detail != "VM requested" {
 		t.Errorf("the first line read %q, want VM requested", fake.NotificationCalls[0][0].Detail)
+	}
+}
+
+// Buildkite accepts a detail of 256 characters in a notification. The client cuts a longer
+// detail at a character, never inside one, and ends it with an ellipsis so that a reader can tell.
+func TestANotificationDetailIsCutTo256Characters(t *testing.T) {
+	t.Parallel()
+
+	sent := func(detail string) string {
+		t.Helper()
+
+		client, fake := start(t)
+
+		if err := client.Notify(t.Context(), []buildkite.Notification{
+			{JobID: first, Detail: detail, At: time.Now()},
+		}); err != nil {
+			t.Fatalf("Notify() = %v, want no error", err)
+		}
+
+		return fake.NotificationCalls[0][0].Detail
+	}
+
+	// Each character takes three bytes, so a limit in bytes would cut inside one.
+	long := sent(strings.Repeat("ビ", 300))
+	if got := utf8.RuneCountInString(long); got != 256 || !utf8.ValidString(long) {
+		t.Errorf("the client sent %d characters, whole characters %v; want 256 whole characters",
+			got, utf8.ValidString(long))
+	}
+
+	if !strings.HasSuffix(long, "…") {
+		t.Errorf("the detail ends with %q, want an ellipsis that says it was cut",
+			long[len(long)-3:])
+	}
+
+	// The API refuses an empty detail, so the client sends a word in its place.
+	if got := sent(""); got == "" {
+		t.Error("the client sent an empty detail, want a replacement because the API refuses it")
+	}
+
+	exact := strings.Repeat("ビ", 256)
+	if got := sent(exact); got != exact {
+		t.Error("a detail of exactly 256 characters changed on the way out, want it unchanged")
 	}
 }
 
@@ -629,5 +708,34 @@ func TestARefusedLineIsAnAnswerAboutTheJob(t *testing.T) {
 	})
 	if !errors.Is(err, buildkite.ErrRefused) || !strings.Contains(err.Error(), "job is finished") {
 		t.Errorf("Notify() = %v, want ErrRefused with the reason of Buildkite", err)
+	}
+
+	// The caller learns which lines Buildkite refused, because it created the others.
+	var refused *buildkite.RefusedError
+	if !errors.As(err, &refused) || !slices.Equal(refused.Indexes, []int{0}) {
+		t.Errorf("Notify() = %v, want a RefusedError with the index 0", err)
+	}
+}
+
+func TestNotifyRefusesMoreLinesThanOneRequestTakes(t *testing.T) {
+	t.Parallel()
+
+	client, err := buildkite.New(buildkite.Options{
+		Token:    secret.String("bkct_a-cluster-agent-token"),
+		Endpoint: "http://127.0.0.1:1",
+		StackKey: "bk-macos-prod",
+		Queue:    "macos-prod",
+	})
+	if err != nil {
+		t.Fatalf("New() = %v, want a client", err)
+	}
+
+	lines := make([]buildkite.Notification, buildkite.NotificationsPerRequest+1)
+	for i := range lines {
+		lines[i] = buildkite.Notification{JobID: first, Detail: "x", At: time.Now()}
+	}
+
+	if err := client.Notify(t.Context(), lines); err == nil {
+		t.Error("Notify() with one line more than a request takes = nil, want an error")
 	}
 }

@@ -48,6 +48,7 @@ func (f *fleet) readiness(t *testing.T) *health.Checks {
 
 	checks, err := health.New(health.Options{
 		Sources:      sources,
+		Window:       60 * time.Second, // the default of stateFreshness
 		Unauthorized: func() bool { return false },
 		Now:          func() time.Time { return f.now },
 		Logger:       slog.New(slog.DiscardHandler),
@@ -214,7 +215,7 @@ func TestAnOrchardOutageStopsAdmissionAndDeletion(t *testing.T) {
 	s.stacks.jobs[ended].state = stateFinished
 
 	// The last answer of the inventory ages past the freshness limit, and admission stops.
-	s.run(61)
+	s.run(70)
 
 	late := s.arrive()
 	s.run(60)

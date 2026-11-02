@@ -40,7 +40,8 @@ The intended outcome has five parts:
 * Pipeline authors run macOS jobs with standard Buildkite pipeline syntax.
 * Each job runs in a new macOS VM on the self-hosted fleet.
 * The number of VMs follows the number of scheduled jobs, up to the free capacity.
-* A job that cannot run fails with a clear message in Buildkite.
+* A job whose VM cannot start fails with a clear message in Buildkite. A job that no profile
+  carries stays scheduled, with a notification on its job page, for another runner of the queue.
 * Source code stays on owner infrastructure, in the operating country.
 
 The horizon has four phases. Development uses one Mac, and the pilot uses 2 to 4 Macs. Adoption
@@ -63,7 +64,7 @@ In scope:
 
 * Execution of Buildkite macOS jobs from one queue, with one new VM for each job.
 * Selection of a VM profile from the agent tags of a job.
-* Visible failure of jobs that cannot run.
+* Visible failure of jobs whose VM cannot start, and a visible skip of jobs that no profile carries.
 * Configuration, credentials, readiness, and telemetry for the fleet operator.
 * The build of the job VM images. This was a non-goal until the owner decided on 2026-10-10 that
   the project builds them (ADR-0012).
@@ -94,9 +95,11 @@ for the job. The agent in the VM runs the job, and the VM is deleted after the j
 slot is free, the job stays in the queue until a slot is free. If the job is cancelled before it
 starts, its VM is deleted.
 
-**J2: A job cannot run.** The tags of a job match no profile, or the VM of the job does not start.
-The job fails with a message on the job page. If the pipeline has the recommended retry rule,
-Buildkite tries the job again one time.
+**J2: A job cannot run.** The VM of the job does not start. The job fails with a message on the
+job page. The Buildkite platform generates the `signal_reason` `stack_error` for it (PR-012), and
+the automatic retry rule of the pipeline decides if Buildkite tries the job again. If the tags of
+a job match no profile, the controller skips the job (PR-004): it writes one notification on the
+job page, and the job stays scheduled for another stack or agent of the queue.
 
 **J3: Change the profiles.** The fleet operator changes the configuration file and restarts the
 controller. If the configuration is not valid, the controller does not start, and it reports the
@@ -145,14 +148,26 @@ the VMs of ended jobs and starts VMs for waiting jobs.
   * Given a profile with `match: {}`. When a job has only the `queue` tag. Then the job uses that
     profile.
 
-**PR-004: Fail an unmatched job immediately.**
+**PR-004: Skip an unmatched job.**
 
-* Requirement: If no profile matches a job, or a tag rule is not `key=literal`, the product MUST
-  fail the job immediately. The message MUST list the tags of the job and the `match` maps of all
-  profiles. An unmatched job MUST NOT use a VM slot.
-* Status: `accepted`.
-* Acceptance: Given a job whose tags match no profile. When Buildkite schedules the job. Then the
-  job fails with `exit_status -1` and the message, and no VM starts for the job.
+* Requirement: If no profile matches a job, or a tag rule is not `key=literal` (a key or a value
+  with a comma, a newline, a carriage return, or a quote is not a literal), the product MUST
+  skip the job. The product MUST NOT reserve the job, MUST NOT finish the job, and MUST NOT give
+  it a VM slot. The job stays `scheduled`, so that another stack or agent of the queue can carry
+  it. The product MUST write one stack notification on the job page, which says in short why no
+  profile carries the job. The product MUST write that notification once for a job while the job
+  stays listed and the process runs. The product MAY write it again after a restart, after
+  the job left the list and came back, and when the number of jobs that it remembers passes the
+  cap of the design (10 000). The product MUST write the full message, with the tags of
+  the job and the `match` maps of all profiles, in the log each time that it writes the
+  notification. The product MUST count a skipped job each time that it writes the notification.
+  A job can have at most 100 notifications, so the product keeps the number of notices low.
+* Status: `accepted`. Decision D1 of the owner, 2026-11-01, replaced "fail immediately" with
+  "skip". ADR-0016 records it.
+* Acceptance: Given a job whose tags match no profile, and a free VM slot. When Buildkite
+  schedules the job, and the controller runs 2 ticks. Then the controller does not reserve the
+  job, does not finish it, and starts no VM for it. The job page has one notification, and the
+  counter of skipped jobs rises by 1. A matched job in the same tick starts as normal.
 
 **PR-005: Keep jobs that do not fit in the queue.**
 
@@ -211,18 +226,24 @@ the VMs of ended jobs and starts VMs for waiting jobs.
 **PR-011: Obey a paused queue.**
 
 * Requirement: While the queue is `dispatch_paused`, the product MUST NOT start VMs and MUST NOT
-  fail unmatched jobs. VMs of jobs in progress MUST continue.
+  write new notifications for unmatched jobs. VMs of jobs in progress MUST continue.
 * Status: `accepted`.
 * Acceptance: Given a paused queue with waiting jobs. When time passes. Then no VM starts, and no
-  job fails.
+  job fails. No new notification appears for an unmatched job.
 
 **PR-012: Give pipelines a retry signal.**
 
-* Requirement: A job that the product fails MUST have `signal_reason: stack_error`. Pipelines on
-  the queue SHOULD retry such a job one time.
+* Requirement: The product MUST finish a job that it fails with exit status -1 and a detail. The
+  Buildkite platform then generates the `signal_reason` `stack_error` for the job. The product
+  cannot set the `signal_reason` itself, because the finish request has no such field. Pipelines
+  on the queue use `signal_reason: stack_error` with `limit: 0` in their automatic retry rules
+  (Buildkite Stacks API documentation, read on 2026-11-01). Whether the platform generates
+  `stack_error` for every job that the product finishes is `UNKNOWN` (owner: the maintainer;
+  trigger: the first runs of T-100 to T-105).
 * Status: `accepted`.
 * Acceptance: Given a pipeline with the retry rule. When the product fails a job because a host
-  went offline. Then Buildkite tries the job again one time.
+  went offline. Then the job has `signal_reason: stack_error`, and the retry rule of the pipeline
+  applies.
 
 **References.** ADR-0001, ADR-0002, ADR-0003, and ADR-0006 record the decisions behind these
 requirements. The target design describes the job lifecycle and the failure procedures.
@@ -242,11 +263,22 @@ requirements. The target design describes the job lifecycle and the failure proc
 
 * Requirement: The controller MUST NOT start if a profile rule fails. The rules forbid duplicate
   names, equal `match` maps, and empty or `queue` match keys. They also forbid timeouts longer
-  than the job token lifetime. A profile that uses the SSH startup-script transport MUST have VM
-  credentials.
+  than the job token lifetime. The controller MUST also refuse a reservation expiry that is not a
+  whole number of seconds from 1 to 3600, which are the limits of the Stacks API. It MUST refuse
+  a job token lifetime that is not a whole number of seconds from 1 to 1800, because the token
+  goes into a VM that runs untrusted code. A profile MUST NOT use `queue`, `profile`, or
+  `agent-stack` as a `match` key. No `match` value and no `buildkite.queue` MAY have a comma, a
+  quote, a newline, or white space at an end. A `softnetAllow` entry MUST be an IPv4 CIDR range
+  that is not wider than /16. A profile that uses the SSH startup-script transport MUST have VM
+  credentials. A profile MUST name only variables that start with `VM_` as the source of a value
+  for its VM, because the controller pod holds other secrets. A profile MUST NOT send agent
+  telemetry over plain HTTP to a non-loopback address.
 * Status: `accepted`.
 * Acceptance: Given two profiles with equal `match` maps. When the controller starts. Then it
   stops and reports the rule that failed.
+* Acceptance: Given a profile whose `otel.headersEnv` names `HTTPS_PROXY` or
+  `OTEL_EXPORTER_OTLP_HEADERS`. When the controller starts. Then it stops and names the profile,
+  the field, and the variable.
 
 **PR-022: Supply secrets through environment variables.**
 
@@ -267,7 +299,8 @@ requirements. The target design describes the job lifecycle and the failure proc
 **PR-024: Report readiness.**
 
 * Requirement: The controller MUST report that it is not ready when a data source is not
-  synchronized within 30 s. It MUST also report this when the Stacks API returns HTTP 401.
+  synchronized within `stateFreshness`. It MUST also report this when the Stacks API returns
+  HTTP 401.
 * Status: `accepted`.
 * Acceptance: Given a revoked cluster agent token. When the controller calls the Stacks API. Then
   the readiness check fails.
@@ -304,7 +337,10 @@ The target design describes the configuration, the credentials, and the observab
 * Requirement: Each job VM MUST serve one job only, and the controller MUST NOT use it again. The
   VM MUST NOT reach the host, another VM, or a private address that its profile does not permit.
   The VM MUST NOT have host directory mounts. The VM MUST receive only a job acquisition token for
-  its own job. The cluster agent token and the Orchard credentials MUST NOT go into a VM.
+  its own job. The cluster agent token and the Orchard credentials MUST NOT go into a VM. The
+  controller MUST refuse a profile that names a variable without the `VM_` prefix as the source of
+  a VM value, and it MUST refuse any `BK_AGENT_STACK_ORCHARD_` or `OTEL_` name with a message
+  that names the controller.
 * Source: owner statement (2026-09-13). Status: `accepted`.
 * Acceptance: Given a job that tries to reach the host, another VM, or a private address that the
   profile does not permit. When the job runs. Then the connection fails, and the VM contains no

@@ -27,10 +27,6 @@ import (
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
 )
 
-// Window is how old the last answer of a source may be while the controller is ready (target
-// design, section 11).
-const Window = 30 * time.Second
-
 // The services of the health server. A probe names one of them. The empty name is the health of
 // the whole server in the protocol, and it follows readiness.
 const (
@@ -53,6 +49,11 @@ type Options struct {
 	// Unauthorized reports an agent token that Buildkite refused.
 	Unauthorized func() bool
 
+	// Window is how old the last answer of a source may be while the controller is ready. The
+	// controller gives its stateFreshness, which the configuration requires to be longer than
+	// the interval of each source. It MUST be positive.
+	Window time.Duration
+
 	// Now is the clock of the controller.
 	Now func() time.Time
 
@@ -64,6 +65,7 @@ type Options struct {
 type Checks struct {
 	sources      []Source
 	unauthorized func() bool
+	window       time.Duration
 	now          func() time.Time
 	logger       *slog.Logger
 	server       *grpchealth.Server
@@ -88,6 +90,10 @@ func New(options Options) (*Checks, error) {
 		problems = append(problems, errors.New("the readiness check needs the state of the token"))
 	}
 
+	if options.Window <= 0 {
+		problems = append(problems, errors.New("the readiness check needs a window above zero"))
+	}
+
 	if options.Now == nil {
 		problems = append(problems, errors.New("the readiness check needs a clock"))
 	}
@@ -108,6 +114,7 @@ func New(options Options) (*Checks, error) {
 	return &Checks{
 		sources:      options.Sources,
 		unauthorized: options.Unauthorized,
+		window:       options.Window,
 		now:          options.Now,
 		logger:       options.Logger,
 		server:       server,
@@ -212,11 +219,11 @@ func (c *Checks) problems() []problem {
 				"unanswered " + string(source.Source()),
 				fmt.Sprintf("the source %s has not answered yet", source.Source()),
 			})
-		case now.Sub(at) > Window:
+		case now.Sub(at) > c.window:
 			found = append(found, problem{
 				"old " + string(source.Source()),
 				fmt.Sprintf("the last answer of the source %s is %s old, and readiness needs "+
-					"one inside %s", source.Source(), now.Sub(at).Round(time.Second), Window),
+					"one inside %s", source.Source(), now.Sub(at).Round(time.Second), c.window),
 			})
 		}
 	}

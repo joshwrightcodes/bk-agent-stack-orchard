@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
@@ -240,7 +241,12 @@ func (c *Client) attempt(ctx context.Context, method, path string, body []byte, 
 		return nil
 	}
 
-	if err := json.NewDecoder(response.Body).Decode(out); err != nil {
+	data, err := readLimited(response.Body, maxResponseBytes)
+	if err != nil {
+		return fmt.Errorf("reading the answer of %s %s: %w", method, path, err)
+	}
+
+	if err := json.Unmarshal(data, out); err != nil {
 		return fmt.Errorf("reading the answer of %s %s: %w", method, path, err)
 	}
 
@@ -304,11 +310,33 @@ func apiMessage(response *http.Response) string {
 		Message string `json:"message"`
 	}
 
-	if err := json.NewDecoder(response.Body).Decode(&body); err != nil || body.Message == "" {
+	data, err := readLimited(response.Body, maxErrorBytes)
+	if err != nil || json.Unmarshal(data, &body) != nil || body.Message == "" {
 		return "no message"
 	}
 
 	return body.Message
+}
+
+// The most that the client reads from the body of an answer. A body over the limit fails,
+// because a cut body can still decode into a list that is short.
+const (
+	maxResponseBytes = 16 << 20 // 16 MiB
+	maxErrorBytes    = 64 << 10 // 64 KiB, for an error, where only a message matters
+)
+
+// readLimited reads a whole body, and fails when the body is longer than the limit.
+func readLimited(body io.Reader, limit int64) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(body, limit+1))
+	if err != nil {
+		return nil, err
+	}
+
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("the body is over the limit of %d bytes", limit)
+	}
+
+	return data, nil
 }
 
 // retry marks an error that another attempt can pass.

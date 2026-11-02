@@ -39,6 +39,7 @@ const (
 const (
 	SpanProfile = prefix + "profile"
 	SpanMatched = prefix + "job.matched"
+	SpanSkipped = prefix + "job.skipped"
 )
 
 // The attributes of the reaper.decide span (target design, section 10.2).
@@ -171,7 +172,8 @@ type Metrics struct {
 	vms         metric.Int64ObservableUpDownCounter
 	workers     metric.Int64ObservableUpDownCounter
 	staleness   metric.Float64ObservableGauge
-	unmatched   metric.Int64Counter
+	skipped     metric.Int64Counter
+	truncated   metric.Int64Counter
 	failed      metric.Int64Counter
 	deletions   metric.Int64Counter
 	errors      metric.Int64Counter
@@ -260,11 +262,20 @@ func (m *Metrics) observable(meter metric.Meter) error {
 func (m *Metrics) synchronous(meter metric.Meter) error {
 	var err error
 
-	m.unmatched, err = meter.Int64Counter(prefix+"job.unmatched",
+	m.skipped, err = meter.Int64Counter(prefix+"job.skipped",
 		metric.WithUnit("{job}"),
-		metric.WithDescription("Jobs of the queue that no profile matches."))
+		metric.WithDescription("Jobs of the queue that no profile matches, which the controller "+
+			"leaves for another runner. It counts each job once, when it first notifies it."))
 	if err != nil {
-		return fmt.Errorf("building the instrument of the unmatched jobs: %w", err)
+		return fmt.Errorf("building the instrument of the skipped jobs: %w", err)
+	}
+
+	m.truncated, err = meter.Int64Counter(prefix+"queue.truncated",
+		metric.WithUnit("{read}"),
+		metric.WithDescription("Reads of the queue that stopped at the page cap with a page left, "+
+			"so that jobs behind the pages may be hidden."))
+	if err != nil {
+		return fmt.Errorf("building the instrument of the truncated reads: %w", err)
 	}
 
 	m.failed, err = meter.Int64Counter(prefix+"job.failed",
@@ -379,9 +390,14 @@ func pool(name string) string {
 	return name
 }
 
-// Unmatched counts one job of the queue that no profile matches.
-func (m *Metrics) Unmatched(ctx context.Context) {
-	m.unmatched.Add(ctx, 1)
+// Skipped counts one job of the queue that no profile matches. The caller counts a job once.
+func (m *Metrics) Skipped(ctx context.Context) {
+	m.skipped.Add(ctx, 1)
+}
+
+// QueueTruncated counts one read of the queue that stopped at the page cap with a page left.
+func (m *Metrics) QueueTruncated(ctx context.Context) {
+	m.truncated.Add(ctx, 1)
 }
 
 // Failed counts one job that the controller ended. The cause is the value of error.type, so it

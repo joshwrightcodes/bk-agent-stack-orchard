@@ -78,7 +78,7 @@ date. The content of an accepted ADR does not change: a new ADR supersedes it.
 | [ADR-0003](0003-start-job-vms-on-demand.md) | Start job VMs on demand, without a pool of idle VMs | accepted |
 | [ADR-0004](0004-treat-all-builds-as-untrusted.md) | Treat all builds as untrusted and isolate each job VM | accepted |
 | [ADR-0005](0005-run-and-schedule-vms-with-tart-and-orchard.md) | Run and schedule the job VMs with Tart and Orchard | accepted |
-| [ADR-0006](0006-route-jobs-to-vm-profiles-by-agent-tags.md) | Route jobs to VM profiles by their agent tags | accepted |
+| [ADR-0006](0006-route-jobs-to-vm-profiles-by-agent-tags.md) | Route jobs to VM profiles by their agent tags | accepted (the "fails immediately" sentence is replaced by ADR-0016) |
 | [ADR-0007](0007-use-a-dedicated-queue-for-the-macos-fleet.md) | Use a dedicated queue for the macOS fleet | accepted |
 | [ADR-0008](0008-use-a-dedicated-cluster-agent-token.md) | Use a dedicated cluster agent token with an expiry and an IP allowlist | accepted |
 | [ADR-0009](0009-run-startup-scripts-over-the-tart-guest-agent.md) | Run VM startup scripts over the Tart guest agent | accepted |
@@ -88,3 +88,4 @@ date. The content of an accepted ADR does not change: a new ADR supersedes it.
 | [ADR-0013](0013-sign-releases-with-keyless-cosign-signatures.md) | Sign releases with keyless cosign signatures | proposed |
 | [ADR-0014](0014-calculate-releases-with-release-please.md) | Calculate releases with release-please | proposed |
 | [ADR-0015](0015-generate-only-the-orchard-fields-the-controller-uses.md) | Generate only the Orchard fields that the controller uses | proposed |
+| [ADR-0016](0016-skip-a-job-that-matches-no-profile.md) | Skip a job that matches no profile | proposed |

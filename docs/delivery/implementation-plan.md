@@ -11,7 +11,7 @@
   * [Target design](../architecture/target-design.md)
   * [Test strategy](../quality/test-strategy.md): risks `R-01` to `R-21`, invariants `I-1` to
     `I-8`, and obligations `T-001` to `T-141`
-  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0015
+  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0016
 
 ## Conventions
 
@@ -164,7 +164,7 @@ from their number.
 
 | ID | Outcome | Boundary | Depends on | Completion evidence | Requirements |
 |---|---|---|---|---|---|
-| W-15 | An operator sees readiness, liveness, and the freshness of each source | `internal/health`, `internal/controller` | W-13 | T-063; readiness fails when a source is older than 30 s or the API returns HTTP 401 | PR-024, PR-023 |
+| W-15 | An operator sees readiness, liveness, and the freshness of each source | `internal/health`, `internal/controller` | W-13 | T-063; readiness fails when a source is older than `stateFreshness` or the API returns HTTP 401 | PR-024, PR-023 |
 | W-16 | The telemetry proves the quality targets, and the job page shows each step | `internal/telemetry`, `internal/launcher`, `internal/reaper` | W-13 | T-008, T-009; every metric of the target design, section 10.1 exists | PR-009, PR-024, PR-025 |
 | W-17 | An outage or a rate limit degrades the controller safely | `internal/controller`, both clients | W-15 | T-024; the controller obeys `Retry-After` | PR-010, QA-03 |
 | W-18 | The token replacement procedure works, and a runbook describes it | `docs/runbooks/`, `internal/health` | W-15 | The procedure of the target design, section 9.2 passes against a test cluster | PR-023 |

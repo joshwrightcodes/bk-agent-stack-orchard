@@ -11,6 +11,8 @@ package vmspec
 import (
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
@@ -39,6 +41,10 @@ type Request struct {
 	JobID        job.ID
 	JobToken     secret.String
 	Profile      profile.Profile
+
+	// Tags are the literal tags of the job, without the queue. The agent carries them, so that
+	// the job page shows what the machine stands for.
+	Tags map[string]string
 
 	// ImageCredentials is necessary only for a profile that uses the SSH transport.
 	ImageCredentials *Credentials
@@ -133,10 +139,22 @@ func Build(r Request) (orchard.VM, error) {
 	return vm, nil
 }
 
-// scriptContent starts one agent for one job. The token and the job identifier stay in the
-// environment, so that a log of the script cannot carry them.
-const scriptContent = `buildkite-agent start --tags ` +
-	`"queue=${BK_AGENT_STACK_QUEUE},agent-stack=orchard,profile=${BK_AGENT_STACK_PROFILE}"`
+// scriptContent starts one agent for one job. The token, the job identifier, and the tags stay in
+// the environment, so that a log of the script cannot carry them and no tag value is ever shell
+// text.
+const scriptContent = "buildkite-agent start"
+
+// agentTags gives the tags of the agent as the list that the agent reads: the three fixed tags
+// first, then the tags of the job in the order of their keys.
+func (r Request) agentTags() string {
+	list := []string{"queue=" + r.Queue, "agent-stack=orchard", "profile=" + r.Profile.Name}
+
+	for _, key := range slices.Sorted(maps.Keys(r.Tags)) {
+		list = append(list, key+"="+r.Tags[key])
+	}
+
+	return strings.Join(list, ",")
+}
 
 // environment gives the machine the values that the agent needs, and nothing else. The job
 // acquisition token is the only credential here, and it opens one job.
@@ -145,8 +163,7 @@ func (r Request) environment(name string) map[string]string {
 		"BUILDKITE_AGENT_TOKEN":       r.JobToken.Reveal(),
 		"BUILDKITE_AGENT_ACQUIRE_JOB": r.JobID.String(),
 		"BUILDKITE_AGENT_NAME":        name,
-		"BK_AGENT_STACK_QUEUE":        r.Queue,
-		"BK_AGENT_STACK_PROFILE":      r.Profile.Name,
+		"BUILDKITE_AGENT_TAGS":        r.agentTags(),
 	}
 
 	if !r.Profile.OTel.Enabled {
@@ -181,6 +198,17 @@ func (r Request) validate() error {
 	}
 	if r.JobToken == "" {
 		problems = append(problems, errors.New("the job acquisition token is empty"))
+	}
+
+	for key, value := range r.Tags {
+		switch {
+		case key == "", value == "", strings.ContainsAny(key+value, profile.UnsafeInTagList),
+			strings.TrimSpace(key) != key, strings.TrimSpace(value) != value:
+			problems = append(problems, fmt.Errorf("the tag %q=%q is empty, or it has a comma, "+
+				"a newline, a quote, or white space at an end", key, value))
+		case key == "queue", key == "agent-stack", key == "profile":
+			problems = append(problems, fmt.Errorf("the tag %q is one that the controller sets", key))
+		}
 	}
 
 	// Orchard uses admin/admin when a specification names no credentials, so a machine with the

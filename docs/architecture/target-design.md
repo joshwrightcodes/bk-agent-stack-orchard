@@ -7,7 +7,7 @@
   * [Product requirements](../product/requirements.md): requirement identifiers such as `PR-005`
   * [System design baseline](system-design-baseline.md): driver identifiers such
     as `QA-01`
-  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0015
+  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0016
 
 ## Conventions
 
@@ -71,8 +71,15 @@ The design depends on these facts. Each fact was verified against source code or
 |---|---|---|
 | The Stacks API accepts only a cluster agent token (`bkct_`). | Buildkite docs, `apis/agent_api/stacks.md` | The controller keeps a cluster agent token (§9.2). |
 | The scheduled-jobs list gives all jobs in the queue. It does not filter by other tags. It does not include reserved jobs. | Stacks API docs | The controller does the tag match (§5). |
+| The scheduled-jobs call takes `limit` (page size, maximum 1000) and `after` (a cursor). The answer has `page_info.has_next_page` and `page_info.end_cursor`. The API orders the jobs by `scheduled_at`, oldest first. A call returns one page, and the library does not read the next page. Paging does not cover a snapshot: new jobs can appear behind the cursor. The documentation advises to read the first few pages only, and to reserve the jobs. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01); `buildkite/stacksapi` v1.2.0 `scheduled_jobs.go` | The Poller asks for 1000 jobs in each call, and it reads at most 3 pages in one tick, from the head of the list (§6.3). |
 | A reservation lasts 900 s by default and 3600 s maximum. A second reserve call extends it. When a reservation expires, the job becomes `scheduled` again. | Stacks API docs | The controller uses short reservations. It extends them while a VM starts (§6, §7). |
 | A job acquisition token (`bkjat_`) connects an agent to one reserved job. The token expires early if the reservation expires. At agent registration, Buildkite applies the expiry and the allowed IP addresses of the agent token that issued the JAT. | `buildkite/stacksapi` v1.2.0 `IssueJobAcquisitionTokens`; `buildkite/docs` `pages/agent/self_hosted/job_acquisition_tokens.md` (2026-08-26) | Only a job acquisition token goes into a VM (§9.1). The agent token allowlist MUST contain the job VM egress addresses (§9.2). |
+| `token_lifetime_seconds` of a job acquisition token has a minimum of 1, a maximum of 3600, and a default of 900. `reservation_expiry_seconds` has a default of 900 and a maximum of 3600. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The limits of 3600 s are the limits of the API. The controller refuses a `reservationExpiry` that is more than 3600 s. It refuses a `jobTokenLifetime` that is more than 1800 s, which is the security limit of §9.1. It refuses both values if they are less than 1 s, so that the refusal comes at start-up and not at the first job (§8). |
+| The `detail` of a stack notification must not be empty and cannot exceed 256 characters. The unit is characters. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The controller cuts a detail to 256 characters, counted as runes and cut between characters, and ends a cut detail with an ellipsis. It sends "(no detail)" in place of an empty detail (§10.5). |
+| A stack notification needs no reservation, and the job does not have to be in a particular state. Only a job that finished more than 300 s ago cannot get one. A job can have at most 100 notifications. A request can carry at most 1000 notifications. When some lines fail, the response has `errors` entries with 0-based `indexes`, and the valid notifications are still created. The limit is 200 requests per second for each stack. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The controller sends a skip notice for a job that it does not hold. It sends at most 1000 lines in one call (`NotificationsPerRequest`), and it reads the refused indexes of a partial answer. A notice for each job is written once while the job stays listed (§5), so that the 100-line limit of one job stays far away. |
+| The `detail` of a finish request has a maximum of 4 KB. The documentation does not state the unit. `exit_status` defaults to -1. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The controller counts the 4 KB in bytes, which is never more than a count in characters, and it shortens the detail to the budget before it finishes a job (§6). |
+| The finish request has no `signal_reason` field, so the controller cannot set it. The Buildkite platform generates a `signal_reason` of `stack_error` for such a job. Pipeline authors use `signal_reason: stack_error` with `limit: 0` in their automatic retry rules. Whether the platform generates `stack_error` for every job that the controller finishes is `UNKNOWN` (owner: the maintainer; trigger: the first runs of T-100 to T-105). | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01); `buildkite/stacksapi` v1.2.0 `finish.go` | The controller finishes a failed job with exit status -1 and a detail (§7.6). |
+| `maxVMLifetime` is 25 h by default. The Reaper deletes a VM that is older than this, for any job state (row 2 of §7.2). A job that still runs at 25 h loses its VM and its agent. After the agent acquired the job, the Buildkite lost-agent procedure controls the result, and the controller does not finish the job (§7.1, rule 5). The job result that Buildkite gives in this case is `UNKNOWN` (owner: the maintainer; trigger: the first end-to-end run of a job that outlives `maxVMLifetime`). | Derived from `internal/reaper/decide.go` and §7.2, §7.1 (checked 2026-11-01) | A pipeline step with a run time near 25 h MUST set a lower job timeout. The default of 25 h is the safety limit in SC-06, not a job limit. |
 | `buildkite-agent start --acquire-job` exits with code 27 if the job is already taken, cancelled, or complete (HTTP 422). | `buildkite/agent` v4.0.3 release notes (2026-09-10); `core/client.go` | The rule "the job is terminal, delete the VM" covers this case. |
 | Buildkite agent v4 is the stable line (v4.0.0 on 2026-09-01; v4.9.0 on 2026-10-30, checked 2026-11-01). v4.7.0 is a security release: it rejects compromised eMudhra certificate chains (CVE-2026-111943). v4 exits immediately when a flag is not defined. v4 keeps `--acquire-job`, `BUILDKITE_AGENT_ACQUIRE_JOB`, and `BUILDKITE_OPENTELEMETRY_TRACING`, and it adds `BUILDKITE_OPENTELEMETRY_METRICS`. v4 removes the OpenTracing and Datadog backends. | `buildkite/agent` releases and `clicommand/agent_start.go` at v4.0.4 (2026-09-19) | The image MUST contain agent v4.7.0 or later (§5). The startup script uses only v4 flags. |
 | Orchard `startup_script.transport` accepts `ssh` (the default) and `tart-guest-agent`. The guest-agent transport operates only on the Tart runtime, and the worker connects through the VM control socket. For both transports, the worker builds the same script: `set -e`, one `export` line for each `env` entry, then `script_content`. | Orchard `pkg/resource/v1/v1.go` and `internal/worker/vmmanager/base` at tag 0.57.0 | §6.4 uses the guest-agent transport. VM specifications need no SSH credentials. |
@@ -168,7 +175,7 @@ In-memory data is only a cache. The loss of this cache is always safe.
 | **Matcher** | Pure function. Converts the job `agent_query_rules` to exactly one profile, or to a mismatch reason. | Configuration |
 | **Inventory** | Lists Orchard workers and VMs at each `inventoryInterval` (1 s). Selects owned VMs by name prefix. Parses the job UUIDs. | `Orchard` client |
 | **JobStates** | Gets the Buildkite job states of owned VMs in one batch at each `jobStatesInterval` (5 s). Records the observation time for each job, and whether Buildkite named the job. A call that fails keeps the states before it, with their times. | `Stacks` client |
-| **Admission** | Pure function. Input: scheduled jobs, inventory, profiles, and `maxInFlight`. Output: jobs to start, and unmatched jobs to fail. | Matcher, Inventory |
+| **Admission** | Pure function. Input: scheduled jobs, inventory, profiles, and `maxInFlight`. Output: jobs to start, and unmatched jobs to skip. | Matcher, Inventory |
 | **Launcher** | For admitted jobs: reserves the jobs, gets job acquisition tokens, and creates VMs. Sends stack notifications. | `Stacks` client, `Orchard` client |
 | **Reaper** | Pure decision function for each owned VM, and an executor. Actions: delete the VM, finish the job, extend the reservation, or send a notification. | Inventory, JobStates |
 | **Telemetry** | Configures the OTel meter, tracer, and slog bridge from the standard `OTEL_*` environment variables. | OTel SDK |
@@ -195,9 +202,10 @@ for a source that waits for the ones before it in the same tick, so a comparison
 a source whose interval equals the tick interval at only every other tick. A source that failed
 MUST wait for its interval like one that answered.
 
-With 100 VMs, the controller makes approximately three API calls each second. All rate limits
-are higher. The Stacks API limits are 10 requests/s for list and reserve, and 20 requests/s for
-get-states.
+With 100 VMs, the controller makes approximately three API calls each second in a normal tick. A
+tick that lists a long queue makes up to 3 list requests (one for each page of 1000 jobs), and each
+batch of at most 1000 notice lines adds one more call. All rate limits are higher. The Stacks API
+limits are 10 requests/s for list and reserve, and 20 requests/s for get-states.
 
 **Implements.** PR-001, PR-005, PR-010, QA-01, QA-04, DR-01, OP-04.
 
@@ -246,27 +254,103 @@ other than `queue`.
 
 * No profile has a `match` map that is equal to the job tags.
 * A rule does not have the format `key=literal`. Wildcards, negations, and rules with an
-  incorrect format are in this group.
+  incorrect format are in this group. A rule whose key or value has a comma, a newline, a
+  carriage return, or a quote (`"` or `'`) is in this group also, because the agent of the job
+  reads its tags as one comma-separated list (§5, VM specification). A key or a value with
+  white space at an end is in this group also, because the agent trims each tag. A rule for
+  `agent-stack` or `profile` is in this group with its own reason, because the controller sets
+  both tags on every agent. The `queue` rule is not in this group: the matcher reads it and
+  takes it out of the tags.
 
-The controller MUST reserve an unmatched job and finish it immediately with
-`exit_status: -1`. The detail message MUST list the job tags and the `match` maps of all
-profiles. Unmatched jobs do not use capacity. While the queue is paused, the controller MUST NOT
-finish unmatched jobs.
+The controller MUST skip an unmatched job (ADR-0016). It MUST NOT reserve the job, MUST NOT finish
+it, and MUST NOT give it capacity (I-8). The job stays `scheduled`, so that another stack or agent
+of the queue can carry it. Buildkite times the job out, or a person cancels it.
+
+For each unmatched job that has no entry in the notified set, the controller MUST do these things:
+
+* Write one stack notification. The detail says in short why no profile carries the job: the
+  reason, then the tags of the job. The Notify call cuts a detail at 256 characters
+  (`NotificationLimit`), so the long message does not fit.
+* Write the full message at info level in the log. It has the job identifier, the tags of the job,
+  and the `match` map of each profile. The job identifier is in the log, and not in a metric
+  (I-7).
+* Add 1 to the counter `bkaso.job.skipped` (§10.1), for each notice that it writes.
+
+The controller writes these notices after it reserves and starts the admitted jobs of the same
+tick, so that a slow notification call cannot delay an admitted job. It sends at most 1000 lines
+in one call (`NotificationsPerRequest`, §3). Each call has its own time limit of 10 s
+(`notifyTimeout`), so that a call that retries cannot hold the loop for more than 10 s. The
+Buildkite client and the Orchard client each have a limit of 30 s for a whole call for the same
+reason. The Buildkite client also limits the body of an answer to 16 MiB, and a longer body fails
+the call.
+
+The controller keeps the identifiers of the jobs that it notified in a set in memory, so that it
+writes the notice for a job once while the job stays listed and the process runs. The set has
+these rules:
+
+* A job enters the set when Buildkite accepts its line. If a call fails as a whole, the jobs of
+  that call do not enter the set, and the controller tries again at the next tick. The controller
+  still sends the later calls of the tick, so that a fixed refusal of one call cannot starve the
+  jobs behind it. It writes one warning for each tick that has a failed call. If a call is partly
+  refused, the response has the 0-based indexes of the refused lines. The accepted jobs enter the
+  set, and only the refused jobs are tried again at the next tick.
+* The controller evicts jobs from the set only after a complete listing: the read was not cut at
+  `MaxPages`, and the last page had no cursor (§6.3). After a complete listing, a job that is
+  not unmatched in the decision leaves the set. A job that comes back is notified again, and
+  counted again.
+* After a truncated listing, the controller keeps every entry, because a job that is not in the
+  listing may only be hidden behind the pages.
+* The set has a cap of 10 000 identifiers (`NotifiedLimit`). When the set is over the cap, the
+  controller evicts the identifiers that it saw least recently. A decision cannot name more than
+  3000 jobs (3 pages of 1000), so the cap holds only when the listing is truncated for a long time.
+* The set is not stored. After a restart, the controller MAY write the notice for a job again,
+  and it counts the job again. This costs one extra line on the job page, and a job gets at most
+  100 lines (§3).
+
+While the queue is paused, the controller MUST NOT start VMs, and it MUST NOT write new
+notifications for unmatched jobs.
 
 **Validation at start-up.** The controller MUST NOT start if one of these conditions is false:
 
 * Profile names are unique and match `[a-z0-9-]+`.
 * No two profiles have equal `match` maps.
-* `match` keys and values are literals that are not empty. `queue` is not a key.
+* `match` keys and values are literals that are not empty. `queue`, `profile`, and `agent-stack`
+  are not keys, because the controller sets these tags. No value has a comma, a quote, a newline,
+  a carriage return, or white space at an end, because the agent reads its tags as one
+  comma-separated list.
 * `startupTransport` is `tart-guest-agent` (the default) or `ssh` (ADR-0009).
 * A profile with `startupTransport: ssh` has `vmCredentials`, and both referenced environment
   variables exist and are not empty. Orchard uses `admin/admin` when a VM specification has no
   credentials. Because of this, a missing value is a fatal error for this transport. A profile
   with the guest-agent transport MUST NOT have `vmCredentials`.
+* Each profile field that names an environment variable for its VM (`vmCredentials.usernameEnv`,
+  `vmCredentials.passwordEnv`, and `otel.headersEnv`) names a variable that starts with
+  `VM_`. The pod of the controller holds other secrets (for example a proxy URL with a password),
+  and only a variable that the operator marks for the VM may go into one. The controller also
+  refuses every name that starts with `BK_AGENT_STACK_ORCHARD_` (the controller secrets) or
+  `OTEL_` (the collector credential and the per-signal headers variables), with a message that
+  names the controller, as a second defence. The error names the profile, the field, and the
+  variable.
+* Each `softnetAllow` entry is an IPv4 CIDR range with a prefix length (`10.20.30.40/32`).
+  Softnet takes IPv4 CIDRs only: it reads each `--allow` value as a rule that it builds with
+  `ipnet::Ipv4Net` (Softnet `src/main.rs` and `lib/proxy/rule.rs`, read 2026-11-01), so the
+  controller refuses every IPv6 prefix, including an IPv4-mapped one. The controller also
+  refuses a bare address, an entry with host bits set (`10.0.0.1/16`, where the error gives the
+  written form `10.0.0.0/16`), a default route (`0.0.0.0/0`), a range wider than /16, and a
+  duplicate. It refuses the Softnet targets `@host` and `@peers` on purpose: `@host` opens the
+  Mac host to the build, and `@peers` opens the other VMs, and §9.1 closes both. The CIDRs go
+  unchanged into the VM specification and into the pf rules of the hosts, so the controller does
+  not correct an entry, and an error names the profile and the entry. The /16 bound is a project
+  choice, and the project does not test a bare address.
+* When `profile.otel.enabled` is true, `profile.otel.endpoint` uses `https`. Plain HTTP is
+  acceptable only on a loopback address (§10.4).
 * For each profile, `unplaced + boot + acquire ≤ jobTokenLifetime` (§7.3).
 
 If a profile `image` has no digest, the controller MUST write a warning. The controller then
 starts.
+
+If a profile has `softnetAllow` entries, the controller MUST write a warning at start that names
+the profile and says that every pipeline on the queue gets the allow (§9.1).
 
 The fleet operator MUST set `diskSizeGB` to at least the disk size of the profile image. The pilot
 image has a 104 GB disk, and other Xcode images up to 140 GB (SC-07). Tart refuses a disk that is
@@ -337,10 +421,12 @@ Admission does these steps:
    Inventory sees a launch only at its next refresh. A failed poll keeps the last answer, and that
    answer can still list the job. Sort them by Buildkite `priority` (highest first), then by
    `scheduled_at` (oldest first).
-2. **In-flight limit.** Stop when the number of owned VMs, plus the VMs that this process
-   requested and the Inventory data does not show yet, plus admitted jobs, is equal to
-   `maxInFlight`. The default value of `maxInFlight` is 0, which means the total VM slots of the
-   eligible workers. Because of this, the limit follows the fleet, and it does not hold slots
+2. **In-flight limit.** Stop when the number of owned VMs, plus the VMs that this process requested
+   and the Inventory data does not show yet, plus admitted jobs, is equal to `maxInFlight`. The
+   count includes every owned VM, also a VM in the `failed` status, until the Reaper deletes it. The
+   Reaper deletes such a VM in the same tick or the next one, so the count is conservative and it
+   lasts a short time. The default value of `maxInFlight` is 0, which means the total VM slots of
+   the eligible workers. Because of this, the limit follows the fleet, and it does not hold slots
    empty at the target scale (SC-01, QA-02). A value more than 0 limits the controller to that
    number of VMs, for example during a pilot.
 3. **Eligible workers for each profile.** A worker is eligible if it is online, it is not paused
@@ -348,12 +434,20 @@ Admission does these steps:
 4. **Free resources of each worker.** Subtract the resources of all VMs on the worker from the
    resources that the worker advertises. Include the VMs of all owners. Count the VMs in the
    same way as the Orchard scheduler (`internal/controller/scheduler/scheduler.go` at the minimum
-   Orchard version of §9.2).
-5. **Unplaced VMs.** Give a hypothetical placement to the VMs of all owners that have no worker,
-   and to the VMs that this process requested and the Inventory data does not show yet. Use the
-   first eligible worker with sufficient free resources. For a VM of Orchard, a worker is eligible
-   only if its labels contain the labels of the VM, and the VMs go in the order of their creation.
-   The Orchard scheduler does the same. A VM that no worker can take takes no resources.
+   Orchard version of §9.2). A VM holds resources only when it is scheduled. The controller reads
+   the `scheduled` condition of the VM, as `IsScheduled` of `pkg/resource/v1/v1.go` does. When
+   the VM has no `scheduled` condition, the VM is scheduled if, and only if, it has a worker.
+   Orchard sets the condition to `false` for a VM that reached a terminal state, and the VM keeps
+   its worker name. Such a VM holds no resources (Orchard 0.58.0, commit 22bd63c34674, checked
+   2026-11-01).
+   The controller also gives no hypothetical placement to a VM in the `failed` status, because the
+   Orchard scheduler skips a VM in a terminal state when it places VMs.
+5. **Unplaced VMs.** Give a hypothetical placement to the VMs of all owners that are not scheduled
+   and are not failed, and to the VMs that this process requested and the Inventory data does not
+   show yet. Use the first eligible worker with sufficient free resources. For a VM of Orchard, a
+   worker is eligible only if its labels contain the labels of the VM, and the VMs go in the order
+   of their creation. The Orchard scheduler does the same. A VM that no worker can take takes no
+   resources.
 6. **Admit.** For each candidate in sequence, find the first eligible worker with sufficient
    free `tart-vms`, `logical-cores`, and `memory-mib`. Subtract the resources. If no worker has
    sufficient resources, skip the candidate. A skipped candidate does not stop the next
@@ -364,10 +458,25 @@ controller MUST NOT pin a VM to a worker. A second scheduler in the controller c
 the Orchard scheduler. Image pull before use (§11) gives most of the benefit of placement that
 knows the image cache.
 
-Admission also gives the list of unmatched scheduled jobs (§5). The Launcher MUST reserve these
-jobs in the same `batch-reserve` call as the admitted jobs. The Launcher MUST then finish each
-reserved unmatched job with its mismatch message. The Launcher MUST NOT get a token or create a
-VM for these jobs.
+Admission also gives the list of unmatched scheduled jobs (§5). The Launcher MUST NOT reserve
+these jobs, and MUST NOT finish them. It MUST NOT get a token or create a VM for them. It writes
+one notification for each of them, once (§5, unmatched jobs). The `batch-reserve` call holds the
+admitted jobs only.
+
+**Reading the queue.** The Poller reads the list from its head at each tick. It asks for 1000
+jobs in each call, which is the largest page that the API accepts (§3). The size is a constant
+and it does not follow the slots of the fleet, because the list holds jobs that never leave it:
+unmatched jobs, which the controller skips (ADR-0016), jobs for other tags, and jobs that the API
+refuses with 422. The Poller reads at most 3 pages (`MaxPages`) in one tick. It keeps each job
+once, at its first place, because a cursor over a list that changes can give a job twice. If a
+page fails, the Poller keeps the answer of the last whole read.
+
+More than 3 pages of 1000 jobs that never leave the list hide the jobs after them, and the
+controller never sees these jobs. This limit is `UNKNOWN`, in the sense that it is not measured
+(owner: the maintainer; trigger: the pilot, or the first warning of this kind). A read that
+stops at the cap with a page left writes a warning in the log, and it adds 1 to the counter
+`bkaso.queue.truncated` (§10.1). An operator MUST treat this counter as a sign that jobs may be
+hidden.
 
 ### 6.4 Launch
 
@@ -406,13 +515,12 @@ For the admitted jobs, the Launcher MUST do these steps:
   },
   "startup_script": {
     "transport": "tart-guest-agent",
-    "script_content": "buildkite-agent start --tags \"queue=${BK_AGENT_STACK_QUEUE},agent-stack=orchard,profile=${BK_AGENT_STACK_PROFILE}\"",
+    "script_content": "buildkite-agent start",
     "env": {
       "BUILDKITE_AGENT_TOKEN": "<job acquisition token>",
       "BUILDKITE_AGENT_ACQUIRE_JOB": "<job-uuid>",
       "BUILDKITE_AGENT_NAME": "bk-macos-prod-<job-uuid>",
-      "BK_AGENT_STACK_QUEUE": "macos",
-      "BK_AGENT_STACK_PROFILE": "xcode-27"
+      "BUILDKITE_AGENT_TAGS": "queue=macos,agent-stack=orchard,profile=xcode-27,xcode=27"
     }
   }
 }
@@ -421,13 +529,32 @@ For the admitted jobs, the Launcher MUST do these steps:
 A `409 Conflict` response means that a VM with the same name exists. The Launcher MUST treat
 this response as a successful launch.
 
-Orchard adds `set -e` before the script, and one `export` line for each `env` entry. Because of
-this, a non-zero agent exit status is also the script exit status.
+Orchard adds `set -e` before the script, and one `export NAME=value` line for each `env` entry.
+Because of this, a non-zero agent exit status is also the script exit status. The worker refuses
+a name that is not a valid shell name, and it quotes each value with `syntax.Quote` of
+`mvdan.cc/sh/v3/syntax`, in the zsh dialect for a `darwin` VM. A value that the function cannot
+quote (a value with a NUL byte) fails the VM with an error, and it never becomes script text.
+The function wraps a value in single quotes, or in `$'...'` with escapes when the value has a
+character that cannot be printed (`syntax/quote.go` of `mvdan/sh`, read on 2026-11-01). Both
+transports use the same script (`internal/worker/vmmanager/base/base.go` of Orchard 0.58.0, read
+through the GitHub API on 2026-11-01). The order of the `export` lines is the order of a Go map,
+so it is not stable, and no value can depend on another.
 
 The transport is `tart-guest-agent` (ADR-0009). With this transport, the Orchard worker uses the
 VM control socket, and the VM specification contains no credentials. A profile with
 `startupTransport: ssh` gets `username` and `password` from its `vmCredentials` instead. The
 `env` values and the event log are the same for both transports.
+
+`BUILDKITE_AGENT_TAGS` is the tag list of the agent. It holds `queue=<queue>`,
+`agent-stack=orchard`, and `profile=<profile name>`, in this order, and then each `key=value` of
+the literal tags of the job, without the `queue` tag, sorted by key. A comma joins the entries.
+The agent reads `BUILDKITE_AGENT_TAGS` as the source of its `--tags` option (`buildkite/agent`,
+`clicommand/agent_start.go` at v4.9.0, checked 2026-11-01). Because of this, the startup script
+has no tag text, and no tag value is ever part of shell text. The controller MUST refuse a tag
+whose key or value is empty, has white space at an end, or has a comma, a newline, a carriage
+return, or a quote, and a tag named `queue`, `agent-stack`, or `profile`. The
+matcher refuses these tags first (§5, unmatched jobs), and the VM specification builder refuses
+them again.
 
 The image MUST contain `buildkite-agent` v4 and its hooks (§5). The controller MUST add only
 the environment variables above. When `profile.otel.enabled` is true, the controller also adds
@@ -532,23 +659,17 @@ At start-up, before the first Admission, the controller MUST do these steps:
 | The Orchard controller is not available | Inventory data becomes stale. Admission stops. The Reaper cannot delete VMs. VMs on the workers continue to run. Readiness fails. Liveness passes. |
 | The Buildkite API is not available, or applies a rate limit | The controller obeys `Retry-After`. JobStates data becomes stale. The controller does not reserve or finish jobs. The controller deletes VMs only for rows 1 and 2. |
 | A worker is offline | After the worker offline timeout (3 min), Orchard sets the VMs of the worker to `failed`. Rows 7 and 9 apply. `restart_policy: Never` prevents a new VM for the same job on a different worker. |
-| The queue is `dispatch_paused` | Admission stops. The controller does not finish unmatched jobs. The Reaper continues for existing VMs. |
+| The queue is `dispatch_paused` | Admission stops. The controller does not write new notifications for unmatched jobs. The Reaper continues for existing VMs. |
 
 ### 7.6 Pipeline guidance
 
-Controller failures have `signal_reason: stack_error`. Pipelines on this queue SHOULD add this
-retry rule:
-
-```yaml
-retry:
-  automatic:
-    - signal_reason: stack_error
-      limit: 1
-```
-
-With this rule, Buildkite tries the job again one time after a temporary infrastructure failure.
-Examples are a lost worker or a failed image pull. Buildkite does not try the job again many
-times when a profile is broken.
+The controller finishes a job that it fails with exit status -1 and a detail. It cannot set a
+`signal_reason`, because the finish request has no such field. The Buildkite platform generates
+the `signal_reason` `stack_error` for such a job. Pipeline authors use `signal_reason:
+stack_error` with `limit: 0` in the automatic retry rules of their steps (Buildkite Stacks API
+documentation, read 2026-11-01). Whether the platform generates `stack_error` for every job that
+the controller finishes is `UNKNOWN` (owner: the maintainer; trigger: the first runs of T-100 to
+T-105). The pipeline author guide gives the retry guidance.
 
 **Artifact destination.** Build artifacts MUST NOT go to Buildkite-managed storage (PR-032,
 SE-08). Each image MUST have an `environment` agent hook that sets
@@ -593,6 +714,14 @@ defaults:
 profiles: [] # see §5
 ```
 
+The controller MUST refuse a `reservationExpiry` that is more than 3600 s, and a
+`jobTokenLifetime` that is more than 1800 s. It MUST also refuse either value if it is less than
+1 s or not a whole number of seconds (§3). The limit of 3600 s is the limit of the API. The limit
+of 1800 s for the token is the security limit of §9.1, and it is shorter than the limit of the
+API. The controller also refuses a `buildkite.queue` with a comma, a quote, a newline, a carriage
+return, or white space at an end, because the queue is the first tag of the agent. It reports the
+key and the limit, and it does not start.
+
 The controller serves the gRPC health checking protocol (`grpc.health.v1`) on `healthAddress`,
 with the services `liveness` and `readiness`. The empty service name, which is the health of the
 whole server in the protocol, follows `readiness`. The controller serves no other endpoint, and
@@ -601,9 +730,12 @@ natively (`grpc: {port, service}`).
 
 `liveness` serves while the process serves, and it does not depend on either API, because a
 restart cures nothing that an API causes. `readiness` stops serving while the last answer of a
-source is older than 30 s, or after the Stacks API returned HTTP 401. The protocol carries no
-reason, so the controller writes a log record at each change of readiness, and a record of
-`not ready` names each reason. A `healthAddress` that another process holds fails the start.
+source is older than `stateFreshness` (§8), or after the Stacks API returned HTTP 401. The
+controller gives `stateFreshness` to the readiness check as its window. The configuration requires
+`stateFreshness` to be longer than the interval of each source, so a source that answers on time
+never makes the controller unready. The protocol carries no reason, so the controller writes a log
+record at each change of readiness, and a record of `not ready` names each reason. A
+`healthAddress` that another process holds fails the start.
 
 `buildkite.endpoint` and `orchard.url` MUST use `https`, because a token travels with each
 request. The controller refuses a configuration that does not. Plain `http` is accepted only on a
@@ -659,9 +791,17 @@ The controller MUST treat all builds as untrusted (PR-030). Each VM MUST have th
   nothing (2026-10-10, tested on a VM). The rules therefore block by destination: from any
   interface but the admin interfaces of the host, only DHCP and DNS reach the host, and only the
   `softnetAllow` CIDRs of the profiles of the host reach the private ranges.
+* The allow of a profile belongs to every pipeline on the queue. The pipeline author selects the
+  profile with the agent tags (§5), and the controller does not check who the author is. A job
+  that selects a profile with `softnetAllow` can therefore reach those CIDRs, whoever wrote the
+  pipeline. The CIDRs MUST be narrow (§5), and a profile MUST NOT permit an address that only a
+  trusted pipeline may reach. A separate trust level needs a separate queue, with its own
+  controller and its own profiles. ADR-0004 (accepted, so it stays unchanged) treats all builds
+  as untrusted, and this rule follows from it.
 * The VM has no host directory mounts. Profiles cannot configure them.
-* The VM gets only a job acquisition token for its own job. The token lifetime is a maximum of
-  30 minutes. After the agent acquires the job, the token has no use.
+* The VM gets only a job acquisition token for its own job. The token lifetime is a maximum of 30
+  minutes (1800 s), and the controller refuses a longer `jobTokenLifetime` at start-up (§8). After
+  the agent acquires the job, the token has no use.
 
 The cluster agent token and the Orchard credentials MUST NOT go into a VM.
 
@@ -741,7 +881,8 @@ The instruments follow the OpenTelemetry semantic conventions. The prefix `bkaso
 |---|---|---|
 | UpDownCounter | `bkaso.job.waiting.count` (`{job}`) | `bkaso.profile` |
 | Gauge | `bkaso.job.waiting.oldest.age` (`s`) | `bkaso.profile` |
-| Counter | `bkaso.job.unmatched` (`{job}`) | — |
+| Counter | `bkaso.job.skipped` (`{job}`) | — |
+| Counter | `bkaso.queue.truncated` (`{read}`) | — |
 | Counter | `bkaso.job.failed` (`{job}`) | `error.type` |
 | UpDownCounter | `bkaso.slot.count` (`{slot}`) | `bkaso.pool`, `bkaso.slot.state` = `total`/`used`/`free` |
 | UpDownCounter | `bkaso.vm.count` (`{vm}`) | `bkaso.profile`, `bkaso.vm.phase` = `unplaced`/`booting`/`running`/`failed` |
@@ -794,9 +935,11 @@ tolerance of ±`jobStatesInterval`. Outgoing HTTP clients MUST use `otelhttp`.
   Orchard state changes (placement on a worker, `running`) are span events. A span carries
   `cicd.pipeline.task.run.id` for its job, and the HTTP client spans come from `otelhttp`.
   `job.match` is written once for each job that a process sees in the queue, with
-  `bkaso.job.matched` and `bkaso.profile`, and an error status with the reason when no profile
-  matches. `job.admit` is written when admission starts the job. A span at each tick would put
-  one span each second into the trace of a job that waits.
+  `bkaso.job.matched` and `bkaso.profile`. When no profile matches, it also has the attribute
+  `bkaso.job.skipped` set to true, and the reason as the event `no profile`. A skip is not an
+  error of the controller, so the span has no error status. `job.admit` is written when admission
+  starts the job. `stacks.notify_skipped` is written when the controller writes skip notices. A
+  span at each tick would put one span each second into the trace of a job that waits.
 * **Tick spans** (`tick.poll`, `tick.inventory`, `tick.job_states`, `tick.reap`, `tick.admit`)
   are separate short traces. They have span links to the job traces that they affect.
 
@@ -828,6 +971,13 @@ When `profile.otel.enabled` is true, the VM environment MUST also contain these 
 
 With these values, the build spans are in the same trace as the VM creation spans.
 
+The value of `profile.otel.headersEnv` goes into the VM, so the name MUST start with `VM_`.
+The controller MUST also refuse any `BK_AGENT_STACK_ORCHARD_` or `OTEL_` name. The controller
+uses `OTEL_EXPORTER_OTLP_HEADERS`, and the variables of each signal, for its own collector, and
+the agent in the VM would send that credential to the collector of the profile. The controller
+MUST refuse such a profile at start-up. The headers travel with each export, so
+`profile.otel.endpoint` MUST use `https`, unless it names a loopback address.
+
 The endpoint MUST be a dedicated ingest collector on the public internet. The collector MUST
 have authentication and a rate limit. Because of this, Softnet can continue to block private
 ranges.
@@ -850,6 +1000,9 @@ because macOS starts after that. The Reaper sends "failed: <status message>" for
 step again for a VM that the last process started, because the job page already shows it. The
 same steps are span events in the job trace, and the times between them are the phase durations
 of §10.1.
+
+A notification detail MUST NOT be longer than 256 characters. The controller cuts a longer
+detail between characters, and the cut detail ends with an ellipsis (§3).
 
 ### 10.6 Alert conditions
 
@@ -876,7 +1029,7 @@ APIs.
 
 | Component | Location | Configuration |
 |---|---|---|
-| bk-agent-stack-orchard | Kubernetes | A Helm chart that ArgoCD deploys. A `Deployment` with 1 replica and `strategy: Recreate`. A ConfigMap for the configuration. Secrets as environment variables. gRPC probes of the health service on `healthAddress`: `liveness` (the process is alive) and `readiness` (all sources synchronized in the last 30 s). `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME=bk-agent-stack-orchard`, and `OTEL_RESOURCE_ATTRIBUTES` (`controller.id`, and `k8s.*` from the downward API). A NetworkPolicy that permits egress only to `agent.buildkite.com:443`, Orchard `:6120`, and the collector. The image comes from §15. |
+| bk-agent-stack-orchard | Kubernetes | A Helm chart that ArgoCD deploys. A `Deployment` with 1 replica and `strategy: Recreate`. A ConfigMap for the configuration. Secrets as environment variables. gRPC probes of the health service on `healthAddress`: `liveness` (the process is alive) and `readiness` (all sources synchronized within `stateFreshness`). `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME=bk-agent-stack-orchard`, and `OTEL_RESOURCE_ATTRIBUTES` (`controller.id`, and `k8s.*` from the downward API). A NetworkPolicy that permits egress only to `agent.buildkite.com:443`, Orchard `:6120`, and the collector. The image comes from §15. |
 | Orchard controller | Kubernetes | `deploy/orchard`, a kustomize base. The image is the Orchard release at the version of §9.2, built by `deploy/orchard/image` for the registry of the fleet, because `ghcr.io/openai/orchard` does not answer a pull without credentials (2026-09-26, [openai/orchard#501](https://github.com/openai/orchard/issues/501)). A 1-replica StatefulSet with a PVC at `/data`, a headless governing Service, and the certificate and key of a Secret that an authority of the operator signs. A StatefulSet, because Orchard keeps its state in an embedded database with one scheduler and no leader election, so at most one pod may write to `/data`, and a StatefulSet starts no replacement until the old pod is gone. A deletion of the StatefulSet leaves the PVC. An internal LoadBalancer on port 6120 that the Mac hosts can reach. `ORCHARD_BOOTSTRAP_ADMIN_TOKEN` from a Secret. A bootstrap Job that sets the `bk-agent-stack-orchard` service account and the worker service account through the REST API, on every run. An explicit `OTEL_EXPORTER_OTLP_ENDPOINT`. The loss of the PVC is recoverable, because workers register again and the controller removes in-flight VMs. A backup is not necessary. |
 | Mac hosts | Mac mini with M5 Pro, 64 GB memory, and 1 TB storage (SC-04) | Ansible and launchd (`deploy/hosts`). Install Tart, Softnet, and Orchard at pinned versions, from their release archives, checked against their SHA-256. Softnet has the setuid bit, because Tart starts it with root for each VM (§9.1), and without the bit Tart asks for a password on a terminal. Turn off the sleep of the system and the disks, and start the host again after a power failure (`pmset`): Orchard fails the VMs of a worker that does not report for its offline timeout, so a host that sleeps fails its jobs. Load a pf anchor at each start of the host that blocks traffic from the VM networks to the host, except DHCP and DNS, and to the private ranges, except the `softnetAllow` CIDRs of the profiles of the host (§9.1). The anchor is under `com.apple/`, which `/etc/pf.conf` evaluates, so the host keeps the `/etc/pf.conf` of macOS. Run `orchard worker run --bootstrap-token-stdin --labels pool=<pool>` as root with `--user`. The bootstrap token carries the CA of the controller certificate, so a host trusts that CA with no change of its trust settings, and a new certificate of the same CA needs no new token. The token is in a file that only root can read, not in an argument. The automatic login of the worker user unlocks the login keychain. On macOS 27, `sysadminctl -autologin set` failed and a written `/etc/kcpassword` was ignored (2026-09-27), so the operator turns it on in System Settings, and the playbook checks it. Set `OTEL_EXPORTER_OTLP_ENDPOINT`. Run `tart pull` for the image of each profile whose `workerLabels` the worker labels contain. Read the image list from the controller configuration file. Because of this, the pulled images always agree with the profiles. The pilot image has a 104 GB disk, of which the host stores 59 GB, and other Xcode images up to 140 GB, so a 1 TB host holds only a few images (SC-09). The images build from a vanilla macOS image with only the software of an explicit list, and the build fails on anything else (ADR-0012). The pilot image is `images/build.sh pilot`: Xcode 27 from an archive that the owner downloads with an Apple ID, so that no build signs in to Apple, its iOS simulator runtime, and the Homebrew formulae of its list (PR-026). The image contains `buildkite-agent` v4 and the Tart guest agent (§5). Each host MUST run macOS 27.2 or later, because the job VMs run macOS 27.2 and a macOS guest needs a host of the same version or later (CO-07). The playbook refuses an older host. |
 | Local development | One Mac | `orchard dev` and `bk-agent-stack-orchard` with a configuration file. A separate Buildkite test cluster and queue. |

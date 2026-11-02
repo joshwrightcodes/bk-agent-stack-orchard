@@ -34,6 +34,10 @@ type orchardFake struct {
 	// down is the answer of every call while the Orchard controller is not available. Its
 	// scheduler stops too, and the machines on the workers run on.
 	down error
+
+	// deleteFails is the answer of every delete while it is set. The other calls work, so a
+	// machine that has to go stays in the listing.
+	deleteFails error
 }
 
 func newOrchard(now func() time.Time, offline time.Duration, hosts int) *orchardFake {
@@ -81,8 +85,7 @@ func (o *orchardFake) sync() {
 
 		if h := o.host(vm.Worker); h != nil && !o.online(h.worker) &&
 			vm.Status != orchard.StatusFailed {
-			vm.Status = orchard.StatusFailed
-			vm.StatusMessage = "the worker " + vm.Worker + " stopped reporting"
+			fail(vm, "the worker "+vm.Worker+" stopped reporting")
 		}
 	}
 
@@ -104,12 +107,21 @@ func (o *orchardFake) sync() {
 			}
 
 			vm.Worker = h.worker.Name
+			vm.Conditions = []orchard.Condition{{Type: "scheduled", State: "true"}}
 			vm.Status = orchard.StatusRunning
 			vm.StartedAt = o.now()
 
 			break
 		}
 	}
+}
+
+// fail does what Orchard 0.58.0 does to a machine that fails: it keeps its worker, and its
+// scheduled condition turns false, so the scheduler no longer counts its resources.
+func fail(vm *orchard.VM, message string) {
+	vm.Status = orchard.StatusFailed
+	vm.StatusMessage = message
+	vm.Conditions = []orchard.Condition{{Type: "scheduled", State: "false"}}
 }
 
 func (o *orchardFake) host(name string) *host {
@@ -122,12 +134,13 @@ func (o *orchardFake) host(name string) *host {
 	return nil
 }
 
-// free gives what a worker has left after every machine that it carries, whatever its status.
+// free gives what a worker has left after the machines that it carries and that are scheduled. A
+// failed machine keeps its worker, and Orchard frees its resources.
 func (o *orchardFake) free(worker string) map[string]uint64 {
 	var carried []orchard.VM
 
 	for _, vm := range o.vms {
-		if vm.Worker == worker {
+		if vm.Worker == worker && vm.Placed() {
 			carried = append(carried, *vm)
 		}
 	}
@@ -186,6 +199,10 @@ func (o *orchardFake) ListVMs(context.Context) ([]orchard.VM, error) {
 func (o *orchardFake) DeleteVM(_ context.Context, name string) error {
 	if o.down != nil {
 		return o.down
+	}
+
+	if o.deleteFails != nil {
+		return o.deleteFails
 	}
 
 	delete(o.vms, name)

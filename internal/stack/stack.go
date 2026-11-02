@@ -15,10 +15,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
 )
 
@@ -32,13 +34,17 @@ type Stacks interface {
 
 // Queue is one answer of the scheduled-jobs list.
 type Queue struct {
-	// Jobs are the jobs of the first page. The list gives every job of the queue, and the
-	// Matcher decides which of them this controller can carry.
+	// Jobs are the jobs of the first pages, at most MaxPages of them. The list gives every job
+	// of the queue, and the Matcher decides which of them this controller can carry.
 	Jobs []buildkite.ScheduledJob
 
 	// Paused reports a queue whose dispatch an operator stopped. The controller then starts no
 	// machine, and the machines in progress continue.
 	Paused bool
+
+	// Truncated reports a read that stopped at MaxPages with a page left. Jobs behind the pages
+	// are hidden, so a job that is not in Jobs may still be in the queue.
+	Truncated bool
 
 	// At is when Buildkite answered. The control loop reads it to decide whether the answer is
 	// still fresh enough to act on.
@@ -103,7 +109,8 @@ func (s *Stack) Deregister(ctx context.Context) error {
 type Poller struct {
 	stacks   Stacks
 	interval time.Duration
-	size     int
+	metrics  *telemetry.Metrics
+	logger   *slog.Logger
 	now      func() time.Time
 
 	mu     sync.RWMutex
@@ -119,8 +126,11 @@ type PollerOptions struct {
 	// Interval is how often the poll may run. The design states one second.
 	Interval time.Duration
 
-	// PageSize asks for a number of jobs. Zero takes the size that Buildkite chooses.
-	PageSize int
+	// Metrics counts the reads that stop at the cap. It is optional.
+	Metrics *telemetry.Metrics
+
+	// Logger gets the warning of a read that stops at the cap. A nil logger discards it.
+	Logger *slog.Logger
 
 	// Now is the clock of the part. internal/app gives every part the same one.
 	Now func() time.Time
@@ -142,10 +152,16 @@ func NewPoller(options PollerOptions) (*Poller, error) {
 		return nil, errors.New("the poller needs a clock")
 	}
 
+	logger := options.Logger
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+
 	return &Poller{
 		stacks:   options.Stacks,
 		interval: options.Interval,
-		size:     options.PageSize,
+		metrics:  options.Metrics,
+		logger:   logger,
 		now:      now,
 	}, nil
 }
@@ -160,21 +176,71 @@ func (p *Poller) Interval() time.Duration {
 	return p.interval
 }
 
-// Refresh reads the first page of the queue and keeps the answer.
+// PageSize is the number of jobs that the poll asks for in each call. It is 1000, the largest
+// value that the Stacks API accepts (Stacks API documentation, read on 2026-11-01). The size does
+// not follow the slots of the fleet, because the list holds jobs that never leave it: jobs that
+// no profile matches, and jobs for other tags. A page sized for the slots would fill with them.
+const PageSize = 1000
+
+// MaxPages is the most requests that one poll makes. The API documentation advises to read the
+// first few pages only.
+const MaxPages = 3
+
+// Refresh reads the head of the queue, up to MaxPages pages of PageSize jobs, and keeps the
+// answer. The API orders the list by the time that the job was scheduled, oldest first.
 //
-// It reads one page. A queue longer than one page means that the fleet is full, and the jobs
-// that this page leaves out wait for a later tick: a controller that reads every page would
-// spend its rate limit on jobs that it cannot start.
+// The poll starts at the head at each tick. Jobs that the controller starts leave the list, but
+// jobs that never leave it stay at the head. More than MaxPages times PageSize of these hide the
+// jobs after them. That limit is not measured. A read that stops at the cap with a page left is
+// logged as a warning and counted, so that an operator can see that jobs may be hidden.
+//
+// A job that two pages both give enters the answer once, at its first place, because the cursor
+// reads a list that changes. The poll keeps nothing when a page fails, so that a half-read queue
+// does not replace a whole one.
 func (p *Poller) Refresh(ctx context.Context) error {
-	page, err := p.stacks.ScheduledJobs(ctx, "", p.size)
-	if err != nil {
-		return fmt.Errorf("reading the queue: %w", err)
+	var (
+		jobs   []buildkite.ScheduledJob
+		paused bool
+		cursor string
+		seen   = map[job.ID]bool{}
+	)
+
+	for number := range MaxPages {
+		page, err := p.stacks.ScheduledJobs(ctx, cursor, PageSize)
+		if err != nil {
+			return fmt.Errorf("reading page %d of the queue: %w", number+1, err)
+		}
+
+		if number == 0 {
+			paused = page.Paused
+		}
+
+		for _, scheduled := range page.Jobs {
+			if !seen[scheduled.ID] {
+				seen[scheduled.ID] = true
+				jobs = append(jobs, scheduled)
+			}
+		}
+
+		cursor = page.NextCursor
+		if cursor == "" {
+			break
+		}
+	}
+
+	if cursor != "" {
+		p.logger.WarnContext(ctx, "the read of the queue stopped at the page cap, and jobs behind "+
+			"the pages may be hidden", slog.Int("pages", MaxPages), slog.Int("pageSize", PageSize))
+
+		if p.metrics != nil {
+			p.metrics.QueueTruncated(ctx)
+		}
 	}
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.latest = Queue{Jobs: page.Jobs, Paused: page.Paused, At: p.now()}
+	p.latest = Queue{Jobs: jobs, Paused: paused, Truncated: cursor != "", At: p.now()}
 	p.got = true
 
 	return nil

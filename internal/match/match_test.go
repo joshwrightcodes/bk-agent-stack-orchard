@@ -111,6 +111,81 @@ func TestMatchRefusesARuleThatIsNotALiteral(t *testing.T) {
 	}
 }
 
+// The tags of the job go to the agent as one comma-separated list. A comma would split a tag in
+// two, and a newline or a quote would break the text that carries the list.
+func TestTagsRefuseAKeyOrAValueThatWouldBreakTheAgentTagList(t *testing.T) {
+	cases := map[string][]string{
+		"a comma in the value":         {"queue=macos", "xcode=27,gpu=yes"},
+		"a comma in the key":           {"queue=macos", "xcode,gpu=27"},
+		"a newline in the value":       {"queue=macos", "xcode=27\nx"},
+		"a carriage return in a key":   {"queue=macos", "xc\rode=27"},
+		"a double quote in the value":  {"queue=macos", `xcode="27"`},
+		"a single quote in the value":  {"queue=macos", "xcode='27'"},
+		"a double quote in the key":    {"queue=macos", `xc"ode=27`},
+		"a comma in a rule with queue": {"queue=macos,x", "xcode=27"},
+	}
+
+	for name, rules := range cases {
+		_, err := match.Tags(rules)
+
+		var mismatch *match.Mismatch
+		if !errors.As(err, &mismatch) {
+			t.Errorf("Tags(%s) = %v, want a mismatch", name, err)
+
+			continue
+		}
+		if mismatch.Reason != match.ReasonRuleNotLiteral {
+			t.Errorf("Tags(%s) gave the reason %q, want %q",
+				name, mismatch.Reason, match.ReasonRuleNotLiteral)
+		}
+	}
+}
+
+// The agent trims each tag of its list, so a tag with padding would register as another tag than
+// the one that the job asked for.
+func TestTagsRefuseAKeyOrAValueWithPadding(t *testing.T) {
+	cases := map[string][]string{
+		"a leading space in the value":  {"queue=macos", "xcode= 27"},
+		"a trailing space in the value": {"queue=macos", "xcode=27 "},
+		"a leading space in the key":    {"queue=macos", " xcode=27"},
+		"a trailing tab in the key":     {"queue=macos", "xcode\t=27"},
+		"a padded queue value":          {"queue=macos ", "xcode=27"},
+	}
+
+	for name, rules := range cases {
+		_, err := match.Tags(rules)
+
+		var mismatch *match.Mismatch
+		if !errors.As(err, &mismatch) {
+			t.Errorf("Tags(%s) = %v, want a mismatch", name, err)
+		}
+	}
+}
+
+// The controller gives every agent the tags agent-stack and profile, so a rule that sets either
+// one would give the agent two values for it. The queue rule is not here, because Tags takes it
+// out of the result.
+func TestTagsRefuseARuleThatNamesATagTheControllerSets(t *testing.T) {
+	for _, rule := range []string{"agent-stack=orchard", "agent-stack=other", "profile=xcode-27"} {
+		_, err := match.Tags([]string{"queue=macos", rule})
+
+		var mismatch *match.Mismatch
+		if !errors.As(err, &mismatch) {
+			t.Errorf("Tags(%q) = %v, want a mismatch", rule, err)
+
+			continue
+		}
+		if mismatch.Reason != match.ReasonReservedTag || mismatch.Rule != rule {
+			t.Errorf("Tags(%q) gave the reason %q for %q, want %q for the rule", rule,
+				mismatch.Reason, mismatch.Rule, match.ReasonReservedTag)
+		}
+	}
+
+	if _, err := match.Tags([]string{"queue=macos", "xcode=27"}); err != nil {
+		t.Errorf("Tags() with a queue rule = %v, want no error", err)
+	}
+}
+
 func TestMatchRefusesTheSameTagTwiceWithTwoValues(t *testing.T) {
 	if _, err := match.Match([]string{"queue=macos", "xcode=27", "xcode=26"}, profiles()); err == nil {
 		t.Error("Match() with two values for one tag = nil, want a mismatch")
@@ -143,6 +218,32 @@ func TestMismatchMessageListsTheTagsAndEveryProfile(t *testing.T) {
 	}
 	if strings.Contains(message, "queue=macos") {
 		t.Errorf("the message contains the queue rule, which takes no part in the match: %s", message)
+	}
+}
+
+// The summary goes to a notification that Buildkite cuts at 256 characters. It names the reason and
+// the tags of the job, and it leaves the long list of profiles to the log.
+func TestMismatchSummaryNamesTheReasonAndTheTagsButNotEveryProfile(t *testing.T) {
+	_, err := match.Match([]string{"queue=macos", "xcode=99"}, profiles())
+
+	var mismatch *match.Mismatch
+	if !errors.As(err, &mismatch) {
+		t.Fatalf("Match() = %v, want a mismatch", err)
+	}
+
+	summary := mismatch.Summary()
+	for _, want := range []string{match.ReasonNoProfile, "xcode=99"} {
+		if !strings.Contains(summary, want) {
+			t.Errorf("the summary does not contain %q: %s", want, summary)
+		}
+	}
+
+	if strings.Contains(summary, "xcode-27-large") {
+		t.Errorf("the summary lists a profile, which the log keeps: %s", summary)
+	}
+
+	if len([]rune(summary)) > 256 {
+		t.Errorf("the summary has %d characters, want at most 256", len([]rune(summary)))
 	}
 }
 

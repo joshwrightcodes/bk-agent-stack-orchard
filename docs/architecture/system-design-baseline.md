@@ -75,7 +75,7 @@ These scenarios are the most likely to shape the architecture.
 |---|---|---|---|---|---|---|
 | QS-1 | Pipeline authors | More matched jobs are scheduled than there are free VM slots | Peak demand, fleet at planned capacity | Controller and fleet | Jobs that do not fit stay `scheduled` and visible. VMs never exceed the free slots. | 0 moments with more VMs than slots. Oldest waiting job: 15 min or less. |
 | QS-2 | Pipeline author | A matched job is scheduled | A free slot exists, and the image is on the host | Controller, Orchard, job VM | An agent in a new VM acquires the job | Time from `scheduled` to `accepted`: 60 s or less |
-| QS-3 | Pipeline author | A job cannot run: no profile matches, or its VM does not start | Normal operation | Controller | The job fails with a message before its scheduled-job expiry | Unmatched job: fails at the next poll. VM failure: fails within the configured timeouts. |
+| QS-3 | Pipeline author | A job cannot run: no profile matches, or its VM does not start | Normal operation | Controller | A job with no profile stays scheduled, with one notification. A job whose VM does not start fails with a message before its scheduled-job expiry | Unmatched job: one notification at the next poll, and no reservation. VM failure: fails within the configured timeouts. |
 | QS-4 | Fault | The controller stops and starts again | Jobs in all states | Controller | No second VM for a job. VMs of ended jobs are deleted. | 0 duplicate VMs. Delay for a reserved job without a VM: a maximum of 300 s. |
 | QS-5 | Malicious build | A build tries to reach the host, another VM, a private network, or a long-lived credential | Normal operation | Job VM | The attempt fails | 0 reachable destinations outside the profile allowlist. 0 VM specifications with the cluster agent token. |
 | QS-6 | Fault | The controller or the Orchard controller stops | Jobs in progress | Controller, Orchard | No new VMs start. VMs in progress continue. Service returns after recovery. | Recovery time: less than 15 min |
@@ -171,8 +171,8 @@ can permit a smaller fleet at peak. The pilot must measure the real arrival rate
   alert uses the same value. It gives an alert when the oldest waiting job is more than 15 minutes
   old.
 * **Recovery time:** less than 15 minutes for the controller and for the Orchard controller.
-* **Failure visibility:** a job that cannot run MUST fail with a message before its scheduled-job
-  expiry.
+* **Failure visibility:** a job whose VM cannot start MUST fail with a message before its
+  scheduled-job expiry. A job that no profile carries MUST get one notification (ADR-0016).
 
 ## 6. Recovery
 
@@ -262,7 +262,7 @@ can permit a smaller fleet at peak. The pilot must measure the real arrival rate
 | QA-02 | Quality | Wait time when all slots are in use | APPLICABLE | DRIVER | CONFIRMED | 15 min or less, at planned capacity | Owner answer Q-P3 | Sustained waits over 15 min |
 | QA-03 | Quality | Recovery time | APPLICABLE | DRIVER | CONFIRMED | Less than 15 min for the controller and Orchard; no high availability | Owner answer Q-A3 | A recovery takes 15 min or more |
 | QA-04 | Quality | Correctness | APPLICABLE | DRIVER | CONFIRMED | 0 leaked VMs and 0 incorrect failures in the pilot; 1 VM maximum for each job | PR-001, PR-002, PR-008; owner statement (2026-09-13) | A failed invariant |
-| QA-05 | Quality | Failure visibility | APPLICABLE | DRIVER | CONFIRMED | Fail with a message before scheduled-job expiry | ADR-0001; PR-004; PR-008 | — |
+| QA-05 | Quality | Failure visibility | APPLICABLE | DRIVER | CONFIRMED | A VM failure fails the job with a message before scheduled-job expiry; an unmatched job gets one notification | ADR-0001; ADR-0016; PR-004; PR-008 | — |
 | QA-06 | Quality | Time from job end to VM deletion | APPLICABLE | SUPPORTING | UNKNOWN | — | PR-002 (the requirement states no value) | Slot shortage in the pilot |
 | DR-01 | Consistency | One VM for each job | APPLICABLE | DRIVER | CONFIRMED | Maximum of one | PR-001, PR-002; ADR-0002 | — |
 | DR-02 | Recovery | Delay after a controller crash | APPLICABLE | SUPPORTING | CONFIRMED | Maximum of 300 s | Derived from the target design (reservation expiry) | — |

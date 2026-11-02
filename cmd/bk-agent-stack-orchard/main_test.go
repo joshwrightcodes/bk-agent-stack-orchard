@@ -5,9 +5,11 @@ package main
 import (
 	"bytes"
 	"errors"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestVersionPrintsTheVersionAndTheCommit(t *testing.T) {
@@ -39,17 +41,49 @@ func TestVersionReportsUnknownWhenTheBuildDidNotSetOne(t *testing.T) {
 	}
 }
 
-// A process with no configuration cannot serve a queue, and the message must say what is
-// missing: an operator reads it in a pod that will not start.
-func TestRunNeedsAConfiguration(t *testing.T) {
+// The platform sets the path of the configuration in the environment, so a process that gets no
+// flag must read the file that the variable names.
+func TestTheConfigPathComesFromTheEnvironmentWhenTheFlagIsMissing(t *testing.T) {
+	environment := map[string]string{"BK_AGENT_STACK_ORCHARD_CONFIG": "/from/the/environment.yaml"}
+
+	if got, _ := configPath("", func(key string) string { return environment[key] }); got !=
+		"/from/the/environment.yaml" {
+		t.Errorf("configPath() = %q, want the path of the environment", got)
+	}
+}
+
+func TestTheDefaultConfigPath(t *testing.T) {
+	got, _ := configPath("", func(string) string { return "" })
+
+	if want := "/etc/bk-agent-stack-orchard/config.yaml"; got != want {
+		t.Errorf("configPath() = %q, want %q", got, want)
+	}
+}
+
+func TestTheFlagWinsOverTheEnvironment(t *testing.T) {
+	environment := map[string]string{"BK_AGENT_STACK_ORCHARD_CONFIG": "/from/the/environment.yaml"}
+
+	if got, _ := configPath("/from/the/flag.yaml", func(key string) string {
+		return environment[key]
+	}); got != "/from/the/flag.yaml" {
+		t.Errorf("configPath() = %q, want the path of the flag", got)
+	}
+}
+
+// A process with no flag reads the path of the environment, and a file that is not there must
+// stop it with a message that names the configuration.
+func TestRunReadsTheConfigurationThatTheEnvironmentNames(t *testing.T) {
 	var out, problems bytes.Buffer
 
-	if status := run(nil, &out, &problems); status != 2 {
-		t.Fatalf("run() = %d, want 2", status)
+	missing := filepath.Join(t.TempDir(), "nothing.yaml")
+	t.Setenv("BK_AGENT_STACK_ORCHARD_CONFIG", missing)
+
+	if status := run(nil, &out, &problems); status != 1 {
+		t.Fatalf("run() = %d, want 1", status)
 	}
 
-	if !strings.Contains(problems.String(), "-config") {
-		t.Errorf("run() reported %q, want it to name the missing flag", problems.String())
+	if !strings.Contains(problems.String(), missing) {
+		t.Errorf("run() reported %q, want it to name %q", problems.String(), missing)
 	}
 }
 
@@ -88,5 +122,54 @@ func TestRunReportsAWriteThatFails(t *testing.T) {
 
 	if status := run([]string{"-version"}, failingWriter{}, &problems); status != 1 {
 		t.Errorf("run() = %d, want 1", status)
+	}
+}
+
+// An operator who reads a failed start must learn where the path came from, because the file that
+// the pod reads is not the file that the operator expects when the source is a surprise.
+func TestTheStartErrorNamesWhereTheConfigPathCameFrom(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "nothing.yaml")
+
+	tests := []struct {
+		name  string
+		args  []string
+		env   string
+		other string
+	}{
+		{"flag", []string{"-config", missing}, "", "the -config flag"},
+		{"environment", nil, missing, "the environment variable BK_AGENT_STACK_ORCHARD_CONFIG"},
+		{"default", nil, "", "the default path"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var out, problems bytes.Buffer
+
+			t.Setenv("BK_AGENT_STACK_ORCHARD_CONFIG", tt.env)
+
+			if status := run(tt.args, &out, &problems); status != 1 {
+				t.Fatalf("run() = %d, want 1", status)
+			}
+
+			if !strings.Contains(problems.String(), tt.other) {
+				t.Errorf("run() reported %q, want it to name %q", problems.String(), tt.other)
+			}
+		})
+	}
+}
+
+// A server that accepts a call and never answers must not hold the loop for ever.
+func TestTheClientsOfTheControllerCarryATimeout(t *testing.T) {
+	for name, client := range map[string]*http.Client{
+		"buildkite": newHTTPClient(nil),
+		"orchard":   newHTTPClient(http.DefaultTransport),
+	} {
+		if client.Timeout != httpTimeout || httpTimeout <= 0 {
+			t.Errorf("the %s client has timeout %s, want %s", name, client.Timeout, httpTimeout)
+		}
+	}
+
+	if httpTimeout != 30*time.Second {
+		t.Errorf("httpTimeout = %s, want 30s", httpTimeout)
 	}
 }

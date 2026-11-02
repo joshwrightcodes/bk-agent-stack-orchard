@@ -143,6 +143,35 @@ func TestAdmissionCountsTheMachinesOfEveryOwner(t *testing.T) {
 	}
 }
 
+// Orchard keeps the worker name of a machine that failed, and sets its scheduled condition to
+// false. Such a machine holds no room, and it gets no placement of its own either, because Orchard
+// does not place a machine that failed.
+func TestAFailedVMOfAnotherOwnerHoldsNoSlot(t *testing.T) {
+	t.Parallel()
+
+	failed := machine("someone-elses-failed-vm", "mac-01")
+	failed.Status = orchard.StatusFailed
+	failed.Conditions = []orchard.Condition{{Type: "scheduled", State: "false"}}
+
+	ids := identifiers(3)
+	fleet := inventory.Snapshot{
+		Workers: []orchard.Worker{worker("mac-01", nil)},
+		VMs:     []orchard.VM{failed, machine("someone-elses-vm", "mac-01")},
+		At:      now,
+	}
+
+	result := admission.Decide(request([]buildkite.ScheduledJob{
+		waiting(ids[0], 0, time.Minute),
+		waiting(ids[1], 0, time.Minute),
+		waiting(ids[2], 0, time.Minute),
+	}, fleet))
+
+	if len(result.Admit) != 1 {
+		t.Errorf("admission started %d jobs, want 1: the failed machine holds no room",
+			len(result.Admit))
+	}
+}
+
 // A machine that Orchard holds and no worker runs will land somewhere. Its room is promised, and
 // an accounting that ignored it would start a job for room that is already gone.
 func TestAdmissionCountsTheMachinesThatWaitForAWorker(t *testing.T) {
@@ -360,8 +389,8 @@ func TestAJobThatHasAMachineIsNotStartedAgain(t *testing.T) {
 	}
 }
 
-// A job that no profile carries must not wait for a machine that never comes. The launcher ends
-// it with the reason, which a pipeline author reads on the job page.
+// A job that no profile carries is not ours to run. The launcher leaves it alone and writes the
+// summary on the job page, so that a pipeline author learns why this stack does not start it.
 func TestAJobThatNoProfileCarriesIsUnmatched(t *testing.T) {
 	t.Parallel()
 
@@ -379,7 +408,11 @@ func TestAJobThatNoProfileCarriesIsUnmatched(t *testing.T) {
 	}
 
 	if result.Unmatched[0].Reason == "" {
-		t.Error("the unmatched job has no reason, and the job page needs one")
+		t.Error("the unmatched job has no reason, and the log needs one")
+	}
+
+	if result.Unmatched[0].Summary == "" {
+		t.Error("the unmatched job has no summary, and the job page needs one")
 	}
 
 	if len(result.Admit) != 0 {

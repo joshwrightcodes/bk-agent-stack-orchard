@@ -30,6 +30,7 @@ const OrchardVersion = "0.58.0"
 //
 // Orchard calls it VM.
 type VM struct {
+	Conditions      []Condition       `json:"conditions,omitempty"`
 	CPU             uint64            `json:"cpu,omitempty"`
 	CreatedAt       time.Time         `json:"createdAt,omitempty"`
 	DiskSize        uint64            `json:"diskSize,omitempty"`
@@ -54,6 +55,14 @@ type VM struct {
 	StatusMessage   string            `json:"status_message,omitempty"`
 	Username        string            `json:"username,omitempty"`
 	Worker          string            `json:"worker,omitempty"`
+}
+
+// Condition is one fact about a machine, such as that it is scheduled.
+//
+// Orchard calls it Condition.
+type Condition struct {
+	State string `json:"state"`
+	Type  string `json:"type"`
 }
 
 // Script is the startup script that the worker runs in the guest.

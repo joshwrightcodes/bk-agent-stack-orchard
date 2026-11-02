@@ -43,7 +43,8 @@ func TestAPausedQueueStartsNothingAndLetsMachinesContinue(t *testing.T) {
 		_, found := machineNamed(t, machineOf(held))
 
 		return found || slices.Contains(stacks.Reserved(), held) ||
-			slices.Contains(stacks.Reserved(), stray) || finished(stacks.Finished(), stray)
+			slices.Contains(stacks.Reserved(), stray) || finished(stacks.Finished(), stray) ||
+			notified(stacks.Notifications(), stray)
 	})
 
 	// The machine in progress continues: the pause is not a reason to end it.
@@ -63,9 +64,14 @@ func TestAPausedQueueStartsNothingAndLetsMachinesContinue(t *testing.T) {
 	// The operator resumes the queue, and the controller catches up.
 	stacks.Pause(false)
 
-	eventually(t, "the waiting job starts and the unmatched job ends", func() bool {
-		return running(t, held) && finished(stacks.Finished(), stray)
+	eventually(t, "the waiting job starts", func() bool {
+		return running(t, held)
 	})
+
+	// The unmatched job is skipped: no reservation, no finish.
+	if slices.Contains(stacks.Reserved(), stray) || finished(stacks.Finished(), stray) {
+		t.Error("the controller reserved or finished the unmatched job, want it left alone")
+	}
 
 	stacks.SetJobState(held, "running")
 	stacks.SetJobState(held, "finished")
@@ -112,5 +118,12 @@ func TestACancellationWhileTheMachineBootsDeletesIt(t *testing.T) {
 func finished(calls []stacksapi.FinishJobRequest, id string) bool {
 	return slices.ContainsFunc(calls, func(call stacksapi.FinishJobRequest) bool {
 		return call.JobUUID == id
+	})
+}
+
+// notified reports whether the job page of a job has a line from the controller.
+func notified(lines []stacksapi.StackNotification, id string) bool {
+	return slices.ContainsFunc(lines, func(line stacksapi.StackNotification) bool {
+		return line.JobUUID == id
 	})
 }

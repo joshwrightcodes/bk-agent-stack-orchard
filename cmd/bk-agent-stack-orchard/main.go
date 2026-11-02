@@ -46,7 +46,8 @@ func run(args []string, out, problems io.Writer) int {
 	flags := flag.NewFlagSet("bk-agent-stack-orchard", flag.ContinueOnError)
 	flags.SetOutput(problems)
 
-	path := flags.String("config", "", "the path of the configuration file")
+	path := flags.String("config", "",
+		"the path of the configuration file ("+configEnvironment+" and "+defaultConfigPath+" follow)")
 	wanted := flags.Bool("version", false, "print the version and stop")
 
 	if err := flags.Parse(args); err != nil {
@@ -65,17 +66,13 @@ func run(args []string, out, problems io.Writer) int {
 		return 0
 	}
 
-	if *path == "" {
-		_, _ = fmt.Fprintln(problems, "bk-agent-stack-orchard: -config is necessary")
-
-		return 2
-	}
+	location, origin := configPath(*path, os.Getenv)
 
 	// A signal stops the loop, and the loop then withdraws the stack and stops the exporters.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	if err := serve(ctx, *path, out); err != nil {
+	if err := serve(ctx, location, origin, out); err != nil {
 		_, _ = fmt.Fprintf(problems, "bk-agent-stack-orchard: %v\n", err)
 
 		return 1
@@ -84,11 +81,32 @@ func run(args []string, out, problems io.Writer) int {
 	return 0
 }
 
+// The configuration path comes from the flag first, then from the environment, then from this
+// default, which is where the Helm chart mounts the file.
+const (
+	configEnvironment = "BK_AGENT_STACK_ORCHARD_CONFIG"
+	defaultConfigPath = "/etc/bk-agent-stack-orchard/config.yaml"
+)
+
+// configPath gives the path of the configuration file and where the path came from: the flag when
+// it is set, else the environment variable, else the default.
+func configPath(flagged string, getenv func(string) string) (path, origin string) {
+	if flagged != "" {
+		return flagged, "the -config flag"
+	}
+
+	if fromEnvironment := getenv(configEnvironment); fromEnvironment != "" {
+		return fromEnvironment, "the environment variable " + configEnvironment
+	}
+
+	return defaultConfigPath, "the default path"
+}
+
 // serve runs the controller until the context ends.
-func serve(ctx context.Context, path string, out io.Writer) error {
+func serve(ctx context.Context, path, origin string, out io.Writer) error {
 	settings, err := config.Load(path, os.Getenv)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w (the path %s comes from %s)", err, path, origin)
 	}
 
 	recorder, err := telemetry.Setup(ctx, telemetry.Options{
@@ -115,7 +133,7 @@ func serve(ctx context.Context, path string, out io.Writer) error {
 
 	// The calls of this controller become spans and metrics of the HTTP conventions, which is
 	// where an operator looks first when a call is slow or fails.
-	client := &http.Client{Transport: otelhttp.NewTransport(nil)}
+	client := newHTTPClient(nil)
 
 	stacks, err := buildkite.New(buildkite.Options{
 		Token:      settings.Buildkite.AgentToken,
@@ -140,7 +158,7 @@ func serve(ctx context.Context, path string, out io.Writer) error {
 		URL:            settings.Orchard.URL,
 		ServiceAccount: settings.Orchard.ServiceAccount,
 		Token:          settings.Orchard.Token,
-		HTTPClient:     &http.Client{Transport: otelhttp.NewTransport(toOrchard)},
+		HTTPClient:     newHTTPClient(toOrchard),
 	})
 	if err != nil {
 		return err
@@ -169,6 +187,7 @@ func serve(ctx context.Context, path string, out io.Writer) error {
 	checks, err := health.New(health.Options{
 		Sources:      sources,
 		Unauthorized: stacks.Unauthorized,
+		Window:       settings.StateFreshness,
 		Now:          now,
 		Logger:       recorder.Logger,
 	})
@@ -224,4 +243,13 @@ func orUnknown(value string) string {
 	}
 
 	return value
+}
+
+// httpTimeout limits one whole call to Buildkite or to Orchard. A server that accepts a call and
+// never answers would otherwise hold the loop for ever, with no reaping and no restart.
+const httpTimeout = 30 * time.Second
+
+// newHTTPClient builds the client for one remote service. A nil transport gives the default one.
+func newHTTPClient(transport http.RoundTripper) *http.Client {
+	return &http.Client{Transport: otelhttp.NewTransport(transport), Timeout: httpTimeout}
 }

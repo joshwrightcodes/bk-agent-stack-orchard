@@ -178,6 +178,8 @@ in order, because the documents decide the behaviour (CONTRIBUTING, section "Bef
    field, its default, its validation, and its place in the VM specification (sections 5 and 6.4).
 3. Write the failing test first. Add the field to `internal/profile/profile.go` with its
    validation, and test the validation in `internal/profile`.
+   A field that names an environment variable goes into `validateVMVariables`, so that it accepts
+   only a name that starts with `VM_`. The controller pod holds other secrets.
 4. Map the field to the specification in `internal/vmspec/vmspec.go`, and test it in
    `internal/vmspec/vmspec_test.go`.
 5. Add the field to the specification test (T-064, `test/integration/specification_test.go`), so
@@ -298,7 +300,8 @@ outside the controller:
 
 | Fuzz test | Input | Property |
 |---|---|---|
-| `FuzzTagsGiveOnlyLiteralRules` | The agent rules of a job, which pipeline authors write | An accepted rule is a literal `key=value` that a rule names, and a match is an equal match map |
+| `FuzzTagsGiveOnlyLiteralRules` | The agent rules of a job, which pipeline authors write | An accepted rule is a literal `key=value` that a rule names and that has no comma, newline, or quote, and a match is an equal match map |
+| `FuzzATagReachesTheEnvironmentAndNeverTheScript` | A tag of a job, which pipeline authors write | The tag reaches `BUILDKITE_AGENT_TAGS` in the VM environment and never the startup script |
 | `FuzzOwnedJobClaimsOnlyTheMachinesOfThisController` | A machine name in Orchard, which any tool can set | The controller claims only the exact name that it gives to a valid job |
 | `FuzzOwnedJobTellsControllersApart` | Two controller identifiers | A controller never claims a machine of another controller |
 | `FuzzParseIDAcceptsOnlyTheBuildkiteShape` | A job identifier from Buildkite | Only the lowercase UUID shape passes, unchanged |
@@ -319,8 +322,8 @@ pins:
   controller remains (I-6).
 * The admission journeys run the controller binary in the same way. In T-061, three jobs wait for
   a worker with two slots: the third job stays `scheduled` until a slot is free. In T-062, a job
-  that no profile matches ends with exit status -1 and a message that names the profiles, and no
-  VM starts.
+  that no profile matches stays `scheduled` over 2 ticks, with one notification on its job page,
+  and no VM starts.
 * The restart journey (T-021) kills the controller with SIGKILL and starts it again, at each crash
   window of the target design, section 7.4. Each job keeps at most one VM. The VM of a job that
   ended while no controller ran goes. The first pass extends every reservation.

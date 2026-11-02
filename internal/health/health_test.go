@@ -50,7 +50,16 @@ type probed struct {
 	log    *bytes.Buffer
 }
 
+// window is the readiness window of most tests, which the configuration gives as stateFreshness.
+const window = 30 * time.Second
+
 func build(t *testing.T, sources []*source, unauthorized *bool) probed {
+	t.Helper()
+
+	return buildWithin(t, window, sources, unauthorized)
+}
+
+func buildWithin(t *testing.T, within time.Duration, sources []*source, unauthorized *bool) probed {
 	t.Helper()
 
 	given := make([]health.Source, 0, len(sources))
@@ -62,6 +71,7 @@ func build(t *testing.T, sources []*source, unauthorized *bool) probed {
 
 	checks, err := health.New(health.Options{
 		Sources:      given,
+		Window:       within,
 		Unauthorized: func() bool { return *unauthorized },
 		Now:          func() time.Time { return now },
 		Logger:       slog.New(slog.NewTextHandler(log, nil)),
@@ -99,7 +109,7 @@ func TestTheControllerIsReadyWhileEverySourceIsFresh(t *testing.T) {
 	refused := false
 
 	// The window includes its end: an answer exactly 30 s old still counts.
-	p := build(t, fresh(time.Second, 5*time.Second, health.Window), &refused)
+	p := build(t, fresh(time.Second, 5*time.Second, window), &refused)
 
 	for _, service := range []string{health.ServiceReadiness, ""} {
 		if got := p.status(t, service); got != serving {
@@ -123,13 +133,34 @@ func TestAControllerIsNotReadyBeforeTheFirstUpdate(t *testing.T) {
 	}
 }
 
+// The window is stateFreshness, which the configuration requires to be longer than the interval
+// of each source. A source read every 45 s is ready inside a window of 60 s, however often the
+// probe reads.
+func TestReadinessUsesStateFreshness(t *testing.T) {
+	t.Parallel()
+
+	refused := false
+	p := buildWithin(t, 60*time.Second, fresh(time.Second, 5*time.Second, 45*time.Second), &refused)
+
+	for range 3 {
+		if got := p.status(t, health.ServiceReadiness); got != serving {
+			t.Fatalf("readiness is %s, want SERVING", got)
+		}
+	}
+
+	old := buildWithin(t, 60*time.Second, fresh(time.Second, 61*time.Second), &refused)
+	if got := old.status(t, health.ServiceReadiness); got != notServing {
+		t.Errorf("readiness with an answer of 61 s is %s, want NOT_SERVING", got)
+	}
+}
+
 // A source whose calls fail keeps its last answer. The controller then acts on an old world, and
 // the platform must stop sending it traffic and an operator must see why.
 func TestAnOldSourceMakesTheControllerUnready(t *testing.T) {
 	t.Parallel()
 
 	refused := false
-	p := build(t, fresh(time.Second, health.Window+time.Second), &refused)
+	p := build(t, fresh(time.Second, window+time.Second), &refused)
 
 	if got := p.status(t, health.ServiceReadiness); got != notServing {
 		t.Fatalf("readiness is %s, want NOT_SERVING", got)
@@ -214,8 +245,29 @@ func TestNewRefusesIncompleteChecks(t *testing.T) {
 	t.Parallel()
 
 	_, err := health.New(health.Options{})
-	if err == nil || !strings.Contains(err.Error(), "clock") || !strings.Contains(err.Error(), "token") ||
+	if err == nil || !strings.Contains(err.Error(), "clock") ||
+		!strings.Contains(err.Error(), "window") || !strings.Contains(err.Error(), "token") ||
 		!strings.Contains(err.Error(), "logger") {
 		t.Errorf("New() with nothing = %v, want an error that names each missing part", err)
+	}
+}
+
+// A window of zero would make every answer old, and a negative one would make the check wrong
+// in a way that nobody sees, so the checks refuse both.
+func TestNewRefusesAWindowThatIsNotPositive(t *testing.T) {
+	t.Parallel()
+
+	for _, within := range []time.Duration{0, -time.Second} {
+		_, err := health.New(health.Options{
+			Sources:      []health.Source{&source{kind: telemetry.SourceInventory}},
+			Window:       within,
+			Unauthorized: func() bool { return false },
+			Now:          func() time.Time { return now },
+			Logger:       slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
+		})
+		if err == nil || !strings.Contains(err.Error(), "window") {
+			t.Errorf("New() with a window of %s = %v, want an error that names the window",
+				within, err)
+		}
 	}
 }

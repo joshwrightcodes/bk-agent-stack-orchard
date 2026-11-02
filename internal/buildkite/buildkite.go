@@ -24,11 +24,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/buildkite/stacksapi"
 
@@ -153,9 +155,7 @@ func New(options Options) (*Client, error) {
 		opts = append(opts, stacksapi.WithLogger(options.Logger))
 	}
 
-	if options.HTTPClient != nil {
-		opts = append(opts, stacksapi.WithHTTPClient(options.HTTPClient))
-	}
+	opts = append(opts, stacksapi.WithHTTPClient(limitBodies(options.HTTPClient)))
 
 	api, err := stacksapi.NewClient(options.Token.Reveal(), opts...)
 	if err != nil {
@@ -355,17 +355,62 @@ func (c *Client) Finish(ctx context.Context, id job.ID, exitStatus int, detail s
 	return c.classifyJob(err)
 }
 
-// Notify writes lines on the job pages.
+// NotificationsPerRequest is the most lines that one request can carry (Stacks API documentation,
+// https://buildkite.com/docs/apis/agent-api/stacks, read on 2026-11-01).
+const NotificationsPerRequest = 1000
+
+// RefusedError is the answer to a request in which Buildkite refused some lines and created the
+// others. Indexes are the 0-based places of the refused lines in the request.
+type RefusedError struct {
+	Indexes []int
+	Total   int
+	Reason  string
+}
+
+// Error gives the count and the reason of the first refusal.
+func (e *RefusedError) Error() string {
+	return fmt.Sprintf("%s: %d of %d lines: %s", ErrRefused, len(e.Indexes), e.Total, e.Reason)
+}
+
+// Is makes a RefusedError match ErrRefused.
+func (e *RefusedError) Is(target error) bool { return target == ErrRefused }
+
+// NotificationLimit is the longest detail of a notification, in characters, that Buildkite
+// accepts (Stacks API documentation, read on 2026-11-01). The library does not cut.
+const NotificationLimit = 256
+
+// cut shortens text to at most limit characters, and ends a cut text with an ellipsis that says
+// so. It cuts between characters, never inside the bytes of one. It gives a word for empty text,
+// because the API refuses an empty detail.
+func cut(text string, limit int) string {
+	if text == "" {
+		// The API refuses an empty detail.
+		return "(no detail)"
+	}
+
+	if utf8.RuneCountInString(text) <= limit {
+		return text
+	}
+
+	return string([]rune(text)[:limit-1]) + "…"
+}
+
+// Notify writes lines on the job pages. A detail over NotificationLimit characters is cut.
 func (c *Client) Notify(ctx context.Context, notifications []Notification) error {
 	if len(notifications) == 0 {
 		return nil
+	}
+
+	if len(notifications) > NotificationsPerRequest {
+		return fmt.Errorf("a request takes at most %d notifications, and this one has %d",
+			NotificationsPerRequest, len(notifications))
 	}
 
 	lines := make([]stacksapi.StackNotification, 0, len(notifications))
 	for _, notification := range notifications {
 		lines = append(lines, stacksapi.StackNotification{
 			JobUUID:   string(notification.JobID),
-			Detail:    notification.Detail,
+			Detail:    cut(notification.Detail, NotificationLimit),
 			Timestamp: notification.At,
 		})
 	}
@@ -381,8 +426,13 @@ func (c *Client) Notify(ctx context.Context, notifications []Notification) error
 	// A notification is a line on a job page. A refused line loses information, and it must not
 	// stop the launch of a VM, so the caller logs the answer and continues.
 	if len(answer.Errors) > 0 {
-		return fmt.Errorf("%w: %d of %d lines: %s", ErrRefused,
-			len(answer.Errors), len(lines), answer.Errors[0].Error)
+		refused := &RefusedError{Total: len(lines), Reason: answer.Errors[0].Error}
+
+		for _, refusal := range answer.Errors {
+			refused.Indexes = append(refused.Indexes, refusal.Indexes...)
+		}
+
+		return refused
 	}
 
 	return nil
@@ -453,3 +503,71 @@ func identifiers(texts []string) ([]job.ID, error) {
 
 	return out, nil
 }
+
+// maxResponseBytes is the most that the client reads from the body of an answer. The library reads
+// a whole body into memory, so a body over the limit fails the call, and a cut body never reaches
+// the decoder.
+const maxResponseBytes = 16 << 20 // 16 MiB
+
+// limitBodies gives a copy of the client whose transport limits each answer body. A nil client
+// stands for the default client of the library.
+func limitBodies(client *http.Client) *http.Client {
+	limited := &http.Client{}
+	if client != nil {
+		copied := *client
+		limited = &copied
+	}
+
+	limited.Transport = limitedTransport{next: limited.Transport}
+
+	return limited
+}
+
+// limitedTransport replaces the body of each answer with a reader that fails past the limit.
+type limitedTransport struct{ next http.RoundTripper }
+
+func (t limitedTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	next := t.next
+	if next == nil {
+		next = http.DefaultTransport
+	}
+
+	response, err := next.RoundTrip(request)
+	if err != nil {
+		return response, err
+	}
+
+	response.Body = &limitedBody{body: response.Body, left: maxResponseBytes}
+
+	return response, nil
+}
+
+// limitedBody reads up to the limit, and then fails if the body has more.
+type limitedBody struct {
+	body io.ReadCloser
+	left int64
+}
+
+func (b *limitedBody) Read(p []byte) (int, error) {
+	if b.left < 0 {
+		return 0, errBodyOverLimit
+	}
+
+	// One byte more than the limit shows that the body is longer.
+	if int64(len(p)) > b.left+1 {
+		p = p[:b.left+1]
+	}
+
+	n, err := b.body.Read(p)
+	b.left -= int64(n)
+
+	if b.left < 0 {
+		return n - 1, errBodyOverLimit
+	}
+
+	return n, err
+}
+
+func (b *limitedBody) Close() error { return b.body.Close() }
+
+var errBodyOverLimit = fmt.Errorf("the body of the answer is over the limit of %d bytes", maxResponseBytes)

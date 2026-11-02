@@ -13,6 +13,7 @@ package admission
 
 import (
 	"cmp"
+	"errors"
 	"slices"
 	"time"
 
@@ -32,11 +33,16 @@ type Candidate struct {
 }
 
 // Unmatched is one job of the queue that no profile of this controller can carry. The launcher
-// reserves it and ends it with this reason, so that a pipeline author reads it on the job page
-// instead of waiting for a machine that never comes.
+// leaves it alone, because another stack or agent of the queue may carry it. It writes the
+// summary on the job page, and the reason in the log.
 type Unmatched struct {
-	Job    buildkite.ScheduledJob
+	Job buildkite.ScheduledJob
+
+	// Reason is the full message, with the tags of the job and every profile.
 	Reason string
+
+	// Summary is the short line for the job page.
+	Summary string
 }
 
 // Eligible reports a worker that may take a new machine with these labels.
@@ -66,6 +72,10 @@ type Request struct {
 	// that the limit follows the hardware and holds no slot empty.
 	MaxInFlight uint64
 
+	// Truncated reports that the read of the queue stopped at the page cap. The decision passes
+	// it on, because the launcher forgets a notified job only after a whole listing.
+	Truncated bool
+
 	// Now is the time that the ages are measured from.
 	Now time.Time
 }
@@ -75,8 +85,11 @@ type Result struct {
 	// Admit are the jobs to start, in the order to start them.
 	Admit []Candidate
 
-	// Unmatched are the jobs to end with a reason.
+	// Unmatched are the jobs to leave alone and to say so once.
 	Unmatched []Unmatched
+
+	// Truncated is the flag of the request: the listing that this decision read was cut.
+	Truncated bool
 
 	// Matched are the jobs that a profile carries and that have no machine yet, in the order of
 	// admission. Admit is the part of them that the fleet has room for.
@@ -99,6 +112,7 @@ func (r Result) Observe(observation *telemetry.Observation) {
 // Decide gives the jobs to start and the jobs to end.
 func Decide(request Request) Result {
 	result := Result{
+		Truncated:     request.Truncated,
 		Waiting:       map[string]int64{},
 		OldestWaiting: map[string]time.Duration{},
 	}
@@ -147,7 +161,7 @@ func sift(request Request, result *Result) []Candidate {
 	for _, waiting := range request.Jobs {
 		chosen, err := match.Match(waiting.Rules, request.Profiles)
 		if err != nil {
-			result.Unmatched = append(result.Unmatched, Unmatched{Job: waiting, Reason: err.Error()})
+			result.Unmatched = append(result.Unmatched, unmatched(waiting, err))
 
 			continue
 		}
@@ -286,4 +300,16 @@ func place(request Request, free map[string]map[string]uint64, chosen profile.Pr
 	}
 
 	return false
+}
+
+// unmatched builds the entry of a job that the matcher refused.
+func unmatched(waiting buildkite.ScheduledJob, err error) Unmatched {
+	entry := Unmatched{Job: waiting, Reason: err.Error(), Summary: err.Error()}
+
+	var mismatch *match.Mismatch
+	if errors.As(err, &mismatch) {
+		entry.Summary = mismatch.Summary()
+	}
+
+	return entry
 }

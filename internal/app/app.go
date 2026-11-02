@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/admission"
@@ -83,21 +82,23 @@ func Build(options Options) (*controller.Controller, error) {
 		return nil, err
 	}
 
-	poller, err := stack.NewPoller(stack.PollerOptions{
-		Stacks:   stacks,
-		Interval: settings.Buildkite.PollInterval,
-		Now:      now,
-	})
-	if err != nil {
-		return nil, err
-	}
-
 	fleet, err := inventory.New(inventory.Options{
 		Orchard:        machines,
 		ControllerID:   settings.ControllerID,
 		Interval:       settings.Orchard.InventoryInterval,
 		OfflineTimeout: settings.Orchard.WorkerOfflineTimeout,
 		Now:            now,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	poller, err := stack.NewPoller(stack.PollerOptions{
+		Stacks:   stacks,
+		Interval: settings.Buildkite.PollInterval,
+		Metrics:  recorder.Metrics,
+		Logger:   recorder.Logger,
+		Now:      now,
 	})
 	if err != nil {
 		return nil, err
@@ -242,18 +243,11 @@ func (a *admitter) admit(ctx context.Context) error {
 		Held:        a.starter.Held(held),
 		Eligible:    a.fleet.Eligible,
 		MaxInFlight: a.settings.MaxInFlight,
+		Truncated:   queue.Truncated,
 		Now:         a.now(),
 	})
 
 	a.trace(ctx, queue.Jobs, result)
-
-	for _, unmatched := range result.Unmatched {
-		a.metrics.Unmatched(ctx)
-		a.logger.WarnContext(ctx, "no profile carries this job",
-			telemetry.LogJob, string(unmatched.Job.ID),
-			telemetry.LogPipeline, unmatched.Job.Pipeline,
-			"reason", unmatched.Reason)
-	}
 
 	a.mu.Lock()
 	a.latest = result
@@ -302,7 +296,9 @@ func (a *admitter) trace(ctx context.Context, waiting []buildkite.ScheduledJob,
 				attribute.String(telemetry.SpanProfile, profile),
 			))
 		if unmatched {
-			span.SetStatus(codes.Error, reason)
+			// A skip is not an error of the controller: another runner may carry the job.
+			span.SetAttributes(attribute.Bool(telemetry.SpanSkipped, true))
+			span.AddEvent("no profile", trace.WithAttributes(attribute.String("reason", reason)))
 		}
 		span.End()
 

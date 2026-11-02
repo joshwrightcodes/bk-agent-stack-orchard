@@ -10,6 +10,7 @@ package profile
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	"regexp"
 	"strings"
 	"time"
@@ -26,6 +27,11 @@ const (
 	// TransportSSH reaches the guest over SSH with the credentials of the image.
 	TransportSSH Transport = "ssh"
 )
+
+// UnsafeInTagList holds the characters that a tag must not contain. The agent reads its tags as
+// one comma-separated list, so a comma would split a tag in two. A newline, a carriage return, or
+// a quote would break the text that carries the list.
+const UnsafeInTagList = ",\n\r\"'"
 
 var (
 	nameFormat     = regexp.MustCompile(`^[a-z0-9-]+$`)
@@ -95,6 +101,8 @@ func (p Profile) Validate() error {
 
 	problems = append(problems, p.validateMatch()...)
 	problems = append(problems, p.validateTransport()...)
+	problems = append(problems, p.validateVMVariables()...)
+	problems = append(problems, p.validateSoftnetAllow()...)
 
 	if p.Image == "" {
 		problems = append(problems, errors.New("image must name an image"))
@@ -112,6 +120,105 @@ func (p Profile) Validate() error {
 	return join(p.Name, problems)
 }
 
+// ControllerVariablePrefix starts the name of every variable that the controller reads for
+// itself.
+const ControllerVariablePrefix = "BK_AGENT_STACK_ORCHARD_"
+
+// vmVariablePrefix marks a variable of the controller pod that the operator provides for the
+// virtual machines of the profiles.
+const vmVariablePrefix = "VM_"
+
+// otelVariablePrefix starts the name of every OpenTelemetry SDK variable. The controller reads
+// them for its own export, and the agent in a machine reads the same names.
+const otelVariablePrefix = "OTEL_"
+
+// variableField is a profile field that names an environment variable.
+type variableField struct{ field, name string }
+
+// validateVMVariables keeps the variables of the controller out of the virtual machines. The values
+// of the variables that a profile names go into its machines, and a job runs untrusted code there.
+// The pod of the controller holds other secrets, so only a variable that the operator marks with
+// the VM_ prefix may go there. The names of the controller stay refused with their own message.
+func (p Profile) validateVMVariables() []error {
+	var problems []error
+
+	named := []variableField{{"otel.headersEnv", p.OTel.HeadersEnv}}
+	if p.VMCredentials != nil {
+		named = append(named,
+			variableField{"vmCredentials.usernameEnv", p.VMCredentials.UsernameEnv},
+			variableField{"vmCredentials.passwordEnv", p.VMCredentials.PasswordEnv})
+	}
+
+	for _, n := range named {
+		switch {
+		case n.name == "":
+		case strings.HasPrefix(n.name, ControllerVariablePrefix), strings.HasPrefix(n.name, otelVariablePrefix):
+			problems = append(problems, fmt.Errorf(
+				"%s names the variable %s, which belongs to the controller, and its value must "+
+					"not go into a virtual machine, so name a variable that starts with %s instead", n.field,
+				n.name, vmVariablePrefix))
+		case !strings.HasPrefix(n.name, vmVariablePrefix):
+			problems = append(problems, fmt.Errorf(
+				"%s names the variable %s, which must start with %s, because only a variable "+
+					"that the operator marks for the virtual machines may go into one", n.field,
+				n.name, vmVariablePrefix))
+		}
+	}
+
+	return problems
+}
+
+// widestAllow is the widest IPv4 range that softnetAllow may open. The VM specification passes
+// each entry to Softnet, and the pf rules of the hosts open the same entries to every VM of the
+// profile, so a wide range would open a whole private network.
+const widestAllow = 16
+
+// validateSoftnetAllow keeps each softnetAllow entry to one narrow IPv4 range that is written in
+// full. Softnet reads each entry as an IPv4 CIDR, so an IPv6 prefix cannot work. A bare address, a
+// prefix with host bits set, a default route, and a duplicate are refused, because each of them
+// hides what the profile opens. The Softnet targets @host and @peers are refused on purpose: the
+// first opens the Mac host to the build, and the second opens the other virtual machines.
+func (p Profile) validateSoftnetAllow() []error {
+	var problems []error
+
+	seen := make(map[netip.Prefix]bool, len(p.SoftnetAllow))
+	for _, entry := range p.SoftnetAllow {
+		if entry == "@host" || entry == "@peers" {
+			problems = append(problems, fmt.Errorf(
+				"softnetAllow entry %q is refused: the Softnet targets @host and @peers are not "+
+					"allowed, because @host opens the Mac host to the build and @peers opens the "+
+					"other virtual machines", entry))
+			continue
+		}
+
+		prefix, err := netip.ParsePrefix(entry)
+		switch {
+		case err != nil:
+			problems = append(problems, fmt.Errorf(
+				"softnetAllow entry %q must be an IPv4 CIDR range with a prefix length, such as 10.20.30.40/32: %w",
+				entry, err))
+		case !prefix.Addr().Is4():
+			problems = append(problems, fmt.Errorf(
+				"softnetAllow entry %q must be an IPv4 range, because Softnet takes IPv4 CIDRs only", entry))
+		case prefix.Bits() == 0:
+			problems = append(problems, fmt.Errorf(
+				"softnetAllow entry %q is a default route, which opens every address", entry))
+		case prefix != prefix.Masked():
+			problems = append(problems, fmt.Errorf(
+				"softnetAllow entry %q has host bits set, so write %s", entry, prefix.Masked()))
+		case prefix.Bits() < widestAllow:
+			problems = append(problems, fmt.Errorf(
+				"softnetAllow entry %q is too wide: the widest range is /%d", entry, widestAllow))
+		case seen[prefix]:
+			problems = append(problems, fmt.Errorf("softnetAllow lists %s twice", prefix))
+		default:
+			seen[prefix] = true
+		}
+	}
+
+	return problems
+}
+
 // validateMatch keeps the match map to literal tags. A rule that is not a literal cannot select
 // exactly one profile, and the queue tag selects the queue, not the profile.
 func (p Profile) validateMatch() []error {
@@ -122,6 +229,9 @@ func (p Profile) validateMatch() []error {
 		case key == "queue":
 			problems = append(problems,
 				errors.New("match must not contain the queue key, because the queue selects the fleet"))
+		case key == "profile", key == "agent-stack":
+			problems = append(problems, fmt.Errorf(
+				"match must not contain the key %q, because the controller sets that tag", key))
 		case !matchKeyFormat.MatchString(key):
 			problems = append(problems, fmt.Errorf("match key %q must be a lower-case literal", key))
 		case value == "":
@@ -129,6 +239,9 @@ func (p Profile) validateMatch() []error {
 		case strings.ContainsAny(value, "*?!"):
 			problems = append(problems,
 				fmt.Errorf("match value %q must be a literal, because a wildcard matches more than one profile", value))
+		case strings.ContainsAny(value, UnsafeInTagList), strings.TrimSpace(value) != value:
+			problems = append(problems, fmt.Errorf("match value %q must have no comma, quote, newline, "+
+				"or white space at an end, because the agent reads its tags as one list", value))
 		}
 	}
 
@@ -171,6 +284,13 @@ func (p Profile) Warnings() []string {
 		warnings = append(warnings, fmt.Sprintf(
 			"profile %q: image %q has no digest, so the image can change under the fleet",
 			p.Name, p.Image))
+	}
+
+	if len(p.SoftnetAllow) > 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"profile %q: softnetAllow %v opens those addresses for every pipeline on the queue, "+
+				"because the pipeline author selects the profile with the agent tags, so a "+
+				"separate trust level needs a separate queue", p.Name, p.SoftnetAllow))
 	}
 
 	return warnings

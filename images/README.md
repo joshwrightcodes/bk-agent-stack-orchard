@@ -23,7 +23,7 @@ The build adds:
 | Homebrew 7.0.11 | `pilot` | The package of its release, checked against its SHA-256 |
 | carthage, cocoapods, fastlane, swiftlint, xcbeautify | `pilot` | Homebrew formulae, at the versions that Homebrew gives on the day of the build |
 | `buildkite-agent` 4.9.0 | Both | Its release, checked against the SHA-256 of its `SHA256SUMS`, in `/usr/local/bin` |
-| The configuration of the agent | Both | `files/buildkite-agent.cfg`: the build, hooks, and plugins paths. The startup script of the controller gives the token, the job, the name, and the tags |
+| The configuration of the agent | Both | `files/buildkite-agent.cfg`: the build, hooks, and plugins paths. The startup environment of the controller gives the token, the job, the name, and the tags |
 | The `environment` hook | Both | `files/environment`: the artifacts of a job go to the owner-managed storage (PR-032). In the pilot, it also puts Homebrew on the `PATH` and sets a UTF-8 locale |
 
 The controller starts `buildkite-agent start` in the VM through the Tart guest agent (ADR-0009).
