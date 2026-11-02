@@ -169,7 +169,7 @@ func TestBuildGivesTheVMOnlyTheTokenOfItsOwnJob(t *testing.T) {
 
 	want := []string{
 		"BUILDKITE_AGENT_TOKEN", "BUILDKITE_AGENT_ACQUIRE_JOB", "BUILDKITE_AGENT_NAME",
-		"BUILDKITE_AGENT_TAGS",
+		"BUILDKITE_AGENT_TAGS", "BKASO_AGENT_URL", "BKASO_AGENT_SHA256",
 	}
 	if len(env) != len(want) {
 		t.Errorf("env = %v, want only %v", env, want)
@@ -266,24 +266,96 @@ func TestBuildAddsTheAgentTelemetryOnlyWhenTheProfileAsksForIt(t *testing.T) {
 }
 
 func TestBuildStartsTheAgentForOneJob(t *testing.T) {
-	vm := build(t, request())
-
-	// The script is the same for every machine, and it ends in the agent, so the exit status of
-	// the agent is that of the script.
-	other := request()
-	other.JobID = job.ID("018f3b2c-1c4a-7e5b-9a3d-000000000000")
-	other.Tags = map[string]string{"xcode": "27"}
-	if got, want := vm.StartupScript.ScriptContent, build(t, other).StartupScript.ScriptContent; got != want {
-		t.Errorf("the script = %q, want the same script for every machine %q", got, want)
-	}
-	if !strings.HasSuffix(vm.StartupScript.ScriptContent, "\nexec buildkite-agent start\n") {
-		t.Errorf("the script = %q, want it to end in the agent", vm.StartupScript.ScriptContent)
+	ends := map[profile.AgentSource]string{
+		profile.AgentDownload: "\nexec \"$agent_dir/buildkite-agent\" start\n",
+		profile.AgentImage:    "\nexec buildkite-agent start\n",
 	}
 
-	// The token and the job never appear in the script, because the environment carries them.
-	script := vm.StartupScript.ScriptContent
-	if strings.Contains(script, jobUUID.String()) || strings.Contains(script, "bkjat_") {
-		t.Errorf("the script carries a value that belongs in the environment: %q", script)
+	for source, end := range ends {
+		r := request()
+		r.Profile.Agent = profile.Agent{Source: source}
+		vm := build(t, r)
+
+		// The script is the same for every machine of a source, and it ends in the agent, so the
+		// exit status of the agent is that of the script.
+		other := r
+		other.JobID = job.ID("018f3b2c-1c4a-7e5b-9a3d-000000000000")
+		other.Tags = map[string]string{"xcode": "27"}
+		other.Profile.Agent = profile.Agent{
+			Source: source, URL: "https://mirror.example.com/a.tar.gz",
+			SHA256: strings.Repeat("ab", 32),
+		}
+		if got, want := vm.StartupScript.ScriptContent, build(t, other).StartupScript.ScriptContent; got != want {
+			t.Errorf("%s: the script = %q, want the same script for every machine %q", source, got, want)
+		}
+		if !strings.HasSuffix(vm.StartupScript.ScriptContent, end) {
+			t.Errorf("%s: the script = %q, want it to end in %q", source, vm.StartupScript.ScriptContent, end)
+		}
+
+		// The token, the job, and the archive never appear in the script, because the environment
+		// carries them.
+		script := vm.StartupScript.ScriptContent
+		for _, value := range []string{jobUUID.String(), "bkjat_", "https://", profile.DefaultAgent.SHA256} {
+			if strings.Contains(script, value) {
+				t.Errorf("%s: the script carries %q, which belongs in the environment: %q", source, value, script)
+			}
+		}
+	}
+}
+
+// A profile that the configuration did not resolve downloads the default agent.
+func TestBuildDownloadsThePinnedAgentByDefault(t *testing.T) {
+	env := build(t, request()).StartupScript.Env
+
+	if env["BKASO_AGENT_URL"] != profile.DefaultAgent.URL || env["BKASO_AGENT_SHA256"] != profile.DefaultAgent.SHA256 {
+		t.Errorf("env = %v, want the URL and the SHA-256 of the default agent", env)
+	}
+}
+
+func TestBuildDownloadsTheAgentOfTheProfile(t *testing.T) {
+	r := request()
+	r.Profile.Agent = profile.Agent{
+		Source: profile.AgentDownload, URL: "https://mirror.example.com/a.tar.gz",
+		SHA256: strings.Repeat("ab", 32),
+	}
+	env := build(t, r).StartupScript.Env
+
+	if env["BKASO_AGENT_URL"] != r.Profile.Agent.URL || env["BKASO_AGENT_SHA256"] != r.Profile.Agent.SHA256 {
+		t.Errorf("env = %v, want the URL and the SHA-256 of the profile", env)
+	}
+}
+
+func TestBuildGivesTheAgentOfTheImageNoDownload(t *testing.T) {
+	r := request()
+	r.Profile.Agent = profile.Agent{
+		Source: profile.AgentImage, URL: profile.DefaultAgent.URL,
+		SHA256: profile.DefaultAgent.SHA256,
+	}
+	env := build(t, r).StartupScript.Env
+
+	if _, ok := env["BKASO_AGENT_URL"]; ok {
+		t.Errorf("env = %v, want no BKASO_AGENT_URL for the agent of the image", env)
+	}
+	if _, ok := env["BKASO_AGENT_SHA256"]; ok {
+		t.Errorf("env = %v, want no BKASO_AGENT_SHA256 for the agent of the image", env)
+	}
+}
+
+func TestBuildRefusesAnAgentThatCannotStart(t *testing.T) {
+	for name, agent := range map[string]profile.Agent{
+		"an unknown source": {Source: "brew"},
+		"a URL without TLS": {
+			Source: profile.AgentDownload, URL: "http://mirror.example.com/a.tar.gz",
+			SHA256: strings.Repeat("ab", 32),
+		},
+		"a URL without its SHA-256": {Source: profile.AgentDownload, URL: "https://mirror.example.com/a.tar.gz"},
+	} {
+		r := request()
+		r.Profile.Agent = agent
+
+		if _, err := vmspec.Build(r); err == nil {
+			t.Errorf("Build() with %s = nil, want an error", name)
+		}
 	}
 }
 

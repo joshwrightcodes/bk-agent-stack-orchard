@@ -78,6 +78,10 @@ type Orchard struct {
 // Defaults holds the values that a profile takes when it states none.
 type Defaults struct {
 	Timeouts profile.Timeouts `yaml:"timeouts,omitempty"`
+
+	// Agent is where the agent of each virtual machine comes from. A value that the file leaves
+	// unset comes from profile.DefaultAgent.
+	Agent profile.Agent `yaml:"agent,omitempty"`
 }
 
 // MaxAPILifetime is the longest reservation expiry, and the longest job acquisition token
@@ -166,13 +170,16 @@ func defaults() *Config {
 	}
 }
 
-// applyProfileDefaults gives every profile the transport that the design selects, unless the
-// profile states another one.
+// applyProfileDefaults gives every profile the transport that the design selects and the agent of
+// the defaults, unless the profile states its own.
 func (c *Config) applyProfileDefaults() {
+	c.Defaults.Agent = c.Defaults.Agent.WithDefaults(profile.DefaultAgent)
+
 	for i := range c.Profiles {
 		if c.Profiles[i].StartupTransport == "" {
 			c.Profiles[i].StartupTransport = profile.TransportGuestAgent
 		}
+		c.Profiles[i].Agent = c.Profiles[i].Agent.WithDefaults(c.Defaults.Agent)
 	}
 }
 
@@ -194,6 +201,9 @@ func (c *Config) validate(environment Environment) error {
 
 	problems = append(problems, c.validateBuildkite()...)
 	problems = append(problems, c.validateOrchard()...)
+	for _, problem := range c.Defaults.Agent.Validate() {
+		problems = append(problems, fmt.Errorf("defaults.agent: %w", problem))
+	}
 	problems = append(problems, c.validateProfiles()...)
 	problems = append(problems, c.validateFreshness()...)
 

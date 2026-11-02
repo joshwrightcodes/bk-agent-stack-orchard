@@ -29,6 +29,10 @@ config:
       boot: 15m
       acquire: 5m
       maxVMLifetime: 25h
+    agent:
+      source: download
+      url: https://mirror.example.com/buildkite-agent-darwin-arm64-4.9.0.tar.gz
+      sha256: faaf0084edf08a92a877253620604fbd6ce496d2851a7ae5126dd19f27429e76
   profiles:
     - name: xcode-27
       match: {xcode: "27", arch: arm64}
@@ -48,6 +52,7 @@ config:
       diskSizeGB: 80
       startupTransport: ssh
       vmCredentials: {usernameEnv: VM_USER, passwordEnv: VM_PASSWORD}
+      agent: {source: image}
 extraEnv:
   - name: VM_USER
     valueFrom:

@@ -51,7 +51,7 @@ evidence, and each increment leaves the system in a state that a person can demo
 | 1 | Walking skeleton | One job goes from `scheduled` to a deleted VM, against a synthetic Orchard and a fake Stacks server | T-001, T-002, T-003, T-004 (capacity), T-005 (rows 2 and 4), T-006, T-040, T-060, T-120, T-122 |
 | 2 | Full lifecycle | The controller obeys the complete Reaper decision table, the admission rules, and a restart | T-004, T-005 (all rows), T-007, T-020, T-021, T-022, T-023, T-025, T-061, T-062 |
 | 3 | Operability | An operator can see the state, replace the token, and survive an outage | T-008, T-009, T-024, T-041, T-063, T-064, T-121 |
-| 4 | Fleet readiness | A real job builds the iOS application in a real VM on a Mac | T-080, T-100 to T-106, T-140, T-141 |
+| 4 | Fleet readiness | A real job builds the iOS application in a real VM on a Mac | T-080, T-100 to T-107, T-140, T-141 |
 
 The skeleton contains Reaper rows 2 and 4 (test strategy, section 2). Until increment 2 is
 complete, the controller MUST NOT serve the pilot queue.

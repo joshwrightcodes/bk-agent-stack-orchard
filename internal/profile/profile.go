@@ -88,6 +88,7 @@ type Profile struct {
 	VMCredentials    *Credentials      `yaml:"vmCredentials,omitempty"`
 	Timeouts         Timeouts          `yaml:"timeouts,omitempty"`
 	OTel             OTel              `yaml:"otel,omitempty"`
+	Agent            Agent             `yaml:"agent,omitempty"`
 }
 
 // Validate reports every rule that this profile breaks.
@@ -103,6 +104,11 @@ func (p Profile) Validate() error {
 	problems = append(problems, p.validateTransport()...)
 	problems = append(problems, p.validateVMVariables()...)
 	problems = append(problems, p.validateSoftnetAllow()...)
+
+	// The configuration gives every profile its agent source before it validates the profile.
+	if p.Agent.Source != "" {
+		problems = append(problems, p.Agent.Validate()...)
+	}
 
 	if p.Image == "" {
 		problems = append(problems, errors.New("image must name an image"))

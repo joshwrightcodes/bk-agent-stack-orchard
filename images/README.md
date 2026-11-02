@@ -25,7 +25,7 @@ The build adds:
 | The iOS simulator runtime | `pilot` | `xcodebuild -downloadPlatform iOS`, from Apple, with no Apple ID |
 | Homebrew 7.0.11 | `pilot` | The package of its release, checked against its SHA-256 |
 | carthage, cocoapods, fastlane, swiftlint, xcbeautify | `pilot` | Homebrew formulae, at the versions that Homebrew gives on the day of the build |
-| `buildkite-agent` 4.9.0 | Both | Its release, checked against the SHA-256 of its `SHA256SUMS`, in `/usr/local/bin` |
+| `buildkite-agent` 4.9.0 | Both | Its release, checked against the SHA-256 of its `SHA256SUMS`, in `/usr/local/bin`. The controller runs it only for a profile with `agent.source: image`; by default, each VM downloads the same release when it starts |
 | The configuration of the agent | Both | `files/buildkite-agent.cfg`: the build, hooks, and plugins paths. The startup environment of the controller gives the token, the job, the name, and the tags |
 | The agent tags of the image | Both | `/usr/local/etc/bk-agent-stack-orchard/agent-tags`: `image-name`, `image-tag`, `macos`, and `macos-build`, and in the pilot `xcode` and `xcode-build`. The build reads the values in the VM after each install, and its check reads them again |
 | The `environment` hook | Both | `files/environment`: the artifacts of a job go to the optional owner-managed storage, if the build set one (PR-032). In the pilot, it also puts Homebrew on the `PATH` and sets a UTF-8 locale |

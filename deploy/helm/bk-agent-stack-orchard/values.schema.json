@@ -62,7 +62,10 @@
         "defaults": {
           "type": "object",
           "additionalProperties": false,
-          "properties": {"timeouts": {"$ref": "#/definitions/timeouts"}}
+          "properties": {
+            "timeouts": {"$ref": "#/definitions/timeouts"},
+            "agent": {"$ref": "#/definitions/agent"}
+          }
         },
         "profiles": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/profile"}}
       }
@@ -189,6 +192,16 @@
       "type": "string",
       "pattern": "^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])/(1[6-9]|2[0-9]|3[0-2])$"
     },
+    "agent": {
+      "description": "Where the agent of a VM comes from: download (the default) or image. url and sha256 name one release archive, and are set together. The controller default is the release that it was tested with.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {"enum": ["download", "image"]},
+        "url": {"type": "string", "pattern": "^https://[^/]+/.*"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
     "timeouts": {
       "type": "object",
       "additionalProperties": false,
@@ -235,6 +248,7 @@
           }
         },
         "timeouts": {"$ref": "#/definitions/timeouts"},
+        "agent": {"$ref": "#/definitions/agent"},
         "otel": {
           "type": "object",
           "additionalProperties": false,

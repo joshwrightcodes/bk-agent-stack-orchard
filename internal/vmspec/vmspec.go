@@ -84,6 +84,10 @@ func OwnedJob(name, controllerID string) (job.ID, bool) {
 
 // Build gives the specification of one job virtual machine.
 func Build(r Request) (orchard.VM, error) {
+	// The configuration resolves the agent of each profile. A profile that it did not resolve
+	// takes the default, so no machine starts without an agent source.
+	r.Profile.Agent = r.Profile.Agent.WithDefaults(profile.DefaultAgent)
+
 	if err := r.validate(); err != nil {
 		return orchard.VM{}, err
 	}
@@ -126,7 +130,7 @@ func Build(r Request) (orchard.VM, error) {
 
 		StartupScript: &orchard.Script{
 			Transport:     string(r.Profile.StartupTransport),
-			ScriptContent: scriptContent,
+			ScriptContent: script(r.Profile.Agent.Source),
 			Env:           r.environment(name),
 		},
 	}
@@ -143,9 +147,10 @@ func Build(r Request) (orchard.VM, error) {
 // example the versions of macOS and of Xcode that the image was built with.
 const ImageTagsPath = "/usr/local/etc/bk-agent-stack-orchard/agent-tags"
 
-// scriptContent starts one agent for one job. The token, the job identifier, the name, and the tags
-// stay in the environment, so that a log of the script cannot carry them and no value is ever shell
-// text. The script is the same for every machine.
+// script gives the startup script of each machine of an agent source. The token, the job
+// identifier, the name, the tags, and the archive stay in the environment, so that a log of the
+// script cannot carry them and no value is ever shell text. The script is the same for every
+// machine of one source.
 //
 // Before the agent starts, the script:
 //
@@ -155,11 +160,22 @@ const ImageTagsPath = "/usr/local/etc/bk-agent-stack-orchard/agent-tags"
 //     script writes a line about it, and the agent still starts;
 //   - adds the tags of the image after the tags of the controller. A tag of the image with a key
 //     that the controller already set, or with a character that a tag list cannot carry, does
-//     not go to the agent.
+//     not go to the agent;
+//   - finds the agent: it downloads the archive of the profile and checks its SHA-256, or it
+//     checks that the agent of the image is v4. A failure here ends the script before any agent
+//     starts, with a line that names the step, and Orchard then fails the machine.
 //
 // Orchard puts set -e and the export lines before the script, so the exit status of the agent is
 // that of the script.
-const scriptContent = `if ! sudo -n /usr/sbin/scutil --set HostName "$BUILDKITE_AGENT_NAME" ||
+func script(source profile.AgentSource) string {
+	if source == profile.AgentImage {
+		return scriptPrelude + imageAgent
+	}
+
+	return scriptPrelude + downloadedAgent
+}
+
+const scriptPrelude = `if ! sudo -n /usr/sbin/scutil --set HostName "$BUILDKITE_AGENT_NAME" ||
 	! sudo -n /usr/sbin/scutil --set LocalHostName "$BUILDKITE_AGENT_NAME" ||
 	! sudo -n /usr/sbin/scutil --set ComputerName "$BUILDKITE_AGENT_NAME"; then
 	echo "the host name stays that of the image, because sudo or scutil failed" >&2
@@ -178,6 +194,43 @@ if [ -r ` + ImageTagsPath + ` ]; then
 	done <` + ImageTagsPath + `
 fi
 export BUILDKITE_AGENT_TAGS="$tags"
+`
+
+// downloadedAgent downloads the archive into a new directory, checks it, and runs its agent. The
+// archive is small, so the script extracts all of it and then checks that it held the agent: a
+// mirror can name its members with or without ./. The build paths are those of the images of this
+// project, set here so that a configuration file in the image cannot move them.
+const downloadedAgent = `agent_dir=$(mktemp -d "${TMPDIR:-/tmp}/bkaso-agent.XXXXXX")
+if ! curl -fsSL --retry 3 --retry-all-errors --connect-timeout 10 --max-time 120 \
+	-o "$agent_dir/agent.tar.gz" "$BKASO_AGENT_URL"; then
+	echo "the VM could not download buildkite-agent from $BKASO_AGENT_URL" >&2
+	exit 1
+fi
+if ! echo "$BKASO_AGENT_SHA256  $agent_dir/agent.tar.gz" | shasum -a 256 -c - >/dev/null 2>&1; then
+	echo "the archive from $BKASO_AGENT_URL does not match agent.sha256 $BKASO_AGENT_SHA256" >&2
+	exit 1
+fi
+if ! tar -xzf "$agent_dir/agent.tar.gz" -C "$agent_dir" || [ ! -x "$agent_dir/buildkite-agent" ]; then
+	echo "the archive from $BKASO_AGENT_URL holds no buildkite-agent" >&2
+	exit 1
+fi
+rm -f "$agent_dir/agent.tar.gz"
+export BUILDKITE_BUILD_PATH="$HOME/buildkite/builds"
+export BUILDKITE_HOOKS_PATH="$HOME/.buildkite-agent/hooks"
+export BUILDKITE_PLUGINS_PATH="$HOME/buildkite/plugins"
+exec "$agent_dir/buildkite-agent" start
+`
+
+// imageAgent runs the agent of the image, once it is v4. The upstream base image carries v3, and
+// this controller supports only v4.
+const imageAgent = `version=$(buildkite-agent --version 2>/dev/null) || version=
+case $version in
+"buildkite-agent version 4."*) ;;
+*)
+	echo "the image has \"${version:-no buildkite-agent}\", and the controller needs buildkite-agent v4: put v4 in the image, or set agent.source to download" >&2
+	exit 1
+	;;
+esac
 exec buildkite-agent start
 `
 
@@ -201,6 +254,11 @@ func (r Request) environment(name string) map[string]string {
 		"BUILDKITE_AGENT_ACQUIRE_JOB": r.JobID.String(),
 		"BUILDKITE_AGENT_NAME":        name,
 		"BUILDKITE_AGENT_TAGS":        r.agentTags(),
+	}
+
+	if r.Profile.Agent.Source == profile.AgentDownload {
+		env["BKASO_AGENT_URL"] = r.Profile.Agent.URL
+		env["BKASO_AGENT_SHA256"] = r.Profile.Agent.SHA256
 	}
 
 	if !r.Profile.OTel.Enabled {
@@ -247,6 +305,8 @@ func (r Request) validate() error {
 			problems = append(problems, fmt.Errorf("the tag %q is one that the controller sets", key))
 		}
 	}
+
+	problems = append(problems, r.Profile.Agent.Validate()...)
 
 	// Orchard uses admin/admin when a specification names no credentials, so a machine with the
 	// SSH transport and no credentials would accept the well-known password.
