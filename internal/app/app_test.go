@@ -376,3 +376,67 @@ func TestAJobThatWaitsIsMatchedOnce(t *testing.T) {
 		t.Errorf("five ticks wrote %v, want job.match once and no job.admit", count)
 	}
 }
+
+// crowded is a fleet with one slot, and a machine that a person left in it. The machine stays in
+// the listing until the reaper deletes it.
+type crowded struct {
+	fleet
+	deleted bool
+}
+
+func (c *crowded) ListWorkers(context.Context) ([]orchard.Worker, error) {
+	return []orchard.Worker{{Name: "mac-01", LastSeen: clock, Resources: map[string]uint64{
+		orchard.ResourceVMs: 1, orchard.ResourceCores: 16, orchard.ResourceMemoryMiB: 65536,
+	}}}, nil
+}
+
+func (c *crowded) ListVMs(context.Context) ([]orchard.VM, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.deleted {
+		return nil, nil
+	}
+
+	return []orchard.VM{{
+		Name: "bk-app-test-left-behind", Worker: "mac-01", Status: orchard.StatusRunning,
+		Resources: map[string]uint64{orchard.ResourceVMs: 1, orchard.ResourceCores: 8},
+	}}, nil
+}
+
+func (c *crowded) DeleteVM(context.Context, string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.deleted = true
+
+	return nil
+}
+
+// The steps of a tick run in sequence, and admission sees the deletions of the same tick (target
+// design, section 4). A job that waits for the slot of a machine that the reaper deletes starts
+// in that tick, and not one tick later.
+func TestAdmissionSeesTheRoomThatTheReaperFreedInTheSameTick(t *testing.T) {
+	machines := &crowded{}
+
+	loop, err := app.Build(app.Options{
+		Config:    settings(t),
+		Telemetry: quiet(t),
+		Stacks:    stacks{},
+		Orchard:   machines,
+		Now:       func() time.Time { return clock },
+	})
+	if err != nil {
+		t.Fatalf("Build() = %v, want the loop", err)
+	}
+
+	loop.Tick(t.Context(), clock)
+
+	machines.mu.Lock()
+	defer machines.mu.Unlock()
+
+	if !machines.deleted || len(machines.created) != 1 {
+		t.Errorf("one tick deleted=%v and created %v, want the orphan deleted and a machine for the waiting job",
+			machines.deleted, machines.created)
+	}
+}

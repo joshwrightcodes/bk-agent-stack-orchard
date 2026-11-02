@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -244,6 +245,32 @@ func (i *Inventory) Latest() (Snapshot, bool) {
 	defer i.mu.RUnlock()
 
 	return i.latest, i.got
+}
+
+// Forget takes a machine that Orchard no longer holds out of the last answer. The reaper calls it
+// after a delete that Orchard accepted, so that admission, which runs after the reaper in the
+// same tick, counts the room that the delete freed (target design, section 4). The next refresh
+// replaces the answer, as before.
+//
+// A reader that already holds the answer keeps what it read: Forget builds new lists and does not
+// change the old ones.
+func (i *Inventory) Forget(name string) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	kept := i.latest
+
+	kept.VMs = slices.DeleteFunc(slices.Clone(kept.VMs), func(vm orchard.VM) bool {
+		return vm.Name == name
+	})
+	kept.Owned = slices.DeleteFunc(slices.Clone(kept.Owned), func(owned Owned) bool {
+		return owned.VM.Name == name
+	})
+	kept.Orphans = slices.DeleteFunc(slices.Clone(kept.Orphans), func(vm orchard.VM) bool {
+		return vm.Name == name
+	})
+
+	i.latest = kept
 }
 
 // Eligible reports a worker that can take a new machine: it answered inside the offline timeout,

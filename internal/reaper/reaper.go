@@ -51,9 +51,12 @@ type Machines interface {
 	Events(ctx context.Context, name string) ([]orchard.Event, error)
 }
 
-// Fleet gives the last snapshot of the machines.
+// Fleet gives the last snapshot of the machines, and takes a machine out of it after a delete.
+// Admission runs after the reaper in the same tick and reads the same snapshot, so it must not
+// count the room of a machine that Orchard no longer holds.
 type Fleet interface {
 	Latest() (inventory.Snapshot, bool)
+	Forget(name string)
 }
 
 // Options configures the reaper.
@@ -458,5 +461,11 @@ func (r *Reaper) delete(ctx context.Context, machine Machine) error {
 	ctx, span := r.tracer.Start(ctx, "orchard.vm.delete")
 	defer span.End()
 
-	return r.machines.DeleteVM(ctx, machine.VM.Name)
+	if err := r.machines.DeleteVM(ctx, machine.VM.Name); err != nil {
+		return err
+	}
+
+	r.fleet.Forget(machine.VM.Name)
+
+	return nil
 }
