@@ -17,7 +17,8 @@
 #
 # Environment:
 #   ARTIFACT_DESTINATION  s3://, gs://, rt://, or an Azure blob URL: the owner-managed storage of
-#                         the artifacts (PR-032). Without it, the hook makes every upload fail.
+#                         the artifacts (PR-032). Optional: without it, the artifacts go to the
+#                         storage of Buildkite.
 #   XCODE_ARCHIVE         the pilot only: the Xcode archive (~/XcodesCache/Xcode_<version>.xip by
 #                         default). The build checks it against XCODE_SHA256.
 #   XCODE_URL             the pilot only: an HTTPS URL of the archive, for example a presigned URL
@@ -61,10 +62,14 @@ GUEST_AGENT_SHA256="eb47f402f18e742a8ea96344115ca776179f9c4c67494bc0c46a10a68db2
 
 # Xcode, from the archive that the owner downloads with an Apple ID: Apple gives it to no one else,
 # so a build never signs in to Apple (ADR-0012). The SHA-256 is that of the archive the owner first
-# downloaded, and the build also checks that Apple signed it.
-XCODE_VERSION="27.0"
-XCODE_SHA256="6a270c53a5a0c5e0ac78125342d44c3cfff2716ec390373cd5e30834d80a67c3"
+# downloaded (Xcode 27.2, downloaded 2026-11-02, signed Apple Software), and the build also checks
+# that Apple signed it.
+XCODE_VERSION="27.2"
+XCODE_SHA256="c28b05526225394fa4017d7f9919c1c898822713edca68872cb4701599f01978"
 XCODE_ARCHIVE="${XCODE_ARCHIVE:-${HOME}/XcodesCache/Xcode_${XCODE_VERSION}.xip}"
+# The simulator that the build boots once, so that its first-boot work is done in the image. The
+# pilot test pipeline uses an iPhone 17.
+PILOT_SIMULATOR="${PILOT_SIMULATOR:-iPhone 17}"
 
 # Homebrew, from the package of its release, and the SHA-256 that GitHub gives for it.
 HOMEBREW_VERSION="7.0.11"
@@ -100,8 +105,8 @@ die() {
 	exit 1
 }
 
-# The destinations that buildkite-agent accepts. An empty one is the storage of Buildkite, which
-# the hook replaces with one that the agent refuses.
+# The destinations that buildkite-agent accepts. An empty one is allowed: it is the storage of
+# Buildkite, and the hook leaves it alone.
 if [[ -n "$DESTINATION" &&
 	! "$DESTINATION" =~ ^(s3|gs|rt)://[^[:space:]]+$ &&
 	! "$DESTINATION" =~ ^https://[^[:space:]]+\.blob\.core\.windows\.net/[^[:space:]]+$ ]]; then
@@ -276,7 +281,7 @@ else
 	# installs its packages, and downloads the iOS simulator runtime from Apple, which needs no
 	# Apple ID.
 	say "installing Xcode $XCODE_VERSION and its iOS simulator runtime"
-	run <<'SCRIPT'
+	run PILOT_SIMULATOR="$PILOT_SIMULATOR" <<'SCRIPT'
 set -euo pipefail
 archive="/Volumes/My Shared Files/xcode/Xcode.cpio"
 for _ in $(seq 1 60); do [[ -f "$archive" ]] && break; sleep 2; done
@@ -287,8 +292,31 @@ sudo xcode-select -s /Applications/Xcode.app
 sudo xcodebuild -license accept
 sudo xcodebuild -runFirstLaunch >/dev/null
 xcodebuild -downloadPlatform iOS >/dev/null
+# Keep only the general iOS runtime. Apple can deliver a device-specific runtime beside it (for
+# Xcode 27.2: com.apple.CoreSimulator.SimRuntime.iOS-27-2-iPhone19-4, 2026-11-02). Both answer to
+# the same iOS version, so a test destination such as "name=iPhone 17,OS=27.2" on a cold simulator
+# can pick the device-specific runtime, which cannot boot that device.
+general='^com\.apple\.CoreSimulator\.SimRuntime\.iOS-[0-9]+-[0-9]+$'
+xcrun simctl list runtimes | sed -n 's/^iOS .* - \([^ )]*\)) - \(com\.apple\.[^ ]*\).*/\1 \2/p' |
+	while read -r build id; do
+		[[ "$id" =~ $general ]] && continue
+		uuid=$(xcrun simctl runtime list | sed -n "s/.*($build) - \([0-9A-F-]*\) .*/\1/p")
+		echo "removing the device-specific runtime $id ($build)"
+		xcrun simctl runtime delete "$uuid"
+	done
+xcrun simctl delete unavailable
 xcrun simctl runtime dyld_shared_cache update --all || true
-/usr/bin/xcodebuild -version | head -1
+# Boot the simulator of the pilot once and shut it down, so the first-boot data migration of the
+# device is done in the image. A job then meets a device that boots in seconds, not one that runs
+# its migration while xcodebuild installs the test runner (the first real T-100 jobs, 2026-11-02).
+udid=$(xcrun simctl list devices available | sed -n "s/^ *${PILOT_SIMULATOR} (\([0-9A-F-]\{36\}\)) .*/\1/p" | sed -n 1p)
+[[ -n "$udid" ]] || { echo "no available ${PILOT_SIMULATOR} simulator" >&2; exit 1; }
+xcrun simctl boot "$udid"
+xcrun simctl bootstatus "$udid" -b >/dev/null
+xcrun simctl shutdown "$udid"
+# sed reads all of the output. With pipefail, head can end the pipe early, and xcodebuild then dies
+# of SIGPIPE and fails the step (2026-11-02).
+/usr/bin/xcodebuild -version | sed -n 1p
 SCRIPT
 
 	# Homebrew, and only the formulae of the list. A job finds them through the environment hook.
@@ -356,10 +384,11 @@ answers || die "the guest agent of $VM does not answer after a restart"
 check=$(tart exec -i "$VM" /bin/bash -s <<'SCRIPT'
 list() { ls "$@" 2>/dev/null | sort | tr '\n' ' ' | sed 's/ $//'; }
 printf 'user=%s\n' "$(whoami)"
-printf 'agent=%s %s\n' "$(command -v buildkite-agent)" "$(buildkite-agent --version | head -1)"
+printf 'agent=%s %s\n' "$(command -v buildkite-agent)" "$(buildkite-agent --version | sed -n 1p)"
 printf 'git=%s\n' "$(/usr/bin/git --version 2>/dev/null)"
-printf 'xcode=%s\n' "$(/usr/bin/xcodebuild -version 2>/dev/null | head -1)"
+printf 'xcode=%s\n' "$(/usr/bin/xcodebuild -version 2>/dev/null | sed -n 1p)"
 printf 'ios_runtime=%s\n' "$(xcrun simctl list runtimes 2>/dev/null | grep -c '^iOS ')"
+printf 'ios_runtime_ids=%s\n' "$(xcrun simctl list runtimes 2>/dev/null | sed -n 's/^iOS .* - \(com\.apple\.[^ ]*\).*/\1/p' | tr '\n' ' ')"
 printf 'free_gb=%s\n' "$(df -g / | awk 'NR == 2 {print $4}')"
 printf 'apps=%s\n' "$(list /Applications)"
 printf 'daemons=%s\n' "$(list /Library/LaunchDaemons)"
@@ -394,7 +423,8 @@ printf '%s\n' "$check" | sed "s/^/${IMAGE}-image:   /"
 # want checks one line of the check.
 want() { grep -qxF "$1" <<<"$check" || die "$2: $(grep "^${1%%=*}=" <<<"$check"), want $1"; }
 
-want_hook="none://artifact-storage-is-not-configured"
+# Without a destination, the hook leaves the variable empty, so the artifacts go to Buildkite.
+want_hook=""
 [[ -n "$DESTINATION" ]] && want_hook="${DESTINATION}/p/b/j"
 
 want "user=admin" "the guest agent does not run as admin"
@@ -409,7 +439,10 @@ done
 want "extra=" "the image holds what a job does not need"
 if [[ "$IMAGE" == pilot ]]; then
 	grep -q "^xcode=Xcode ${XCODE_VERSION%.0}" <<<"$check" || die "the pilot image does not select Xcode ${XCODE_VERSION}"
-	grep -q '^ios_runtime=[1-9]' <<<"$check" || die "the pilot image has no iOS simulator runtime"
+	grep -q '^ios_runtime=1$' <<<"$check" ||
+		die "the pilot image has $(sed -n 's/^ios_runtime=//p' <<<"$check") iOS simulator runtimes, and it needs exactly one"
+	grep -Eq '^ios_runtime_ids=com\.apple\.CoreSimulator\.SimRuntime\.iOS-[0-9]+-[0-9]+ $' <<<"$check" ||
+		die "the iOS runtime of the pilot image is not the general one: $(sed -n 's/^ios_runtime_ids=//p' <<<"$check")"
 	want "app=fastlane pod carthage xcbeautify swiftlint" "a job of the pilot does not find a tool to build or publish an app"
 	free="$(sed -n 's/^free_gb=//p' <<<"$check")"
 	((free >= PILOT_FREE_GB)) || die "the pilot image has $free GB free, and a job needs $PILOT_FREE_GB GB"

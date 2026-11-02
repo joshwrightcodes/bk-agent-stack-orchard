@@ -18,13 +18,13 @@ The build adds:
 |---|---|---|
 | The Tart guest agent 0.15.0 | Both | Its release, checked against its SHA-256, in `/usr/local/bin`, with the launchd jobs of `files/tart-guest-daemon.plist` and `files/tart-guest-agent.plist`. The build puts it in place over SSH, which the build disables later |
 | The Command Line Tools | `agent` | `softwareupdate`, which gives git and the compilers of Apple |
-| Xcode 27.0 | `pilot` | The archive that the owner downloads (below), as `/Applications/Xcode.app`, with its license accepted and its first launch done |
+| Xcode 27.2 | `pilot` | The archive that the owner downloads (below), as `/Applications/Xcode.app`, with its license accepted and its first launch done |
 | The iOS simulator runtime | `pilot` | `xcodebuild -downloadPlatform iOS`, from Apple, with no Apple ID |
 | Homebrew 7.0.11 | `pilot` | The package of its release, checked against its SHA-256 |
 | carthage, cocoapods, fastlane, swiftlint, xcbeautify | `pilot` | Homebrew formulae, at the versions that Homebrew gives on the day of the build |
 | `buildkite-agent` 4.9.0 | Both | Its release, checked against the SHA-256 of its `SHA256SUMS`, in `/usr/local/bin` |
 | The configuration of the agent | Both | `files/buildkite-agent.cfg`: the build, hooks, and plugins paths. The startup environment of the controller gives the token, the job, the name, and the tags |
-| The `environment` hook | Both | `files/environment`: the artifacts of a job go to the owner-managed storage (PR-032). In the pilot, it also puts Homebrew on the `PATH` and sets a UTF-8 locale |
+| The `environment` hook | Both | `files/environment`: the artifacts of a job go to the optional owner-managed storage, if the build set one (PR-032). In the pilot, it also puts Homebrew on the `PATH` and sets a UTF-8 locale |
 
 The controller starts `buildkite-agent start` in the VM through the Tart guest agent (ADR-0009).
 The guest agent runs it as `admin`. Its `PATH` has `/usr/local/bin` but not Homebrew. The hook adds
@@ -52,12 +52,12 @@ private, because the license of Xcode limits who may receive it.
 
 ## The artifact storage
 
-The build takes the owner-managed storage in the operating country as `ARTIFACT_DESTINATION`, for
-example `s3://<bucket>/<prefix>`. The hook sends the artifacts of each job to
-`<destination>/<pipeline>/<build>/<job>`, and a step may name another place inside the same storage.
-An empty destination is the storage of Buildkite for `buildkite-agent`. An image built without a
-destination therefore sets one that the agent refuses. In this case, an artifact upload fails, and
-nothing reaches Buildkite. `scripts/check-hook.sh` checks these cases.
+Buildkite-managed storage is acceptable for artifacts (PR-032, owner decision of 2026-11-02), so
+`ARTIFACT_DESTINATION` is optional. An image built without it leaves the destination alone, and
+`buildkite-agent` uploads the artifacts to the storage of Buildkite. When the build takes an
+owner-managed storage as `ARTIFACT_DESTINATION`, for example `s3://<bucket>/<prefix>`, the hook
+sends the artifacts of each job to `<destination>/<pipeline>/<build>/<job>`, and a step may name
+another place inside the same storage. `scripts/check-hook.sh` checks these cases.
 
 ## No well-known credentials over the network
 
@@ -97,7 +97,7 @@ Security › Local Network).
 
 ```sh
 mise run agent-image   # about 5 minutes, with the base in the cache
-ARTIFACT_DESTINATION=s3://<bucket>/<prefix> mise run pilot-image   # about 20 minutes, 59 GB
+mise run pilot-image   # about 20 minutes, 59 GB
 tart run bkaso-pilot   # look at it
 ```
 
@@ -106,6 +106,24 @@ example `registry.example.internal/macos` (a private registry), it pushes
 `<registry>/bkaso-<image>:<tag>` (`IMAGE_TAG`, the commit by default), with the credentials in
 `TART_REGISTRY_USERNAME` and `TART_REGISTRY_PASSWORD`.
 A profile names the image by the digest that the registry gives.
+
+## Known issue: boot the simulator before xcodebuild
+
+In a job, `xcodebuild test` cannot boot an iOS simulator that is shut down. It stops with
+"cannot determine the runtime bundle". The same command in the same VM worked from a terminal,
+from `tart exec`, with the environment of the job, in a PTY, and in an Orchard startup script. It
+failed only in a job of `buildkite-agent` (release gate, 2026-11-02). The cause is not known.
+
+Do this in the pilot pipeline:
+
+1. Before `xcodebuild`, boot the simulator with `xcrun simctl boot <udid>`, and wait for it with
+   `xcrun simctl bootstatus <udid> -b`.
+2. Give `xcodebuild` the destination `platform=iOS Simulator,id=<udid>`, not a name.
+
+The build boots the simulator of `PILOT_SIMULATOR` (iPhone 17 by default) one time, so the image
+holds its first-boot work. Because of this, the boot in a job takes about 5 seconds. One run of
+the release gate also failed one time with "Channel disconnected" from the test runner, and it
+passed when Buildkite ran it again.
 
 ## What the image holds
 
