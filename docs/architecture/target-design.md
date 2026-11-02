@@ -624,8 +624,10 @@ The controller MUST cut finish-job detail messages to a maximum of 4 KB at a run
 `stacksapi` library makes this cut, at the end of the detail, and it notes the cut there. A message
 whose end holds its reason MUST shorten itself below the limit of the library, so that the library
 cuts nothing: the message of an acquire timeout drops its oldest startup-script lines, and keeps its
-newest. The controller MUST send all reservation extensions of one tick in one `batch-reserve`
-call.
+newest. A guest writes the startup-script lines and can influence the status message of a VM, so
+the controller MUST drop each control character of this text, except the line break and the tab,
+before it builds the message. The controller MUST send all reservation extensions of one tick in
+one `batch-reserve` call.
 
 ### 7.3 Timeout consistency
 
@@ -1003,6 +1005,8 @@ of §10.1.
 
 A notification detail MUST NOT be longer than 256 characters. The controller cuts a longer
 detail between characters, and the cut detail ends with an ellipsis (§3).
+A notification is one line of plain text, so the controller MUST replace each control character of
+a detail with a space before it counts the characters.
 
 ### 10.6 Alert conditions
 

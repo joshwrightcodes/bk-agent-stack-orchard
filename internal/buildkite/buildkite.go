@@ -28,8 +28,10 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync/atomic"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/buildkite/stacksapi"
@@ -382,7 +384,19 @@ const NotificationLimit = 256
 // cut shortens text to at most limit characters, and ends a cut text with an ellipsis that says
 // so. It cuts between characters, never inside the bytes of one. It gives a word for empty text,
 // because the API refuses an empty detail.
+//
+// A line on a job page is one line of plain text, and a detail can quote text that a guest wrote.
+// Each control character, such as a line break or an escape sequence, becomes a space, and the
+// count of characters is the count after that.
 func cut(text string, limit int) string {
+	text = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+
+		return r
+	}, text)
+
 	if text == "" {
 		// The API refuses an empty detail.
 		return "(no detail)"

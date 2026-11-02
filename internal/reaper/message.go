@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
@@ -92,7 +93,7 @@ func logLines(events []orchard.Event) []string {
 
 	lines := make([]string, 0, len(sorted))
 	for _, event := range sorted {
-		lines = append(lines, strings.TrimRight(event.Payload, "\n"))
+		lines = append(lines, plain(strings.TrimRight(event.Payload, "\n")))
 	}
 
 	return lines
@@ -122,5 +123,18 @@ func withStatus(text string, machine Machine) string {
 		return text
 	}
 
-	return text + ": " + machine.VM.StatusMessage
+	return text + ": " + plain(machine.VM.StatusMessage)
+}
+
+// plain drops each control character of a text that a guest can write, except the line break and
+// the tab. A job page then shows the text, and an escape sequence in it does not reach a terminal
+// or a log viewer.
+func plain(text string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+			return -1
+		}
+
+		return r
+	}, text)
 }

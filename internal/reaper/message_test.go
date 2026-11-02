@@ -210,3 +210,31 @@ func TestAFailedMachineWithoutLinesShowsItsStatus(t *testing.T) {
 		})
 	}
 }
+
+// A guest writes the lines of its startup script, and the status message of a machine can quote
+// them. The message keeps the line breaks and the tabs of the lines, and drops each other control
+// character, such as an escape sequence, so that a job page shows text and no terminal commands.
+func TestTheMessageOfAFailedMachineHoldsNoTerminalControl(t *testing.T) {
+	t.Parallel()
+
+	machine := failing(ended)
+	machine.VM.StatusMessage = "VM failed: \x1b[31mexit 1\x07"
+
+	detail := finished(t, &fleet{
+		read: true, snapshot: inventory.Snapshot{Owned: []inventory.Owned{machine}},
+		events: []orchard.Event{
+			{Kind: "log_line", Timestamp: 1, Payload: "\x1b[1mbuild\x1b[0m\r\tdone\u0085"},
+			{Kind: "log_line", Timestamp: 2, Payload: "last\nline"},
+		},
+	})
+
+	want := "VM failed: [31mexit 1"
+	if !strings.Contains(detail, want) {
+		t.Errorf("the message reads %q, want %q in it", detail, want)
+	}
+
+	if !strings.HasSuffix(detail, "[1mbuild[0m\tdone\nlast\nline") {
+		t.Errorf("the message reads %q, want the lines without control characters but with their "+
+			"tabs and line breaks", detail)
+	}
+}

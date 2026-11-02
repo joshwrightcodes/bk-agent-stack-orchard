@@ -803,3 +803,23 @@ func TestFinishOfAnExpiredReservationOrAnAcquiredJobIsTerminal(t *testing.T) {
 		})
 	}
 }
+
+// A detail can quote text that a guest wrote, and a line on a job page is one line. The client
+// replaces each control character with a space, so that no escape sequence or line break reaches
+// the page, and it counts the characters after that.
+func TestANotificationDetailHoldsNoControlCharacter(t *testing.T) {
+	t.Parallel()
+
+	client, fake := start(t)
+
+	if err := client.Notify(t.Context(), []buildkite.Notification{
+		{JobID: first, Detail: "failed: \x1b[31mred\r\nnext\ttab\u0085end", At: time.Now()},
+	}); err != nil {
+		t.Fatalf("Notify() = %v, want no error", err)
+	}
+
+	got := fake.NotificationCalls[0][0].Detail
+	if want := "failed:  [31mred  next tab end"; got != want {
+		t.Errorf("the line reads %q, want %q", got, want)
+	}
+}
