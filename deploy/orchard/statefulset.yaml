@@ -53,8 +53,8 @@ spec:
             # The bootstrap admin exists only for the bootstrap Job, which creates the service
             # accounts of the controller and of the workers. While this variable is set, each
             # start of Orchard makes the bootstrap-admin account again. After the first bootstrap
-            # the operator MUST remove the variable and delete the account (README, "After the
-            # first bootstrap").
+            # the operator MUST remove the variable and delete the account (README, section
+            # "First start and after the first bootstrap").
             - name: ORCHARD_BOOTSTRAP_ADMIN_TOKEN
               valueFrom:
                 secretKeyRef:

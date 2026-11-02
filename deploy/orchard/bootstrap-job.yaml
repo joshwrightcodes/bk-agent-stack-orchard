@@ -42,18 +42,25 @@ spec:
               # way, so the Job refuses such a token.
               check() {
                 case "$2" in
-                  ""|*[!A-Za-z0-9._~+/=-]*) echo "the token of $1 is empty or holds a character that is not allowed" >&2; return 1 ;;
+                  ""|*[!A-Za-z0-9._~+/=-]*)
+                    echo "the token of $1 is empty or holds a character that is not allowed" >&2
+                    return 1 ;;
                 esac
               }
+              # The format of the curl configuration: the account, then the JSON body.
+              config='user = "bootstrap-admin:%s"\n'
+              config="$config"'data = "{\\"name\\":\\"%s\\",\\"token\\":\\"%s\\",'
+              config="$config"'\\"roles\\":[\\"compute:read\\",\\"compute:write\\"]}"\n'
               account() {
                 check "$1" "$2"
                 for method in PUT POST; do
                   path=/v1/service-accounts
                   [ "$method" = PUT ] && path="$path/$1"
-                  code=$(printf 'user = "bootstrap-admin:%s"\ndata = "{\\"name\\":\\"%s\\",\\"token\\":\\"%s\\",\\"roles\\":[\\"compute:read\\",\\"compute:write\\"]}"\n' \
-                    "$ORCHARD_BOOTSTRAP_ADMIN_TOKEN" "$1" "$2" |
-                    curl -sS -K - -o /tmp/answer -w '%{http_code}' --cacert /etc/orchard/tls/ca.crt \
-                      -X "$method" -H 'Content-Type: application/json' "$ORCHARD_URL$path")
+                  # shellcheck disable=SC2059
+                  code=$(printf "$config" "$ORCHARD_BOOTSTRAP_ADMIN_TOKEN" "$1" "$2" |
+                    curl -sS -K - -o /tmp/answer -w '%{http_code}' \
+                      --cacert /etc/orchard/tls/ca.crt -X "$method" \
+                      -H 'Content-Type: application/json' "$ORCHARD_URL$path")
                   case "$code" in
                     200) echo "the service account $1 is set"; return 0 ;;
                     404) continue ;;

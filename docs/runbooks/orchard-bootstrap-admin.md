@@ -29,6 +29,19 @@ While the variable is set, each start makes the account again. The source and th
 4. Delete the key `bootstrap-admin-token` from the Secret `orchard-bootstrap`.
 5. Confirm that `GET /v1/service-accounts` no longer lists `bootstrap-admin`.
 
+## Warning: a start with an empty PVC can log an admin token
+
+After this procedure, the loss of the PVC gives Orchard an empty database and no variable. Orchard
+0.58.0 then makes `bootstrap-admin` with a random token that has all roles, and it prints the token
+in its log. A log shipper copies the log. Treat the log of the Orchard pod as a secret.
+
+* Prevention: before a start with an empty PVC, put the variable and the key
+  `bootstrap-admin-token` back. Orchard then uses the known token and logs `<hidden>`
+  (`internal/command/controller/bootstrap.go`, tag `0.58.0`, read on 2026-11-02). Do the procedure
+  again from step 2 after the Job completes.
+* Recovery, if it already happened: delete the logged account, or set it again with a new token
+  (the rotation below). Purge the log lines where the logging system allows it.
+
 ## Rotation
 
 To rotate a token, put a new `bootstrap-admin-token` in the Secret and set the variable on the

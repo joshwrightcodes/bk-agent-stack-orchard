@@ -67,6 +67,14 @@ These are known, recorded, and accepted. They are not vulnerabilities in this pr
   headers) enters the VM. A hostile build can read it. The mitigation is that the collector
   uses its own ingest token, with the lowest privilege, that can send telemetry and do nothing
   else.
+* Orchard 0.58.0 makes a `bootstrap-admin` account with all roles, and prints its random token in
+  its log, when it starts with an empty database and without `ORCHARD_BOOTSTRAP_ADMIN_TOKEN`. This
+  can happen after the loss of the PVC, when the operator has retired the bootstrap admin. The
+  control is the runbook
+  [`docs/runbooks/orchard-bootstrap-admin.md`](docs/runbooks/orchard-bootstrap-admin.md): put the
+  variable back before a start with an empty PVC, treat the log of the Orchard pod as a secret, and
+  delete the account if it was logged. The residual risk is that an operator forgets, and that a
+  log shipper keeps the token until the operator purges it.
 * Releases have one maintainer as the only reviewer, and the rules of the main branch have an
   administrator bypass. No second person reviews a release. The mitigation is that the release
   gate (T-100 to T-105) and the pipeline checks run before every release.

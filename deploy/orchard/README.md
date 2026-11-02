@@ -124,7 +124,7 @@ of the cluster.
 
 Orchard 0.58.0 behaves as follows (source: `internal/command/controller/bootstrap.go` at the tag
 `0.58.0` of the Orchard repository, read on 2026-11-02; `orchard delete service-account` from the
-installed 0.58.0 binary):
+the orchard 0.58.0 binary that mise installs, `mise x -- orchard delete --help`):
 
 - When `ORCHARD_BOOTSTRAP_ADMIN_TOKEN` is set, each start makes the `bootstrap-admin` account
   again with that token and all roles, also when other accounts exist.
@@ -141,13 +141,36 @@ set, a start makes the account again.
 1. Do the first start with the variable set, and wait for the bootstrap Job to complete.
 2. Remove `ORCHARD_BOOTSTRAP_ADMIN_TOKEN` from the StatefulSet in the overlay, and wait until the
    new pod is ready.
-3. Delete the account. Use a context for `bootstrap-admin` or the API:
-   `orchard delete service-account bootstrap-admin`, or
-   `DELETE /v1/service-accounts/bootstrap-admin`.
-   Give the credentials to `curl` on standard input, as `smoke.sh` does.
+3. Delete the account through the API. Give the credentials to `curl` on standard input, so that
+   the token is not on the argv (`orchard context create` takes the token as a flag, so this
+   procedure does not use it):
+
+   ```sh
+   printf 'user = "bootstrap-admin:%s"\n' "$BOOTSTRAP_ADMIN_TOKEN" |
+     curl -sS -K - --cacert ca.crt -X DELETE \
+       https://<orchard address>:6120/v1/service-accounts/bootstrap-admin
+   ```
+
+   A person who has an `orchard` context for the account can use
+   `orchard delete service-account bootstrap-admin` instead.
 4. Delete the key `bootstrap-admin-token` from the Secret `orchard-bootstrap`.
 5. Check that `GET /v1/service-accounts` with the controller account no longer lists
    `bootstrap-admin`, and that the controller and the Mac hosts still connect.
+
+### Warning: a start with an empty PVC can log an admin token
+
+The loss of the PVC is recoverable, but it has a side effect. After the retirement above, a new
+PVC gives Orchard an empty database and no variable. Orchard then makes `bootstrap-admin` with a
+random token that has all roles, and it prints that token in its log. A log shipper copies it. The
+operator MUST treat the log of the Orchard pod as a secret.
+
+- Prevention: before a start with an empty PVC, put the variable and the key
+  `bootstrap-admin-token` back. Orchard then uses the known token and logs `<hidden>`. Source:
+  `internal/command/controller/bootstrap.go` at the tag `0.58.0`, read on 2026-11-02, which sets
+  `serviceAccountTokenToDisplay = "<hidden>"` when the variable is present. Do the steps 2 to 4
+  after the bootstrap Job completes.
+- Recovery, if it already happened: delete the logged account, or set it again with a new token
+  (the rotation below), and purge the log lines where the logging system allows it.
 
 To rotate a token later, do the first start procedure again with a new token: set the variable
 and the key, restart Orchard, delete the Job and apply the overlay, and then do steps 2 to 4.
