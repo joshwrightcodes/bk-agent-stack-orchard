@@ -25,15 +25,18 @@ class CheckDocsTest(unittest.TestCase):
         (self.root / "docs/adrs").mkdir(parents=True)
         for number in range(1, 15):
             (self.root / f"docs/adrs/{number:04d}-x.md").write_text("# x\n")
-        self.saved = (check_docs.ROOT, check_docs.ADR_DIR, check_docs.GENERATED)
+        self.saved = (check_docs.ROOT, check_docs.ADR_DIR, check_docs.GENERATED,
+                      check_docs.GLOSSARY)
         check_docs.ROOT = self.root
         check_docs.ADR_DIR = self.root / "docs/adrs"
         check_docs.GENERATED = set()
+        check_docs.GLOSSARY = self.root / "docs/glossary.md"
         check_docs.errors.clear()
         self.addCleanup(self.restore)
 
     def restore(self) -> None:
-        check_docs.ROOT, check_docs.ADR_DIR, check_docs.GENERATED = self.saved
+        (check_docs.ROOT, check_docs.ADR_DIR, check_docs.GENERATED,
+         check_docs.GLOSSARY) = self.saved
         check_docs.errors.clear()
 
     def write(self, name: str, text: str) -> None:
@@ -94,6 +97,37 @@ class CheckDocsTest(unittest.TestCase):
         self.write("README.md", "On 2026-09-19 the header was fixed. It says ADR-0001 to ADR-0009.\n")
         check_docs.check_adr_ranges()
         self.assertEqual(1, len(check_docs.errors), check_docs.errors)
+
+    def glossary(self, rows: list[str]) -> None:
+        self.write("docs/glossary.md",
+                   "# Glossary\n\n## Identifier families\n\n| Family | Meaning | Defined in |\n"
+                   "|---|---|---|\n" + "".join(f"| `{row}` | x | y |\n" for row in rows)
+                   + "\n## Next\n\n| `ZZ-n` | a table of another section | z |\n")
+
+    def all_families(self) -> list[str]:
+        return [f"{prefix}-{'n' * width}" for prefix, width in check_docs.FAMILIES.items()]
+
+    def test_a_glossary_that_lists_every_family_passes(self) -> None:
+        self.glossary(self.all_families())
+        check_docs.check_glossary_families()
+        self.assertEqual([], check_docs.errors)
+
+    def test_a_family_that_the_glossary_does_not_list_fails_with_its_name(self) -> None:
+        self.glossary([row for row in self.all_families() if not row.startswith("QS-")])
+        check_docs.check_glossary_families()
+        self.assertEqual(1, len(check_docs.errors), check_docs.errors)
+        self.assertIn("QS-n", check_docs.errors[0])
+
+    def test_a_family_with_the_wrong_number_of_digits_fails(self) -> None:
+        self.glossary([row.replace("PR-nnn", "PR-nn") for row in self.all_families()])
+        check_docs.check_glossary_families()
+        self.assertEqual(1, len(check_docs.errors), check_docs.errors)
+        self.assertIn("PR-nnn", check_docs.errors[0])
+
+    def test_the_citation_pattern_knows_each_family(self) -> None:
+        for prefix, width in check_docs.FAMILIES.items():
+            cited = f"{prefix}-{'1' * width}"
+            self.assertEqual([cited], check_docs.CITATION.findall(f"see {cited}."), prefix)
 
     def test_a_fenced_block_inside_a_list_item_is_code_for_the_width_check(self) -> None:
         self.write("README.md", "1. Run:\n\n   ```sh\n   " + "x" * 120 + "\n   ```\n")

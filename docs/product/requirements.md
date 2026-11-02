@@ -425,9 +425,12 @@ Dependencies:
   hosts. The date at which the hosts are ready is `UNKNOWN` (checked 2026-11-01). The owner is the
   maintainer. The date becomes known when the Mac hosts are ready. The plan of 2026-09-14 estimated
   that the pilot needs the hosts before 2026-10-14.
-* The fleet operator builds each Tart image with the build of this project (`images/`), from
-  `ghcr.io/cirruslabs/macos-golden-gate-vanilla`. The image has Xcode 27, the `buildkite-agent`
-  binary, and the Tart guest agent. The operator stores it in an OCI registry (PR-026, ADR-0012).
+* The fleet operator supplies each Tart image, and stores it in an OCI registry. The project
+  publishes no image (owner decision, 2026-11-03). The operator uses an upstream Tart image, or
+  builds an image of its own, and the image meets the image requirements of the target design,
+  section 6.4: the `buildkite-agent` v4 binary and the Tart guest agent. `images/` is a reference
+  build of such an image, from `ghcr.io/cirruslabs/macos-golden-gate-vanilla`, with Xcode 27 for
+  the pilot profile (PR-026, ADR-0012).
 * The fleet operator pulls each profile image to each host before use.
 * Buildkite-managed artifact storage is available to the organisation (PR-032; owner statement,
   2026-11-02).

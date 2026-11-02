@@ -79,7 +79,7 @@ The alternatives and the reason for this selection:
 | Option | Tool versions | Tasks | Result |
 |---|---|---|---|
 | `mise` | Yes | Yes | Selected. One file gives the versions and the tasks, and it covers the tools that are not written in Go |
-| `make` | No | Yes | A second mechanism must pin the tool versions |
+| `make` | No | Yes | It needs a second mechanism to pin the tool versions |
 | `task` (go-task) | No | Yes | Same limit as `make`, with a better syntax |
 | `just` | No | Yes | Same limit as `make` |
 | Go `tool` directives in `go.mod` | Go tools only | No | The golangci-lint documentation states that `go install`, the tools pattern, and `tool` directives "aren't guaranteed to work", because the local Go version builds the tool (2026-09-19). The project also needs Ansible, which is not a Go tool |
@@ -134,7 +134,7 @@ from their number.
 | ID | Outcome | Boundary | Depends on | Completion evidence | Requirements |
 |---|---|---|---|---|---|
 | W-26 | Every pull request proves that the documents stay whole | `.github/workflows/docs.yml`, `mise.toml`, `scripts/check-docs.py`, `scripts/check-commits.py`, `scripts/check-c4.sh` | — | T-121, T-123, and T-124 pass in CI | CO-04 |
-| W-27 | A weekly job reports an upstream release that the documents must answer | `.github/workflows/upstream.yml` | — | The job opens an issue when Orchard, Tart, the Buildkite agent, `stacksapi`, or a published macOS image moves past the version in the documents | CO-02, CO-05, CO-06 |
+| W-27 | A weekly job reports an upstream release that needs an answer in the documents | `.github/workflows/upstream.yml` | — | The job opens an issue when Orchard, Tart, the Buildkite agent, `stacksapi`, or a published macOS image moves past the version in the documents | CO-02, CO-05, CO-06 |
 
 ### 4.1 Increment 1 — walking skeleton
 
@@ -181,6 +181,16 @@ from their number.
 | W-24 | Real jobs pass the end-to-end scenarios on one Mac | `test/e2e` pipeline definitions | W-21, W-22, W-23 | T-100 to T-105 | PR-001, PR-008, PR-023, PR-030, PR-032, PR-033 |
 | W-25 | The pilot starts with the correct queue, token, and alerts | Buildkite configuration, alert rules | W-24 | T-140, T-141; the alert conditions of the target design, section 10.6 are active | PR-031, PR-033, SE-03 |
 
+**Scope of increment 4 (owner decision, 2026-11-03).**
+
+* W-23 is out of scope. The project publishes no VM image. An operator uses an upstream Tart image,
+  or builds an image of its own to the image requirements of the target design, section 6.4.
+  `images/build.sh` is a reference build of such an image.
+* W-25 is out of scope. The operator of a fleet starts its own pilot, with its own queue, token,
+  and alerts. The runbooks and the alert conditions of the target design support that work.
+* W-22 and W-24 are complete. The release gate of 2026-11-02 and 2026-11-03 ran T-100 to T-105 on
+  one Mac, with an Orchard worker on macOS 27.2 and job VMs of macOS 27.2 from the reference build.
+
 ## 5. Order and critical path
 
 ```mermaid
@@ -219,7 +229,8 @@ flowchart LR
     W24 --> W25[W-25 pilot start]
 ```
 
-The critical path is W-26, W-01, W-02, W-04, W-08, W-10, W-11, W-13, W-16, W-21, W-24, W-25.
+The critical path is W-26, W-01, W-02, W-04, W-08, W-10, W-11, W-13, W-16, W-21, W-24. W-25 is
+out of scope (section 4.4).
 W-27 is on no path, and it runs on a schedule after it exists.
 
 W-22 and W-23 are not on the software path. The owner decided on 2026-09-20 that neither one
@@ -239,13 +250,13 @@ familiar Go, no interruption for other work, and no new decision during the incr
 
 | Increment | Work units | Range | Main uncertainty |
 |---|---|---|---|
-| 0 | W-26 and W-27 | 1 to 2 days | The checks that the document integrity script must make |
+| 0 | W-26 and W-27 | 1 to 2 days | The checks of the document integrity script |
 | 1 | W-01 to W-09 | 5 to 8 days | The fidelity of the fake Stacks server (O-1) |
 | 2 | W-10 to W-14 | 6 to 10 days | The thirteen decision rows and their property tests |
 | 3 | W-15 to W-20 | 4 to 7 days | The outage matrix and the load harness |
 | 4 | W-21 to W-25 | 5 to 9 days, and machine time for the image | Hardware, the image build, and the first real VM |
 
-Dates that the plan must respect:
+The plan keeps to these dates:
 
 * The date at which the Mac hosts are ready is `UNKNOWN`. W-22 cannot start before they arrive.
 * The pilot start date is `UNKNOWN`.

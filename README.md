@@ -101,8 +101,9 @@ To operate the controller, you need these items:
 * Apple silicon Mac hosts that run Orchard workers and Tart. `deploy/hosts` sets up a host with
   Ansible.
 * An Orchard controller, version 0.58.0 or later. `deploy/orchard` gives a reference deployment.
-* A Tart image for each VM profile, with `buildkite-agent` v4 and the Tart guest agent. `images/`
-  builds the images.
+* A Tart image for each VM profile, with `buildkite-agent` v4 and the Tart guest agent. The project
+  publishes no image: use an upstream Tart image, or build your own. `images/` is a reference
+  build.
 * A Kubernetes cluster for the reference deployment of the controller. `deploy/helm` holds the
   chart. The controller is one binary, so other platforms are also possible.
 * An OpenTelemetry collector that receives OTLP. The controller has no Prometheus endpoint.
@@ -148,8 +149,8 @@ release exists. Each release has a signed Helm chart in an OCI registry.
 
 [`deploy/orchard`](deploy/orchard/README.md) is a kustomize base for the Orchard controller. An
 overlay of the operator sets the namespace, the image, and the endpoint of the collector.
-[`deploy/hosts`](deploy/hosts) sets up the Mac hosts, and [`images/`](images/README.md) builds the
-VM images.
+[`deploy/hosts`](deploy/hosts) sets up the Mac hosts, and [`images/`](images/README.md) is a
+reference build of a VM image.
 
 ### Build from source
 
@@ -254,7 +255,7 @@ version.
 | [Orchard](https://github.com/openai/orchard) | 0.58.0 or later | Schedules the VMs on the Mac hosts |
 | [Tart](https://github.com/openai/tart) | 2.41.1 | Runs macOS VMs on Apple Virtualization |
 | `buildkite-agent` | v4 | In the VM image |
-| Pilot image | macOS 27.2, Xcode 27 | Built from `macos-golden-gate-vanilla` (ADR-0012) |
+| Reference image | macOS 27.2, Xcode 27.2 | `images/`, built from `macos-golden-gate-vanilla` (ADR-0012). The project publishes no image |
 | Telemetry | OpenTelemetry (OTLP only) | No Prometheus endpoint |
 | Licence | AGPL-3.0-or-later | The controller imports no code with a use restriction (ADR-0015) |
 | Tools and tasks | `mise` | Pins Go, golangci-lint, GoReleaser, and Ansible |
