@@ -96,9 +96,16 @@ networkPolicy:
           cidr: 203.0.113.0/24
   orchard:
     port: 6120
+    # The controller reaches Orchard inside the cluster, through the ClusterIP Service. The
+    # policy sees the address of the Orchard pod, so an address peer does not match. Select the
+    # pod by its namespace and label.
     to:
-      - ipBlock:
-          cidr: 198.51.100.10/32
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: orchard
+        podSelector:
+          matchLabels:
+            app.kubernetes.io/name: orchard
   collector:
     port: 4317
     to:
@@ -109,6 +116,9 @@ networkPolicy:
           matchLabels:
             app.kubernetes.io/name: opentelemetry-collector
 ```
+
+Keep the `ipBlock` form for destinations outside the cluster, such as Buildkite and a collector
+that runs outside it.
 
 A peer CIDR for a public service is fragile, because the service can change its addresses. A
 cluster whose CNI supports a policy for DNS names can limit the egress to `agent.buildkite.com`
@@ -145,8 +155,12 @@ spec:
         - ports:
             - port: "443"
               protocol: TCP
-    - toCIDR:
-        - 198.51.100.10/32
+    # Orchard runs in the cluster, and the Service address becomes the pod address, so select the
+    # endpoint. toCIDR does not select endpoints of the cluster.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: orchard
+            k8s:app.kubernetes.io/name: orchard
       toPorts:
         - ports:
             - port: "6120"
