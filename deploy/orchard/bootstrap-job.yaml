@@ -7,7 +7,8 @@
 #
 # The Secret orchard-worker-tokens holds one key for each host, worker-<host>, with the token of
 # that host. The host MUST be a DNS label (lower case letters, digits, and hyphens). The Job mounts
-# the Secret, so the keys are the list of hosts and the tokens stay in a Secret. The Job never
+# the Secret, so the keys are the list of hosts and the tokens stay in a Secret. The Job refuses a
+# key that does not start with worker-. The Job never
 # deletes an account: a host that leaves the list keeps its account until the operator revokes it
 # (runbook orchard-worker-accounts).
 #
@@ -92,6 +93,17 @@ spec:
               }
               check bootstrap-admin "$ORCHARD_BOOTSTRAP_ADMIN_TOKEN"
               account bk-agent-stack-orchard "$CONTROLLER_TOKEN"
+              # A key that does not start with worker- is a mistake, for example Worker-mac-01, and
+              # the Job refuses it, so no host is lost without a message. The entries of the
+              # volume that start with two dots are not keys.
+              for file in /etc/orchard/workers/*; do
+                [ -e "$file" ] || continue
+                case "${file##*/}" in
+                  worker-*) ;;
+                  *) echo "the key ${file##*/} of orchard-worker-tokens does not start with worker-" >&2
+                     exit 1 ;;
+                esac
+              done
               hosts=0
               for file in /etc/orchard/workers/worker-*; do
                 [ -f "$file" ] || continue
