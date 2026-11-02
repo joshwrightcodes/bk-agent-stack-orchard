@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/inventory"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
@@ -425,5 +426,33 @@ func TestForgetTakesAMachineOutOfTheLatestAnswerAndTheNextRefreshReplacesIt(t *t
 	if len(snapshot.VMs) != 3 {
 		t.Errorf("after a refresh the answer holds %d machines, want the 3 that Orchard holds",
 			len(snapshot.VMs))
+	}
+}
+
+// The first exit criterion reads this count: a machine whose job ended has nothing left to do, so
+// the count is zero except for the short time before the reaper deletes the machine.
+func TestTheGaugeCountsOwnedVMsWhoseJobIsTerminal(t *testing.T) {
+	t.Parallel()
+
+	ended, running, unasked := job.ID("job-ended"), job.ID("job-running"), job.ID("job-unasked")
+	snapshot := inventory.Snapshot{
+		Owned: []inventory.Owned{
+			{VM: orchard.VM{Name: "bk-1"}, Job: ended},
+			{VM: orchard.VM{Name: "bk-2"}, Job: running},
+			{VM: orchard.VM{Name: "bk-3"}, Job: unasked},
+		},
+		// An orphan has no job, so it is not a leftover of a job.
+		Orphans: []orchard.VM{{Name: "bk-4"}},
+	}
+
+	states := map[job.ID]string{ended: "finished", running: "running"}
+	observation := telemetry.Observation{}
+
+	snapshot.Leftover(&observation, func(id job.ID) bool {
+		return buildkite.Terminal(states[id])
+	})
+
+	if observation.Leftover != 1 {
+		t.Errorf("the gauge counts %d machines, want 1: only the job that ended", observation.Leftover)
 	}
 }

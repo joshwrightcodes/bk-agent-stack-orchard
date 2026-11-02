@@ -89,12 +89,14 @@ const (
 type JobPhase string
 
 // The phases of a job. The controller observes them at poll intervals, so each duration has a
-// tolerance of one job-states interval.
+// tolerance of one job-states interval. The last one runs from the first tick that saw the job
+// reach a terminal state to the deletion that Orchard accepted, and it is the lag of the reaper.
 const (
 	PhaseScheduledToReserved JobPhase = "scheduled_to_reserved"
 	PhaseReservedToPlaced    JobPhase = "reserved_to_placed"
 	PhasePlacedToRunning     JobPhase = "placed_to_running"
 	PhaseRunningToAccepted   JobPhase = "running_to_accepted"
+	PhaseFinishedToDeleted   JobPhase = "finished_to_deleted"
 	PhaseTotal               JobPhase = "total"
 )
 
@@ -153,6 +155,12 @@ type Observation struct {
 	// Workers is the machines that can run an agent, in the states of the conventions.
 	Workers map[WorkerState]int64
 
+	// Leftover is the machines of this controller whose job is in a terminal state. A machine
+	// of that kind has nothing left to do, so the value is zero except for the short time
+	// before the reaper deletes it. It has no attribute, because the count of all of them is
+	// the answer.
+	Leftover int64
+
 	// Synced is when each source last answered. The callback reports the age of that answer,
 	// and not the time itself, so that the alert reads a number that needs no clock of its own.
 	Synced map[Source]time.Time
@@ -171,6 +179,7 @@ type Metrics struct {
 	slots       metric.Int64ObservableUpDownCounter
 	vms         metric.Int64ObservableUpDownCounter
 	workers     metric.Int64ObservableUpDownCounter
+	leftover    metric.Int64ObservableGauge
 	staleness   metric.Float64ObservableGauge
 	skipped     metric.Int64Counter
 	truncated   metric.Int64Counter
@@ -198,7 +207,7 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 	}
 
 	registered, err := meter.RegisterCallback(m.report,
-		m.waiting, m.oldest, m.slots, m.vms, m.workers, m.staleness)
+		m.waiting, m.oldest, m.slots, m.vms, m.workers, m.leftover, m.staleness)
 	if err != nil {
 		return nil, fmt.Errorf("registering the callback of the fleet levels: %w", err)
 	}
@@ -245,6 +254,14 @@ func (m *Metrics) observable(meter metric.Meter) error {
 		metric.WithDescription("Machines that can run an agent, by state."))
 	if err != nil {
 		return fmt.Errorf("building the instrument of the workers: %w", err)
+	}
+
+	m.leftover, err = meter.Int64ObservableGauge(prefix+"vm.leftover",
+		metric.WithUnit("{vm}"),
+		metric.WithDescription("Virtual machines of this controller whose job is in a terminal "+
+			"state. It stays at zero except for the short time before the reaper deletes them."))
+	if err != nil {
+		return fmt.Errorf("building the instrument of the leftover machines: %w", err)
 	}
 
 	m.staleness, err = meter.Float64ObservableGauge(prefix+"source.staleness",
@@ -302,7 +319,7 @@ func (m *Metrics) synchronous(meter metric.Meter) error {
 	m.jobPhase, err = meter.Float64Histogram(prefix+"job.phase.duration",
 		metric.WithUnit("s"),
 		metric.WithDescription("Time of one phase of a job, from scheduled to an agent that "+
-			"accepted it."))
+			"accepted it, and from the end of the job to the deletion of its machine."))
 	if err != nil {
 		return fmt.Errorf("building the instrument of the job phases: %w", err)
 	}
@@ -370,6 +387,8 @@ func (m *Metrics) report(_ context.Context, observer metric.Observer) error {
 		observer.ObserveInt64(m.workers, count,
 			metric.WithAttributes(semconv.CICDWorkerStateKey.String(string(state))))
 	}
+
+	observer.ObserveInt64(m.leftover, observation.Leftover)
 
 	// The age of an answer is its age when the collector reads it, which is real time.
 	for source, at := range observation.Synced {

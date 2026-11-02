@@ -174,6 +174,7 @@ func Build(options Options) (*controller.Controller, error) {
 		queue:    poller,
 		fleet:    fleet,
 		starter:  starter,
+		states:   observed,
 		logger:   recorder.Logger,
 		metrics:  recorder.Metrics,
 		tracer:   recorder.Tracer,
@@ -209,6 +210,7 @@ type admitter struct {
 	queue    *stack.Poller
 	fleet    *inventory.Inventory
 	starter  *launcher.Launcher
+	states   *jobstates.States
 	logger   *slog.Logger
 	metrics  *telemetry.Metrics
 	tracer   trace.Tracer
@@ -329,6 +331,7 @@ func (a *admitter) observe() telemetry.Observation {
 
 	if held, read := a.fleet.Latest(); read {
 		held.Observe(&observation, a.fleet.Online, a.profileOf)
+		held.Leftover(&observation, a.ended)
 	}
 
 	return observation
@@ -338,4 +341,11 @@ func (a *admitter) observe() telemetry.Observation {
 // a restart has none, and it counts as one of an unknown profile until it ends.
 func (a *admitter) profileOf(id job.ID) string {
 	return a.starter.Profile(id)
+}
+
+// ended reports a job whose state in Buildkite, as the controller last read it, is terminal.
+func (a *admitter) ended(id job.ID) bool {
+	observation, asked := a.states.Observed(id)
+
+	return asked && buildkite.Terminal(observation.State)
 }

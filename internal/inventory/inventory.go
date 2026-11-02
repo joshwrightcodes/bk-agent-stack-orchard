@@ -334,6 +334,19 @@ func (s Snapshot) Observe(observation *telemetry.Observation, online func(orchar
 	s.slots(observation, online)
 }
 
+// Leftover counts the machines of jobs, and not the orphans, whose job is in a terminal state
+// according to the function. The reaper deletes such a machine, so the count is the work that is
+// left for it.
+func (s Snapshot) Leftover(observation *telemetry.Observation, terminal func(job.ID) bool) {
+	observation.Leftover = 0
+
+	for _, owned := range s.Owned {
+		if terminal(owned.Job) {
+			observation.Leftover++
+		}
+	}
+}
+
 // UnknownProfile is the profile of a machine that this process did not start.
 const UnknownProfile = "unknown"
 

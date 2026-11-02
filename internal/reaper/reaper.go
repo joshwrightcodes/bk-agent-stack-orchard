@@ -115,6 +115,11 @@ type Reaper struct {
 	// warned holds the state that the last warning named for a job whose state matches no row, so
 	// that a job stuck in one such state gives one record and not one at every tick.
 	warned map[job.ID]string
+
+	// ended holds when a tick first saw each job in a terminal state, until the deletion of its
+	// machine. It times the phase from the end of a job to that deletion. A restart loses it,
+	// and the first tick after one then starts the time again, which the design states.
+	ended map[job.ID]time.Time
 }
 
 // New builds the reaper.
@@ -178,6 +183,7 @@ func New(options Options) (*Reaper, error) {
 		now:          now,
 		ignored:      map[job.ID]bool{},
 		warned:       map[job.ID]string{},
+		ended:        map[job.ID]time.Time{},
 	}, nil
 }
 
@@ -260,6 +266,10 @@ func (r *Reaper) collect(snapshot inventory.Snapshot) []Machine {
 			machine.Named = observation.Named
 			machine.Observed = true
 			machine.ObservedAt = observation.At
+
+			if _, counted := r.ended[owned.Job]; !counted && buildkite.Terminal(observation.State) {
+				r.ended[owned.Job] = r.now()
+			}
 		}
 
 		machines = append(machines, machine)
@@ -330,6 +340,7 @@ func (r *Reaper) carry(ctx context.Context, machine Machine, decision Decision) 
 	}
 
 	r.metrics.Deleted(ctx, decision.Reason)
+	r.deleted(ctx, machine)
 	r.logger.InfoContext(ctx, "the reaper acted on a machine", append(fields,
 		telemetry.SpanDecision, string(decision.Action))...)
 
@@ -453,6 +464,30 @@ func (r *Reaper) forget(snapshot inventory.Snapshot) {
 			delete(r.warned, id)
 		}
 	}
+
+	for id := range r.ended {
+		if !owned[id] {
+			delete(r.ended, id)
+		}
+	}
+}
+
+// deleted records the phase from the end of a job to the deletion that Orchard accepted, for a
+// job whose end a tick saw.
+func (r *Reaper) deleted(ctx context.Context, machine Machine) {
+	began, ended := r.ended[machine.Job]
+	if !ended {
+		return
+	}
+
+	delete(r.ended, machine.Job)
+
+	name := r.profile(machine.Job)
+	if name == "" {
+		name = inventory.UnknownProfile
+	}
+
+	r.metrics.JobPhase(ctx, name, telemetry.PhaseFinishedToDeleted, r.now().Sub(began))
 }
 
 // delete removes a machine from Orchard. Orchard answers a machine that is already gone as a
