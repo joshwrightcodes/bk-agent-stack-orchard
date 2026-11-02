@@ -35,7 +35,7 @@ not part of the image of the controller of this project, which carries no Orchar
 
 ## The Secrets
 
-The base creates no Secret, so no token goes through the repository. Create these two first.
+The base creates no Secret, so no token goes through the repository. Create these three first.
 
 `orchard-bootstrap`, with three tokens that you generate:
 
@@ -43,7 +43,17 @@ The base creates no Secret, so no token goes through the repository. Create thes
 |---|---|
 | `bootstrap-admin-token` | The `bootstrap-admin` account of Orchard, which the bootstrap Job uses |
 | `controller-token` | The `bk-agent-stack-orchard` account: `BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN` of the controller |
-| `worker-token` | The `worker` account of the Mac hosts |
+
+`orchard-worker-tokens`, with one key for each Mac host and no other key:
+
+| Key | Use |
+|---|---|
+| `worker-<host>` | The token of the account `worker-<host>` of that host. `<host>` MUST be a DNS label (lower case letters, digits, and hyphens, a maximum of 63 characters), and it MUST be the `orchard_worker_name` of the host in the inventory |
+
+The keys are the list of hosts, so the tokens stay in a Secret and no ConfigMap holds a token. The
+bootstrap Job refuses a key whose host is not a DNS label, and it fails when the Secret has no
+such key. Each host has its own token (`openssl rand -hex 24`). The operator keeps the same token
+in the inventory vault (`deploy/hosts/README.md`).
 
 `orchard-tls`, a TLS Secret with `tls.crt`, `tls.key`, and `ca.crt`, for example from
 cert-manager. The certificate MUST name the Service (`orchard`, `orchard.<namespace>.svc`) and the
@@ -104,8 +114,11 @@ make the load balancer public.
 - `networkpolicy.yaml`: the Orchard pod accepts TCP 6120 from the controller of this project (by
   namespace and pod label), from the bootstrap Job, and from the CIDRs of the Mac hosts, and from
   nothing else. See "The NetworkPolicy".
-- `bootstrap-job.yaml`: sets the accounts `bk-agent-stack-orchard` and `worker`, each with
-  `compute:read` and `compute:write` only, through the REST API of Orchard. It replaces an account
+- `bootstrap-job.yaml`: sets the accounts `bk-agent-stack-orchard` and `worker-<host>` for each key
+  of the Secret `orchard-worker-tokens`, each with `compute:read` and `compute:write` only (the
+  roles that an Orchard worker needs, target design section 9.2), through the REST API of Orchard.
+  It never deletes an account: a host that leaves the Secret keeps its account until the operator
+  revokes it (`docs/runbooks/orchard-worker-accounts.md`). It replaces an account
   that exists and creates one that does not, so a run after a rotation of a token sets the new
   token. Run it again after each rotation: delete the Job and apply the overlay. It gives the
   token and the body to `curl` on standard input, so no token is on the argv of `curl`.
@@ -176,4 +189,6 @@ To rotate a token later, do the first start procedure again with a new token: se
 and the key, restart Orchard, delete the Job and apply the overlay, and then do steps 2 to 4.
 The runbook is `docs/runbooks/orchard-bootstrap-admin.md`.
 
-The Mac hosts, and the way that each worker gets its credentials, are W-22.
+The Mac hosts, and the way that each worker gets its credentials, are W-22. Orchard does not tie
+an account to a worker name, so a host with the token of another host can register as any name.
+The alert "Unknown worker" of the target design (section 10.6) watches for it.

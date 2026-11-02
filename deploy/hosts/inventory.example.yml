@@ -1,8 +1,13 @@
 # An example inventory. Copy it, give the values of the fleet, and keep the token in Ansible Vault.
 workers:
   hosts:
+    # orchard_worker_name is the name of the worker, and the account of the host is
+    # worker-<name>. It MUST be a DNS label, and it MUST be in the list of the Secret
+    # orchard-worker-tokens.
     mac-01.hosts.internal:
+      orchard_worker_name: mac-01
     mac-02.hosts.internal:
+      orchard_worker_name: mac-02
   vars:
     # The user that SSH logs in as, with a key. It is also the user of Tart, which logs in
     # automatically.
@@ -10,8 +15,9 @@ workers:
     orchard_worker_controller_url: https://orchard.internal:6120
     # ca.crt of the orchard-tls Secret.
     orchard_worker_ca_cert: "{{ lookup('ansible.builtin.file', 'orchard-ca.crt') }}"
-    # worker-token of the orchard-bootstrap Secret, from the vault.
-    orchard_worker_token: "{{ vault_orchard_worker_token }}"
+    # The token of this host only: the key worker-<name> of the orchard-worker-tokens Secret.
+    # vault_orchard_worker_tokens is a dictionary in Ansible Vault, with one token for each name.
+    orchard_worker_token: "{{ vault_orchard_worker_tokens[orchard_worker_name] }}"
     orchard_worker_labels: {pool: general}
     orchard_worker_otlp_endpoint: http://collector.observability.internal:4318
     # The values of the Helm release of the controller, or its configuration file.

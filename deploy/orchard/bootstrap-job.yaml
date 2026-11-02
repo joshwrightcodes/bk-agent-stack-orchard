@@ -2,7 +2,14 @@
 # gives each account its new token (target design, section 9.2):
 #
 # - bk-agent-stack-orchard, the controller of this project: compute:read and compute:write only.
-# - worker, the Mac hosts: compute:read and compute:write.
+# - worker-<host>, one for each Mac host that the Secret orchard-worker-tokens lists: compute:read
+#   and compute:write, the roles that an Orchard worker needs.
+#
+# The Secret orchard-worker-tokens holds one key for each host, worker-<host>, with the token of
+# that host. The host MUST be a DNS label (lower case letters, digits, and hyphens). The Job mounts
+# the Secret, so the keys are the list of hosts and the tokens stay in a Secret. The Job never
+# deletes an account: a host that leaves the list keeps its account until the operator revokes it
+# (runbook orchard-worker-accounts).
 #
 # It calls the REST API of Orchard with the bootstrap admin, and gives curl the credentials and the
 # body on standard input, not on its argv, and trusts the authority of the
@@ -69,9 +76,34 @@ spec:
                 done
                 return 1
               }
+              # The host of an account becomes part of a URL and of a body, so it MUST be a DNS
+              # label: lower case letters, digits, and hyphens, with no hyphen at the start or at
+              # the end, and a maximum of 63 characters.
+              host_check() {
+                case "$1" in
+                  ""|-*|*-|*[!a-z0-9-]*)
+                    echo "the host name \"$1\" is not a DNS label" >&2
+                    return 1 ;;
+                esac
+                if [ "${#1}" -gt 63 ]; then
+                  echo "the host name \"$1\" has more than 63 characters" >&2
+                  return 1
+                fi
+              }
               check bootstrap-admin "$ORCHARD_BOOTSTRAP_ADMIN_TOKEN"
               account bk-agent-stack-orchard "$CONTROLLER_TOKEN"
-              account worker "$WORKER_TOKEN"
+              hosts=0
+              for file in /etc/orchard/workers/worker-*; do
+                [ -f "$file" ] || continue
+                host=${file#/etc/orchard/workers/worker-}
+                host_check "$host"
+                account "worker-$host" "$(cat "$file")"
+                hosts=$((hosts + 1))
+              done
+              if [ "$hosts" -eq 0 ]; then
+                echo "the Secret orchard-worker-tokens has no key worker-<host>" >&2
+                exit 1
+              fi
           env:
             - name: ORCHARD_URL
               value: https://orchard:6120
@@ -85,11 +117,6 @@ spec:
                 secretKeyRef:
                   name: orchard-bootstrap
                   key: controller-token
-            - name: WORKER_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: orchard-bootstrap
-                  key: worker-token
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -99,9 +126,15 @@ spec:
             - name: tls
               mountPath: /etc/orchard/tls
               readOnly: true
+            - name: workers
+              mountPath: /etc/orchard/workers
+              readOnly: true
             - name: tmp
               mountPath: /tmp
       volumes:
+        - name: workers
+          secret:
+            secretName: orchard-worker-tokens
         - name: tls
           secret:
             secretName: orchard-tls

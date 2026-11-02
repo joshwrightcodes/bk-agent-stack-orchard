@@ -23,11 +23,14 @@
       - orchard_worker_controller_url is match('https://')
       - orchard_worker_ca_cert is search('-----BEGIN CERTIFICATE-----')
       - orchard_worker_token | length > 0
+      - orchard_worker_name is match('^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$')
       - orchard_worker_otlp_endpoint | length > 0
       - orchard_worker_config_file | length > 0
     fail_msg: >-
       The inventory MUST give orchard_worker_controller_url (https), orchard_worker_ca_cert (PEM),
-      orchard_worker_token, orchard_worker_otlp_endpoint, and orchard_worker_config_file.
+      orchard_worker_token (the token of this host, not of another host), orchard_worker_otlp_endpoint,
+      and orchard_worker_config_file. orchard_worker_name MUST be a DNS label (lower case letters,
+      digits, and hyphens), because the account of the host is worker-<name>.
 
 - name: Check the platform and the macOS version
   ansible.builtin.assert:

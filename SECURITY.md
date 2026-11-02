@@ -52,6 +52,13 @@ These are known, recorded, and accepted. They are not vulnerabilities in this pr
   and an IP allowlist limit it.
 * The Orchard `compute:write` role also permits the creation and the deletion of workers, because
   Orchard has no narrower role.
+* Each Mac host has its own Orchard service account, but Orchard 0.58.0 does not tie an account to a
+  worker name. A stolen host token can register, update, and delete any worker name, and it can
+  read and write VMs, because the roles `compute:read` and `compute:write` are the roles that a
+  worker needs. The controls are a token for each host, so the operator revokes one host without
+  a change on the others (runbook
+  [`docs/runbooks/orchard-worker-accounts.md`](docs/runbooks/orchard-worker-accounts.md)), and the
+  alert on an unknown worker name (target design, section 10.6).
 * Job logs go to Buildkite SaaS, and they can contain parts of source code, such as compiler
   errors.
 * Artifacts stay on owner infrastructure, in the operating country (PR-032), only as far as
