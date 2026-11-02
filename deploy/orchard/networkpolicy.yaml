@@ -1,0 +1,44 @@
+# The Orchard pod accepts TCP 6120 from three sources and nothing else. Egress is not limited.
+#
+# 1. The controller of this project, by its namespace and its pod label. The base names the
+#    placeholder namespace bk-agent-stack-orchard. The overlay of the operator MUST patch it to
+#    the namespace of the controller, as test/smoke/orchard does.
+# 2. The bootstrap Job, which runs in the namespace of this policy.
+# 3. The Mac hosts, by address. 192.0.2.0/24 is a placeholder from RFC 5737 (TEST-NET-1) that no
+#    real host uses, so the base admits no real host until an operator patches the ipBlock to the
+#    CIDRs of the hosts. Add one entry for each range.
+#
+# The kubelet probes of the StatefulSet are TCP probes on the port api. On most CNI plugins a
+# NetworkPolicy does not block the probes of the kubelet of the same node, so no rule admits them.
+# Check this on the CNI of the cluster. A CNI that blocks them needs a rule for the node CIDR.
+#
+# A cluster enforces a NetworkPolicy only when its CNI does. kind uses kindnet, which may not
+# enforce it, so a passing smoke test does not prove this policy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: orchard
+  labels:
+    app.kubernetes.io/name: orchard
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: orchard
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: bk-agent-stack-orchard
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: bk-agent-stack-orchard
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: orchard-bootstrap
+        - ipBlock:
+            cidr: 192.0.2.0/24
+      ports:
+        - protocol: TCP
+          port: 6120

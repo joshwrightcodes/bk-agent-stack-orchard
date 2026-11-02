@@ -1,0 +1,15 @@
+# An example overlay that gives the Mac hosts an internal load balancer for Orchard on 6120. The
+# base is a ClusterIP, so Orchard is not reachable from outside the cluster until an overlay like
+# this one makes it so. Copy it, and set the namespace, the image, and the annotation for the
+# cloud of the operator. The README of deploy/orchard has the rest of the overlay.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../orchard
+
+patches:
+  - path: service-patch.yaml
+    target:
+      kind: Service
+      name: orchard

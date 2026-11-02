@@ -1,0 +1,32 @@
+# Makes the Service orchard a load balancer that only the network of the operator can reach. The
+# annotation that makes a load balancer internal depends on the cloud. Keep the annotation of one
+# cloud and delete the others. The sources were checked on 2026-11-02, and the clouds change their
+# annotations, so check the page again before use.
+#
+# GKE (active below):
+#   networking.gke.io/load-balancer-type: "Internal", for all supported GKE versions. A newer
+#   option is spec.loadBalancerClass: networking.gke.io/l4-regional-internal, which needs GKE
+#   1.33.1-gke.1779000 or later with subsetting.
+#   https://cloud.google.com/kubernetes-engine/docs/concepts/service-load-balancer-parameters
+#
+# AWS, with the AWS Load Balancer Controller installed in the cluster:
+#   service.beta.kubernetes.io/aws-load-balancer-type: external
+#   service.beta.kubernetes.io/aws-load-balancer-scheme: internal
+#   aws-load-balancer-internal is deprecated in favour of the scheme annotation.
+#   https://kubernetes-sigs.github.io/aws-load-balancer-controller/latest/guide/service/annotations/
+#
+# AKS:
+#   service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+#   https://learn.microsoft.com/en-us/azure/aks/internal-lb
+#
+# An internal load balancer does not limit the callers by itself. networkpolicy.yaml of the base
+# lists the callers that may reach the pod, and the source addresses that the policy sees depend
+# on the load balancer and on externalTrafficPolicy, so test it from a Mac host.
+apiVersion: v1
+kind: Service
+metadata:
+  name: orchard
+  annotations:
+    networking.gke.io/load-balancer-type: Internal
+spec:
+  type: LoadBalancer

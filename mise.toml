@@ -165,6 +165,8 @@ run = [
   "rm -rf build/chart-check && helm package deploy/helm/bk-agent-stack-orchard --destination build/chart-check >/dev/null && ! tar -tzf build/chart-check/*.tgz | grep -q '/ci/'",
   "helm template bkaso deploy/helm/bk-agent-stack-orchard -f deploy/helm/bk-agent-stack-orchard/ci/values.yaml | kubeconform -strict -summary -kubernetes-version 1.37.0 -",
   "kustomize build deploy/orchard | kubeconform -strict -summary -kubernetes-version 1.37.0 -",
+  "kustomize build deploy/orchard-overlays/internal-lb | kubeconform -strict -summary -kubernetes-version 1.37.0 -",
+  "kustomize build test/smoke/orchard | kubeconform -strict -summary -kubernetes-version 1.37.0 -",
 ]
 
 [tasks.smoke]

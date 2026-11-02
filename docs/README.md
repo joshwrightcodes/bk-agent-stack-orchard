@@ -44,6 +44,7 @@ a number, such as the demand model or a quality target.
 | [Development guide](development.md) | How does a developer run the gates, the tests, and the controller? |
 | [Glossary](glossary.md) | What does a term or an identifier mean? |
 | [Runbook: replace the agent token](runbooks/token-replacement.md) | How does an operator replace the cluster agent token? |
+| [Runbook: retire the Orchard bootstrap admin](runbooks/orchard-bootstrap-admin.md) | How does an operator remove the `bootstrap-admin` account after the first bootstrap? |
 
 The direction of the set is from the requirements to the design, the tests, and the plan.
 `mise run check-docs` checks that each cited identifier exists, and that each link resolves.

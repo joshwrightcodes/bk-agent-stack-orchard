@@ -4,7 +4,8 @@
 # - bk-agent-stack-orchard, the controller of this project: compute:read and compute:write only.
 # - worker, the Mac hosts: compute:read and compute:write.
 #
-# It calls the REST API of Orchard with the bootstrap admin, and trusts the authority of the
+# It calls the REST API of Orchard with the bootstrap admin, and gives curl the credentials and the
+# body on standard input, not on its argv, and trusts the authority of the
 # Secret orchard-tls. A PUT replaces an account that exists, and a POST creates one that does
 # not, so the Job gives the same result on every run.
 apiVersion: batch/v1
@@ -35,14 +36,24 @@ spec:
           args:
             - |
               set -eu
+              # No token goes on the argv of curl, where a process list shows it. curl reads the
+              # account and the body from its configuration on standard input. A token MUST NOT
+              # hold a character that the quoted strings of that configuration read in another
+              # way, so the Job refuses such a token.
+              check() {
+                case "$2" in
+                  ""|*[!A-Za-z0-9._~+/=-]*) echo "the token of $1 is empty or holds a character that is not allowed" >&2; return 1 ;;
+                esac
+              }
               account() {
-                body="{\"name\":\"$1\",\"token\":\"$2\",\"roles\":[\"compute:read\",\"compute:write\"]}"
+                check "$1" "$2"
                 for method in PUT POST; do
                   path=/v1/service-accounts
                   [ "$method" = PUT ] && path="$path/$1"
-                  code=$(curl -sS -o /tmp/answer -w '%{http_code}' --cacert /etc/orchard/tls/ca.crt \
-                    -u "bootstrap-admin:$ORCHARD_BOOTSTRAP_ADMIN_TOKEN" -X "$method" \
-                    -H 'Content-Type: application/json' --data "$body" "$ORCHARD_URL$path")
+                  code=$(printf 'user = "bootstrap-admin:%s"\ndata = "{\\"name\\":\\"%s\\",\\"token\\":\\"%s\\",\\"roles\\":[\\"compute:read\\",\\"compute:write\\"]}"\n' \
+                    "$ORCHARD_BOOTSTRAP_ADMIN_TOKEN" "$1" "$2" |
+                    curl -sS -K - -o /tmp/answer -w '%{http_code}' --cacert /etc/orchard/tls/ca.crt \
+                      -X "$method" -H 'Content-Type: application/json' "$ORCHARD_URL$path")
                   case "$code" in
                     200) echo "the service account $1 is set"; return 0 ;;
                     404) continue ;;
@@ -51,6 +62,7 @@ spec:
                 done
                 return 1
               }
+              check bootstrap-admin "$ORCHARD_BOOTSTRAP_ADMIN_TOKEN"
               account bk-agent-stack-orchard "$CONTROLLER_TOKEN"
               account worker "$WORKER_TOKEN"
           env:
