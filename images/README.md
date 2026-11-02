@@ -24,10 +24,15 @@ The build adds:
 | carthage, cocoapods, fastlane, swiftlint, xcbeautify | `pilot` | Homebrew formulae, at the versions that Homebrew gives on the day of the build |
 | `buildkite-agent` 4.9.0 | Both | Its release, checked against the SHA-256 of its `SHA256SUMS`, in `/usr/local/bin` |
 | The configuration of the agent | Both | `files/buildkite-agent.cfg`: the build, hooks, and plugins paths. The startup environment of the controller gives the token, the job, the name, and the tags |
+| The agent tags of the image | Both | `/usr/local/etc/bk-agent-stack-orchard/agent-tags`: `image-name`, `image-tag`, `macos`, and `macos-build`, and in the pilot `xcode` and `xcode-build`. The build reads the values in the VM after each install, and its check reads them again |
 | The `environment` hook | Both | `files/environment`: the artifacts of a job go to the optional owner-managed storage, if the build set one (PR-032). In the pilot, it also puts Homebrew on the `PATH` and sets a UTF-8 locale |
 
-The controller starts `buildkite-agent start` in the VM through the Tart guest agent (ADR-0009).
-The guest agent runs it as `admin`. Its `PATH` has `/usr/local/bin` but not Homebrew. The hook adds
+The controller starts the agent in the VM through the Tart guest agent (ADR-0009), with a startup
+script that is the same for each VM (target design, section 6.4). Before the agent starts, the
+script sets the host name to the name of the VM with passwordless `sudo`, so Buildkite shows which
+VM ran a job. It also adds the agent tags of the image after the tags of the controller. A tag
+whose key the controller already set stays as the controller set it. The guest agent runs the
+script as `admin`. Its `PATH` has `/usr/local/bin` but not Homebrew. The hook adds
 Homebrew for each job.
 
 ## The Xcode archive
