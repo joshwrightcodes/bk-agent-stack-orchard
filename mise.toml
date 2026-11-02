@@ -139,6 +139,10 @@ done
 description = "Run the integration tests against orchard dev in synthetic mode"
 run = "go test -tags integration -count=1 ./test/integration/..."
 
+[tasks.test-startup-script]
+description = "Run the tests of the VM startup script under the sh and zsh of this computer"
+run = "go test -count=1 -run '^TestTheScript' ./internal/vmspec/"
+
 [tasks.check-deploy]
 description = "Lint the Helm chart, and validate the chart and the Orchard manifests against the Kubernetes schemas"
 run = [
@@ -248,8 +252,9 @@ depends = ["check-docs", "check-commits", "check-c4", "check-deps", "check-deplo
 # ci differs from check. check is the gate before a pull request: it holds the checks of the
 # repository, and it needs Docker for check-c4. ci runs what the required jobs of CI run, so a
 # green ci predicts a green pull request. It adds vuln, check-hook, check-hosts, check-generate,
-# integration, and test-scripts, which check does not run. It leaves out the title gate, which
-# needs the title of a pull request. check-commits reads the commits since origin/main.
+# integration, test-startup-script, and test-scripts, which check does not run. It leaves out the
+# title gate, which needs the title of a pull request. check-commits reads the commits since
+# origin/main.
 # check-generate reads the GitHub API, so run ci as: GITHUB_TOKEN=$(gh auth token) mise run ci
 # check-generate rewrites the generated files, and the other checks compile them, so ci runs
 # check-generate alone and first, and then runs the other checks in parallel (ci-checks).
@@ -263,7 +268,7 @@ run = [{ task = "check-generate" }, { task = "ci-checks" }]
 description = "Run the checks of ci in parallel, after check-generate (use mise run ci)"
 depends = ["check-docs", "check-commits", "test-scripts", "check-deps", "lint", "lint-format",
            "lint-config", "test", "vuln", "check-deploy", "check-hook", "check-hosts",
-           "integration", "ci-docker"]
+           "integration", "test-startup-script", "ci-docker"]
 
 [tasks.ci-docker]
 description = "Run the CI jobs that need Docker: c4 model, Orchard image, smoke deployment, snapshot"

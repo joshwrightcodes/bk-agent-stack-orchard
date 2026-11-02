@@ -99,6 +99,9 @@ jobs:
       # sets CI=true, and a test then fails instead of skipping when the binary is missing.
       - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
       - run: mise run integration
+      # The VM startup script runs in a macOS guest, so its tests run here, under the sh and zsh
+      # of macOS. CI=true makes a missing shell fail the test.
+      - run: mise run test-startup-script
 
   release:
     name: snapshot release

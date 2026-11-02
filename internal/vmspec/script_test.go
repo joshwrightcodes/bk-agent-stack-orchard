@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -92,15 +93,20 @@ func readFake(dir, name string) ([]byte, error) {
 	return os.ReadFile(filepath.Join(dir, name)) //nolint:gosec // G304: the directory is t.TempDir.
 }
 
-// shells gives the shells of a macOS guest that this computer has. Orchard runs the script with
-// the shell of the guest, which is zsh on macOS; sh is the floor.
+// shells gives the shells that the script must work in. Orchard runs the script with the shell of
+// the guest, which is zsh on macOS, and sh is the floor. Elsewhere a missing shell skips its runs.
+// On macOS in CI, which is the gate (mise run test-startup-script), it fails the test.
 func shells(t *testing.T) []string {
 	t.Helper()
 
 	var found []string
 	for _, name := range []string{"sh", "zsh"} {
-		if path, err := exec.LookPath(name); err == nil {
+		path, err := exec.LookPath(name)
+		switch {
+		case err == nil:
 			found = append(found, path)
+		case runtime.GOOS == "darwin" && os.Getenv("CI") != "":
+			t.Fatalf("this macOS runner has no %s, and the startup script must be tested in it", name)
 		}
 	}
 	if len(found) == 0 {
