@@ -22,6 +22,34 @@ The bootstrap Job never deletes an account. Orchard keeps no mark that tells an 
 from an account that a person made, so a Job that pruned accounts could delete a live host after a
 typo in the list. Removal is a manual step.
 
+## Migrate from the shared account
+
+Use this procedure for a fleet that still uses the shared account `worker` and the key
+`worker-token` of the Secret `orchard-bootstrap`. The Job never deletes an account, so the shared
+account stays valid, with `compute:write`, until the operator deletes it. The migration is
+complete only after step 4.
+
+1. Create the Secret `orchard-worker-tokens` with one key `worker-<host>` for each host, as in
+   "Add a host", steps 1 and 2. Delete the Job `orchard-bootstrap`, apply the overlay, and wait
+   until the Job completes. The shared account still works, so no host is out.
+2. Move each host to its own token. Set `orchard_worker_name` and the new token for the host in
+   the inventory, and run the playbook for that host. Check with `orchard list workers` that the
+   worker is online. Do one host first. A worker name that was set from the host name before can
+   differ from the new name. Then delete the old worker record if the name changed
+   (`orchard delete worker <old name>`).
+3. When all hosts are online with their own accounts, delete the shared account with an admin
+   context: `orchard delete service-account worker`, or with the API:
+
+   ```sh
+   printf 'user = "bootstrap-admin:%s"\n' "$ADMIN_TOKEN" |
+     curl -sS -K - --cacert ca.crt -X DELETE \
+       https://<orchard address>:6120/v1/service-accounts/worker
+   ```
+
+   Use the bootstrap admin as in "Revoke one host", step 1.
+4. Remove the key `worker-token` from the Secret `orchard-bootstrap`, and remove the old shared
+   token from the inventory vault. Check that `GET /v1/service-accounts` does not list `worker`.
+
 ## Add a host
 
 1. Make a token: `openssl rand -hex 24`. The token MUST NOT hold a character outside `A-Z a-z 0-9

@@ -50,7 +50,9 @@ The base creates no Secret, so no token goes through the repository. Create thes
 |---|---|
 | `worker-<host>` | The token of the account `worker-<host>` of that host. `<host>` MUST be a DNS label (lower case letters, digits, and hyphens, a maximum of 63 characters), and it MUST be the `orchard_worker_name` of the host in the inventory |
 
-The keys are the list of hosts, so the tokens stay in a Secret and no ConfigMap holds a token. The
+The keys are the list of hosts, so the tokens stay in a Secret and no ConfigMap holds a token.
+A fleet that has the shared account `worker` MUST follow "Migrate from the shared account" in
+`docs/runbooks/orchard-worker-accounts.md`, because the Job does not delete that account. The
 bootstrap Job refuses a key whose host is not a DNS label, and it fails when the Secret has no
 such key. Each host has its own token (`openssl rand -hex 24`). The operator keeps the same token
 in the inventory vault (`deploy/hosts/README.md`).
