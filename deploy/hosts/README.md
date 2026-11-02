@@ -83,6 +83,12 @@ ansible-playbook -i inventory.yml site.yml --limit mac-01.hosts.internal
 ansible-playbook -i inventory.yml site.yml
 ```
 
+The check of the names and the tokens before the playbook covers the hosts of the run only. A run
+with `--limit mac-01.hosts.internal` does not compare that host with the other hosts of the
+inventory, so two hosts that share a name or a token pass when the operator runs them one at a
+time. The run of the whole fleet finds it. The operator therefore runs the whole fleet after a
+change of a name or a token.
+
 The worker writes its log to `/var/log/orchard-worker.log`, and launchd writes the output of a
 failed start to `/var/log/orchard-worker.stdout.log`.
 
