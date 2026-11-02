@@ -476,6 +476,14 @@ func (f *fleet) ArriveWithConflictAtCreate(rt *rapid.T) {
 	f.ArriveMatched(rt)
 }
 
+// ArriveUnmatched is a job whose tags match no profile. The drawn profiles carry the tags xcode=20
+// to xcode=22, so xcode=99 matches none of them. The controller skips the job: it never reserves
+// it, never finishes it, and never gives it a machine (I-8).
+func (f *fleet) ArriveUnmatched(*rapid.T) {
+	f.stacks.schedule(f.nextJob(), false)
+	f.tick()
+}
+
 func (f *fleet) nextJob() job.ID {
 	f.jobs++
 
