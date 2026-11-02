@@ -18,7 +18,7 @@ The build adds:
 |---|---|---|
 | The Tart guest agent 0.15.0 | Both | Its release, checked against its SHA-256, in `/usr/local/bin`, with the launchd jobs of `files/tart-guest-daemon.plist` and `files/tart-guest-agent.plist`. The build puts it in place over SSH, which the build disables later |
 | The Command Line Tools | `agent` | `softwareupdate`, which gives git and the compilers of Apple |
-| Xcode 27.0 | `pilot` | The archive that the owner downloads (below), as `/Applications/Xcode.app`, with its license accepted and its first launch done |
+| Xcode 27.2 | `pilot` | The archive that the owner downloads (below), as `/Applications/Xcode.app`, with its license accepted and its first launch done |
 | The iOS simulator runtime | `pilot` | `xcodebuild -downloadPlatform iOS`, from Apple, with no Apple ID |
 | Homebrew 7.0.11 | `pilot` | The package of its release, checked against its SHA-256 |
 | carthage, cocoapods, fastlane, swiftlint, xcbeautify | `pilot` | Homebrew formulae, at the versions that Homebrew gives on the day of the build |

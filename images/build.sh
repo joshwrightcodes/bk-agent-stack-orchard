@@ -62,9 +62,10 @@ GUEST_AGENT_SHA256="eb47f402f18e742a8ea96344115ca776179f9c4c67494bc0c46a10a68db2
 
 # Xcode, from the archive that the owner downloads with an Apple ID: Apple gives it to no one else,
 # so a build never signs in to Apple (ADR-0012). The SHA-256 is that of the archive the owner first
-# downloaded, and the build also checks that Apple signed it.
-XCODE_VERSION="27.0"
-XCODE_SHA256="6a270c53a5a0c5e0ac78125342d44c3cfff2716ec390373cd5e30834d80a67c3"
+# downloaded (Xcode 27.2, downloaded 2026-11-02, signed Apple Software), and the build also checks
+# that Apple signed it.
+XCODE_VERSION="27.2"
+XCODE_SHA256="c28b05526225394fa4017d7f9919c1c898822713edca68872cb4701599f01978"
 XCODE_ARCHIVE="${XCODE_ARCHIVE:-${HOME}/XcodesCache/Xcode_${XCODE_VERSION}.xip}"
 
 # Homebrew, from the package of its release, and the SHA-256 that GitHub gives for it.
