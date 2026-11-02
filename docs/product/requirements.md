@@ -354,16 +354,20 @@ The target design describes the configuration, the credentials, and the observab
 * Acceptance: Given the Buildkite cluster. When the fleet operator reviews the queue before the
   controller goes live. Then only VMs of this fleet serve the queue.
 
-**PR-032: Keep checkouts, build data, and artifacts in the operating country.**
+**PR-032: Keep checkouts and build data in the operating country.**
 
 * Requirement: Source code checkouts and build data MUST stay on owner infrastructure, in the
   operating country. The hosts and the job VMs MUST be in the operating country. Build artifacts
-  MUST go to storage that the owner manages, in the operating country. The location of the Git
-  provider is outside the scope of this product.
-* Source: owner answers Q-A2 and Q-A8 (2026-09-14). Status: `accepted`.
-* Acceptance: Given a pilot pipeline that uploads artifacts. When a job runs. Then the artifacts are
-  in owner-managed storage in the operating country. Buildkite-managed storage has no artifacts of
-  the job.
+  (for example, the files of `artifact_paths`) MAY go to Buildkite-managed storage. The location of
+  the Git provider is outside the scope of this product.
+* Source: owner answers Q-A2 and Q-A8 (2026-09-14); owner statement (2026-11-02): Buildkite-managed
+  artifact storage is acceptable. Status: `accepted`.
+* History: until 2026-11-02, this requirement stated that build artifacts MUST go to storage that
+  the owner manages, in the operating country. The owner statement of 2026-11-02 replaced that
+  rule and closed the open question about artifact credentials.
+* Acceptance: Given a pilot pipeline that uploads artifacts. When a job runs. Then the artifact
+  upload succeeds, and the artifact is visible on the job page. Checkouts and build data do not
+  leave the host of the VM, except through the log and artifact services of Buildkite.
 
 **PR-033: Store build logs in Buildkite.**
 
@@ -425,7 +429,8 @@ Dependencies:
   `ghcr.io/cirruslabs/macos-golden-gate-vanilla`. The image has Xcode 27, the `buildkite-agent`
   binary, and the Tart guest agent. The operator stores it in an OCI registry (PR-026, ADR-0012).
 * The fleet operator pulls each profile image to each host before use.
-* Owner-managed artifact storage exists in the operating country (PR-032).
+* Buildkite-managed artifact storage is available to the organisation (PR-032; owner statement,
+  2026-11-02).
 
 Assumptions:
 

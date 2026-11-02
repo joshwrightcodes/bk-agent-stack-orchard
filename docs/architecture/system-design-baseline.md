@@ -80,7 +80,7 @@ These scenarios are the most likely to shape the architecture.
 | QS-5 | Malicious build | A build tries to reach the host, another VM, a private network, or a long-lived credential | Normal operation | Job VM | The attempt fails | 0 reachable destinations outside the profile allowlist. 0 VM specifications with the cluster agent token. |
 | QS-6 | Fault | The controller or the Orchard controller stops | Jobs in progress | Controller, Orchard | No new VMs start. VMs in progress continue. Service returns after recovery. | Recovery time: less than 15 min |
 | QS-7 | Fault | A Mac host goes offline | Jobs in progress on that host | Orchard, controller | Reserved jobs on the host fail with a message. Buildkite handles jobs that an agent acquired. | Detection after the Orchard worker offline timeout (3 min) |
-| QS-8 | Pipeline author | A job clones source code and uploads artifacts | Normal operation | Job VM, artifact storage | Checkouts, build data, and artifacts stay on owner infrastructure, in the operating country | 0 artifacts in Buildkite-managed storage. Job logs in Buildkite SaaS are accepted. |
+| QS-8 | Pipeline author | A job clones source code and uploads artifacts | Normal operation | Job VM, artifact storage | Checkouts and build data stay on owner infrastructure, in the operating country. Artifacts go to Buildkite-managed storage (owner statement, 2026-11-02). | 0 checkouts and 0 build data outside the host of the VM, except through Buildkite log and artifact services. Job logs and artifacts in Buildkite SaaS are accepted. |
 
 ## 4. Workload and data
 
@@ -139,7 +139,8 @@ can permit a smaller fleet at peak. The pilot must measure the real arrival rate
 * **Buildkite SaaS:** receives job status, timing, and job logs. Job logs are stored in Amazon Web
   Services, and the documentation states no region (as of 2026-09-14). The owner accepts this
   storage (Q-A7).
-* **Artifacts:** owner-managed storage in the operating country (PR-032).
+* **Artifacts:** Buildkite-managed storage, in the region of Buildkite. The owner accepts this
+  storage (owner statement, 2026-11-02; PR-032).
 * **Pilot image:** macOS 27 (Golden Gate) with Xcode 27 (owner comments 2026-09-19). Apple
   released macOS 27 and Xcode 27 (build 27A266a) on 2026-09-14. Xcode 27 needs macOS Tahoe 26.6 or
   later and an Apple silicon Mac, and it contains the iOS 27 SDK.
@@ -201,7 +202,7 @@ can permit a smaller fleet at peak. The pilot must measure the real arrival rate
   queues. A leaked cluster agent token reaches all self-hosted queues of the cluster.
 * **Orchard role:** the `compute:write` role also permits the deletion of workers. This risk is
   accepted.
-* **Source code:** checkouts, build data, and artifacts MUST stay on owner infrastructure, in the
+* **Source code:** checkouts and build data MUST stay on owner infrastructure, in the
   operating country. Self-hosted agents clone repositories inside the owner network, and Buildkite
   does not receive source code (Buildkite documentation, as of 2026-09-14).
 * **Build logs:** job logs MAY go to Buildkite SaaS (owner answer Q-A7).
@@ -275,7 +276,7 @@ can permit a smaller fleet at peak. The pilot must measure the real arrival rate
 | SE-05 | Sovereignty | Source code location | APPLICABLE | DRIVER | CONFIRMED | Owner infrastructure, in the operating country | Owner answer Q-A2 | Change of operating country |
 | SE-06 | Security | Orchard role scope | APPLICABLE | SUPPORTING | CONFIRMED | `compute:write` also permits worker deletion; accepted | Orchard 0.57.0 role list (2026-09-19) | A narrower Orchard role |
 | SE-07 | Sovereignty | Build log location | APPLICABLE | SUPPORTING | CONFIRMED | Buildkite SaaS in Amazon Web Services, region not stated; accepted by the owner | Buildkite documentation (2026-09-14); owner answer Q-A7 | Logs must stay in the operating country |
-| SE-08 | Sovereignty | Artifact location | APPLICABLE | SUPPORTING | CONFIRMED | Owner-managed storage in the operating country | Owner answer Q-A2; PR-032 | — |
+| SE-08 | Sovereignty | Artifact location | APPLICABLE | SUPPORTING | CONFIRMED | Buildkite-managed storage, in the Buildkite region; accepted by the owner (changed 2026-11-02; before: owner-managed storage in the operating country) | Owner statement (2026-11-02); PR-032 | Artifacts must stay in the operating country |
 | SE-09 | Sovereignty | Git provider location | NOT_APPLICABLE | — | CONFIRMED | Outside the scope of this system | Owner answer Q-A8 | — |
 | SE-10 | Sovereignty | Regions | APPLICABLE | SUPPORTING | CONFIRMED | One region now; each additional region uses a new queue with its own fleet | Owner answers Q-A2 and Q-A9 | A second region |
 | OP-01 | Operations | Ownership and capacity | APPLICABLE | DRIVER | ASSUMED | One person | ADR-0001 | More people join |

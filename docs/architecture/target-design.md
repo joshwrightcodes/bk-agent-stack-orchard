@@ -682,12 +682,11 @@ documentation, read 2026-11-01). Whether the platform generates `stack_error` fo
 the controller finishes is `UNKNOWN` (owner: the maintainer; trigger: the first runs of T-100 to
 T-105). The pipeline author guide gives the retry guidance.
 
-**Artifact destination.** Build artifacts MUST NOT go to Buildkite-managed storage (PR-032,
-SE-08). Each image MUST have an `environment` agent hook that sets
-`BUILDKITE_ARTIFACT_UPLOAD_DESTINATION` to owner-managed storage in the operating country, for
-example `s3://<owner-bucket>/$BUILDKITE_PIPELINE_SLUG/$BUILDKITE_BUILD_ID/$BUILDKITE_JOB_ID`. A
-pipeline step MAY set a different destination in the same storage. The end-to-end scenarios
-(§12) MUST confirm that a job with an artifact writes to this storage only.
+**Artifact destination.** Build artifacts MAY go to Buildkite-managed storage (PR-032, SE-08;
+owner statement, 2026-11-02). An image does not need an artifact hook, and the default upload
+destination of the agent applies. A pipeline MAY set `BUILDKITE_ARTIFACT_UPLOAD_DESTINATION` to
+another storage, but this design does not require it. The end-to-end scenarios (§12) MUST confirm
+that an artifact upload succeeds, and that the artifact is visible on the job page.
 
 **Implements.** PR-002, PR-007, PR-008, PR-010, PR-011, PR-012, QA-03, QA-05, QA-06, DR-02.
 
@@ -872,8 +871,8 @@ run the Tart guest agent.
 
 * Source code checkouts, build data, and job VMs MUST stay on owner infrastructure, in the
   operating country (PR-032, SE-05).
-* Pipelines MUST upload build artifacts to owner-managed storage in the operating country, not to
-  Buildkite-managed artifact storage (PR-032, SE-08).
+* Pipelines MAY upload build artifacts to Buildkite-managed artifact storage. The owner accepts
+  the region of Buildkite (PR-032, SE-08; owner statement, 2026-11-02).
 * Job logs MAY go to Buildkite SaaS (PR-033, SE-07).
 * The location of the Git provider is outside the scope of this design (SE-09).
 * Telemetry MUST NOT contain source code, because the telemetry provider can be outside owner

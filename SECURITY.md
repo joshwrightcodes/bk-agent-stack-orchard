@@ -63,11 +63,13 @@ These are known, recorded, and accepted. They are not vulnerabilities in this pr
   one host, is not detected. This is a residual risk.
 * Job logs go to Buildkite SaaS, and they can contain parts of source code, such as compiler
   errors.
-* Artifacts stay on owner infrastructure, in the operating country (PR-032), only as far as
-  configuration holds. The residency setting protects against configuration mistakes. It is not
-  a boundary against a hostile build. A build that has root in its VM and internet egress can
-  send source code, build data, and artifacts to any address that its profile permits. The
-  mitigation is the egress allowlist of each profile.
+* Artifacts go to Buildkite-managed storage, in the region of Buildkite. The owner accepts this
+  risk (owner statement, 2026-11-02; PR-032). Checkouts and build data stay on owner
+  infrastructure, in the operating country, only as far as configuration holds. The residency
+  setting protects against configuration mistakes. It is not a boundary against a hostile build. A
+  build that has root in its VM and internet egress can send source code, build data, and
+  artifacts to any address that its profile permits. The mitigation is the egress allowlist of
+  each profile.
 * An Orchard account with the `compute:read` role can read the job acquisition token of a job
   VM, because the token is in the VM specification for the full life of the VM. The token opens
   one job only, and it expires after a maximum of 30 minutes (target design, section 9.2). The
