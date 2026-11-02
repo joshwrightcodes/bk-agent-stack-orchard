@@ -14,7 +14,8 @@ Checks:
   4. every relative link resolves;
   5. every line outside a table row or a fenced block is 100 characters or less;
   6. each ADR file name matches its title, and its status is a lifecycle value;
-  7. no "ADR-0001 to ADR-NNNN" range stops below the highest ADR that exists.
+  7. no "ADR-0001 to ADR-NNNN" range stops below the highest ADR that exists;
+  8. the glossary lists every identifier family that this script knows, with its digits.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ DESIGN = ROOT / "docs/architecture/target-design.md"
 STRATEGY = ROOT / "docs/quality/test-strategy.md"
 PLAN = ROOT / "docs/delivery/implementation-plan.md"
 ADR_DIR = ROOT / "docs/adrs"
+GLOSSARY = ROOT / "docs/glossary.md"
 
 # Generated files. Their producer owns their shape.
 GENERATED = {ROOT / "docs/architecture/c4.md"}
@@ -79,9 +81,20 @@ def defined_identifiers() -> dict[str, set[str]]:
     }
 
 
+# The identifier families: the prefix, and the number of digits. The citation pattern and the
+# glossary check both read this table, so a new family needs one line here and one row in the
+# glossary.
+FAMILIES = {
+    "PR": 3,
+    "BD": 2, "SC": 2, "QA": 2, "DR": 2, "SE": 2, "OP": 2, "CO": 2,
+    "QS": 1,
+    "T": 3, "R": 2, "I": 1, "E": 1, "O": 1,
+    "W": 2, "D": 1,
+    "ADR": 4,
+}
+
 CITATION = re.compile(
-    r"\b(PR-\d{3}|(?:BD|SC|QA|DR|SE|OP|CO)-\d{2}|QS-\d|T-\d{3}|R-\d{2}|I-\d|E-\d|O-\d|W-\d{2}"
-    r"|D-\d|ADR-\d{4})\b"
+    r"\b(" + "|".join(rf"{prefix}-\d{{{width}}}" for prefix, width in FAMILIES.items()) + r")\b"
 )
 
 
@@ -205,6 +218,20 @@ def check_adr_metadata() -> None:
                 fail(path, 2, f"status {value!r} is not a lifecycle value")
 
 
+def check_glossary_families() -> None:
+    """The glossary table of identifier families names each family, as `PR-nnn`: one n a digit."""
+    text = read(GLOSSARY) if GLOSSARY.exists() else ""
+    section = re.search(r"^## Identifier families\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+    listed = dict(re.findall(r"^\| `([A-Z]+)-(n+)` \|", section.group(1) if section else "", re.M))
+    for prefix, width in FAMILIES.items():
+        want = f"{prefix}-{'n' * width}"
+        if prefix not in listed:
+            fail(GLOSSARY, None, f"the table of identifier families does not list {want}")
+        elif len(listed[prefix]) != width:
+            fail(GLOSSARY, None,
+                 f"the table of identifier families lists {prefix}-{listed[prefix]}, want {want}")
+
+
 def main() -> int:
     defined = defined_identifiers()
     if not defined["PR"] or not defined["W"]:
@@ -218,6 +245,7 @@ def main() -> int:
     check_width()
     check_adr_ranges()
     check_adr_metadata()
+    check_glossary_families()
 
     if errors:
         print(f"check-docs: {len(errors)} problem(s)\n", file=sys.stderr)
