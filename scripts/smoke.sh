@@ -3,7 +3,9 @@
 # The smoke deployment of W-21: the controller from its Helm chart and Orchard from its kustomize
 # base, on a kind cluster, with the fake Stacks API and an OpenTelemetry collector. It passes when
 # the controller becomes ready through its gRPC readiness probe, and the collector receives its
-# metrics and its spans.
+# metrics and its spans, and neither the cluster agent token nor the Orchard token appears in the
+# controller log, in the collector output, or in the machine list of Orchard (invariants I-3 and
+# I-7 of the test strategy).
 #
 # Usage: scripts/smoke.sh
 #
@@ -80,8 +82,9 @@ kubectl -n orchard create secret generic orchard-bootstrap \
 	--from-literal=controller-token="$controller_token" \
 	--from-literal=worker-token="$(openssl rand -hex 24)"
 
+agent_token="bkct_smoke"
 kubectl -n smoke create secret generic bk-agent-stack-orchard \
-	--from-literal=BK_AGENT_STACK_ORCHARD_BUILDKITE_AGENT_TOKEN=bkct_smoke \
+	--from-literal=BK_AGENT_STACK_ORCHARD_BUILDKITE_AGENT_TOKEN="$agent_token" \
 	--from-literal=BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN="$controller_token" \
 	--from-file=BK_AGENT_STACK_ORCHARD_ORCHARD_CA_CERT="$WORK/ca.crt"
 
@@ -125,4 +128,75 @@ while :; do
 	sleep 10
 done
 
-say "the controller is ready, and the collector has its metrics and its spans"
+say "the collector has the metrics and the spans of the controller"
+
+# leaked fails the run when a secret is in the text of a source. It names the source and the
+# secret, and never the value, because the value is what must not reach a log.
+leaked() {
+	local source="$1" text="$2" name value
+
+	shift 2
+
+	while (($#)); do
+		name="$1" value="$2"
+		shift 2
+
+		if grep -qF -- "$value" <<<"$text"; then
+			say "the $name leaked into the $source"
+			return 1
+		fi
+	done
+}
+
+say "checking that no token leaves through a log, the telemetry, or the machine list"
+controller_log="$(kubectl -n smoke logs -l app.kubernetes.io/name=bk-agent-stack-orchard \
+	--all-containers --tail=-1)"
+collector_log="$(kubectl -n smoke logs deployment/collector --tail=-1)"
+
+# A source with no content proves nothing, so an empty one is a failure.
+[[ -n "$controller_log" ]] || {
+	say "the controller wrote no log, so the check of it proves nothing"
+	exit 1
+}
+[[ -n "$collector_log" ]] || {
+	say "the collector wrote no output, so the check of it proves nothing"
+	exit 1
+}
+
+kubectl -n orchard port-forward svc/orchard 16120:6120 >/dev/null 2>&1 &
+forward=$!
+trap 'kill "$forward" 2>/dev/null || true; cleanup' EXIT
+
+# The certificate names the service and not localhost, so curl connects to the forwarded port
+# under the name of the service. The credentials go in on standard input, out of the process list.
+vms=""
+for _ in $(seq 1 30); do
+	if vms="$(printf 'user = "bk-agent-stack-orchard:%s"\n' "$controller_token" |
+		curl -sf -K - --cacert "$WORK/ca.crt" \
+			--connect-to orchard.orchard.svc:6120:127.0.0.1:16120 \
+			https://orchard.orchard.svc:6120/v1/vms)"; then
+		break
+	fi
+
+	vms=""
+	sleep 1
+done
+
+[[ -n "$vms" ]] || {
+	say "orchard gave no machine list, so the check of it proves nothing"
+	exit 1
+}
+
+# The list is an array, which is empty when the controller started no machine.
+jq -e 'type == "array"' <<<"$vms" >/dev/null || {
+	say "the machine list of orchard is not a JSON array"
+	exit 1
+}
+
+for source in "controller log:$controller_log" "collector output:$collector_log" \
+	"machine list of orchard:$vms"; do
+	leaked "${source%%:*}" "${source#*:}" \
+		"cluster agent token" "$agent_token" "Orchard token" "$controller_token"
+done
+
+say "the controller is ready, the collector has its telemetry, and no token leaked"

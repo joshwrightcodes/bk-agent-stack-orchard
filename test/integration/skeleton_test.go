@@ -95,7 +95,10 @@ func TestMain(m *testing.M) {
 }
 
 // T-060. One job goes from scheduled to a deleted machine, and no machine of this controller
-// remains at the end (invariant I-6).
+// remains at the end (invariant I-6). Along the way no token leaves the controller: neither
+// secret is in the machine list of Orchard, in the log of the controller, or in its telemetry
+// (invariants I-3 and I-7, and the rule that a test that writes a token to a log or to
+// telemetry must fail).
 func TestOneJobGoesFromScheduledToADeletedMachine(t *testing.T) {
 	startOrchard(t, orchardBinary(t))
 
@@ -111,7 +114,12 @@ func TestOneJobGoesFromScheduledToADeletedMachine(t *testing.T) {
 	}
 	t.Cleanup(stacks.Close)
 
-	process := startController(t, writeConfig(t, stacks.URL()))
+	sink := newOTLPSink(t)
+	extra := sink.environment()
+	extra["BK_AGENT_STACK_ORCHARD_BUILDKITE_AGENT_TOKEN"] = secretAgentToken
+	extra["BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN"] = secretOrchardToken
+
+	process := startControllerWith(t, writeConfig(t, stacks.URL()), extra)
 	name := "bk-" + controllerID + "-" + carried
 
 	eventually(t, "the controller reserves the job", func() bool {
@@ -126,6 +134,11 @@ func TestOneJobGoesFromScheduledToADeletedMachine(t *testing.T) {
 
 		return found && machine.Status == "running"
 	})
+
+	// Invariant I-3: the whole body of the list, while the machine of the job exists.
+	vmList := rawGet(t, orchardURL+"/v1/vms")
+	requireWork(t, "the machine list of orchard", vmList, name)
+	assertNoSecret(t, "the machine list of orchard", vmList, secretAgentToken, secretOrchardToken)
 
 	// The agent inside the machine acquires the job, runs it, and ends it.
 	stacks.SetJobState(carried, "running")
@@ -159,6 +172,22 @@ func TestOneJobGoesFromScheduledToADeletedMachine(t *testing.T) {
 
 	if withdrawals := stacks.Deregistrations(); withdrawals != 1 {
 		t.Errorf("the controller withdrew its stack %d times, want 1", withdrawals)
+	}
+
+	// The stop flushed the exporters. Each source must show real work of the controller before
+	// its search means anything.
+	logged := readLog(t, process)
+	requireWork(t, "the log of the controller", logged, carried)
+	assertNoSecret(t, "the log of the controller", logged, secretAgentToken, secretOrchardToken)
+
+	for route, what := range map[string]string{
+		"/v1/traces":  "the spans of the controller",
+		"/v1/metrics": "the metrics of the controller",
+		"/v1/logs":    "the log records of the controller",
+	} {
+		data := sink.received(route)
+		requireWork(t, what, data, "bk-agent-stack-orchard")
+		assertNoSecret(t, what, data, secretAgentToken, secretOrchardToken)
 	}
 }
 
