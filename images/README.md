@@ -107,6 +107,24 @@ example `registry.example.internal/macos` (a private registry), it pushes
 `TART_REGISTRY_USERNAME` and `TART_REGISTRY_PASSWORD`.
 A profile names the image by the digest that the registry gives.
 
+## Known issue: boot the simulator before xcodebuild
+
+In a job, `xcodebuild test` cannot boot an iOS simulator that is shut down. It stops with
+"cannot determine the runtime bundle". The same command in the same VM worked from a terminal,
+from `tart exec`, with the environment of the job, in a PTY, and in an Orchard startup script. It
+failed only in a job of `buildkite-agent` (release gate, 2026-11-02). The cause is not known.
+
+Do this in the pilot pipeline:
+
+1. Before `xcodebuild`, boot the simulator with `xcrun simctl boot <udid>`, and wait for it with
+   `xcrun simctl bootstatus <udid> -b`.
+2. Give `xcodebuild` the destination `platform=iOS Simulator,id=<udid>`, not a name.
+
+The build boots the simulator of `PILOT_SIMULATOR` (iPhone 17 by default) one time, so the image
+holds its first-boot work. Because of this, the boot in a job takes about 5 seconds. One run of
+the release gate also failed one time with "Channel disconnected" from the test runner, and it
+passed when Buildkite ran it again.
+
 ## What the image holds
 
 Each image holds only what this list names. The second boot lists each place where software
