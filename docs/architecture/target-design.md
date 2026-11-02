@@ -880,8 +880,9 @@ exporter that the value names. A rule that an environment variable can break is 
 
 ### 10.1 Metrics
 
-The instruments follow the OpenTelemetry semantic conventions. The prefix `bkaso` below is
-`bk_agent_stack_orchard`, which this table shortens for width only.
+The instruments follow the OpenTelemetry semantic conventions. In this section, the text `bkaso.` at
+the start of a name stands for `bk_agent_stack_orchard.`, which the text shortens for width only.
+The name that an operator queries has the full prefix.
 
 | Instrument | Name (unit) | Attributes |
 |---|---|---|
@@ -929,13 +930,16 @@ These rules come from the conventions and MUST hold:
   counts the VMs in the last inventory whose job has a terminal state in the last job states
   (`finished`, `canceled`, `expired`, `timed_out`, `skipped`, or `broken`, the states of row 4 of
   §7.2). An orphan has no job, so it is not in the count. The value is 0, except for the window
-  before the Reaper deletes a VM. The window is 10 ticks (10 s with the default `pollInterval`).
-  The reason is the timing of §4: the controller reads a job state at each `jobStatesInterval`
-  (5 s) and the Reaper acts on that state in the same tick, so a state costs one interval to see
-  and one more interval to see again after a miss, and a deletion that Orchard refuses is tried
-  again at the next tick. A VM that is in the count for more than 10 ticks is a leak. The default
-  export interval is 60 s, which is longer than the window. Because of this, one export that is
-  more than 0 can be inside the window, and two exports in a row that are more than 0 are not.
+  before the Reaper deletes a VM. The window is 10 ticks (10 s with the default `pollInterval`). It
+  is the worst case of 5 s and 5 s, with no margin. The reason is the timing of §4: the controller
+  reads a job state at each `jobStatesInterval` (5 s) and the Reaper acts on that state in the same
+  tick, so a state costs one interval to see and one more interval to see again after a miss, and a
+  deletion that Orchard refuses is tried again at the next tick. A VM that is in the count for more
+  than 10 ticks is a leak, except while Buildkite is down: the Reaper waits for fresh job states
+  (§7.2, row 3), so the count stays above 0 until the states are fresh again, and
+  `bkaso.source.staleness` shows the period. The default export interval is 60 s, which is longer
+  than the window. Because of this, one export that is more than 0 can be inside the window, and two
+  exports in a row that are more than 0 are not.
 * **`finished_to_deleted` is the lag of the Reaper.** It starts at the first tick that saw the job
   in a terminal state, and it ends at the deletion that Orchard accepted. A failed deletion does
   not end it. A restart loses the start, so the first tick after a restart starts the time again.
@@ -948,16 +952,16 @@ of the worker `pool` label. If the worker has no `pool` label, the value is `non
 The controller observes phase changes at poll intervals. Because of this, phase durations have a
 tolerance of ±`jobStatesInterval`. Outgoing HTTP clients MUST use `otelhttp`.
 
-**Cold or warm start: `UNKNOWN`.** The target of QA-01 is for an image that is on the host, but
-the controller cannot say if a start pulled the image. The events of a VM from Orchard 0.58.0
-have one kind, `log_line`, and it carries the lines of the startup script. The worker sets the
-status message "pulling VM image..." only while it pulls an image, and the next status message
-replaces it, so a poll can miss it. The worker also records a pull time in its own metric
-`org.cirruslabs.orchard.worker.vm.pull_time`, which the controller cannot read. Source: the
-Orchard repository at tag 0.58.0, `pkg/resource/v1/v1.go` and
-`internal/worker/vmmanager/tart/tart.go` (checked 2026-11-02). The controller therefore has no
-attribute for it, and the start phases include the cold starts. Owner: the maintainer. Trigger:
-task 9.2 records the events of real VMs; the attribute is added when they show a pull.
+**Cold or warm start: `UNKNOWN`.** The target of QA-01 is for an image that is on the host, but the
+controller cannot say if a start pulled the image. The events of a VM from Orchard 0.58.0 have one
+kind, `log_line`, and it carries the lines of the startup script. The worker sets the status message
+"pulling VM image..." only while it pulls an image, and the next status message replaces it, so a
+poll can miss it. The worker also records a pull time in its own metric
+`org.cirruslabs.orchard.worker.vm.pull_time`, which the controller cannot read. Source: the Orchard
+repository at tag 0.58.0, `pkg/resource/v1/v1.go` and `internal/worker/vmmanager/tart/tart.go`
+(checked 2026-11-02). The controller therefore has no attribute for it, and the start phases include
+the cold starts. Owner: the maintainer. Trigger: O-7 of the test strategy records the events of real
+VMs; the attribute is added when they show a pull.
 
 ### 10.2 Traces
 
@@ -1054,7 +1058,7 @@ are out of scope, because they depend on the backend behind the collector.
 | Controller is not ready | `bkaso.source.staleness` of a source is more than 2 min. |
 | Controller fails jobs | `bkaso.job.failed` increases for 15 min. |
 | Timeouts repeat | `bkaso.vm.deletions{bkaso.vm.delete.reason=~".*_timeout"}` increases. |
-| VMs remain | `bkaso.vm.leftover` is more than 0 for more than 10 ticks (§10.1). This value is the QA-04 target. |
+| VMs remain | `bkaso.vm.leftover` is more than 0 in two exports in a row, at the default export interval of 60 s, which is longer than the window of 10 ticks (§10.1). Outages of Buildkite excluded. This value is the QA-04 target. |
 | Orphans exist | `bkaso.vm.deletions{bkaso.vm.delete.reason="orphan"}` is more than 0. |
 | Fleet is full | `bkaso.slot.count{bkaso.slot.state="free"}` is 0 for 30 min. |
 
