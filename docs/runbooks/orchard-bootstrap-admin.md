@@ -69,6 +69,7 @@ kubectl -n orchard get secret orchard-bootstrap \
     printf '\\"roles\\":[\\"admin:read\\",\\"admin:write\\"]}"\n'
   } |
   curl -sS -K - --cacert ca.crt -X PUT -H 'Content-Type: application/json' \
+    -o /dev/null -w 'HTTP %{http_code}\n' \
     --connect-to orchard.orchard.svc:6120:127.0.0.1:16120 \
     https://orchard.orchard.svc:6120/v1/service-accounts/bootstrap-admin
 printf '{"stringData":{"bootstrap-admin-token":"%s"}}' "$new" |
@@ -76,8 +77,10 @@ printf '{"stringData":{"bootstrap-admin-token":"%s"}}' "$new" |
 unset new
 ```
 
-Then run `orchard_admin GET /v1/service-accounts`. It MUST list `bootstrap-admin`, and it uses
-the new token from the Secret. The old token is refused from the PUT on.
+The answer of Orchard holds the new token, so the command sends it to `/dev/null` and shows only the
+HTTP status, which MUST be `HTTP 200`. Then run `orchard_admin GET /v1/service-accounts`. It MUST
+list `bootstrap-admin`, and it uses the new token from the Secret. The old token is refused from the
+PUT on.
 
 ## Delete the account completely
 
@@ -91,7 +94,7 @@ kubectl -n orchard patch secret orchard-bootstrap --type json \
   -p '[{"op":"remove","path":"/data/bootstrap-admin-token"}]'
 ```
 
-The second command MUST fail with an HTTP 401 error. Delete the key only after that check,
+The second command MUST end with `HTTP 401`. Delete the key only after that check,
 because Orchard needs no key for it. After the deletion, the next change of a host needs the
 account back. To re-create it:
 

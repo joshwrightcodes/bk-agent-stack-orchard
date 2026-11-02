@@ -175,11 +175,18 @@ orchard_admin() {
   kubectl -n orchard get secret orchard-bootstrap \
     -o go-template='{{index .data "bootstrap-admin-token" | base64decode}}{{"\n"}}' |
     { read -r token; printf 'user = "bootstrap-admin:%s"\n' "$token"; } |
-    curl -sS -K - --cacert ca.crt -X "$1" \
+    curl -sS -K - --cacert ca.crt -X "$1" -w '\nHTTP %{http_code}\n' \
       --connect-to orchard.orchard.svc:6120:127.0.0.1:16120 \
-      "https://orchard.orchard.svc:6120$2"
+      "https://orchard.orchard.svc:6120$2" |
+    sed -E 's/"token"[[:space:]]*:[[:space:]]*"[^"]*"/"token":"<hidden>"/g'
 }
 ```
+
+Orchard 0.58.0 puts the token of each account in its answers about service accounts (the
+`token` field of `ServiceAccount`, checked 2026-11-02 at tag 0.58.0). The `sed` filter hides
+each token, so a list does not put the tokens of the fleet on the terminal. Do not remove the
+filter. The last line of each answer gives the HTTP status, so a refusal (`HTTP 401`) and a
+deletion without a body are visible.
 
 Change `orchard` to the namespace of the overlay. Do not run `orchard context create` for these
 calls, because it takes the token as a flag. The runbooks give every call in this form
@@ -247,7 +254,7 @@ the Job again, and the Job needs it. Each of these changes then works with no re
 
 A fleet with no planned change of a host MAY delete `bootstrap-admin` and its Secret key instead.
 First do steps 1 and 2. Then delete the account, check that the token of the Secret is refused
-(the answer is an HTTP 401 error), and only then delete the key:
+(the answer ends with `HTTP 401`), and only then delete the key:
 
 ```sh
 orchard_admin DELETE /v1/service-accounts/bootstrap-admin
