@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Checks the environment hook of the agent image (images/files/environment) the way
-# buildkite-agent runs it: the agent sources the hook, and then reads the environment. The hook
-# keeps the artifacts of a job in the owner-managed storage, and never sends them to the storage of
-# Buildkite (PR-032).
+# buildkite-agent runs it: the agent sources the hook, and then reads the environment. When the
+# image has an owner-managed storage, the hook keeps the artifacts of a job in it. When the image
+# has none, the hook leaves the destination alone, and the artifacts go to the storage of Buildkite
+# (PR-032, owner decision of 2026-11-02).
 set -euo pipefail
 
 HOOK="$(git rev-parse --show-toplevel)/images/files/environment"
@@ -34,8 +35,10 @@ expect() {
 	fi
 }
 
-expect "an image with no storage refuses every upload" \
-	"$(destination "" "")" "none://artifact-storage-is-not-configured"
+expect "an image with no storage leaves the destination to buildkite-agent" \
+	"$(destination "" "")" ""
+expect "an image with no storage keeps a destination that a step set" \
+	"$(destination "" "s3://elsewhere/x")" "s3://elsewhere/x"
 expect "a job goes to its own place in the storage" \
 	"$(destination "s3://acme-au/ci" "")" "s3://acme-au/ci/app/b1/j1"
 expect "a step may name another place in the same storage" \

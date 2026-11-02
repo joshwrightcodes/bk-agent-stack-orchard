@@ -177,7 +177,7 @@ from their number.
 |---|---|---|---|---|---|
 | W-21 | The controller and Orchard run on Kubernetes from a chart | `deploy/helm`, `deploy/orchard` | W-16 | A smoke deployment starts, becomes ready, and exports telemetry | PR-022, OP-04 |
 | W-22 | A Mac host runs an Orchard worker with the correct macOS version | `deploy/hosts` | — (hardware) | A worker registers, and a VM of the pilot image starts on it | SC-04, CO-07 |
-| W-23 | The pilot image exists in the registry | `images/` | — (can start before the hosts arrive) | The image has macOS 27, Xcode 27, `buildkite-agent` v4, the Tart guest agent, and the artifact hook | PR-026, PR-032 |
+| W-23 | The pilot image exists in the registry | `images/` | — (can start before the hosts arrive) | The image has macOS 27, Xcode 27, `buildkite-agent` v4, the Tart guest agent, and the environment hook (Homebrew `PATH`, locale, optional owner storage) | PR-026, PR-032 |
 | W-24 | Real jobs pass the end-to-end scenarios on one Mac | `test/e2e` pipeline definitions | W-21, W-22, W-23 | T-100 to T-105 | PR-001, PR-008, PR-023, PR-030, PR-032, PR-033 |
 | W-25 | The pilot starts with the correct queue, token, and alerts | Buildkite configuration, alert rules | W-24 | T-140, T-141; the alert conditions of the target design, section 10.6 are active | PR-031, PR-033, SE-03 |
 

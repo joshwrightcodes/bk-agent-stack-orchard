@@ -17,7 +17,8 @@
 #
 # Environment:
 #   ARTIFACT_DESTINATION  s3://, gs://, rt://, or an Azure blob URL: the owner-managed storage of
-#                         the artifacts (PR-032). Without it, the hook makes every upload fail.
+#                         the artifacts (PR-032). Optional: without it, the artifacts go to the
+#                         storage of Buildkite.
 #   XCODE_ARCHIVE         the pilot only: the Xcode archive (~/XcodesCache/Xcode_<version>.xip by
 #                         default). The build checks it against XCODE_SHA256.
 #   XCODE_URL             the pilot only: an HTTPS URL of the archive, for example a presigned URL
@@ -100,8 +101,8 @@ die() {
 	exit 1
 }
 
-# The destinations that buildkite-agent accepts. An empty one is the storage of Buildkite, which
-# the hook replaces with one that the agent refuses.
+# The destinations that buildkite-agent accepts. An empty one is allowed: it is the storage of
+# Buildkite, and the hook leaves it alone.
 if [[ -n "$DESTINATION" &&
 	! "$DESTINATION" =~ ^(s3|gs|rt)://[^[:space:]]+$ &&
 	! "$DESTINATION" =~ ^https://[^[:space:]]+\.blob\.core\.windows\.net/[^[:space:]]+$ ]]; then
@@ -394,7 +395,8 @@ printf '%s\n' "$check" | sed "s/^/${IMAGE}-image:   /"
 # want checks one line of the check.
 want() { grep -qxF "$1" <<<"$check" || die "$2: $(grep "^${1%%=*}=" <<<"$check"), want $1"; }
 
-want_hook="none://artifact-storage-is-not-configured"
+# Without a destination, the hook leaves the variable empty, so the artifacts go to Buildkite.
+want_hook=""
 [[ -n "$DESTINATION" ]] && want_hook="${DESTINATION}/p/b/j"
 
 want "user=admin" "the guest agent does not run as admin"
