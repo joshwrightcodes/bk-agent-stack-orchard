@@ -611,6 +611,7 @@ func finishWith(t *testing.T, detail string) string {
 
 	fake := fakestacks.New()
 	fake.StackKey = "bk-macos-prod"
+	fake.SetJobState(string(first), "reserved")
 	t.Cleanup(fake.Close)
 
 	wire := &recording{}
