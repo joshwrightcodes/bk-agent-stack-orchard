@@ -22,6 +22,24 @@ The bootstrap Job never deletes an account. Orchard keeps no mark that tells an 
 from an account that a person made, so a Job that pruned accounts could delete a live host after a
 typo in the list. Removal is a manual step.
 
+## Access to the API and the Job
+
+Each API call in this runbook uses the access path and the `orchard_admin` function of
+`deploy/orchard/README.md`, section "Reach the API as an operator". The NetworkPolicy refuses a
+workstation. Start `kubectl -n orchard port-forward svc/orchard 16120:6120` in another terminal. A
+port-forward runs from the node of the pod, which the policy always admits. `orchard_admin` reads
+the token of `bootstrap-admin` from the Secret `orchard-bootstrap` into the standard input of
+`curl`. The Job needs that account, and it stays after the first bootstrap
+(`docs/runbooks/orchard-bootstrap-admin.md`). Each change of a host below therefore runs the Job
+again, and it needs no restart of Orchard. Do not use the controller account for these calls: it
+has no `admin:read` or `admin:write`. To run the Job again, delete it and apply the overlay:
+`kubectl -n orchard delete job orchard-bootstrap`, then apply the overlay.
+
+To list the workers, run `orchard_admin GET /v1/workers`. To delete a worker record, run
+`orchard_admin DELETE /v1/workers/<name>`. To list the accounts, run
+`orchard_admin GET /v1/service-accounts`. If the operator deleted the bootstrap admin, re-create
+it first (section "Delete the account completely" of the bootstrap admin runbook).
+
 ## Migrate from the shared account
 
 Use this procedure for a fleet that still uses the shared account `worker` and the key
@@ -33,22 +51,19 @@ complete only after step 4.
    "Add a host", steps 1 and 2. Delete the Job `orchard-bootstrap`, apply the overlay, and wait
    until the Job completes. The shared account still works, so no host is out.
 2. Move each host to its own token. Set `orchard_worker_name` and the new token for the host in
-   the inventory, and run the playbook for that host. Check with `orchard list workers` that the
-   worker is online. Do one host first. A worker name that was set from the host name before can
-   differ from the new name. Then delete the old worker record if the name changed
-   (`orchard delete worker <old name>`).
-3. When all hosts are online with their own accounts, delete the shared account with an admin
-   context: `orchard delete service-account worker`, or with the API:
+   the inventory, and run the playbook for that host. Check with `orchard_admin GET /v1/workers`
+   that the worker is online. Do one host first. A worker name that was set from the host name
+   before can differ from the new name. Then delete the old worker record if the name changed
+   (`orchard_admin DELETE /v1/workers/<old name>`).
+3. When all hosts are online with their own accounts, remove the key `worker-token` from the
+   Secret `orchard-bootstrap` and the old shared token from the inventory vault, and then delete
+   the shared account. The Job does not read `worker-token`, so this order is safe:
 
    ```sh
-   printf 'user = "bootstrap-admin:%s"\n' "$ADMIN_TOKEN" |
-     curl -sS -K - --cacert ca.crt -X DELETE \
-       https://<orchard address>:6120/v1/service-accounts/worker
+   orchard_admin DELETE /v1/service-accounts/worker
    ```
 
-   Use the bootstrap admin as in "Revoke one host", step 1.
-4. Remove the key `worker-token` from the Secret `orchard-bootstrap`, and remove the old shared
-   token from the inventory vault. Check that `GET /v1/service-accounts` does not list `worker`.
+4. Check that `orchard_admin GET /v1/service-accounts` does not list `worker`.
 
 ## Add a host
 
@@ -57,14 +72,16 @@ complete only after step 4.
 2. Put it in the Secret `orchard-worker-tokens` as the key `worker-<host>`. `<host>` MUST be a DNS
    label and MUST be the `orchard_worker_name` of the host.
 3. Put the same token in the inventory vault as `vault_orchard_worker_tokens[<host>]`.
-4. Delete the Job `orchard-bootstrap` and apply the overlay. Wait until the Job completes.
-5. Run the playbook for the host. Check that the worker is online (`orchard list workers`).
+4. Run the Job again (delete it and apply the overlay). Wait until the Job completes.
+5. Run the playbook for the host. Check that the worker is online
+   (`orchard_admin GET /v1/workers`).
 6. Add `<host>` to the list of the alert "Unknown worker" (target design, section 10.6).
 
 ## Rotate the token of one host
 
 1. Make a new token. Replace the key `worker-<host>` in the Secret, and the entry in the vault.
-2. Delete the Job and apply the overlay. The Job sets the account again with the new token. From
+2. Run the Job again (delete it and apply the overlay). The Job sets the account again with the
+   new token. From
    this point the old token fails, and the worker of the host fails to connect.
 3. Run the playbook for that host at once. The role writes the new bootstrap token and restarts
    the worker.
@@ -78,31 +95,26 @@ failure like any other worker loss.
 
 Use this procedure when a host is lost or stolen, or when the operator retires it.
 
-1. Delete the account with an admin context: `orchard delete service-account worker-<host>`, or
-   with the API. Give the credentials to `curl` on standard input, not on the argv:
+1. Remove the key `worker-<host>` from the Secret `orchard-worker-tokens`, and the token from the
+   inventory vault (`vault_orchard_worker_tokens`). Do this first, before any other step and
+   before the next run of the Job: a key that stays in the Secret gives the account back at the
+   next run.
+2. Delete the account:
 
    ```sh
-   printf 'user = "bootstrap-admin:%s"\n' "$ADMIN_TOKEN" |
-     curl -sS -K - --cacert ca.crt -X DELETE \
-       https://<orchard address>:6120/v1/service-accounts/worker-<host>
+   orchard_admin DELETE /v1/service-accounts/worker-<host>
    ```
 
-   The bootstrap admin account is retired after the first bootstrap
-   (`docs/runbooks/orchard-bootstrap-admin.md`). When it is retired, use another account with
-   `admin:write`, or set the bootstrap admin up again for this step and retire it afterwards.
-2. Remove the key `worker-<host>` from the Secret `orchard-worker-tokens`. Remove the token from
-   the inventory vault (`vault_orchard_worker_tokens`). Do this before the next run of the Job: a
-   key that stays in the Secret gives the account back.
-3. Delete the worker record: `orchard delete worker <host>`, or
-   `DELETE /v1/workers/<host>`. The account deletion stops the host from connecting, and it does
-   not remove the record. A worker record that stays shows as offline.
-4. Confirm that the worker is gone: `orchard list workers` does not list `<host>`, and
-   `GET /v1/service-accounts` does not list `worker-<host>`. The worker process of the host fails
-   its next call with HTTP 401, so a host that still runs stops reporting, and the record shows it
-   offline after the offline timeout of Orchard (expected from the source, to be confirmed on the
-   first host, W-22).
+3. Delete the worker record: `orchard_admin DELETE /v1/workers/<host>`. The account deletion
+   stops the host from connecting, and it does not remove the record. A worker record that stays
+   shows as offline.
+4. Confirm that the account is gone: `orchard_admin GET /v1/service-accounts` does not list
+   `worker-<host>`, and `orchard_admin GET /v1/workers` does not list `<host>`. The worker process
+   of the host fails its next call with HTTP 401, so a host that still runs stops reporting, and
+   the record shows it offline after the offline timeout of Orchard (expected from the source, to
+   be confirmed on the first host, W-22).
 5. If the token is lost or stolen, also check the alert "Unknown worker" for the following days: a
-   thief that has the token before step 1 could have registered other names. Delete such a worker
+   thief that has the token before step 2 could have registered other names. Delete such a worker
    record with step 3.
 6. Remove `<host>` from the list of the alert "Unknown worker".
 

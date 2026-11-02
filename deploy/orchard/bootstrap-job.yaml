@@ -8,14 +8,16 @@
 # The Secret orchard-worker-tokens holds one key for each host, worker-<host>, with the token of
 # that host. The host MUST be a DNS label (lower case letters, digits, and hyphens). The Job mounts
 # the Secret, so the keys are the list of hosts and the tokens stay in a Secret. The Job refuses a
-# key that does not start with worker-. The Job never
-# deletes an account: a host that leaves the list keeps its account until the operator revokes it
-# (runbook orchard-worker-accounts).
+# key that does not start with worker-. The Job never deletes an account: a host that leaves the
+# list keeps its account until the operator revokes it (runbook orchard-worker-accounts).
 #
 # It calls the REST API of Orchard with the bootstrap admin, and gives curl the credentials and the
-# body on standard input, not on its argv, and trusts the authority of the
-# Secret orchard-tls. A PUT replaces an account that exists, and a POST creates one that does
-# not, so the Job gives the same result on every run.
+# body on standard input, not on its argv, and trusts the authority of the Secret orchard-tls. The
+# bootstrap admin and its key bootstrap-admin-token stay after the first bootstrap, because each
+# change of a host runs this Job again. Only this Job mounts the key, and the Orchard pod no
+# longer holds it (README, section "First start and after the first bootstrap"). A PUT replaces an
+# account that exists, and a POST creates one that does not, so the Job gives the same result on
+# every run.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -100,7 +102,8 @@ spec:
                 [ -e "$file" ] || continue
                 case "${file##*/}" in
                   worker-*) ;;
-                  *) echo "the key ${file##*/} of orchard-worker-tokens does not start with worker-" >&2
+                  *) echo "the key ${file##*/} of orchard-worker-tokens does not start" \
+                          "with worker-" >&2
                      exit 1 ;;
                 esac
               done

@@ -44,7 +44,7 @@ a number, such as the demand model or a quality target.
 | [Development guide](development.md) | How does a developer run the gates, the tests, and the controller? |
 | [Glossary](glossary.md) | What does a term or an identifier mean? |
 | [Runbook: replace the agent token](runbooks/token-replacement.md) | How does an operator replace the cluster agent token? |
-| [Runbook: retire the Orchard bootstrap admin](runbooks/orchard-bootstrap-admin.md) | How does an operator remove the `bootstrap-admin` account after the first bootstrap? |
+| [Runbook: retire and rotate the Orchard bootstrap admin](runbooks/orchard-bootstrap-admin.md) | How does an operator take the `bootstrap-admin` token out of the Orchard pod and rotate it? |
 | [Runbook: Orchard worker accounts](runbooks/orchard-worker-accounts.md) | How does an operator add, rotate, and revoke the account of one Mac host? |
 
 The direction of the set is from the requirements to the design, the tests, and the plan.

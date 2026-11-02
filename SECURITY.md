@@ -58,7 +58,9 @@ These are known, recorded, and accepted. They are not vulnerabilities in this pr
   worker needs. The controls are a token for each host, so the operator revokes one host without
   a change on the others (runbook
   [`docs/runbooks/orchard-worker-accounts.md`](docs/runbooks/orchard-worker-accounts.md)), and the
-  alert on an unknown worker name (target design, section 10.6).
+  alert on an unknown worker name (target design, section 10.6). The alert sees only a name that
+  the operator does not know. A stolen token that registers a known name, for example the record of
+  one host, is not detected. This is a residual risk.
 * Job logs go to Buildkite SaaS, and they can contain parts of source code, such as compiler
   errors.
 * Artifacts stay on owner infrastructure, in the operating country (PR-032), only as far as
@@ -82,6 +84,15 @@ These are known, recorded, and accepted. They are not vulnerabilities in this pr
   variable back before a start with an empty PVC, treat the log of the Orchard pod as a secret, and
   delete the account if it was logged. The residual risk is that an operator forgets, and that a
   log shipper keeps the token until the operator purges it.
+* The bootstrap admin of Orchard has all roles, and its token stays in the Kubernetes Secret
+  `orchard-bootstrap` after the first bootstrap, because each add, rotation, migration, or
+  revocation of a host runs the bootstrap Job again. The controls are that only the Job mounts
+  the Secret (the Orchard pod does not hold the token), that Kubernetes RBAC limits who can read
+  Secrets of the `orchard` namespace, and that the operator rotates the token (runbook
+  [`docs/runbooks/orchard-bootstrap-admin.md`](docs/runbooks/orchard-bootstrap-admin.md)). The
+  residual risk is that a person or a workload with the right to read Secrets of the namespace,
+  or a copy of the cluster state, gives full control of Orchard, and that a late rotation leaves
+  an old token valid. A fleet with no planned host change MAY delete the account.
 * Releases have one maintainer as the only reviewer, and the rules of the main branch have an
   administrator bypass. No second person reviews a release. The mitigation is that the release
   gate (T-100 to T-105) and the pipeline checks run before every release.
