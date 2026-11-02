@@ -309,12 +309,14 @@ xcrun simctl runtime dyld_shared_cache update --all || true
 # Boot the simulator of the pilot once and shut it down, so the first-boot data migration of the
 # device is done in the image. A job then meets a device that boots in seconds, not one that runs
 # its migration while xcodebuild installs the test runner (the first real T-100 jobs, 2026-11-02).
-udid=$(xcrun simctl list devices available | sed -n "s/^ *${PILOT_SIMULATOR} (\([0-9A-F-]\{36\}\)) .*/\1/p" | head -n 1)
+udid=$(xcrun simctl list devices available | sed -n "s/^ *${PILOT_SIMULATOR} (\([0-9A-F-]\{36\}\)) .*/\1/p" | sed -n 1p)
 [[ -n "$udid" ]] || { echo "no available ${PILOT_SIMULATOR} simulator" >&2; exit 1; }
 xcrun simctl boot "$udid"
 xcrun simctl bootstatus "$udid" -b >/dev/null
 xcrun simctl shutdown "$udid"
-/usr/bin/xcodebuild -version | head -1
+# sed reads all of the output. With pipefail, head can end the pipe early, and xcodebuild then dies
+# of SIGPIPE and fails the step (2026-11-02).
+/usr/bin/xcodebuild -version | sed -n 1p
 SCRIPT
 
 	# Homebrew, and only the formulae of the list. A job finds them through the environment hook.
@@ -382,9 +384,9 @@ answers || die "the guest agent of $VM does not answer after a restart"
 check=$(tart exec -i "$VM" /bin/bash -s <<'SCRIPT'
 list() { ls "$@" 2>/dev/null | sort | tr '\n' ' ' | sed 's/ $//'; }
 printf 'user=%s\n' "$(whoami)"
-printf 'agent=%s %s\n' "$(command -v buildkite-agent)" "$(buildkite-agent --version | head -1)"
+printf 'agent=%s %s\n' "$(command -v buildkite-agent)" "$(buildkite-agent --version | sed -n 1p)"
 printf 'git=%s\n' "$(/usr/bin/git --version 2>/dev/null)"
-printf 'xcode=%s\n' "$(/usr/bin/xcodebuild -version 2>/dev/null | head -1)"
+printf 'xcode=%s\n' "$(/usr/bin/xcodebuild -version 2>/dev/null | sed -n 1p)"
 printf 'ios_runtime=%s\n' "$(xcrun simctl list runtimes 2>/dev/null | grep -c '^iOS ')"
 printf 'ios_runtime_ids=%s\n' "$(xcrun simctl list runtimes 2>/dev/null | sed -n 's/^iOS .* - \(com\.apple\.[^ ]*\).*/\1/p' | tr '\n' ' ')"
 printf 'free_gb=%s\n' "$(df -g / | awk 'NR == 2 {print $4}')"
