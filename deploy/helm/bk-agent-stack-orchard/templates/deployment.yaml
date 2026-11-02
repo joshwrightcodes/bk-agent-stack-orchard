@@ -22,7 +22,8 @@ spec:
     metadata:
       labels:
         # The selector labels win over a label of podLabels with the same key.
-        {{- toYaml (merge (fromYaml (include "bkaso.selectorLabels" .)) .Values.podLabels) | nindent 8 }}
+        {{- $selector := fromYaml (include "bkaso.selectorLabels" .) }}
+        {{- toYaml (merge $selector .Values.podLabels) | nindent 8 }}
       annotations:
         # The controller reads its configuration only when it starts, so a change restarts it.
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}

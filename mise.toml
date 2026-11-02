@@ -143,6 +143,7 @@ run = "go test -tags integration -count=1 ./test/integration/..."
 description = "Lint the Helm chart, and validate the chart and the Orchard manifests against the Kubernetes schemas"
 run = [
   "helm lint deploy/helm/bk-agent-stack-orchard -f deploy/helm/bk-agent-stack-orchard/ci/values.yaml --strict",
+  "helm lint deploy/helm/bk-agent-stack-orchard -f test/smoke/values.yaml --strict",
   """
   set -eu
   chart=deploy/helm/bk-agent-stack-orchard

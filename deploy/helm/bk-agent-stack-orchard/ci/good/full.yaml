@@ -65,3 +65,8 @@ networkPolicy:
     port: 443
     to:
       - ipBlock: {cidr: 203.0.113.0/24}
+  # A named port is a valid NetworkPolicyPort, as an integer is.
+  collector:
+    port: otlp-grpc
+    to:
+      - ipBlock: {cidr: 203.0.113.0/24}
