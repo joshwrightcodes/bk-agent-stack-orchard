@@ -268,9 +268,16 @@ func TestBuildAddsTheAgentTelemetryOnlyWhenTheProfileAsksForIt(t *testing.T) {
 func TestBuildStartsTheAgentForOneJob(t *testing.T) {
 	vm := build(t, request())
 
-	// The tags travel in the environment, so no tag text is in the script.
-	if got, want := vm.StartupScript.ScriptContent, "buildkite-agent start"; got != want {
-		t.Errorf("the script = %q, want %q", got, want)
+	// The script is the same for every machine, and it ends in the agent, so the exit status of
+	// the agent is that of the script.
+	other := request()
+	other.JobID = job.ID("018f3b2c-1c4a-7e5b-9a3d-000000000000")
+	other.Tags = map[string]string{"xcode": "27"}
+	if got, want := vm.StartupScript.ScriptContent, build(t, other).StartupScript.ScriptContent; got != want {
+		t.Errorf("the script = %q, want the same script for every machine %q", got, want)
+	}
+	if !strings.HasSuffix(vm.StartupScript.ScriptContent, "\nexec buildkite-agent start\n") {
+		t.Errorf("the script = %q, want it to end in the agent", vm.StartupScript.ScriptContent)
 	}
 
 	// The token and the job never appear in the script, because the environment carries them.

@@ -520,7 +520,7 @@ For the admitted jobs, the Launcher MUST do these steps:
   },
   "startup_script": {
     "transport": "tart-guest-agent",
-    "script_content": "buildkite-agent start",
+    "script_content": "<the startup script, below>",
     "env": {
       "BUILDKITE_AGENT_TOKEN": "<job acquisition token>",
       "BUILDKITE_AGENT_ACQUIRE_JOB": "<job-uuid>",
@@ -560,6 +560,28 @@ whose key or value is empty, has white space at an end, or has a comma, a newlin
 return, or a quote, and a tag named `queue`, `agent-stack`, or `profile`. The
 matcher refuses these tags first (§5, unmatched jobs), and the VM specification builder refuses
 them again.
+
+The startup script is the same text for each VM, so no value of a job is in it
+(`internal/vmspec`). The script does these steps, in this order:
+
+1. It sets the host name of the VM to `BUILDKITE_AGENT_NAME` with `sudo -n scutil`, for
+   `HostName`, `LocalHostName`, and `ComputerName`. Each VM is a clone of one image, so each VM
+   has the host name of the image until this step, and the agent shows that name in Buildkite. The
+   VM name has 63 characters or fewer, which is the limit of `LocalHostName`. The host name is
+   not necessary for the job. If `sudo` fails, the script writes one line to the event log, and it
+   continues.
+2. It adds the tags of the image to the end of `BUILDKITE_AGENT_TAGS`. The image MAY contain the
+   file `/usr/local/etc/bk-agent-stack-orchard/agent-tags`, with one `key=value` on each line.
+   The script ignores a line that has no key, no `=`, or a character that is not a letter, a
+   digit, or one of `. _ : / @ + = -`. It also ignores a line whose key is already in the list,
+   so a tag of the controller or of the job always stays as the controller set it. `images/build.sh`
+   writes the name and the tag of the image, the version and build of macOS, and, for an image
+   with Xcode, the version and build of Xcode.
+3. It starts the agent with `exec buildkite-agent start`, so the exit status of the agent is the
+   exit status of the script.
+
+The image is trusted: it holds the agent and its hooks. The rules of step 2 keep the tag list
+correct. They are not a security limit.
 
 The image MUST contain `buildkite-agent` v4 and its hooks (§5). The controller MUST add only
 the environment variables above. When `profile.otel.enabled` is true, the controller also adds

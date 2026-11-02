@@ -88,23 +88,33 @@ func FuzzATagReachesTheEnvironmentAndNeverTheScript(f *testing.F) {
 	f.Add("x", " y")
 	f.Add("profile", "z")
 
-	f.Fuzz(func(t *testing.T, key, value string) {
-		vm, err := vmspec.Build(vmspec.Request{
+	fuzzRequest := func(tags map[string]string) vmspec.Request {
+		return vmspec.Request{
 			ControllerID: "macos-prod",
 			Queue:        "macos",
 			JobID:        job.ID("018f3b2c-1c4a-7e5b-9a3d-2f1e4c5b6a7d"),
 			JobToken:     secret.String("bkjat_job_token"),
-			Tags:         map[string]string{key: value},
+			Tags:         tags,
 			Profile: profile.Profile{
 				Name: "xcode-27", Image: "image@sha256:abc", CPU: 8, MemoryMiB: 28672,
 				DiskSizeGB: 150, StartupTransport: profile.TransportGuestAgent,
 			},
-		})
+		}
+	}
+
+	// The script of a job with no tags. A tag must never change it.
+	plain, err := vmspec.Build(fuzzRequest(nil))
+	if err != nil {
+		f.Fatalf("Build() with no tags = %v", err)
+	}
+
+	f.Fuzz(func(t *testing.T, key, value string) {
+		vm, err := vmspec.Build(fuzzRequest(map[string]string{key: value}))
 		if err != nil {
 			return
 		}
 
-		if script := vm.StartupScript.ScriptContent; script != "buildkite-agent start" {
+		if script := vm.StartupScript.ScriptContent; script != plain.StartupScript.ScriptContent {
 			t.Fatalf("Build() with the tag %q=%q gave the script %q", key, value, script)
 		}
 
