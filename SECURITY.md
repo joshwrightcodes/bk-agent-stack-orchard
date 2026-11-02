@@ -6,11 +6,11 @@ Report a vulnerability through
 [GitHub private security advisories](https://github.com/joshwrightcodes/bk-agent-stack-orchard/security/advisories/new).
 Do not open a public issue, and do not include a working exploit in the first message.
 
-This is a personal project with one maintainer. Expect a first answer within one week. The
-maintainer will agree a disclosure date with the reporter after the cause is clear.
+The maintainers work on the project in their own time. Expect a first answer within one week.
+The maintainers agree a disclosure date with the reporter after the cause is clear.
 
-When the maintainer confirms a vulnerability, the maintainer publishes a GitHub security advisory
-for it and requests a CVE through that advisory.
+When the maintainers confirm a vulnerability, they publish a GitHub security advisory for it and
+request a CVE through that advisory.
 
 ## Supported versions
 
@@ -21,7 +21,7 @@ the latest minor release to get a fix.
 ## Safe harbour
 
 Research in good faith is welcome, if it follows this policy and the researcher runs it on the
-researcher's own deployment of the project. The maintainer does not pursue legal action for such
+researcher's own deployment of the project. The maintainers do not pursue legal action for such
 research. This policy does not authorise testing of a system that the researcher does not own or
 operate. That includes the deployments of other people, Buildkite, and GitHub.
 

@@ -131,27 +131,27 @@ For answers to common questions about this code of conduct, see the FAQ at
 ## How to report in this project
 
 This section is specific to this project. It is not part of the Contributor Covenant. The
-community leader is the maintainer of this repository. The project has no email address for
+community leaders are the maintainers of this repository. The project has no email address for
 reports. It uses GitHub channels only.
 
 Use one of these channels:
 
 * Open a
   [private security advisory](https://github.com/joshwrightcodes/bk-agent-stack-orchard/security/advisories/new)
-  and put "conduct" in the title. Only the maintainer can read it.
+  and put "conduct" in the title. Only the maintainers can read it.
 * Use the "Report content" link that GitHub shows on a comment, issue, or pull request, or send a
   report to GitHub Support through the
   [GitHub report-abuse page](https://github.com/contact/report-abuse). GitHub Support reviews the
-  report. The maintainer does not see it.
+  report. The maintainers do not see it.
 
-When the maintainer is the subject of the report, the reporter MUST use the second channel. The
-maintainer MUST NOT review, decide, or learn the identity of the reporter in a report about the
-maintainer. If a conduct advisory names the maintainer, the maintainer MUST NOT act on it alone,
+When a maintainer is the subject of the report, the reporter MUST use the second channel. A
+maintainer MUST NOT review, decide, or learn the identity of the reporter in a report about that
+maintainer. If a conduct advisory names a maintainer, that maintainer MUST NOT act on it alone,
 and the reporter SHOULD send the report to GitHub Support as well.
 
-The maintainer acknowledges a report within one week. The maintainer keeps the identity of the
-reporter and the details of the report private, and shares them only when the response needs it.
-The maintainer applies the enforcement guidelines above.
+The maintainers acknowledge a report within one week. They keep the identity of the reporter
+and the details of the report private, and share them only when the response needs it. The
+maintainers apply the enforcement guidelines above.
 
 Report a security vulnerability through the process in [SECURITY.md](SECURITY.md), not through
 this process.

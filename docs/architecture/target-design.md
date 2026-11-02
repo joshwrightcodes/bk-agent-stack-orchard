@@ -16,8 +16,8 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 interpreted as described in BCP 14 [RFC 2119] [RFC 8174] when, and only when, they appear in
 all capitals, as shown here.
 
-This document uses ASD-STE100 Simplified Technical English. Code identifiers, API names, and
-state names in `code format` are technical names.
+This document follows the [writing guide](../writing-guide.md), in the third person. Code
+identifiers, API names, and state names are in `code format`.
 
 ## 1. Purpose
 
@@ -78,8 +78,8 @@ The design depends on these facts. Each fact was verified against source code or
 | The `detail` of a stack notification must not be empty and cannot exceed 256 characters. The unit is characters. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The controller cuts a detail to 256 characters, counted as runes and cut between characters, and ends a cut detail with an ellipsis. It sends "(no detail)" in place of an empty detail (§10.5). |
 | A stack notification needs no reservation, and the job does not have to be in a particular state. Only a job that finished more than 300 s ago cannot get one. A job can have at most 100 notifications. A request can carry at most 1000 notifications. When some lines fail, the response has `errors` entries with 0-based `indexes`, and the valid notifications are still created. The limit is 200 requests per second for each stack. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The controller sends a skip notice for a job that it does not hold. It sends at most 1000 lines in one call (`NotificationsPerRequest`), and it reads the refused indexes of a partial answer. A notice for each job is written once while the job stays listed (§5), so that the 100-line limit of one job stays far away. |
 | The `detail` of a finish request has a maximum of 4 KB. The documentation does not state the unit. `exit_status` defaults to -1. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The controller counts the 4 KB in bytes, which is never more than a count in characters, and it shortens the detail to the budget before it finishes a job (§6). |
-| The finish request has no `signal_reason` field, so the controller cannot set it. The Buildkite platform generates a `signal_reason` of `stack_error` for such a job. Pipeline authors use `signal_reason: stack_error` with `limit: 0` in their automatic retry rules. Whether the platform generates `stack_error` for every job that the controller finishes is `UNKNOWN` (owner: the maintainer; trigger: the first runs of T-100 to T-105). | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01); `buildkite/stacksapi` v1.2.0 `finish.go` | The controller finishes a failed job with exit status -1 and a detail (§7.6). |
-| `maxVMLifetime` is 25 h by default. The Reaper deletes a VM that is older than this, for any job state (row 2 of §7.2). A job that still runs at 25 h loses its VM and its agent. After the agent acquired the job, the Buildkite lost-agent procedure controls the result, and the controller does not finish the job (§7.1, rule 5). The job result that Buildkite gives in this case is `UNKNOWN` (owner: the maintainer; trigger: the first end-to-end run of a job that outlives `maxVMLifetime`). | Derived from `internal/reaper/decide.go` and §7.2, §7.1 (checked 2026-11-01) | A pipeline step with a run time near 25 h MUST set a lower job timeout. The default of 25 h is the safety limit in SC-06, not a job limit. |
+| The finish request has no `signal_reason` field, so the controller cannot set it. The Buildkite platform generates a `signal_reason` of `stack_error` for such a job. Pipeline authors use `signal_reason: stack_error` with `limit: 0` in their automatic retry rules. Whether the platform generates `stack_error` for every job that the controller finishes is `UNKNOWN` (owner: the maintainers; trigger: the first runs of T-100 to T-105). | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01); `buildkite/stacksapi` v1.2.0 `finish.go` | The controller finishes a failed job with exit status -1 and a detail (§7.6). |
+| `maxVMLifetime` is 25 h by default. The Reaper deletes a VM that is older than this, for any job state (row 2 of §7.2). A job that still runs at 25 h loses its VM and its agent. After the agent acquired the job, the Buildkite lost-agent procedure controls the result, and the controller does not finish the job (§7.1, rule 5). The job result that Buildkite gives in this case is `UNKNOWN` (owner: the maintainers; trigger: the first end-to-end run of a job that outlives `maxVMLifetime`). | Derived from `internal/reaper/decide.go` and §7.2, §7.1 (checked 2026-11-01) | A pipeline step with a run time near 25 h MUST set a lower job timeout. The default of 25 h is the safety limit in SC-06, not a job limit. |
 | `buildkite-agent start --acquire-job` exits with code 27 if the job is already taken, cancelled, or complete (HTTP 422). | `buildkite/agent` v4.0.3 release notes (2026-09-10); `core/client.go` | The rule "the job is terminal, delete the VM" covers this case. |
 | Buildkite agent v4 is the stable line (v4.0.0 on 2026-09-01; v4.9.0 on 2026-10-30, checked 2026-11-01). v4.7.0 is a security release: it rejects compromised eMudhra certificate chains (CVE-2026-111943). v4 exits immediately when a flag is not defined. v4 keeps `--acquire-job`, `BUILDKITE_AGENT_ACQUIRE_JOB`, and `BUILDKITE_OPENTELEMETRY_TRACING`, and it adds `BUILDKITE_OPENTELEMETRY_METRICS`. v4 removes the OpenTracing and Datadog backends. | `buildkite/agent` releases and `clicommand/agent_start.go` at v4.0.4 (2026-09-19) | The image MUST contain agent v4.7.0 or later (§5). The startup script uses only v4 flags. |
 | Orchard `startup_script.transport` accepts `ssh` (the default) and `tart-guest-agent`. The guest-agent transport operates only on the Tart runtime, and the worker connects through the VM control socket. For both transports, the worker builds the same script: `set -e`, one `export` line for each `env` entry, then `script_content`. | Orchard `pkg/resource/v1/v1.go` and `internal/worker/vmmanager/base` at tag 0.57.0 | §6.4 uses the guest-agent transport. VM specifications need no SSH credentials. |
@@ -478,7 +478,7 @@ page fails, the Poller keeps the answer of the last whole read.
 
 More than 3 pages of 1000 jobs that never leave the list hide the jobs after them, and the
 controller never sees these jobs. This limit is `UNKNOWN`, in the sense that it is not measured
-(owner: the maintainer; trigger: the pilot, or the first warning of this kind). A read that
+(owner: the maintainers; trigger: the pilot, or the first warning of this kind). A read that
 stops at the cap with a page left writes a warning in the log, and it adds 1 to the counter
 `bkaso.queue.truncated` (§10.1). An operator MUST treat this counter as a sign that jobs may be
 hidden.
@@ -701,7 +701,7 @@ The controller finishes a job that it fails with exit status -1 and a detail. It
 the `signal_reason` `stack_error` for such a job. Pipeline authors use `signal_reason:
 stack_error` with `limit: 0` in the automatic retry rules of their steps (Buildkite Stacks API
 documentation, read 2026-11-01). Whether the platform generates `stack_error` for every job that
-the controller finishes is `UNKNOWN` (owner: the maintainer; trigger: the first runs of T-100 to
+the controller finishes is `UNKNOWN` (owner: the maintainers; trigger: the first runs of T-100 to
 T-105). The pipeline author guide gives the retry guidance.
 
 **Artifact destination.** Build artifacts MAY go to Buildkite-managed storage (PR-032, SE-08;
@@ -998,8 +998,8 @@ poll can miss it. The worker also records a pull time in its own metric
 `org.cirruslabs.orchard.worker.vm.pull_time`, which the controller cannot read. Source: the Orchard
 repository at tag 0.58.0, `pkg/resource/v1/v1.go` and `internal/worker/vmmanager/tart/tart.go`
 (checked 2026-11-02). The controller therefore has no attribute for it, and the start phases include
-the cold starts. Owner: the maintainer. Trigger: O-7 of the test strategy records the events of real
-VMs; the attribute is added when they show a pull.
+the cold starts. Owner: the maintainers. Trigger: O-7 of the test strategy records the events of
+real VMs; the attribute is added when they show a pull.
 
 ### 10.2 Traces
 
@@ -1159,7 +1159,7 @@ Development MUST use TDD. Each change of behavior MUST start with a failing test
 | Phase | Scope | Exit criteria |
 |---|---|---|
 | 0 — Development | One Mac, `orchard dev`, a Buildkite test cluster | The end-to-end scenarios and the synthetic load test pass. |
-| 1 — Pilot | Orchard on Kubernetes, 2 to 4 Macs, one queue, 1 or 2 profiles. Only non-critical pipelines that opt in. Telemetry and alerts are active. The pilot profile uses Xcode 27 (PR-026). The pilot start date is `UNKNOWN` (SC-03; owner: the maintainer; trigger: a Buildkite test cluster and the Mac hosts are ready). On 2026-09-14, the plan estimated approximately 1 month. | Two weeks with `bkaso.vm.leftover` at 0 outside its window (§10.1), and zero jobs that the controller failed incorrectly (E-1 to E-5 of the test strategy). The start time and the wait time are measured against QA-01 and QA-02. |
+| 1 — Pilot | Orchard on Kubernetes, 2 to 4 Macs, one queue, 1 or 2 profiles. Only non-critical pipelines that opt in. Telemetry and alerts are active. The pilot profile uses Xcode 27 (PR-026). The pilot start date is `UNKNOWN` (SC-03; owner: the maintainers; trigger: a Buildkite test cluster and the Mac hosts are ready). On 2026-09-14, the plan estimated approximately 1 month. | Two weeks with `bkaso.vm.leftover` at 0 outside its window (§10.1), and zero jobs that the controller failed incorrectly (E-1 to E-5 of the test strategy). The start time and the wait time are measured against QA-01 and QA-02. |
 | 2 — Adoption | Increase to 10 Macs and more profiles. Move pipelines to the queue. Adjust timeouts from telemetry. The date of adoption and scale is `UNKNOWN` (SC-03; same owner and trigger). On 2026-09-14, the plan estimated approximately 3 months. | The warm-pool decision is examined again with measured `job.phase.duration` data. |
 | 3 — Scale | 10 to 50 Macs | The load test agrees with production behavior. High availability and controller placement are decided only if telemetry shows a need. |
 
@@ -1305,16 +1305,16 @@ These rules apply to the configuration:
 **Release versions.** release-please calculates each version from the Conventional Commits on
 `main`, with the 0.x rules of the contributing guide (`release-please-config.json`). It keeps one
 release pull request that collects the changes and writes `CHANGELOG.md` and both versions in
-`Chart.yaml`. When the maintainer merges it, release-please creates a draft release with the
+`Chart.yaml`. When the maintainers merge it, release-please creates a draft release with the
 changelog, and the tag `v<version>` at once. It uses the token of a GitHub App, because GitHub
 starts no workflow for a tag that `GITHUB_TOKEN` creates. The client ID and the private key of the
 App MUST be secrets of the `release-please` environment, which permits only `main`. The repository
-rules MUST permit only the App and the maintainer to create, change, or delete the branch of the
+rules MUST permit only the App and the maintainers to create, change, or delete the branch of the
 release pull request (`release-please--**`).
 
 **Release signatures.** A tag that matches `v*` starts `.github/workflows/release.yml` in the
 `release` environment. The environment permits only `v*` tags, and it MUST need the approval of
-the maintainer. The commit of the tag MUST be on `main`, and the version in `Chart.yaml` MUST be
+the maintainers. The commit of the tag MUST be on `main`, and the version in `Chart.yaml` MUST be
 the version of the tag. The workflow checks both before it builds anything, and then does these
 steps in this order:
 
@@ -1394,7 +1394,9 @@ commands reports a problem.
 ## 16. References
 
 * BCP 14: RFC 2119 — https://www.rfc-editor.org/rfc/rfc2119 and RFC 8174 — https://www.rfc-editor.org/rfc/rfc8174
-* ASD-STE100 Simplified Technical English — https://www.asd-ste100.org
+* Writing guide of this project — [docs/writing-guide.md](../writing-guide.md)
+* Kubernetes documentation style guide — https://kubernetes.io/docs/contribute/style/style-guide/
+* Google developer documentation style guide — https://developers.google.com/style
 * Buildkite Stacks API — https://buildkite.com/docs/apis/agent-api/stacks
 * Buildkite job acquisition tokens — https://buildkite.com/docs/agent/self-hosted/job-acquisition-tokens
 * Buildkite agent `start` reference — https://buildkite.com/docs/agent/cli/reference/start

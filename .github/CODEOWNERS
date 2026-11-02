@@ -1,16 +1,4 @@
-# Every change needs a review from the maintainer.
-*                       @joshwrightcodes
-
-# The document set decides the behaviour of the project, so it carries the
-# same owner explicitly. A change here needs the workflow of CONTRIBUTING.md.
-/docs/product/          @joshwrightcodes
-/docs/architecture/     @joshwrightcodes
-/docs/adrs/             @joshwrightcodes
-/docs/quality/          @joshwrightcodes
-/docs/delivery/         @joshwrightcodes
-
-# Licence, policies, and the gates that protect them.
-/LICENSE                @joshwrightcodes
-/NOTICE                 @joshwrightcodes
-/SECURITY.md            @joshwrightcodes
-/.github/               @joshwrightcodes
+# Every change needs a review from a maintainer. MAINTAINERS.md lists the maintainers.
+# To move ownership to a GitHub team, replace the handle with the team (@org/team). The team
+# needs write access to the repository.
+*       @joshwrightcodes

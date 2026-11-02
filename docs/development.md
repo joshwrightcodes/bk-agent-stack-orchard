@@ -1,25 +1,34 @@
 # Development
 
-This guide tells a developer how to run the gates and the integration tests.
-
-## Conventions
-
-The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT",
-"RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be
-interpreted as described in BCP 14 [RFC 2119] [RFC 8174] when, and only when, they appear in
-all capitals, as shown here.
+This guide tells you how to set up your Mac, run the gates, and run the tests that CI runs.
+[Testing on real VMs](testing-on-real-vms.md) covers the tests that start real Tart VMs.
 
 ## Prerequisites
 
 * A Mac with Apple silicon (macOS on arm64). The integration tests and the real-VM tests need it,
   because Orchard places a macOS VM only on an arm64 worker with the Tart runtime. The gates `lint`,
   `test`, and `check-docs` run on any host.
-* [`mise`](https://mise.jdx.dev/). It installs every other tool, Go and Orchard included.
-* Docker. Two tasks need it: `check-c4` (it renders the C4 model) and `snapshot` (it builds the
-  image). `mise run check` runs `check-c4`, so it also needs Docker. `smoke` needs it too, for kind.
-* Tart. Install Tart from the `openai/tools` tap as the section "Install Tart" says, or let the
-  Ansible role of `deploy/hosts` install it on a Mac host. Only the real-VM tests (`tart-test`,
-  `failures-test`, `restart-test`, `softnet-test`) need Tart. The other tasks do not.
+* [Homebrew](https://brew.sh). The [`Brewfile`](../Brewfile) lists the host tools that `mise`
+  does not pin. Trust the tap of Tart once, then install them:
+
+  ```sh
+  brew trust openai/tools
+  brew bundle
+  ```
+
+* [`mise`](https://mise.jdx.dev/), from the `Brewfile`. It installs every other tool, Go and
+  Orchard included.
+* A Docker runtime, for three tasks: `check-c4` (it renders the C4 model), `snapshot` (it builds
+  the image), and `smoke` (it runs kind). `mise run check` runs `check-c4`, so it also needs
+  Docker. `mise run ci` skips these tasks when Docker is absent, and CI runs them. The `Brewfile`
+  installs Colima and the Docker CLI; start Colima with `colima start`. If you use another
+  runtime, skip them:
+
+  ```sh
+  HOMEBREW_BUNDLE_BREW_SKIP="colima docker docker-buildx" brew bundle
+  ```
+* Tart and Softnet, from the `Brewfile`. Only the tests in
+  [Testing on real VMs](testing-on-real-vms.md) need them.
 
 ## Tools
 
@@ -40,8 +49,8 @@ The gates are also tasks of their own: `check-docs`, `check-commits`, `check-dep
 * `ci` runs the checks that the required CI jobs run, so a pass predicts a pass in CI. It adds
   `test-scripts`, `vuln`, `check-hook`, `check-hosts`, `check-generate`, and `integration`, which
   `check` does not run. `check-generate` reads the GitHub API, so the command is
-  `GITHUB_TOKEN=$(gh auth token) mise run ci`. The token MUST stay in the environment. It MUST NOT
-  go into a file.
+  `GITHUB_TOKEN=$(gh auth token) mise run ci`. Keep the token in the environment. Do not
+  write it to a file.
   `ci` runs `check-generate` alone and first, because it rewrites the generated files that the
   other checks compile. It then runs the other checks in parallel, through `ci-checks`.
 * `ci` runs the Docker jobs (`check-c4`, `orchard-image`, `smoke`, and `snapshot`) through
@@ -185,7 +194,8 @@ registers, becomes ready, and polls. To see a job go from `scheduled` to a delet
 ## Change checklist: a new profile field
 
 A profile field reaches the VM specification that the controller sends to Orchard. Do these steps
-in order, because the documents decide the behaviour (CONTRIBUTING, section "Before code"):
+in order, because the documents decide the behaviour (CONTRIBUTING, section "Before code: the
+documents decide"):
 
 1. Change `docs/product/requirements.md` when a pipeline author or an operator can see the new
    behaviour. Write an ADR when the change replaces an approach.
@@ -265,7 +275,7 @@ events. The events are:
 * The controller restarts.
 * Orchard stops answering, and answers again.
 * The Stacks API refuses each call with HTTP 429 or HTTP 503, and answers again.
-* A machine that another tool or controller owns appears. The controller MUST NOT delete it.
+* A machine that another tool or controller owns appears. The controller does not delete it.
 * The answer of a create is lost, and the machine exists.
 * A create gets HTTP 409, because the machine exists.
 
@@ -424,84 +434,8 @@ These conditions also apply:
   mise checks the SHA-256 of the archive first. An install that an earlier version of this hook
   signed in place fails the check. In this case, run `mise install --force github:openai/orchard`.
 
-## The CI runner of the integration tests
+## Tests on real VMs
 
-CI runs the integration tests on macOS on arm64 for the same reason. The repository is public, so
-the job runs on a hosted macOS runner (`macos-latest`), which costs nothing. The workflows fix the
-runner. A self-hosted runner MUST NOT serve a public repository, because a pull request from a
-fork can run code on it. The sections below are for a developer who runs the Tart tests on a Mac.
-
-### Install Tart
-
-Tart, Softnet, and Orchard come from the `openai/tools` Homebrew tap
-([openai/homebrew-tools](https://github.com/openai/homebrew-tools#tart-related-projects)). The
-`cirruslabs/cli` tap is no longer where they are published. Homebrew 7 loads a formula from a tap
-that is not official only after the tap is trusted:
-
-```sh
-brew trust openai/tools
-brew install openai/tools/tart openai/tools/softnet
-```
-
-Homebrew installs `softnet` without the setuid bit. The first time that a VM uses Softnet, Tart
-asks for a sudo password on a terminal to set the bit. Set the bit once after each install or
-upgrade of Softnet, because an upgrade replaces the file:
-
-```sh
-softnet_bin=$(realpath "$(brew --prefix)/bin/softnet")
-sudo chown root "$softnet_bin" && sudo chmod u+s "$softnet_bin"
-```
-
-The Tart test below needs Tart and Softnet. Install Tart at version
-2.41.1. The pin is `orchard_worker_tart_version` in
-`deploy/hosts/roles/orchard_worker/defaults/main.yml` (checked 2026-11-01), and the Mac hosts use
-the same version. The minimum version is 2.39.0 (target design, section 9.2). Install the release
-archive of the pinned version, and check it against the SHA-256 in the same file
-(`orchard_worker_tart_sha256`). A Homebrew formula can replace the archive when it gives the same
-version. Then check the version:
-
-```sh
-tart --version
-```
-
-Orchard comes from `mise install` (the version of `mise.toml`), so it needs no formula here.
-
-### The Tart test
-
-`mise run tart-test` runs one job on a real Tart VM of this Mac: the controller, `orchard dev` with
-a real worker, and the agent image. It is the evidence that the Tart guest agent runs the startup
-script (test strategy, open item O-2). Build the image with `mise run agent-image`, and name it:
-
-```sh
-BKASO_TART_IMAGE=bkaso-agent mise run tart-test
-```
-
-The VM takes one of the two VM slots of the Mac. CI does not run this test, because a VM cannot
-run a macOS VM.
-
-`mise run failures-test` runs three jobs that cannot start on real VMs. The jobs have a profile
-image digest that does not exist, an agent that exits, and an agent that runs and acquires nothing.
-The test checks what each job page says, and that no VM remains. It takes about five minutes.
-
-`mise run restart-test` crashes the controller while the agent of a job runs in a real VM. The VM
-must continue. The next process must take it over without a second VM, and it must delete the VM
-when the job ends.
-
-`mise run softnet-test` probes the network from a VM of the controller specification. The VM must
-reach the Internet and DNS. It must not reach the LAN, another VM, or a service of the Mac itself.
-Softnet alone lets a VM reach the Mac through the gateway of its network, and the hosts close this
-path with pf (`deploy/hosts`). `deploy/hosts/test/pf.sh` loads the same rules on the Mac from the
-template of the role. It needs `ansible` (from `mise install`) and sudo. The control of the test
-permits the router of the LAN, so the rules permit it too. While the rules are loaded, the Mac
-accepts connections only on the interface of its default route and on loopback. From any other
-interface, AirDrop and VPN tunnels included, it accepts only DNS and DHCP. The rules go when the
-Mac restarts, or with `pf.sh unload`:
-
-```sh
-deploy/hosts/test/pf.sh load "$(route -n get default | awk '/gateway:/ {print $2}')/32"
-BKASO_TART_IMAGE=bkaso-agent mise run softnet-test
-deploy/hosts/test/pf.sh unload
-```
-
-`mise run hosts-test` needs the opposite: its test VM reaches an Orchard controller on the Mac,
-which the rules block, so remove them before it.
+The integration tests use a synthetic Orchard worker, so no VM starts. The tests that start real
+Tart VMs on your Mac, and the Tart setup they need, are in
+[Testing on real VMs](testing-on-real-vms.md).

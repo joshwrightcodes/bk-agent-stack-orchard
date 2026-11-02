@@ -3,7 +3,7 @@
 * Status: accepted
 * Date: 2026-09-19
 * Approved: 2026-09-20
-* Owner: Josh Wright
+* Owner: the maintainers
 * Related documents:
   * [Product requirements](../product/requirements.md): identifiers such as `PR-005`
   * [System design baseline](../architecture/system-design-baseline.md): identifiers such as
@@ -20,7 +20,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 interpreted as described in BCP 14 [RFC 2119] [RFC 8174] when, and only when, they appear in
 all capitals, as shown here.
 
-This document uses ASD-STE100 Simplified Technical English and the third person.
+This document follows the [writing guide](../writing-guide.md), in the third person.
 
 `W-nn` is a work unit. Each work unit has one observable outcome and its own completion
 evidence. A work unit is complete only when its evidence passes, not when its code exists.
@@ -263,13 +263,13 @@ The plan keeps to these dates:
 * The earliest pilot exit date is `UNKNOWN`. The pilot exit criteria need two weeks of measurement
   (QA-04).
 
-The owner of these dates is the maintainer (checked 2026-11-01). The date of host readiness becomes
+The maintainers own these dates (checked 2026-11-01). The date of host readiness becomes
 known when the Mac hosts are ready. The pilot dates become known when a Buildkite test cluster and
 the Mac hosts are ready. The plan of 2026-09-14 had three estimates. The hosts ship on
 2026-09-22 (SC-04). The pilot starts about 2026-10-14 (SC-03). The earliest exit is about
 2026-10-28.
 
-Each work unit carries a day estimate and a size in the GitHub project of the maintainer. The
+Each work unit carries a day estimate and a size in the GitHub project of the maintainers. The
 estimates of an increment sum inside its range above. The project holds the value for each unit.
 This document holds the range for each increment. A change to one unit therefore does not need a
 change to this document.
@@ -277,7 +277,7 @@ change to this document.
 The sum of the ranges is 21 to 36 working days. This estimate covers the work units only. It
 holds for the lower range when no increment needs a new decision. W-23 runs last, as section 5
 states, so the estimate does not depend on an early image build. The pilot entry date is `UNKNOWN`
-(checked 2026-11-01). The owner of the date is the maintainer. It becomes known when a Buildkite
+(checked 2026-11-01). The maintainers own the date. It becomes known when a Buildkite
 test cluster and the Mac hosts are ready. The plan of 2026-09-14 expected the pilot entry in the
 second half of October 2026.
 

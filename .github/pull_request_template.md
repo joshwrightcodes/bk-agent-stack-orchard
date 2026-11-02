@@ -1,9 +1,11 @@
 <!--
-The title of this pull request MUST follow Conventional Commits, because the
-project squashes each pull request into one commit. For example:
+The title of this pull request follows Conventional Commits, because the project
+squashes each pull request into one commit. For example:
   feat(reaper): delete the VM when the job is terminal
-CONTRIBUTING.md gives the types, the scopes, and the rules. The key words follow BCP 14, as
-CONTRIBUTING.md describes.
+CONTRIBUTING.md gives the types, the scopes, and the rules.
+
+Put "Closes #<number>" in this description to close an issue. The squash keeps
+only this description, not the messages of the commits.
 -->
 
 ## What changes

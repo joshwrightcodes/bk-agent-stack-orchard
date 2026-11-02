@@ -3,7 +3,7 @@
 * Status: accepted
 * Date: 2026-09-19
 * Approved: 2026-09-20
-* Owner: Josh Wright
+* Owner: the maintainers
 * Related documents:
   * [Product requirements](../product/requirements.md) (owner of the functional rules)
   * [Target design](target-design.md)
@@ -16,7 +16,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 interpreted as described in BCP 14 [RFC 2119] [RFC 8174] when, and only when, they appear in
 all capitals, as shown here.
 
-This document uses ASD-STE100 Simplified Technical English and the third person.
+This document follows the [writing guide](../writing-guide.md), in the third person.
 
 This document is the source of truth for the quality attributes and constraints that drive the
 architecture. The [product requirements](../product/requirements.md) own the functional rules. The
@@ -38,7 +38,7 @@ Each entry in the driver register (section 10) has these classifications:
 
 `UNKNOWN` does not mean that an entry is not important.
 
-Shared metadata: the owner of all entries is Josh Wright. The as-of date of all entries is
+Shared metadata: the maintainers own all entries. The as-of date of all entries is
 2026-09-14. An entry states a different date when its source has one.
 
 ## 1. Business context
@@ -252,7 +252,7 @@ can permit a smaller fleet at peak. The pilot must measure the real arrival rate
 | BD-05 | Business | Exchange rate | APPLICABLE | SUPPORTING | CONFIRMED | 1 USD = 1.39842141 AUD, mid-market | xe.com (2026-09-14 04:37 UTC) | A cost comparison at a later date |
 | SC-01 | Scale | Fleet size | APPLICABLE | DRIVER | CONFIRMED | 1 Mac (development), 2 to 4 (pilot), 2 to 10 (first fleet), 10 to 50 (target) | Owner statement (2026-09-13) | Need for more than 50 Macs |
 | SC-02 | Scale | VM slots on each host | APPLICABLE | DRIVER | CONFIRMED | 2 (hard limit) | Apple macOS licence; Orchard `tart-vms` resource (2026-09-13) | Apple licence change |
-| SC-03 | Scale | Dates of the phases | APPLICABLE | SUPPORTING | UNKNOWN | `UNKNOWN`, owner: the maintainer, trigger: a Buildkite test cluster and the Mac hosts are ready. History: on 2026-09-14 the plan estimated the pilot in approximately 1 month and adoption and scale in approximately 3 months | Owner answers Q-P5 and Q-P6 | The trigger occurs, or a change of plan |
+| SC-03 | Scale | Dates of the phases | APPLICABLE | SUPPORTING | UNKNOWN | `UNKNOWN`, owner: the maintainers, trigger: a Buildkite test cluster and the Mac hosts are ready. History: on 2026-09-14 the plan estimated the pilot in approximately 1 month and adoption and scale in approximately 3 months | Owner answers Q-P5 and Q-P6 | The trigger occurs, or a change of plan |
 | SC-04 | Scale | Host model | APPLICABLE | DRIVER | CONFIRMED | Mac mini, M5 Pro: 18-core CPU, 20-core GPU, 16-core Neural Engine; 64 GB; 1 TB; 10 Gb Ethernet; AU$5,099.00 pre-order (2026-09-14 21:00 AEST); ships 2026-09-22 | Owner answers Q-P1 (2026-09-14); Apple (2026-09-14) | New host model |
 | SC-05 | Demand | Job arrival rate and peak concurrency | APPLICABLE | DRIVER | ASSUMED | 880 jobs each workday; peak 38.7 concurrent VMs (section 4.2) | Demand model; owner answer Q-A1 | Pilot telemetry |
 | SC-06 | Demand | Job duration and longest job | APPLICABLE | SUPPORTING | ASSUMED | Mean 15 min; longest 60 min; safety limit `maxVMLifetime` 25 h | Demand model (section 4.2) | Pilot telemetry |
