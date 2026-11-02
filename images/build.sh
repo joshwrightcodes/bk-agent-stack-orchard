@@ -67,6 +67,9 @@ GUEST_AGENT_SHA256="eb47f402f18e742a8ea96344115ca776179f9c4c67494bc0c46a10a68db2
 XCODE_VERSION="27.2"
 XCODE_SHA256="c28b05526225394fa4017d7f9919c1c898822713edca68872cb4701599f01978"
 XCODE_ARCHIVE="${XCODE_ARCHIVE:-${HOME}/XcodesCache/Xcode_${XCODE_VERSION}.xip}"
+# The simulator that the build boots once, so that its first-boot work is done in the image. The
+# pilot test pipeline uses an iPhone 17.
+PILOT_SIMULATOR="${PILOT_SIMULATOR:-iPhone 17}"
 
 # Homebrew, from the package of its release, and the SHA-256 that GitHub gives for it.
 HOMEBREW_VERSION="7.0.11"
@@ -278,7 +281,7 @@ else
 	# installs its packages, and downloads the iOS simulator runtime from Apple, which needs no
 	# Apple ID.
 	say "installing Xcode $XCODE_VERSION and its iOS simulator runtime"
-	run <<'SCRIPT'
+	run PILOT_SIMULATOR="$PILOT_SIMULATOR" <<'SCRIPT'
 set -euo pipefail
 archive="/Volumes/My Shared Files/xcode/Xcode.cpio"
 for _ in $(seq 1 60); do [[ -f "$archive" ]] && break; sleep 2; done
@@ -303,6 +306,14 @@ xcrun simctl list runtimes | sed -n 's/^iOS .* - \([^ )]*\)) - \(com\.apple\.[^ 
 	done
 xcrun simctl delete unavailable
 xcrun simctl runtime dyld_shared_cache update --all || true
+# Boot the simulator of the pilot once and shut it down, so the first-boot data migration of the
+# device is done in the image. A job then meets a device that boots in seconds, not one that runs
+# its migration while xcodebuild installs the test runner (the first real T-100 jobs, 2026-11-02).
+udid=$(xcrun simctl list devices available | sed -n "s/^ *${PILOT_SIMULATOR} (\([0-9A-F-]\{36\}\)) .*/\1/p" | head -n 1)
+[[ -n "$udid" ]] || { echo "no available ${PILOT_SIMULATOR} simulator" >&2; exit 1; }
+xcrun simctl boot "$udid"
+xcrun simctl bootstatus "$udid" -b >/dev/null
+xcrun simctl shutdown "$udid"
 /usr/bin/xcodebuild -version | head -1
 SCRIPT
 
