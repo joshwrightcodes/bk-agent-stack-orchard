@@ -4,13 +4,6 @@ This directory holds the document set of `bk-agent-stack-orchard`. The documents
 behaviour of the project, and the code follows them. A change starts in a document, as
 [CONTRIBUTING](../CONTRIBUTING.md) says.
 
-## Conventions
-
-The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT",
-"RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be
-interpreted as described in BCP 14 [RFC 2119] [RFC 8174] when, and only when, they appear in
-all capitals, as shown here.
-
 ## Reading order for the first day
 
 1. The [main README](../README.md). It says what the project does and what it does not do.
@@ -41,7 +34,10 @@ a number, such as the demand model or a quality target.
 | [Decision records](adrs/README.md) | Why did the project choose this approach? |
 | [Test strategy](quality/test-strategy.md) | Which risks exist, and which tests cover them? |
 | [Implementation plan](delivery/implementation-plan.md) | In which order does the work go, and what ends each unit? |
-| [Development guide](development.md) | How does a developer run the gates, the tests, and the controller? |
+| [Development guide](development.md) | How does a developer set up a Mac, and run the gates, the tests, and the controller? |
+| [Testing on real VMs](testing-on-real-vms.md) | How does a developer run the tests that start real Tart VMs? |
+| [Releasing](releasing.md) | How are versions calculated, and how do the maintainers make a release? |
+| [Writing guide](writing-guide.md) | How does a contributor write a document? |
 | [Glossary](glossary.md) | What does a term or an identifier mean? |
 | [Install the controller](user/install.md) | What does an operator need, and how does an operator install, verify, and upgrade a release? |
 | [Third-party terms](user/third-party-terms.md) | Which terms of Apple, Tart, and Orchard affect a fleet? |
@@ -62,7 +58,7 @@ discussion, and do not send a secret in it.
 * [ ] **The Mac lab.** A Mac with Apple silicon, with Tart and Orchard, runs the real-VM tests. The
   maintainers hold the lab.
 * [ ] **The secret source.** The maintainers give each secret through the secret manager of the
-  team. A secret MUST NOT go into the repository, a log, or a document.
+  team. Never put a secret in the repository, a log, or a document.
 * [ ] **The GitHub team.** Membership gives review rights. Until a team exists, the maintainers own
   each path (`.github/CODEOWNERS`).
 * [ ] **The `release` environment reviewer.** A release publishes only after a reviewer of the
