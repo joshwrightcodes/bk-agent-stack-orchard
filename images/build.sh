@@ -289,6 +289,19 @@ sudo xcode-select -s /Applications/Xcode.app
 sudo xcodebuild -license accept
 sudo xcodebuild -runFirstLaunch >/dev/null
 xcodebuild -downloadPlatform iOS >/dev/null
+# Keep only the general iOS runtime. Apple can deliver a device-specific runtime beside it (for
+# Xcode 27.2: com.apple.CoreSimulator.SimRuntime.iOS-27-2-iPhone19-4, 2026-11-02). Both answer to
+# the same iOS version, so a test destination such as "name=iPhone 17,OS=27.2" on a cold simulator
+# can pick the device-specific runtime, which cannot boot that device.
+general='^com\.apple\.CoreSimulator\.SimRuntime\.iOS-[0-9]+-[0-9]+$'
+xcrun simctl list runtimes | sed -n 's/^iOS .* - \([^ )]*\)) - \(com\.apple\.[^ ]*\).*/\1 \2/p' |
+	while read -r build id; do
+		[[ "$id" =~ $general ]] && continue
+		uuid=$(xcrun simctl runtime list | sed -n "s/.*($build) - \([0-9A-F-]*\) .*/\1/p")
+		echo "removing the device-specific runtime $id ($build)"
+		xcrun simctl runtime delete "$uuid"
+	done
+xcrun simctl delete unavailable
 xcrun simctl runtime dyld_shared_cache update --all || true
 /usr/bin/xcodebuild -version | head -1
 SCRIPT
@@ -362,6 +375,7 @@ printf 'agent=%s %s\n' "$(command -v buildkite-agent)" "$(buildkite-agent --vers
 printf 'git=%s\n' "$(/usr/bin/git --version 2>/dev/null)"
 printf 'xcode=%s\n' "$(/usr/bin/xcodebuild -version 2>/dev/null | head -1)"
 printf 'ios_runtime=%s\n' "$(xcrun simctl list runtimes 2>/dev/null | grep -c '^iOS ')"
+printf 'ios_runtime_ids=%s\n' "$(xcrun simctl list runtimes 2>/dev/null | sed -n 's/^iOS .* - \(com\.apple\.[^ ]*\).*/\1/p' | tr '\n' ' ')"
 printf 'free_gb=%s\n' "$(df -g / | awk 'NR == 2 {print $4}')"
 printf 'apps=%s\n' "$(list /Applications)"
 printf 'daemons=%s\n' "$(list /Library/LaunchDaemons)"
@@ -412,7 +426,10 @@ done
 want "extra=" "the image holds what a job does not need"
 if [[ "$IMAGE" == pilot ]]; then
 	grep -q "^xcode=Xcode ${XCODE_VERSION%.0}" <<<"$check" || die "the pilot image does not select Xcode ${XCODE_VERSION}"
-	grep -q '^ios_runtime=[1-9]' <<<"$check" || die "the pilot image has no iOS simulator runtime"
+	grep -q '^ios_runtime=1$' <<<"$check" ||
+		die "the pilot image has $(sed -n 's/^ios_runtime=//p' <<<"$check") iOS simulator runtimes, and it needs exactly one"
+	grep -Eq '^ios_runtime_ids=com\.apple\.CoreSimulator\.SimRuntime\.iOS-[0-9]+-[0-9]+ $' <<<"$check" ||
+		die "the iOS runtime of the pilot image is not the general one: $(sed -n 's/^ios_runtime_ids=//p' <<<"$check")"
 	want "app=fastlane pod carthage xcbeautify swiftlint" "a job of the pilot does not find a tool to build or publish an app"
 	free="$(sed -n 's/^free_gb=//p' <<<"$check")"
 	((free >= PILOT_FREE_GB)) || die "the pilot image has $free GB free, and a job needs $PILOT_FREE_GB GB"
