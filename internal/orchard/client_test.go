@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -494,3 +495,80 @@ func TestTheClientReadsNoMessageFromAnErrorBodyOverTheLimit(t *testing.T) {
 		t.Errorf("ListVMs() = %v, want the no-message path", err)
 	}
 }
+
+// A create, a delete, a conflict, and a machine that is gone all answer with a body that the
+// client does not need. The client reads each body to its end, so that HTTP/1.1 keeps the
+// connection for the next call and does not open a new one, with a new TLS handshake, each time.
+func TestTheClientKeepsTheConnectionAfterAnAnswerThatItDoesNotRead(t *testing.T) {
+	var (
+		mu     sync.Mutex
+		opened int
+	)
+
+	s := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.Header.Get("X-Answer") == "conflict":
+			w.WriteHeader(http.StatusConflict)
+		case r.Method == http.MethodDelete && r.Header.Get("X-Answer") == "gone":
+			w.WriteHeader(http.StatusNotFound)
+		}
+
+		// About 56 KB, under the limit of an error body.
+		writeJSON(t, w, map[string]string{"message": strings.Repeat("a long answer ", 4000)})
+	}))
+	s.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			mu.Lock()
+			defer mu.Unlock()
+
+			opened++
+		}
+	}
+	s.Start()
+	t.Cleanup(s.Close)
+
+	answer := ""
+	transport := s.Client().Transport
+	client, err := orchard.New(orchard.Options{
+		URL:            s.URL,
+		ServiceAccount: "bk-agent-stack-orchard",
+		Token:          secret.String("orchard-token"),
+		HTTPClient: &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+			r.Header.Set("X-Answer", answer)
+
+			return transport.RoundTrip(r)
+		})},
+	})
+	if err != nil {
+		t.Fatalf("New() = %v", err)
+	}
+
+	ctx := context.Background()
+
+	for _, step := range []struct {
+		answer string
+		call   func() error
+	}{
+		{"", func() error { return client.CreateVM(ctx, orchard.VM{Name: "bk-a"}) }},
+		{"conflict", func() error { return client.CreateVM(ctx, orchard.VM{Name: "bk-a"}) }},
+		{"", func() error { return client.DeleteVM(ctx, "bk-a") }},
+		{"gone", func() error { return client.DeleteVM(ctx, "bk-a") }},
+	} {
+		answer = step.answer
+		if err := step.call(); err != nil && !errors.Is(err, orchard.ErrAlreadyExists) {
+			t.Fatalf("a call with the answer %q = %v", step.answer, err)
+		}
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if opened != 1 {
+		t.Errorf("the client opened %d connections for four calls, want one", opened)
+	}
+}
+
+// roundTrip is a transport made of a function.
+type roundTrip func(*http.Request) (*http.Response, error)
+
+func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

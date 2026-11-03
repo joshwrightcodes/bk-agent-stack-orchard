@@ -215,7 +215,10 @@ func (c *Client) attempt(ctx context.Context, method, path string, body []byte, 
 	if err != nil {
 		return retry.Again(err, 0)
 	}
-	defer func() { _ = response.Body.Close() }()
+	defer func() {
+		drain(response.Body)
+		_ = response.Body.Close()
+	}()
 
 	if err := statusError(response); err != nil {
 		return err
@@ -309,6 +312,18 @@ const (
 	maxResponseBytes = 16 << 20 // 16 MiB
 	maxErrorBytes    = 64 << 10 // 64 KiB, for an error, where only a message matters
 )
+
+// drain reads what is left of a body, up to the limit of an error body.
+//
+// HTTP/1.1 keeps a connection for the next call only after the body of the answer was read to its
+// end. A create, a delete, a conflict, and a machine that is gone all answer with a body that the
+// client does not need, and without this read each of them would close its connection, so that
+// the next call opens a new one, with a new TLS handshake. The limit keeps a long body from
+// holding the call: a body longer than that closes its connection, which costs less than reading
+// it.
+func drain(body io.Reader) {
+	_, _ = io.Copy(io.Discard, io.LimitReader(body, maxErrorBytes))
+}
 
 // readLimited reads a whole body, and fails when the body is longer than the limit.
 func readLimited(body io.Reader, limit int64) ([]byte, error) {
