@@ -1348,8 +1348,8 @@ These rules apply to the configuration:
   `org.opencontainers.image.licenses=AGPL-3.0-or-later` and `org.opencontainers.image.source`.
   The Helm chart directory MUST contain copies of `LICENSE` and `NOTICE`, so that `helm package`
   includes them. `NOTICE` MUST name each module that the binary links, and it MUST include the
-  `NOTICE` text of gRPC. `scripts/check-deps.py` fails when a module is missing from `NOTICE`, or
-  when a chart copy differs from the file of the root.
+  `NOTICE` text of gRPC. The tests of `internal/repocheck` fail when a module is missing from
+  `NOTICE`, and `scripts/check-deps.py` fails when a chart copy differs from the file of the root.
 
 **Release versions.** release-please calculates each version from the Conventional Commits on
 `main`, with the 0.x rules of the contributing guide (`release-please-config.json`). It keeps one

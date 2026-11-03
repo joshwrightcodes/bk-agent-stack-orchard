@@ -12,7 +12,7 @@ Third-party code in the distributed work
 The controller binary links the modules below, and the Go standard library. The text of each
 licence is in the licenses/ directory of each release archive, in
 /var/run/ko/licenses/third-party/ in the container image, in the build/licenses directory after
-"mise run licenses", and in the repository of each module. scripts/check-deps.py fails when a module that the binary links is not named here.
+"mise run licenses", and in the repository of each module. The tests of internal/repocheck fail when a module that the binary links is not named here.
 
 MIT License:
 
