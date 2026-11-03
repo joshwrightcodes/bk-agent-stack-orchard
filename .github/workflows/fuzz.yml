@@ -35,7 +35,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+      # The same mise as release.yml (see ci.yml).
       - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          version: 2026.10.24
       - env:
           # Event data reaches the shell through the environment, never by interpolation.
           FUZZTIME: ${{ inputs.fuzztime || '2m' }}
@@ -61,6 +64,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          version: 2026.10.24
       - run: >-
           mise x -- go test ./test/component/ -run '^TestRandomEventsHoldTheInvariants$' -count=1
           -timeout 40m -rapid.checks=20000 -rapid.steps=200
@@ -77,6 +82,7 @@ jobs:
     needs: [fuzz, property]
     if: failure()
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       # The report opens or comments on the issue.

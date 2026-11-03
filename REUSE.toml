@@ -36,6 +36,7 @@ path = [
   "test/**/*.yaml",
   "test/**/*.md",
   ".golangci.yaml",
+  "ruff.toml",
   ".goreleaser.yaml",
   ".ko.yaml",
   ".release-please-manifest.json",

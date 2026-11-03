@@ -16,7 +16,7 @@ name: release-please
 # * "pull-request-header" replaces the first lines of the release pull request body. It names the
 #   known limitations of the README.
 # * "changelog-sections" match the commit type, not the scope. scripts/check-commits.py rejects
-#   fix(ci) and fix(runner), so that a change of a workflow cannot reach the release notes.
+#   fix(ci), so that a change of a workflow cannot reach the release notes.
 
 on:
   push:
@@ -32,6 +32,7 @@ jobs:
   release-please:
     name: release pull request
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # The client ID and the private key of the App are secrets of this environment, which permits
     # only main. A workflow on another branch cannot read them.
     environment: release-please

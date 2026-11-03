@@ -40,8 +40,9 @@ mise run check   # the gates: documents, commits, dependencies, lint, tests, and
 ```
 
 The gates are also tasks of their own: `check-docs`, `check-commits`, `check-deps`, `lint`,
-`lint-format`, `test`, `check-generate`, and `snapshot`. `mise tasks` lists them. `test` runs
-`go test -race`, so the race detector runs on each local and CI run.
+`lint-format`, `lint-scripts`, `check-tidy`, `test`, `check-generate`, and `snapshot`.
+`mise tasks` lists them. `lint-scripts` lints the shell and Python scripts and the workflows.
+`test` runs `go test -race`, so the race detector runs on each local and CI run.
 
 `mise run check` and `mise run ci` are different gates:
 

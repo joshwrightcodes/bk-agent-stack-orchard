@@ -73,7 +73,9 @@ class SignTest(unittest.TestCase):
         for arch in ("amd64", "arm64"):
             (self.work / f"build/sbom/image-linux-{arch}.spdx.json").write_text("{}")
         (self.work / "build/chart/bk-agent-stack-orchard-0.1.0.tgz").write_text("chart")
-        (self.work / "build/release.env").write_text(f"IMAGE_DIGEST={INDEX}\nCHART_DIGEST={CHART}\n")
+        (self.work / "build/release.env").write_text(
+            f"IMAGE_DIGEST={INDEX}\nCHART_DIGEST={CHART}\n"
+        )
         self.index(GOOD_INDEX)
 
     def index(self, document: dict[str, object]) -> None:
@@ -89,7 +91,11 @@ class SignTest(unittest.TestCase):
         }
         result = subprocess.run(
             ["bash", "-c", f'source "{SCRIPT}"; tag=v0.1.0; sign'],
-            cwd=self.work, env=env, capture_output=True, text=True)
+            cwd=self.work,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
         calls = log.read_text().splitlines() if log.exists() else []
         return result, calls
 
@@ -102,10 +108,15 @@ class SignTest(unittest.TestCase):
         image = "ghcr.io/joshwrightcodes/bk-agent-stack-orchard"
         self.assertEqual(self.attested(calls), [f"{image}@{AMD64}", f"{image}@{ARM64}"])
         self.assertIn(f"cosign sign --yes --recursive {image}@{INDEX}", calls)
-        self.assertIn(f"cosign sign --yes ghcr.io/joshwrightcodes/charts/bk-agent-stack-orchard@{CHART}", calls)
+        chart = "ghcr.io/joshwrightcodes/charts/bk-agent-stack-orchard"
+        self.assertIn(f"cosign sign --yes {chart}@{CHART}", calls)
         upload = next(c for c in calls if c.startswith("gh release upload v0.1.0 dist/"))
-        for name in ("x_linux_amd64.tar.gz", "x_linux_amd64.tar.gz.sbom.json", "checksums.txt",
-                     "checksums.txt.sigstore.json"):
+        for name in (
+            "x_linux_amd64.tar.gz",
+            "x_linux_amd64.tar.gz.sbom.json",
+            "checksums.txt",
+            "checksums.txt.sigstore.json",
+        ):
             self.assertIn(f"dist/{name}", upload.split())
 
     def test_an_index_with_one_platform_attests_nothing(self) -> None:
@@ -122,7 +133,8 @@ class SignTest(unittest.TestCase):
         self.assertEqual(self.attested(calls), [])
 
     def test_an_index_with_a_third_platform_fails(self) -> None:
-        self.index({"manifests": GOOD_INDEX["manifests"] + [manifest("sha256:" + "f" * 64, "linux", "s390x")]})
+        third = manifest("sha256:" + "f" * 64, "linux", "s390x")
+        self.index({"manifests": GOOD_INDEX["manifests"] + [third]})
         result, calls = self.sign()
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.attested(calls), [])
@@ -142,7 +154,8 @@ class SignTest(unittest.TestCase):
     def test_the_digest_file_is_read_and_never_run(self) -> None:
         marker = self.tmp / "ran"
         (self.work / "build/release.env").write_text(
-            f"IMAGE_DIGEST=$(touch {marker})\ntouch {marker}\nCHART_DIGEST={CHART}\n")
+            f"IMAGE_DIGEST=$(touch {marker})\ntouch {marker}\nCHART_DIGEST={CHART}\n"
+        )
         result, calls = self.sign()
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(marker.exists())
