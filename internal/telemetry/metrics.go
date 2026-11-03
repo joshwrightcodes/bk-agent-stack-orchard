@@ -408,8 +408,10 @@ type Metrics struct {
 
 	// reported holds each series that the callback reported, so that a series that leaves the
 	// observation reports 0. The attributes of a series are bounded by the configuration and the
-	// fleet, so the set stays small. Only the callback reads and writes it.
-	reported map[metric.Observable]map[attribute.Distinct]attribute.Set
+	// fleet, so the set stays small. Only the callback reads and writes it, under reporting,
+	// because two readers can each run the callback.
+	reporting sync.Mutex
+	reported  map[metric.Observable]map[attribute.Distinct]attribute.Set
 }
 
 // NewMetrics builds the instruments on a meter and registers the callback that reports the
@@ -715,6 +717,9 @@ func (m *Metrics) report(_ context.Context, observer metric.Observer) error {
 // zero reports 0 for each series that the callback reported before and that this read did not,
 // and remembers the series of this read.
 func (m *Metrics) zero(levels *levels) {
+	m.reporting.Lock()
+	defer m.reporting.Unlock()
+
 	for instrument, sets := range m.reported {
 		for key, set := range sets {
 			if _, now := levels.sets[instrument][key]; now {
