@@ -834,8 +834,14 @@ At start-up, before the first Admission, the controller MUST do these steps:
 1. Register the stack. This call is idempotent. If the call fails with a wait that Buildkite
    names in `Retry-After`, the controller MUST wait for it and register again, while the waits
    stay inside 60 s in total. Nothing else runs before the registration, so the wait holds no
-   other work, and a process that ends instead registers again into the same limit. Any other
-   failure, and a wait that passes the total, MUST end the start.
+   other work, and a process that ends instead registers again into the same limit. If the
+   registration then fails because Buildkite does not answer (a failure in transport, a 5xx
+   status, 429, or the end of the time limit of the call), the controller MUST log the failure,
+   wait, and register again, until it stops. The wait is the one that Buildkite named, or else a
+   random share of a ceiling that starts at 1 s and doubles after each try. Every wait has a cap
+   of 1 min. A process that ended instead would start again only after the backoff of the
+   platform, which grows to 5 minutes, and no Reaper pass would run in that time. A refusal, such
+   as HTTP 401, 403, or 422, MUST end the start, because another try gets the same answer.
 2. List all VMs, and select the owned VMs.
 3. Get the job states of these VMs.
 4. Run a full Reaper pass. `reservedUntil` is unknown, so row 13 extends all reservations

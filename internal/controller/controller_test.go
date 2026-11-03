@@ -5,6 +5,7 @@ package controller_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"sync"
@@ -13,7 +14,9 @@ import (
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/controller"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/retry"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/stack"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
 )
@@ -42,14 +45,35 @@ func (r *recorder) seen() []string {
 type registrar struct {
 	recorder     *recorder
 	registerErr  error
+	registerErrs []error
+	registered   int
 	deregistered int
 	mu           sync.Mutex
 }
 
+// Register gives the answers of registerErrs first, one for each call, and then registerErr.
 func (s *registrar) Register(context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.registered++
 	s.recorder.add("register")
 
+	if len(s.registerErrs) > 0 {
+		err := s.registerErrs[0]
+		s.registerErrs = s.registerErrs[1:]
+
+		return err
+	}
+
 	return s.registerErr
+}
+
+func (s *registrar) registrations() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.registered
 }
 
 func (s *registrar) Deregister(context.Context) error {
@@ -422,6 +446,133 @@ func TestASourceIsNotReadAgainInsideItsInterval(t *testing.T) {
 
 	if idle.count() != 1 {
 		t.Errorf("the loop read the source %d times, want once inside its interval", idle.count())
+	}
+}
+
+// sleeper records each wait of a loop and does not sleep.
+type sleeper struct {
+	mu    sync.Mutex
+	waits []time.Duration
+}
+
+func (s *sleeper) sleep(_ context.Context, d time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.waits = append(s.waits, d)
+
+	return nil
+}
+
+func (s *sleeper) waited() []time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return slices.Clone(s.waits)
+}
+
+// A registration that fails because Buildkite does not answer is tried again inside the process.
+// A process that stopped instead would wait for the backoff of the platform, which grows to
+// minutes, and no reaper pass would run in that time. The waits grow, with jitter, up to a cap,
+// and a wait that Buildkite names counts up to that cap.
+func TestRunRegistersAgainWhileBuildkiteDoesNotAnswer(t *testing.T) {
+	t.Parallel()
+
+	r := &recorder{}
+	settings := options(t, r)
+	holder := &registrar{recorder: r, registerErrs: []error{
+		retry.Again(errors.New("connection refused"), 0),
+		fmt.Errorf("the call ran out of time: %w", context.DeadlineExceeded),
+		retry.Again(errors.New("bad gateway"), 0),
+		retry.Again(errors.New("slow down"), time.Hour),
+	}}
+	settings.Stack = holder
+	waits := &sleeper{}
+	settings.Sleep = waits.sleep
+	settings.Random = func() float64 { return 0.5 }
+	settings.Reap = func(context.Context) error { r.add("reap"); return nil }
+
+	runOnce(t, settings, func() bool { return slices.Contains(r.seen(), "reap") })
+
+	if got := holder.registrations(); got != 5 {
+		t.Errorf("the loop registered %d times, want 5: four failures and a success", got)
+	}
+
+	want := []time.Duration{500 * time.Millisecond, time.Second, 2 * time.Second, time.Minute}
+	if got := waits.waited(); !slices.Equal(got, want) {
+		t.Errorf("the loop waited %v between the registrations, want %v", got, want)
+	}
+}
+
+// A refusal is an answer, and another try gets the same one, so the process stops at once and an
+// operator reads why.
+func TestRunDoesNotRegisterAgainAfterARefusal(t *testing.T) {
+	t.Parallel()
+
+	for name, refusal := range map[string]error{
+		"a refused token":      fmt.Errorf("registering the stack: %w", buildkite.ErrUnauthorized),
+		"a refused request":    errors.New("buildkite answered 422"),
+		"an answer of no form": errors.New("the answer does not decode"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			r := &recorder{}
+			settings := options(t, r)
+			holder := &registrar{recorder: r, registerErr: refusal}
+			settings.Stack = holder
+			waits := &sleeper{}
+			settings.Sleep = waits.sleep
+
+			loop, err := controller.New(settings)
+			if err != nil {
+				t.Fatalf("New() = %v, want the loop", err)
+			}
+
+			if err := loop.Run(t.Context()); !errors.Is(err, refusal) {
+				t.Errorf("Run() = %v, want the refusal", err)
+			}
+
+			if got := holder.registrations(); got != 1 {
+				t.Errorf("the loop registered %d times, want once", got)
+			}
+
+			if got := waits.waited(); len(got) != 0 {
+				t.Errorf("the loop waited %v, want no wait", got)
+			}
+		})
+	}
+}
+
+// The end of the context ends the tries of the registration, and nothing that was not registered
+// is withdrawn.
+func TestTheEndOfTheContextEndsTheRegistration(t *testing.T) {
+	t.Parallel()
+
+	r := &recorder{}
+	settings := options(t, r)
+	holder := &registrar{recorder: r, registerErr: retry.Again(errors.New("connection refused"), 0)}
+	settings.Stack = holder
+
+	ctx, cancel := context.WithCancel(t.Context())
+	settings.Sleep = func(ctx context.Context, _ time.Duration) error {
+		cancel()
+
+		return ctx.Err()
+	}
+
+	loop, err := controller.New(settings)
+	if err != nil {
+		t.Fatalf("New() = %v, want the loop", err)
+	}
+
+	if err := loop.Run(ctx); !errors.Is(err, context.Canceled) {
+		t.Errorf("Run() = %v, want the end of the context", err)
+	}
+
+	if holder.registrations() != 1 || holder.withdrawals() != 0 {
+		t.Errorf("the loop registered %d times and withdrew %d times, want once and never",
+			holder.registrations(), holder.withdrawals())
 	}
 }
 

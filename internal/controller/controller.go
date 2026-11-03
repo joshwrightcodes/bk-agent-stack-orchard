@@ -32,6 +32,17 @@ import (
 // context of the loop is already cancelled then, so the withdrawal needs one of its own.
 const shutdownGrace = 10 * time.Second
 
+// registerFirst and registerLongest shape the waits between two registrations that failed
+// because Buildkite did not answer: the ceiling of the first wait, and the cap of every wait.
+//
+// Nothing else runs before the registration, so a wait there holds no other work. The cap keeps
+// the process close behind a Buildkite that recovers, and it is far below the backoff of the
+// platform, which grows to 5 minutes for a process that stops.
+const (
+	registerFirst   = time.Second
+	registerLongest = time.Minute
+)
+
 // Registrar announces this controller to Buildkite and withdraws it.
 type Registrar interface {
 	Register(ctx context.Context) error
@@ -127,6 +138,15 @@ type Options struct {
 	// Now is the clock that times each tick. internal/app gives every part the same one.
 	Now func() time.Time
 
+	// Sleep waits between two registrations that failed because Buildkite did not answer, and
+	// ends early with the error of the context when the context ends. A nil value uses
+	// retry.Sleep. A test gives one that records the wait and does not sleep.
+	Sleep func(ctx context.Context, d time.Duration) error
+
+	// Random gives the jitter of those waits, a number from 0 up to, but not including, 1. A nil
+	// value takes it from math/rand/v2.
+	Random func() float64
+
 	// Metrics, Logger, and Tracer record what the loop did. A nil Tracer records no span.
 	Metrics *telemetry.Metrics
 	Logger  *slog.Logger
@@ -144,6 +164,8 @@ type Controller struct {
 	interval  time.Duration
 	freshness time.Duration
 	now       func() time.Time
+	sleep     func(ctx context.Context, d time.Duration) error
+	random    func() float64
 	metrics   *telemetry.Metrics
 	logger    *slog.Logger
 	tracer    trace.Tracer
@@ -216,6 +238,11 @@ func New(options Options) (*Controller, error) {
 		tracer = noop.NewTracerProvider().Tracer("")
 	}
 
+	sleep := options.Sleep
+	if sleep == nil {
+		sleep = retry.Sleep
+	}
+
 	return &Controller{
 		stack:     options.Stack,
 		sources:   options.Sources,
@@ -226,6 +253,8 @@ func New(options Options) (*Controller, error) {
 		interval:  options.Interval,
 		freshness: options.Freshness,
 		now:       options.Now,
+		sleep:     sleep,
+		random:    options.Random,
 		metrics:   options.Metrics,
 		logger:    options.Logger,
 		tracer:    tracer,
@@ -245,7 +274,7 @@ func (c *Controller) Sources() []Source {
 // A tick that fails does not stop the loop, because almost every failure here is one call to one
 // API, and the next tick reads the world again. The loop stops only when the context ends.
 func (c *Controller) Run(ctx context.Context) error {
-	if err := c.stack.Register(ctx); err != nil {
+	if err := c.register(ctx); err != nil {
 		return err
 	}
 
@@ -268,6 +297,39 @@ func (c *Controller) Run(ctx context.Context) error {
 			// longer than the interval, that time is in the past, and the freshness gate would
 			// measure an old answer against it. The clock gives the time of the work.
 			c.Tick(ctx, c.now())
+		}
+	}
+}
+
+// register registers the stack, and tries again while Buildkite does not answer, until the
+// context ends.
+//
+// A process that stopped instead would start again only after the backoff of the platform, and
+// no reaper pass would run in that time, so the process waits itself. A failure that
+// retry.Unavailable reports (a failure in transport, a 5xx status, 429, or the end of the time
+// limit of the call) waits and tries again. A refusal is an answer that another try gets again,
+// so it ends the start at once, and an operator reads why.
+func (c *Controller) register(ctx context.Context) error {
+	backoff := retry.Policy{First: registerFirst, Longest: registerLongest, Random: c.random}
+
+	for attempt := 1; ; attempt++ {
+		err := c.stack.Register(ctx)
+		if err == nil {
+			return nil
+		}
+
+		if !retry.Unavailable(err) || ctx.Err() != nil {
+			return err
+		}
+
+		wait := backoff.Backoff(attempt, err)
+
+		c.logger.WarnContext(ctx, "the controller could not register its stack, because "+
+			"Buildkite did not answer, and tries again", "attempt", attempt,
+			"wait", wait.Round(time.Millisecond).String(), "error", err)
+
+		if slept := c.sleep(ctx, wait); slept != nil {
+			return errors.Join(err, slept)
 		}
 	}
 }

@@ -86,7 +86,8 @@ func New(stacks Stacks) (*Stack, error) {
 //
 // A call that fails with a wait that Buildkite named (Retry-After) waits for it and tries again,
 // while the waits stay inside registerPatience in total. Any other failure, and a wait that would
-// pass the total, ends the registration at once. The end of the context ends a wait.
+// pass the total, ends this call at once, and the loop decides whether to register again
+// (internal/controller). The end of the context ends a wait.
 func (s *Stack) Register(ctx context.Context) error {
 	var waited time.Duration
 
