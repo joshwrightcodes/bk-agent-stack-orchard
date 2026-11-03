@@ -48,8 +48,9 @@ var controllerIDFormat = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,21}[a-z0-9])?
 // docs/user/configuration.md, which a test writes from this source. Notes for the code follow a
 // line with only //.
 type Buildkite struct {
-	// The self-hosted Buildkite queue that this controller serves. Use a queue that no other agent
-	// or stack serves. Required.
+	// The self-hosted Buildkite queue that this controller serves. Other agents and stacks may serve
+	// the same queue: the controller counts only the workers that its profiles select, and it
+	// leaves each job that no profile carries in the queue for them. Required.
 	Queue string `yaml:"queue"`
 
 	// AgentToken comes from the environment, never from the file.
@@ -81,7 +82,7 @@ type Buildkite struct {
 	// The longest that the token that the controller gives each VM stays valid. The token opens one
 	// job only. Each token stays valid for the unplaced, boot, and acquire timeouts of the profile
 	// of its job and one minute more, up to this value. From 1 s to 30 min, in whole seconds, and
-	// at least the sum of the unplaced, boot, and acquire timeouts of each profile.
+	// at least the sum of the unplaced, boot, and acquire timeouts of each profile and one minute.
 	JobTokenLifetime time.Duration `yaml:"jobTokenLifetime,omitempty"`
 }
 
@@ -462,15 +463,37 @@ func (c *Config) validateProfiles() []error {
 }
 
 // validateProfileTimeouts keeps a healthy but slow virtual machine inside the life of its job
-// acquisition token. A token that expires first fails a job that would have run.
+// acquisition token, with the margin that the token keeps after the start timeouts. A token that
+// expires first fails a job that would have run.
+//
+// Each start timeout must lie from zero to the token lifetime before the sum. A negative timeout
+// makes the sum small, and timeouts near the largest duration make it wrap to a negative value.
+// Either sum would pass, and the launcher would ask for a token that has already expired.
 func (c *Config) validateProfileTimeouts(p profile.Profile) error {
-	sum := p.EffectiveTimeouts(c.Defaults.Timeouts).StartSum()
-	if sum <= c.Buildkite.JobTokenLifetime {
+	timeouts := p.EffectiveTimeouts(c.Defaults.Timeouts)
+	for _, timeout := range []struct {
+		name  string
+		value time.Duration
+	}{
+		{"unplaced", timeouts.Unplaced},
+		{"boot", timeouts.Boot},
+		{"acquire", timeouts.Acquire},
+	} {
+		if timeout.value < 0 || timeout.value > c.Buildkite.JobTokenLifetime {
+			return fmt.Errorf("profile %q: %s is %s, and it must be from 0 to "+
+				"buildkite.jobTokenLifetime (%s)",
+				p.Name, timeout.name, timeout.value, c.Buildkite.JobTokenLifetime)
+		}
+	}
+
+	sum := timeouts.StartSum()
+	if sum+profile.TokenMargin <= c.Buildkite.JobTokenLifetime {
 		return nil
 	}
 
 	return fmt.Errorf(
-		"profile %q: unplaced, boot, and acquire add to %s, which is longer than buildkite.jobTokenLifetime (%s)",
+		"profile %q: unplaced, boot, and acquire add to %s, and with the margin of one minute "+
+			"that a token keeps, that is longer than buildkite.jobTokenLifetime (%s)",
 		p.Name, sum, c.Buildkite.JobTokenLifetime)
 }
 

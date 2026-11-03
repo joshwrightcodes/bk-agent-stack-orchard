@@ -17,9 +17,7 @@ import (
 func starting(ids ...job.ID) []inventory.Owned {
 	machines := make([]inventory.Owned, 0, len(ids))
 	for _, id := range ids {
-		machine := owned(id, time.Minute)
-		machine.VM.StartedAt = now.Add(-time.Minute)
-		machines = append(machines, machine)
+		machines = append(machines, owned(id, time.Minute))
 	}
 
 	return machines

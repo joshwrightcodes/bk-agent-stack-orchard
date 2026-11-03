@@ -313,3 +313,19 @@ func TestTheProbeServerLimitsTheStreamsOfAConnection(t *testing.T) {
 			probeStreams)
 	}
 }
+
+// The longest tick of the target design, section 4, is 23 calls of 10 s: 6 calls of the refresh,
+// 2 for the progress notices and the extensions, 3 + 1 for the actions of the reaper and its
+// notices, 1 + 3 + 3 + 1 for the reservation, the token calls and the creates inside their
+// budgets, and "VM requested", and 3 for the skip notices. Liveness waits more than three times
+// that tick, so only a tick that never ends fails it.
+func TestTheLivenessStallOutlastsTheLongestTick(t *testing.T) {
+	t.Parallel()
+
+	const longestTick = 23 * 10 * time.Second
+
+	if livenessStall <= 3*longestTick {
+		t.Errorf("liveness waits %s, want more than three times the longest tick of %s",
+			livenessStall, longestTick)
+	}
+}

@@ -69,6 +69,10 @@ const (
 	stateReserved  = "reserved"
 )
 
+// unknownAfter is the number of answers in a row that must leave a job out before the job counts
+// as unknown to Buildkite.
+const unknownAfter = 2
+
 // Machine is everything that the decision reads about one machine of this controller.
 type Machine struct {
 	// VM is the machine as Orchard holds it.
@@ -81,13 +85,22 @@ type Machine struct {
 	// Job is the job that the machine carries, and empty for an orphan.
 	Job job.ID
 
+	// SnapshotAt is when the controller took the snapshot that shows the machine, on its own
+	// clock. A snapshot of any age keeps the phase that the machine had then, and a row that acts
+	// on the phase needs a snapshot inside the freshness limit: while the reads of Orchard fail,
+	// a machine that runs now can still look pending.
+	SnapshotAt time.Time
+
 	// State is the Buildkite state of the job, when Observed and Named are true.
 	State string
 
-	// Named reports that Buildkite named the job when the controller asked. A job that Buildkite
-	// leaves out of its answer is unknown to it, which is a fact about the job and not a gap in
-	// what the controller knows.
+	// Named reports that Buildkite named the job in the last answer.
 	Named bool
+
+	// Absent counts the answers in a row that left the job out. A job that unknownAfter answers in
+	// a row leave out is unknown to Buildkite, which is a fact about the job. One answer that
+	// leaves it out can be a fault of the answer.
+	Absent int
 
 	// Observed reports that the controller has a state for the job. A state that the controller
 	// could not read is not a state, and a decision must not read the empty text as one.
@@ -96,9 +109,33 @@ type Machine struct {
 	// ObservedAt is when the controller asked for the state.
 	ObservedAt time.Time
 
-	// ListedAt is when a snapshot of the controller first listed the machine. It is on the clock
-	// of the controller, as ObservedAt is, so the two compare without the clock of Orchard.
-	ListedAt time.Time
+	// Current reports a state that the controller asked for in this tick, after the last pass of
+	// the reaper. A finish acts only on such a state: an agent can acquire a job at any moment,
+	// and a reserved state from an earlier tick may describe a job that an agent runs now.
+	Current bool
+
+	// ListedAt is when a snapshot of the controller first listed the machine, PlacedAt when one
+	// first showed it on a worker, and RunningAt when one first showed it running, each the zero
+	// time while no snapshot has. They are on the clock of the controller, as ObservedAt and now
+	// are, so the timeouts of rows 10 to 12 compare two times of one clock. The times that
+	// Orchard gives a machine are on the clock of Orchard, and an Orchard clock that runs behind
+	// by more than a few minutes would make a new machine look old enough to end at once.
+	//
+	// Each time is no earlier than the event that it marks, so an age errs short and a timeout
+	// errs long. After a restart, the first snapshot of the new process sets all three.
+	//
+	// The lifetime of row 2 counts from the creation time that Orchard gives instead, so that a
+	// restart does not start it again. The lifetime is hours long, and a skew of minutes between
+	// the two clocks changes it by minutes.
+	ListedAt  time.Time
+	PlacedAt  time.Time
+	RunningAt time.Time
+
+	// TokenAt is when this process sent the token call of the job, on the clock of the
+	// controller, and the zero time when it sent none, which is every job after a restart. The
+	// token starts to expire at that call, and the machine is first listed up to a slow tick
+	// later, so the unplaced timeout counts from it when it is known (target design, section 7.3).
+	TokenAt time.Time
 
 	// ReservedUntil is when the reservation of the job ends, and the zero time when the
 	// controller does not know, which is every job after a restart.
@@ -110,7 +147,8 @@ type Machine struct {
 
 // Rules are the limits of the table that hold for every machine.
 type Rules struct {
-	// Freshness is how old a job state may be and still count.
+	// Freshness is how old a job state, or the snapshot of a machine whose phase a row reads, may
+	// be and still count.
 	Freshness time.Duration
 
 	// RenewBefore is how long before its end a reservation is extended.
@@ -145,7 +183,15 @@ func Decide(m Machine, now time.Time, rules Rules) Decision {
 	// Row 2. A machine that outlives every other limit goes, whatever its job says. The row comes
 	// before the freshness rule on purpose: it reads only the machine, so a controller that
 	// cannot reach Buildkite still removes a machine that nothing else will.
-	if older(now, m.VM.CreatedAt, m.Timeouts.MaxVMLifetime) {
+	//
+	// The age counts from the creation time that Orchard gives, which survives a restart of the
+	// controller. A machine without one counts from the first listing of this process.
+	born := m.VM.CreatedAt
+	if born.IsZero() {
+		born = m.ListedAt
+	}
+
+	if older(now, born, m.Timeouts.MaxVMLifetime) {
 		return Decision{Row: 2, Action: Delete, Reason: ReasonLifetime}
 	}
 
@@ -167,8 +213,14 @@ func Decide(m Machine, now time.Time, rules Rules) Decision {
 	}
 
 	// Row 5. A job that Buildkite does not know gives the same answer to every call, so the
-	// machine goes and the controller asks about the job no more.
+	// machine goes and the controller asks about the job no more. The row waits for a second
+	// answer that leaves the job out: it comes before the rows of an acquired job, so one answer
+	// with a fault would otherwise delete the machine of a running build.
 	if !m.Named {
+		if m.Absent < unknownAfter {
+			return Decision{Row: 5, Action: Keep}
+		}
+
 		return Decision{Row: 5, Action: Delete, Reason: ReasonJobUnknown, Ignore: true}
 	}
 
@@ -181,9 +233,14 @@ func Decide(m Machine, now time.Time, rules Rules) Decision {
 	failed := m.VM.Status == orchard.StatusFailed
 
 	// Rows 7 and 8. An agent owns the job, so Buildkite decides its result. A machine that failed
-	// goes with a line on the job page; one that runs is doing its work.
+	// goes with a line on the job page; one that runs is doing its work. Row 7 acts on the phase
+	// of the machine, so it waits for a fresh snapshot, as rows 9 to 12 do.
 	if buildkite.Acquired(m.State) {
 		if failed {
+			if !phased(m, now, rules) {
+				return Decision{Row: 7, Action: Keep}
+			}
+
 			return Decision{Row: 7, Action: NotifyAndDelete, Reason: ReasonVMFailed}
 		}
 
@@ -201,23 +258,35 @@ func Decide(m Machine, now time.Time, rules Rules) Decision {
 // reserved reads rows 9 to 13, for a machine whose job is reserved.
 func reserved(m Machine, now time.Time, rules Rules, failed bool) Decision {
 	// Row 9. The machine failed before any agent acquired the job, so the job fails too, and the
-	// job page says why.
+	// job page says why. Like every row that finishes a job, it waits for a state of this tick,
+	// and like every row that acts on the phase, for a fresh snapshot.
 	if failed {
+		if !m.Current || !phased(m, now, rules) {
+			return Decision{Row: 9, Action: Keep}
+		}
+
 		return Decision{Row: 9, Action: FinishAndDelete, Reason: ReasonVMFailed}
 	}
 
 	pending := m.VM.Status == orchard.StatusPending
 
+	// Rows 10 to 12 read the phase of the machine. On a stale snapshot none of them applies, and
+	// row 13 holds the job of a machine that may still start.
+	fresh := phased(m, now, rules)
+
 	// Row 10. No worker took the machine in time, which means that the fleet is full. The machine
 	// goes and the reservation is left to lapse, so the job returns to the queue and admission
 	// starts it again when there is room. The job does not fail.
-	if pending && !m.VM.Placed() && older(now, m.VM.CreatedAt, m.Timeouts.Unplaced) {
+	if fresh && pending && !m.VM.Placed() && older(now, unplacedSince(m), m.Timeouts.Unplaced) {
 		return Decision{Row: 10, Action: Delete, Reason: ReasonUnplacedTimeout}
 	}
 
 	// Row 11. A worker took the machine and it did not start in time. The limit counts from the
 	// placement, because a machine that waited for a worker has not had its chance to boot yet.
-	if pending && m.VM.Placed() && older(now, m.VM.ScheduledAt, m.Timeouts.Boot) {
+	// Rows 11 and 12 finish the job, so they wait for a state of this tick, and row 13 holds the
+	// job meanwhile.
+	if fresh && m.Current && pending && m.VM.Placed() &&
+		older(now, m.PlacedAt, m.Timeouts.Boot) {
 		return Decision{Row: 11, Action: FinishAndDelete, Reason: ReasonBootTimeout}
 	}
 
@@ -225,7 +294,7 @@ func reserved(m Machine, now time.Time, rules Rules, failed bool) Decision {
 
 	// Row 12. The machine runs and no agent acquired the job in time. The limit counts from the
 	// start of the machine process, which is when macOS begins to boot.
-	if running && older(now, m.VM.StartedAt, m.Timeouts.Acquire) {
+	if fresh && m.Current && running && older(now, m.RunningAt, m.Timeouts.Acquire) {
 		return Decision{Row: 12, Action: FinishAndDelete, Reason: ReasonAcquireTimeout}
 	}
 
@@ -243,6 +312,26 @@ func reserved(m Machine, now time.Time, rules Rules, failed bool) Decision {
 	return Decision{Action: Keep}
 }
 
+// unplacedSince gives the start of the unplaced timeout: the token call of the job when this
+// process sent it, and else the first listing of the machine.
+//
+// The token call comes before the create, so a token call after the first listing belongs to a
+// later launch of the job and not to this machine. The earlier of the two times is then the
+// first listing.
+func unplacedSince(m Machine) time.Time {
+	if !m.TokenAt.IsZero() && m.TokenAt.Before(m.ListedAt) {
+		return m.TokenAt
+	}
+
+	return m.ListedAt
+}
+
+// phased reports a machine whose snapshot is inside the freshness limit, so that a row may act on
+// its phase. The age counts on the clock of the controller, as the gate of admission counts it.
+func phased(m Machine, now time.Time, rules Rules) bool {
+	return now.Sub(m.SnapshotAt) <= rules.Freshness
+}
+
 // older reports a time that lies more than a limit before now. A zero time has no age: treating it
 // as ancient would end a machine at once, and a machine of a job in progress is not worth that
 // risk.
@@ -250,13 +339,13 @@ func older(now, since time.Time, limit time.Duration) bool {
 	return !since.IsZero() && now.Sub(since) > limit
 }
 
-// Timeouts gives the limits of a machine.
+// Timeouts gives the limits of a machine whose profile has the name.
 //
-// A machine does not carry the name of its profile (target design, section 6.1), so after a
-// restart the controller cannot name the profile of a machine that it did not start. The limits
-// are then the largest of each limit across the profiles. A restart must never end a machine
-// sooner than its own profile allows: a stray machine that lives an hour longer costs a slot,
-// and a job that the controller ends early costs a build.
+// The tags of a machine name its profile, so a process after a restart reads the name back from
+// Orchard. A name that no profile of the configuration has, such as the name of a profile that an
+// operator removed, or no name at all, gives the largest of each limit across the profiles. A
+// restart must never end a machine sooner than its own profile allows: a stray machine that lives
+// an hour longer costs a slot, and a job that the controller ends early costs a build.
 func Timeouts(name string, profiles []profile.Profile, defaults profile.Timeouts) profile.Timeouts {
 	for _, p := range profiles {
 		if p.Name == name {

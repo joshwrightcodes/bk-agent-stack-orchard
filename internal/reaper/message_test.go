@@ -16,13 +16,10 @@ import (
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
 )
 
-// waiting gives a machine that runs and whose agent has not acquired its reserved job for longer
-// than the acquire limit, which is row 12.
+// waiting gives a machine that the controller has seen running for an hour, and whose agent has
+// not acquired its reserved job inside the acquire limit, which is row 12.
 func waiting(id job.ID) inventory.Owned {
-	machine := owned(id, time.Hour)
-	machine.VM.StartedAt = now.Add(-10 * time.Minute)
-
-	return machine
+	return owned(id, time.Hour)
 }
 
 // script gives lines of the startup script, one event each, out of order as a list can come.
@@ -142,7 +139,6 @@ func TestABootTimeoutShowsTheStatusOfTheMachine(t *testing.T) {
 
 	machine := owned(ended, time.Hour)
 	machine.VM.Status = orchard.StatusPending
-	machine.VM.ScheduledAt = now.Add(-20 * time.Minute)
 	machine.VM.StatusMessage = "pulling the image: 61% done"
 
 	detail := finished(t, &fleet{

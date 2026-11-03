@@ -29,8 +29,9 @@ import (
 // The reaper and the launcher make a call for each VM that they act on. Those calls run
 // parallel.Limit at a time inside a budget of parallel.Rounds limits, and the first call that
 // finds an API not answering stops the calls that wait, so their number does not set the length of
-// a tick. The longest tick, in which every call takes its whole limit and answers, is 21 calls or
-// 210 s, and a tick in which both APIs hang is about 110 s (target design, section 4).
+// a tick. The token calls of the launcher, one for each lifetime among the admitted jobs, share the
+// same kind of budget. The longest tick, in which every call takes its whole limit and answers, is
+// 23 calls or 230 s, and a tick in which both APIs hang is about 110 s (target design, section 4).
 //
 // 10 s is also long enough for the calls that answer: the Stacks API and Orchard answer in well
 // under a second, and the policy adds at most 1.5 s of waits.

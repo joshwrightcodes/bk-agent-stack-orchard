@@ -26,8 +26,10 @@ var (
 
 const carried = job.ID("018f3b2c-1c4a-7e5b-9a3d-2f1e4c5b6a7d")
 
-// machine gives a machine created an hour ago that runs on a worker, whose job state the
-// controller asked for a second ago and Buildkite named. A case changes what it needs.
+// machine gives a machine that Orchard created an hour ago and that the controller first listed
+// and saw placed an hour ago, and saw running a minute ago, as a snapshot of a second ago shows it,
+// whose job state the controller asked for a second ago, in this tick, and Buildkite named. A case
+// changes what it needs.
 func machine(state string, change ...func(*reaper.Machine)) reaper.Machine {
 	m := reaper.Machine{
 		VM: orchard.VM{
@@ -39,9 +41,14 @@ func machine(state string, change ...func(*reaper.Machine)) reaper.Machine {
 			Status:      orchard.StatusRunning,
 		},
 		Job:           carried,
+		SnapshotAt:    now.Add(-time.Second),
+		ListedAt:      now.Add(-time.Hour),
+		PlacedAt:      now.Add(-time.Hour),
+		RunningAt:     now.Add(-time.Minute),
 		State:         state,
 		Named:         true,
 		Observed:      true,
+		Current:       true,
 		ObservedAt:    now.Add(-time.Second),
 		ReservedUntil: now.Add(4 * time.Minute),
 		Timeouts:      limits,
@@ -54,7 +61,11 @@ func machine(state string, change ...func(*reaper.Machine)) reaper.Machine {
 	return m
 }
 
-// The ways a case changes the machine.
+// The ways a case changes the machine. The age since Orchard created the machine (created) is on
+// the clock of Orchard, which runs with the clock of the controller unless a case skews it. The
+// other ages are those that the controller measures on its own clock: since a snapshot first
+// listed the machine (listed), first showed it on a worker (placed), and first showed it running
+// (started).
 func status(s string) func(*reaper.Machine) {
 	return func(m *reaper.Machine) { m.VM.Status = s }
 }
@@ -63,15 +74,51 @@ func created(ago time.Duration) func(*reaper.Machine) {
 	return func(m *reaper.Machine) { m.VM.CreatedAt = now.Add(-ago) }
 }
 
+func listed(ago time.Duration) func(*reaper.Machine) {
+	return func(m *reaper.Machine) { m.ListedAt = now.Add(-ago) }
+}
+
 func placed(ago time.Duration) func(*reaper.Machine) {
-	return func(m *reaper.Machine) { m.VM.ScheduledAt = now.Add(-ago) }
+	return func(m *reaper.Machine) { m.PlacedAt = now.Add(-ago) }
 }
 
 func started(ago time.Duration) func(*reaper.Machine) {
-	return func(m *reaper.Machine) { m.VM.StartedAt = now.Add(-ago) }
+	return func(m *reaper.Machine) { m.RunningAt = now.Add(-ago) }
 }
 
-func unplaced(m *reaper.Machine) { m.VM.Worker = ""; m.VM.ScheduledAt = time.Time{} }
+// tokened is a job whose token call this process sent some time ago. A job with no such call has
+// the zero time, as every job after a restart has.
+func tokened(ago time.Duration) func(*reaper.Machine) {
+	return func(m *reaper.Machine) { m.TokenAt = now.Add(-ago) }
+}
+
+func unplaced(m *reaper.Machine) {
+	m.VM.Worker = ""
+	m.VM.ScheduledAt = time.Time{}
+	m.PlacedAt = time.Time{}
+}
+
+// skewed gives the times that Orchard gave the machine, on an Orchard clock that runs ahead of the
+// clock of the controller by the offset, or behind it for a negative offset.
+func skewed(offset time.Duration) func(*reaper.Machine) {
+	return func(m *reaper.Machine) {
+		m.VM.CreatedAt = m.ListedAt.Add(offset)
+		m.VM.ScheduledAt = m.PlacedAt.Add(offset)
+		m.VM.StartedAt = m.RunningAt.Add(offset)
+	}
+}
+
+// unknown is a job that the last answers, so many in a row, left out.
+func unknown(answers int) func(*reaper.Machine) {
+	return func(m *reaper.Machine) { m.Named = false; m.Absent = answers }
+}
+
+// frozen is a machine from a snapshot older than the freshness limit, as during an outage of the
+// reads of Orchard.
+func frozen(m *reaper.Machine) { m.SnapshotAt = now.Add(-2 * freshness) }
+
+// earlier is a job state that the controller asked for before the last pass of the reaper.
+func earlier(m *reaper.Machine) { m.Current = false }
 
 func reservedFor(left time.Duration) func(*reaper.Machine) {
 	return func(m *reaper.Machine) { m.ReservedUntil = now.Add(left) }
@@ -140,9 +187,11 @@ func TestTheDecisionTable(t *testing.T) {
 		},
 
 		// Row 5.
-		"a job that Buildkite does not name goes": {
-			machine("", func(m *reaper.Machine) { m.Named = false }),
-			5, reaper.Delete, reaper.ReasonJobUnknown,
+		"a job that two answers in a row leave out goes": {
+			machine("", unknown(2)), 5, reaper.Delete, reaper.ReasonJobUnknown,
+		},
+		"a job that one answer leaves out waits for the next answer": {
+			machine("", unknown(1)), 5, reaper.Keep, "",
 		},
 
 		// Row 6.
@@ -159,6 +208,9 @@ func TestTheDecisionTable(t *testing.T) {
 			machine("running", status(orchard.StatusFailed)), 7, reaper.NotifyAndDelete,
 			reaper.ReasonVMFailed,
 		},
+		"a failed machine of an acquired job waits for a fresh snapshot": {
+			machine("running", status(orchard.StatusFailed), frozen), 7, reaper.Keep, "",
+		},
 		"a machine of an acquired job that runs stays": {
 			machine("running"), 8, reaper.Keep, "",
 		},
@@ -169,18 +221,50 @@ func TestTheDecisionTable(t *testing.T) {
 			reaper.ReasonVMFailed,
 		},
 		"a failed machine wins over the timeouts": {
-			machine("reserved", status(orchard.StatusFailed), unplaced, created(time.Hour)),
+			machine("reserved", status(orchard.StatusFailed), unplaced, listed(time.Hour)),
 			9, reaper.FinishAndDelete, reaper.ReasonVMFailed,
+		},
+
+		"a failed machine waits for a state of this tick before it fails the job": {
+			machine("reserved", status(orchard.StatusFailed), earlier), 9, reaper.Keep, "",
+		},
+
+		"a failed machine waits for a fresh snapshot before it fails the job": {
+			machine("reserved", status(orchard.StatusFailed), frozen), 9, reaper.Keep, "",
 		},
 
 		// Row 10.
 		"a machine that no worker took in time goes and the job waits again": {
-			machine("reserved", status(orchard.StatusPending), unplaced, created(3*time.Minute)),
+			machine("reserved", status(orchard.StatusPending), unplaced, listed(3*time.Minute)),
 			10, reaper.Delete, reaper.ReasonUnplacedTimeout,
 		},
+		"an unplaced timeout on a stale snapshot extends the reservation instead": {
+			machine("reserved", status(orchard.StatusPending), unplaced, listed(3*time.Minute),
+				frozen, reservedFor(time.Minute)),
+			13, reaper.Extend, "",
+		},
 		"a machine that waits for a worker exactly as long as the limit stays": {
-			machine("reserved", status(orchard.StatusPending), unplaced, created(2*time.Minute)),
+			machine("reserved", status(orchard.StatusPending), unplaced, listed(2*time.Minute)),
 			13, reaper.Keep, "",
+		},
+		"the unplaced limit counts from the token call and not from the first listing": {
+			machine("reserved", status(orchard.StatusPending), unplaced, listed(time.Minute),
+				tokened(3*time.Minute)),
+			10, reaper.Delete, reaper.ReasonUnplacedTimeout,
+		},
+		"a machine inside the unplaced limit from the token call stays": {
+			machine("reserved", status(orchard.StatusPending), unplaced, listed(10*time.Second),
+				tokened(2*time.Minute)),
+			13, reaper.Keep, "",
+		},
+		"the unplaced limit counts from the first listing without a token call": {
+			machine("reserved", status(orchard.StatusPending), unplaced, listed(time.Minute)),
+			13, reaper.Keep, "",
+		},
+		"a token call after the first listing belongs to a later launch": {
+			machine("reserved", status(orchard.StatusPending), unplaced, listed(3*time.Minute),
+				tokened(30*time.Second)),
+			10, reaper.Delete, reaper.ReasonUnplacedTimeout,
 		},
 
 		// Row 11.
@@ -188,8 +272,18 @@ func TestTheDecisionTable(t *testing.T) {
 			machine("reserved", status(orchard.StatusPending), placed(16*time.Minute)),
 			11, reaper.FinishAndDelete, reaper.ReasonBootTimeout,
 		},
-		"the boot limit counts from the placement and not from the creation": {
-			machine("reserved", status(orchard.StatusPending), created(20*time.Minute),
+		"a boot timeout waits for a state of this tick and extends meanwhile": {
+			machine("reserved", status(orchard.StatusPending), placed(16*time.Minute), earlier,
+				reservedFor(time.Minute)),
+			13, reaper.Extend, "",
+		},
+		"a boot timeout on a stale snapshot extends the reservation instead": {
+			machine("reserved", status(orchard.StatusPending), placed(16*time.Minute), frozen,
+				reservedFor(time.Minute)),
+			13, reaper.Extend, "",
+		},
+		"the boot limit counts from the placement and not from the first listing": {
+			machine("reserved", status(orchard.StatusPending), listed(20*time.Minute),
 				placed(time.Minute)),
 			13, reaper.Keep, "",
 		},
@@ -198,6 +292,20 @@ func TestTheDecisionTable(t *testing.T) {
 		"a running machine whose agent did not acquire in time fails the job": {
 			machine("reserved", started(6*time.Minute)), 12, reaper.FinishAndDelete,
 			reaper.ReasonAcquireTimeout,
+		},
+		"an acquire timeout waits for a state of this tick": {
+			machine("reserved", started(6*time.Minute), earlier), 13, reaper.Keep, "",
+		},
+		"an acquire timeout on a stale snapshot extends the reservation instead": {
+			machine("reserved", started(6*time.Minute), frozen, reservedFor(time.Minute)),
+			13, reaper.Extend, "",
+		},
+		"the rows that need no phase act on a stale snapshot": {
+			machine("finished", frozen), 4, reaper.Delete, reaper.ReasonJobTerminal,
+		},
+		"the lifetime acts on a stale snapshot": {
+			machine("running", created(26*time.Hour), frozen), 2, reaper.Delete,
+			reaper.ReasonLifetime,
 		},
 		"a running machine inside the acquire limit stays": {
 			machine("reserved", started(4*time.Minute)), 13, reaper.Keep, "",
@@ -248,7 +356,7 @@ func TestTheDecisionTable(t *testing.T) {
 func TestAnUnknownJobIsIgnoredAfterwards(t *testing.T) {
 	t.Parallel()
 
-	got := reaper.Decide(machine("", func(m *reaper.Machine) { m.Named = false }), now, rules)
+	got := reaper.Decide(machine("", unknown(2)), now, rules)
 	if !got.Ignore {
 		t.Error("Decide() for an unknown job does not mark it ignored")
 	}
@@ -275,8 +383,9 @@ func TestNoJobThatAnAgentOwnsIsFinished(t *testing.T) {
 	}
 }
 
-// The lifetime is a limit: a machine at exactly the lifetime stays, and a machine with no creation
-// time has no age at all.
+// The lifetime is a limit: a machine at exactly the lifetime stays. A machine without a creation
+// time counts its age from the first listing of this process, and a machine with neither time has
+// no age at all.
 func TestTheLifetimeIsALimitAndNeedsATime(t *testing.T) {
 	t.Parallel()
 
@@ -284,9 +393,43 @@ func TestTheLifetimeIsALimitAndNeedsATime(t *testing.T) {
 		t.Errorf("Decide() = %+v, want no deletion at exactly the lifetime", got)
 	}
 
-	undated := machine("running", func(m *reaper.Machine) { m.VM.CreatedAt = time.Time{} })
+	uncreated := func(m *reaper.Machine) { m.VM.CreatedAt = time.Time{} }
+
+	old := machine("running", uncreated, listed(26*time.Hour))
+	if got := reaper.Decide(old, now, rules); got.Row != 2 || got.Action != reaper.Delete {
+		t.Errorf("Decide() = %+v, want row 2 from the first listing of a machine with no "+
+			"creation time", got)
+	}
+
+	young := machine("running", uncreated, listed(time.Hour))
+	if got := reaper.Decide(young, now, rules); got.Row == 2 {
+		t.Errorf("Decide() = %+v, want no deletion inside the lifetime from the first listing", got)
+	}
+
+	undated := machine("running", uncreated, func(m *reaper.Machine) { m.ListedAt = time.Time{} })
 	if got := reaper.Decide(undated, now, rules); got.Action != reaper.Keep {
 		t.Errorf("Decide() = %+v, want no action for a machine with no age", got)
+	}
+}
+
+// A restart does not extend the lifetime. The new process first lists a machine that Orchard
+// created more than a lifetime ago, and the machine goes at once, whatever its job says.
+func TestARestartDoesNotExtendTheLifetime(t *testing.T) {
+	t.Parallel()
+
+	for _, state := range []string{"running", "reserved", ""} {
+		restarted := machine(state, created(26*time.Hour), listed(time.Second),
+			func(m *reaper.Machine) {
+				m.PlacedAt = now.Add(-time.Second)
+				m.RunningAt = now.Add(-time.Second)
+				m.Observed = state != ""
+			})
+
+		got := reaper.Decide(restarted, now, rules)
+		if got.Row != 2 || got.Action != reaper.Delete || got.Reason != reaper.ReasonLifetime {
+			t.Errorf("job %q: Decide() = %+v, want row 2 on the first listing after a restart",
+				state, got)
+		}
 	}
 }
 
@@ -326,5 +469,56 @@ func TestTimeoutsOfAnUnknownProfileAreTheWidest(t *testing.T) {
 
 	if got.Acquire != limits.Acquire {
 		t.Errorf("the acquire limit is %s, want the default %s", got.Acquire, limits.Acquire)
+	}
+}
+
+// The timeouts of rows 10 to 12 are on the clock of the controller. An Orchard clock that runs
+// half a day behind makes no new machine old enough to end, and one that runs half a day ahead
+// hides no timeout.
+func TestNoStartTimeoutReadsTheClockOfOrchard(t *testing.T) {
+	t.Parallel()
+
+	for _, offset := range []time.Duration{-12 * time.Hour, 12 * time.Hour} {
+		for name, test := range map[string]struct {
+			machine reaper.Machine
+			row     int
+			action  reaper.Action
+		}{
+			"a new machine that waits for a worker": {
+				machine("reserved", status(orchard.StatusPending), unplaced, listed(time.Minute),
+					reservedFor(4*time.Minute), skewed(offset)),
+				13, reaper.Keep,
+			},
+			"a machine that waited too long for a worker": {
+				machine("reserved", status(orchard.StatusPending), unplaced, listed(3*time.Minute),
+					skewed(offset)),
+				10, reaper.Delete,
+			},
+			"a placed machine that boots": {
+				machine("reserved", status(orchard.StatusPending), placed(time.Minute),
+					reservedFor(4*time.Minute), skewed(offset)),
+				13, reaper.Keep,
+			},
+			"a placed machine that did not boot in time": {
+				machine("reserved", status(orchard.StatusPending), placed(16*time.Minute),
+					skewed(offset)),
+				11, reaper.FinishAndDelete,
+			},
+			"a running machine inside the acquire limit": {
+				machine("reserved", started(time.Minute), reservedFor(4*time.Minute),
+					skewed(offset)),
+				13, reaper.Keep,
+			},
+			"a running machine past the acquire limit": {
+				machine("reserved", started(6*time.Minute), skewed(offset)),
+				12, reaper.FinishAndDelete,
+			},
+		} {
+			got := reaper.Decide(test.machine, now, rules)
+			if got.Row != test.row || got.Action != test.action {
+				t.Errorf("%s, Orchard %s off: Decide() = row %d, %s; want row %d, %s", name, offset,
+					got.Row, got.Action, test.row, test.action)
+			}
+		}
 	}
 }

@@ -70,8 +70,13 @@ type Options struct {
 	Fleet        Fleet
 
 	// Profile gives the profile of a job that this process started, and empty text for one that
-	// it did not.
+	// it did not. The tags of a machine name the profile of one that it did not start.
 	Profile func(job.ID) string
+
+	// TokenAt gives when this process sent the token call of a job, and the zero time for a job
+	// that got no token from it. The unplaced timeout counts from it. A nil value gives the zero
+	// time for every job, and the timeout then counts from the first listing.
+	TokenAt func(job.ID) time.Time
 
 	// Profiles and Defaults give the limits of a machine.
 	Profiles []profile.Profile
@@ -106,6 +111,7 @@ type Reaper struct {
 	machines     Machines
 	fleet        Fleet
 	profile      func(job.ID) string
+	tokenAt      func(job.ID) time.Time
 	profiles     []profile.Profile
 	defaults     profile.Timeouts
 	freshness    time.Duration
@@ -114,10 +120,21 @@ type Reaper struct {
 	tracer       trace.Tracer
 	now          func() time.Time
 
-	// ignored holds the jobs that Buildkite refused with a 404 or a 422. Every further call about
-	// such a job gives the same refusal, so the controller makes none (target design, section 7.1,
-	// rule 4). Only the goroutine of the loop reads and writes it.
+	// ignored holds the jobs that Buildkite does not know (row 5). Every further call about such a
+	// job gives the same refusal, so the controller makes none (target design, section 7.1, rule
+	// 4). Only the goroutine of the loop reads and writes it.
 	ignored map[job.ID]bool
+
+	// refused holds the jobs whose finish Buildkite refused with a 404 or a 422. A refusal can
+	// mean that the job ended, and also that an agent acquired it after the state that the finish
+	// acted on, so the machine stays in that pass and the next state decides. A second finish
+	// would get the same refusal, so the controller sends none. Only the goroutine of the loop
+	// reads and writes it.
+	refused map[job.ID]bool
+
+	// passed is when the last pass began. A job state that the controller asked for after it is
+	// a state of this tick, because the refresh of a tick comes before its pass.
+	passed time.Time
 
 	// warned holds the state that the last warning named for a job whose state matches no row, so
 	// that a job stuck in one such state gives one record and not one at every tick.
@@ -130,21 +147,23 @@ type Reaper struct {
 	// then starts the time again, which the design states.
 	ended map[job.ID]time.Time
 
-	// listed holds, for each machine of a snapshot, when a snapshot first listed it and the
-	// creation time that Orchard gave it then. A machine with another creation time is a new
-	// machine with the same name, such as the second machine of a job, and its time starts again.
-	// Only the goroutine of the loop reads and writes it.
+	// listed holds, for each machine of a snapshot, when a snapshot first listed it, first
+	// showed it on a worker, and first showed it running, and the creation time that Orchard gave
+	// it. A machine with another creation time is a new machine with the same name, such as the
+	// second machine of a job, and its times start again. Only the goroutine of the loop reads and
+	// writes it.
 	listed map[string]sighting
 }
 
-// sighting is the first snapshot that listed one machine.
+// sighting is what the snapshots of this process first showed of one machine.
 type sighting struct {
 	// created is the creation time that Orchard gave the machine, which tells two machines of one
 	// name apart. It is never compared with a time of the controller.
 	created time.Time
 
-	// at is when that snapshot was taken, on the clock of the controller.
-	at time.Time
+	// at, placed, and running are when a snapshot first listed the machine, first showed it on a
+	// worker, and first showed it running, on the clock of the controller.
+	at, placed, running time.Time
 }
 
 // New builds the reaper.
@@ -196,6 +215,11 @@ func New(options Options) (*Reaper, error) {
 		name = func(job.ID) string { return "" }
 	}
 
+	tokenAt := options.TokenAt
+	if tokenAt == nil {
+		tokenAt = func(job.ID) time.Time { return time.Time{} }
+	}
+
 	return &Reaper{
 		stacks:       options.Stacks,
 		states:       options.States,
@@ -205,6 +229,7 @@ func New(options Options) (*Reaper, error) {
 		machines:     options.Orchard,
 		fleet:        options.Fleet,
 		profile:      name,
+		tokenAt:      tokenAt,
 		profiles:     options.Profiles,
 		defaults:     options.Defaults,
 		freshness:    options.Freshness,
@@ -213,6 +238,7 @@ func New(options Options) (*Reaper, error) {
 		tracer:       tracer,
 		now:          now,
 		ignored:      map[job.ID]bool{},
+		refused:      map[job.ID]bool{},
 		warned:       map[job.ID]string{},
 		ended:        map[job.ID]time.Time{},
 		listed:       map[string]sighting{},
@@ -239,13 +265,16 @@ func (r *Reaper) Reap(ctx context.Context) error {
 	now := r.now()
 	rules := Rules{Freshness: r.freshness, RenewBefore: r.renewBefore}
 
+	machines := r.collect(snapshot)
+	r.passed = now
+
 	var (
 		failures int
 		extend   []job.ID
 		tasks    []task
 	)
 
-	for _, machine := range r.collect(snapshot) {
+	for _, machine := range machines {
 		decision := Decide(machine, now, rules)
 
 		switch decision.Action {
@@ -258,6 +287,7 @@ func (r *Reaper) Reap(ctx context.Context) error {
 		case Delete, FinishAndDelete, NotifyAndDelete:
 			tasks = append(tasks, task{
 				machine: machine, decision: decision, ignored: r.ignored[machine.Job],
+				refused: r.refused[machine.Job],
 			})
 		}
 	}
@@ -314,16 +344,19 @@ type task struct {
 	machine  Machine
 	decision Decision
 
-	// ignored is a job that Buildkite refused before: the action makes no call about it.
+	// ignored is a job that Buildkite does not know: the action makes no call about it.
 	ignored bool
+
+	// refused is a job whose finish Buildkite refused before: the action sends no second finish.
+	refused bool
 }
 
 // result is what carrying out one task did. The goroutine of the loop applies it after every
 // action of the pass ended, so that the maps of the reaper keep one writer.
 type result struct {
-	// finished is a job that Buildkite ended, and terminal is a job that Buildkite refused to
-	// end because it ended already or never existed.
-	finished, terminal bool
+	// finished is a job that Buildkite ended, and refused is a job whose finish Buildkite
+	// refused.
+	finished, refused bool
 
 	// deleted is a machine whose deletion Orchard accepted.
 	deleted bool
@@ -343,11 +376,16 @@ func (r *Reaper) collect(snapshot inventory.Snapshot) []Machine {
 	}
 
 	for _, owned := range snapshot.Owned {
+		seen := r.list(owned.VM, snapshot.At)
 		machine := Machine{
-			VM:       owned.VM,
-			Job:      owned.Job,
-			ListedAt: r.list(owned.VM, snapshot.At),
-			Timeouts: Timeouts(r.profile(owned.Job), r.profiles, r.defaults),
+			VM:         owned.VM,
+			Job:        owned.Job,
+			SnapshotAt: snapshot.At,
+			ListedAt:   seen.at,
+			PlacedAt:   seen.placed,
+			RunningAt:  seen.running,
+			TokenAt:    r.tokenAt(owned.Job),
+			Timeouts:   Timeouts(r.nameOf(owned), r.profiles, r.defaults),
 		}
 
 		// A reservation whose end the controller does not know is extended at once, which is
@@ -360,8 +398,10 @@ func (r *Reaper) collect(snapshot inventory.Snapshot) []Machine {
 		if observation, asked := r.states.Observed(owned.Job); asked {
 			machine.State = observation.State
 			machine.Named = observation.Named
+			machine.Absent = observation.Absent
 			machine.Observed = true
 			machine.ObservedAt = observation.At
+			machine.Current = observation.At.After(r.passed)
 
 			if _, counted := r.ended[owned.Job]; !counted && buildkite.Terminal(observation.State) {
 				r.ended[owned.Job] = r.now()
@@ -374,16 +414,26 @@ func (r *Reaper) collect(snapshot inventory.Snapshot) []Machine {
 	return machines
 }
 
-// list gives when a snapshot first listed a machine, and records the snapshot at as the first one
-// for a machine that no snapshot listed before.
-func (r *Reaper) list(vm orchard.VM, at time.Time) time.Time {
+// list gives what the snapshots first showed of a machine, and records the snapshot at as the
+// first one that listed it, placed it, or showed it running, for each of those that no snapshot
+// showed before.
+func (r *Reaper) list(vm orchard.VM, at time.Time) sighting {
 	seen, known := r.listed[vm.Name]
 	if !known || !seen.created.Equal(vm.CreatedAt) {
 		seen = sighting{created: vm.CreatedAt, at: at}
-		r.listed[vm.Name] = seen
 	}
 
-	return seen.at
+	if seen.placed.IsZero() && vm.Placed() {
+		seen.placed = at
+	}
+
+	if seen.running.IsZero() && vm.Status == orchard.StatusRunning {
+		seen.running = at
+	}
+
+	r.listed[vm.Name] = seen
+
+	return seen
 }
 
 // carry carries out one task, and gives what it did. It runs on a goroutine of the step, so it
@@ -413,17 +463,23 @@ func (r *Reaper) carry(ctx context.Context, t task) result {
 
 	// A machine whose job did not finish stays, so that the next tick finishes the job before the
 	// machine goes. Without that, a failed job would wait for its lost-agent timeout.
-	if decision.Action == FinishAndDelete && !t.ignored {
+	if decision.Action == FinishAndDelete && !t.ignored && !t.refused {
 		err := r.finish(ctx, machine, decision)
 
 		switch {
 		case err == nil:
 			done.finished = true
 		case errors.Is(err, buildkite.ErrTerminal):
-			// Buildkite refuses a finish of a job that already ended or that it does not know.
-			// A second finish after a restart is the common case. The job is done either way,
-			// and every further call would give the same refusal.
-			done.terminal = true
+			// Buildkite refuses a finish of a job that ended, of a job that it does not know,
+			// and, as far as anyone knows, of a job that an agent acquired after the state that
+			// this finish read. The last one runs a build, so the machine stays in this pass,
+			// and the next state decides: an agent keeps it, and a job that ended loses it.
+			r.logger.InfoContext(ctx, "buildkite refused to end a job, and the next job state "+
+				"decides what happens to its machine", append(fields, "error", err)...)
+
+			done.refused = true
+
+			return done
 		default:
 			span.RecordError(err)
 			r.logger.ErrorContext(ctx, "the reaper could not end a job",
@@ -460,8 +516,8 @@ func (r *Reaper) settle(ctx context.Context, t task, done result,
 ) []buildkite.Notification {
 	machine, decision := t.machine, t.decision
 
-	if done.terminal {
-		r.ignored[machine.Job] = true
+	if done.refused {
+		r.refused[machine.Job] = true
 	}
 
 	if done.finished {
@@ -481,6 +537,10 @@ func (r *Reaper) settle(ctx context.Context, t task, done result,
 	// Admission runs after the reaper in the same tick, and must not count the room of a
 	// machine that Orchard no longer holds.
 	r.fleet.Forget(machine.VM.Name)
+
+	// A new machine with the same name starts its own sighting. Its creation time alone cannot
+	// tell it apart when Orchard gives none.
+	delete(r.listed, machine.VM.Name)
 
 	if decision.Ignore {
 		r.ignored[machine.Job] = true
@@ -602,6 +662,12 @@ func (r *Reaper) forget(snapshot inventory.Snapshot) {
 		}
 	}
 
+	for id := range r.refused {
+		if !owned[id] {
+			delete(r.refused, id)
+		}
+	}
+
 	for id := range r.warned {
 		if !owned[id] {
 			delete(r.warned, id)
@@ -637,12 +703,18 @@ func (r *Reaper) deleted(ctx context.Context, machine Machine) {
 	// The entry stays, as recorded, until forget removes it with the machine.
 	r.ended[machine.Job] = time.Time{}
 
-	name := r.profile(machine.Job)
+	name := r.nameOf(inventory.Owned{VM: machine.VM, Job: machine.Job})
 	if name == "" {
 		name = inventory.UnknownProfile
 	}
 
 	r.metrics.JobPhase(ctx, name, telemetry.PhaseFinishedToDeleted, r.now().Sub(began))
+}
+
+// nameOf gives the profile of a machine: the one that this process started it with, or else the
+// one that its tags name, when the configuration has it.
+func (r *Reaper) nameOf(owned inventory.Owned) string {
+	return inventory.ProfileOf(owned, r.profile, r.profiles)
 }
 
 // delete removes a machine from Orchard. Orchard answers a machine that is already gone as a

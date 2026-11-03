@@ -70,6 +70,23 @@ func newScenario(t *testing.T) *scenario {
 	return &scenario{fleet: f, t: t, checks: f.readiness(t)}
 }
 
+// adopt adds a job that an agent runs, on a machine that Orchard created 26 h ago and that this
+// process did not start, as after a restart, and gives the name of the machine. The default
+// lifetime is 25 h, and no row but row 2 deletes such a machine while its job runs.
+func (s *scenario) adopt() string {
+	id := s.nextJob()
+	s.stacks.jobs[id] = &work{
+		id: id, matched: true, scheduledAt: s.now, state: stateRunning, acquired: true,
+	}
+
+	name := vmspec.Name(controllerID, id)
+	s.orchard.vms[name] = &orchard.VM{
+		Name: name, Status: orchard.StatusPending, CreatedAt: s.now.Add(-26 * time.Hour),
+	}
+
+	return name
+}
+
 // readiness builds the probes of the binary for the loop of this world.
 func (f *fleet) readiness(t *testing.T) *health.Checks {
 	t.Helper()
@@ -176,16 +193,11 @@ func TestABuildkiteOutageDeletesOnlyByRowsOneAndTwo(t *testing.T) {
 		t.Fatalf("the controller is not ready before the outage: %v", s.checks.Unready())
 	}
 
-	// A machine with the prefix of this controller and no job (row 1), and one that outlived the
-	// longest life of a machine (row 2).
+	// A machine with the prefix of this controller and no job (row 1), and a machine whose job
+	// runs and that outlived the longest life of a machine (row 2).
 	orphan := "bk-" + controllerID + "-not-a-job"
-	ancient := vmspec.Name(controllerID, s.nextJob())
-
-	for name, created := range map[string]time.Time{
-		orphan: s.now, ancient: s.now.Add(-26 * time.Hour),
-	} {
-		s.orchard.vms[name] = &orchard.VM{Name: name, Status: orchard.StatusPending, CreatedAt: created}
-	}
+	s.orchard.vms[orphan] = &orchard.VM{Name: orphan, Status: orchard.StatusPending, CreatedAt: s.now}
+	ancient := s.adopt()
 
 	s.stacks.down = errUnavailable
 	s.stacks.jobs[ended].state = stateFinished
@@ -366,6 +378,52 @@ func TestAnOrchardOutageStopsAdmissionAndDeletion(t *testing.T) {
 	s.budget()
 }
 
+// The lists of Orchard fail for longer than the freshness limit, and its deletes and its scheduler
+// still work. The last snapshot keeps the phase of each machine from before, so the reaper finishes
+// no job on it: the machine of a booting job may run now, and its agent may be about to acquire.
+// The rows that need no phase still act, and the reservation of the booting job is extended. Once
+// the lists answer again, the acquire timeout fails the job on a fresh snapshot.
+func TestAnOrchardReadOutageFinishesNoJobOnTheOldPhase(t *testing.T) {
+	s := newScenario(t)
+
+	booting, ended := s.arrive(), s.arrive()
+	s.run(5)
+	s.acquire(ended)
+	s.run(5)
+
+	first := s.stacks.jobs[booting].reservedUntil
+
+	s.orchard.readsFail = errUnavailable
+	s.stacks.jobs[ended].state = stateFinished
+
+	// Past the acquire timeout of the booting job, on a snapshot that stopped long before.
+	s.run(int(s.settings.Defaults.Timeouts.Acquire.Seconds()) + 60)
+
+	if slices.Contains(s.stacks.finished, booting) {
+		t.Fatal("the controller finished a job on the phase of a stale snapshot")
+	}
+
+	w := s.stacks.jobs[booting]
+	if w.state != stateReserved || !w.reservedUntil.After(first) {
+		t.Errorf("the booting job is %s until %s, want it reserved past %s", w.state,
+			w.reservedUntil.Format(time.TimeOnly), first.Format(time.TimeOnly))
+	}
+
+	if _, exists := s.machine(ended); exists {
+		t.Error("the machine of the job that ended remains, want row 4 to delete it without a " +
+			"fresh snapshot")
+	}
+
+	s.orchard.readsFail = nil
+	s.run(15)
+
+	if !slices.Contains(s.stacks.finished, booting) {
+		t.Error("the booting job did not fail by its acquire timeout once the lists answered")
+	}
+
+	s.budget()
+}
+
 // Buildkite accepts each call and never answers, which is worse for the loop than an error: each
 // call holds the one goroutine of the loop until its time limit. The loop still runs its ticks,
 // and rows 1 and 2, whose rules need no job state, delete their machines while every call to
@@ -377,13 +435,8 @@ func TestAHungBuildkiteStillDeletesByRowsOneAndTwo(t *testing.T) {
 	s.run(15)
 
 	orphan := "bk-" + controllerID + "-not-a-job"
-	ancient := vmspec.Name(controllerID, s.nextJob())
-
-	for name, created := range map[string]time.Time{
-		orphan: s.now, ancient: s.now.Add(-26 * time.Hour),
-	} {
-		s.orchard.vms[name] = &orchard.VM{Name: name, Status: orchard.StatusPending, CreatedAt: created}
-	}
+	s.orchard.vms[orphan] = &orchard.VM{Name: orphan, Status: orchard.StatusPending, CreatedAt: s.now}
+	ancient := s.adopt()
 
 	s.stacks.hangs = true
 	finished := len(s.stacks.finished)

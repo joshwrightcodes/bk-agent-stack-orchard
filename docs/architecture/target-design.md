@@ -76,6 +76,7 @@ The design depends on these facts. Each fact was verified against source code or
 | The Stacks API accepts only a cluster agent token (`bkct_`). | Buildkite docs, `apis/agent_api/stacks.md` | The controller keeps a cluster agent token (§9.2). |
 | The scheduled-jobs list gives all jobs in the queue. It does not filter by other tags. It does not include reserved jobs. | Stacks API docs | The controller does the tag match (§5). |
 | The scheduled-jobs call takes `limit` (page size, maximum 1000) and `after` (a cursor). The answer has `page_info.has_next_page` and `page_info.end_cursor`. The API orders the jobs by `scheduled_at`, oldest first. A call returns one page, and the library does not read the next page. Paging does not cover a snapshot: new jobs can appear behind the cursor. The documentation advises to read the first few pages only, and to reserve the jobs. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01); `buildkite/stacksapi` v1.2.0 `scheduled_jobs.go` | The Poller asks for 1000 jobs in each call. It makes at most 3 calls in one tick: 2 pages from the head of the list, and 1 page of the sweep (§6.3, ADR-0019). |
+| The get-states call takes a list of job UUIDs (`job_uuids`). Its answer is `{"states": {"<uuid>": "<state>"}}`, and the library decodes a missing or renamed field as an empty map, with no error. Whether the answer leaves out a job that Buildkite does not know, and the largest list that one call accepts, are `UNKNOWN` (owner: the maintainers; trigger: the recording of O-6 in the test strategy). | `buildkite/stacksapi` v1.2.0 `get_job_states.go` (read 2026-11-03) | An answer that names none of the jobs is a failed call. A job is unknown to Buildkite only after two answers in a row leave it out (§7.1, rule 4). |
 | A reservation lasts 900 s by default and 3600 s maximum. A second reserve call extends it. When a reservation expires, the job becomes `scheduled` again. | Stacks API docs | The controller uses short reservations. It extends them while a VM starts (§6, §7). |
 | A job acquisition token (`bkjat_`) connects an agent to one reserved job. The token expires early if the reservation expires. At agent registration, Buildkite applies the expiry and the allowed IP addresses of the agent token that issued the JAT. | `buildkite/stacksapi` v1.2.0 `IssueJobAcquisitionTokens`; `buildkite/docs` `pages/agent/self_hosted/job_acquisition_tokens.md` (2026-08-26) | Only a job acquisition token goes into a VM (§9.1). The agent token allowlist MUST contain the job VM egress addresses (§9.2). |
 | `token_lifetime_seconds` of a job acquisition token has a minimum of 1, a maximum of 3600, and a default of 900. `reservation_expiry_seconds` has a default of 900 and a maximum of 3600. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The limits of 3600 s are the limits of the API. The controller refuses a `reservationExpiry` that is more than 3600 s. It refuses a `jobTokenLifetime` that is more than 1800 s, which is the security limit of §9.1. It refuses both values if they are less than 1 s, so that the refusal comes at start-up and not at the first job (§8). |
@@ -83,7 +84,7 @@ The design depends on these facts. Each fact was verified against source code or
 | A stack notification needs no reservation, and the job does not have to be in a particular state. Only a job that finished more than 300 s ago cannot get one. A job can have at most 100 notifications. A request can carry at most 1000 notifications. When some lines fail, the response has `errors` entries with 0-based `indexes`, and the valid notifications are still created. The limit is 200 requests per second for each stack. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The controller sends a skip notice for a job that it does not hold. It sends at most 1000 lines in one call (`NotificationsPerRequest`), and it reads the refused indexes of a partial answer. A notice for each job is written once while the job stays listed (§5), so that the 100-line limit of one job stays far away. |
 | The `detail` of a finish request has a maximum of 4 KB. The documentation does not state the unit. `exit_status` defaults to -1. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The controller counts the 4 KB in bytes, which is never more than a count in characters, and it shortens the detail to the budget before it finishes a job (§6). |
 | The finish request has no `signal_reason` field, so the controller cannot set it. The Buildkite platform generates a `signal_reason` of `stack_error` for such a job. Pipeline authors use `signal_reason: stack_error` with `limit: 0` in their automatic retry rules. Whether the platform generates `stack_error` for every job that the controller finishes is `UNKNOWN` (owner: the maintainers; trigger: the first runs of T-100 to T-105). | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01); `buildkite/stacksapi` v1.2.0 `finish.go` | The controller finishes a failed job with exit status -1 and a detail (§7.6). |
-| `maxVMLifetime` is 25 h by default. The Reaper deletes a VM that is older than this, for any job state (row 2 of §7.2). A job that still runs at 25 h loses its VM and its agent. After the agent acquired the job, the Buildkite lost-agent procedure controls the result, and the controller does not finish the job (§7.1, rule 5). The job result that Buildkite gives in this case is `UNKNOWN` (owner: the maintainers; trigger: the first end-to-end run of a job that outlives `maxVMLifetime`). | Derived from `internal/reaper/decide.go` and §7.2, §7.1 (checked 2026-11-01) | A pipeline step with a run time near 25 h MUST set a lower job timeout. The default of 25 h is the safety limit in SC-06, not a job limit. |
+| `maxVMLifetime` is 25 h by default. The Reaper deletes a VM whose `createdAt` is older than this, for any job state (row 2 of §7.2, §7.1 rule 1). A restart of the controller does not extend this limit. A job that still runs at 25 h loses its VM and its agent. After the agent acquired the job, the Buildkite lost-agent procedure controls the result, and the controller does not finish the job (§7.1, rule 5). The job result that Buildkite gives in this case is `UNKNOWN` (owner: the maintainers; trigger: the first end-to-end run of a job that outlives `maxVMLifetime`). | Derived from `internal/reaper/decide.go` and §7.2, §7.1 (checked 2026-11-01) | A pipeline step with a run time near 25 h MUST set a lower job timeout. The default of 25 h is the safety limit in SC-06, not a job limit. |
 | `buildkite-agent start --acquire-job` exits with code 27 if the job is already taken, cancelled, or complete (HTTP 422). | `buildkite/agent` v4.0.3 release notes (2026-09-10); `core/client.go` | The rule "the job is terminal, delete the VM" covers this case. |
 | Buildkite agent v4 is the stable line (v4.0.0 on 2026-09-01; v4.9.0 on 2026-10-30, checked 2026-11-01). v4.7.0 is a security release: it rejects compromised eMudhra certificate chains (CVE-2026-111943). v4 exits immediately when a flag is not defined. v4 keeps `--acquire-job`, `BUILDKITE_AGENT_ACQUIRE_JOB`, and `BUILDKITE_OPENTELEMETRY_TRACING`, and it adds `BUILDKITE_OPENTELEMETRY_METRICS`. v4 removes the OpenTracing and Datadog backends. | `buildkite/agent` releases and `clicommand/agent_start.go` at v4.0.4 (2026-09-19) | The image MUST contain agent v4.7.0 or later (§5). The startup script uses only v4 flags. |
 | Orchard `startup_script.transport` accepts `ssh` (the default) and `tart-guest-agent`. The guest-agent transport operates only on the Tart runtime, and the worker connects through the VM control socket. For both transports, the worker builds the same script: `set -e`, one `export` line for each `env` entry, then `script_content`. | Orchard `pkg/resource/v1/v1.go` and `internal/worker/vmmanager/base` at tag 0.57.0 | §6.4 uses the guest-agent transport. VM specifications need no SSH credentials. |
@@ -178,7 +179,7 @@ In-memory data is only a cache. The loss of this cache is always safe.
 | **Poller** | Lists the first page of scheduled jobs at each `pollInterval` (1 s). Obeys `Retry-After`. | `Stacks` client |
 | **Matcher** | Pure function. Converts the job `agent_query_rules` to exactly one profile, or to a mismatch reason. | Configuration |
 | **Inventory** | Lists Orchard workers and VMs at each `inventoryInterval` (1 s). Selects owned VMs by name prefix. Parses the job UUIDs. | `Orchard` client |
-| **JobStates** | Gets the Buildkite job states of owned VMs in one batch at each `jobStatesInterval` (5 s). Records the observation time for each job, and whether Buildkite named the job. A call that fails keeps the states before it, with their times. | `Stacks` client |
+| **JobStates** | Gets the Buildkite job states of owned VMs in one batch at each `jobStatesInterval` (5 s). Records the observation time for each job, whether Buildkite named the job, and how many answers in a row left it out. A call that fails keeps the states before it, with their times. An answer that names none of the jobs is a failed call. | `Stacks` client |
 | **Admission** | Pure function. Input: scheduled jobs, inventory, profiles, and `maxInFlight`. Output: jobs to start, and unmatched jobs to skip. | Matcher, Inventory |
 | **Launcher** | For admitted jobs: reserves the jobs, gets job acquisition tokens, and creates VMs. Sends stack notifications. | `Stacks` client, `Orchard` client |
 | **Reaper** | Pure decision function for each owned VM, and an executor. Actions: delete the VM, finish the job, extend the reservation, or send a notification. | Inventory, JobStates |
@@ -238,20 +239,25 @@ the read), two Inventory calls, one JobStates call, and one call for the progres
 try again inside the lead.
 
 The longest tick has every call take its whole limit and still answer. With the defaults it is
-210 s, which is 3.5 minutes:
+230 s, which is less than 4 minutes:
 
 | Part of the tick | Calls of 10 s | Time |
 |---|---|---|
 | Refresh: 3 pages of the poll, 2 Inventory calls, 1 JobStates call | 6 | 60 s |
 | Progress notices, and the extensions of the Reaper | 2 | 20 s |
 | Actions of the Reaper (their budget), then its notices | 3 + 1 | 40 s |
-| Reservation and tokens, creates of the Launcher (their budget), "VM requested" | 2 + 3 + 1 | 60 s |
+| Reservation, tokens (their budget), creates of the Launcher (their budget), "VM requested" | 1 + 3 + 3 + 1 | 80 s |
 | Skip notices, for at most 3000 unmatched jobs in requests of 1000 | 3 | 30 s |
-| Total | 21 | 210 s |
+| Total | 23 | 230 s |
 
 A notice request carries 1000 lines, so one request holds the notices of a fleet at the target
-scale. A tick this long can let a reservation lapse between two extensions, and row 6 and
-Admission then start the job again.
+scale. The Launcher makes one token call for each lifetime among the admitted jobs, and a profile
+has one lifetime, so the number of calls is at most the number of profiles (§6.4). The token calls
+of a tick share a budget of 3 call limits (`parallel.Rounds`), as the creates do, so the longest
+tick does not grow with the number of profiles. The calls are quick when Buildkite answers, so
+each lifetime gets its call. When every call takes most of its limit, the budget ends the later
+calls, and their jobs keep reservations that lapse. A tick this long can let a reservation lapse
+between two extensions, and row 6 and Admission then start the job again.
 
 An API that does not answer gives a shorter tick, because the first call that does not answer
 stops its step, and a notice request that does not answer stops the notice requests after it. In
@@ -259,7 +265,9 @@ the first tick in which both APIs hang, the calls before the extensions take 50 
 extensions 10 s. The Reaper takes 30 s: one round of actions, in which an action can wait for
 the events of Orchard and then for a finish, and one notice request. The Launcher, which still
 has fresh data, takes 20 s: the reservation and one notice request. That is 110 s, so the
-extensions of two such ticks are at most 110 s apart, inside the renewal lead.
+extensions of two such ticks are at most 110 s apart, inside the renewal lead. The token calls come
+after the extensions, and a reservation that does not answer ends the Launcher before them, so
+their number does not change these times.
 
 The loop MUST take the time of a tick from the one clock of the controller (§15), and not from
 the ticker. A ticker gives the time that a beat was due. After a tick that took longer than the
@@ -416,7 +424,7 @@ notifications for unmatched jobs.
   `192.168.100.0`–`192.168.255.255`, can be up to /16.
 * When `profile.otel.enabled` is true, `profile.otel.endpoint` uses `https`. Plain HTTP is
   acceptable only on a loopback address (§10.4).
-* For each profile, `unplaced + boot + acquire ≤ jobTokenLifetime` (§7.3).
+* For each profile, `unplaced + boot + acquire + 1 min ≤ jobTokenLifetime` (§7.3).
 
 If a profile `image` has no digest, the controller MUST write a warning. The controller then
 starts.
@@ -472,8 +480,11 @@ digits as a number, so the examples put the SHA-256 in quotes.
   so the controller MUST NOT treat it as an orphan unless that text is its own `controllerID`.
   A name that starts with `bk-<controllerID>-` and does not end in a job UUID is an orphan.
 * **VM labels:** only the profile `workerLabels`.
-* **Profile of an owned VM:** not necessary. Capacity accounting uses the `resources` and
-  `labels` of the VM.
+* **Profile of an owned VM:** the `profile` tag in `BUILDKITE_AGENT_TAGS` of the VM
+  specification (§6.4). Orchard gives the specification back when the controller lists the VMs.
+  Capacity accounting does not need the profile, because it uses the `resources` and `labels` of
+  the VM. The Reaper reads it for the timeouts of a VM that this process did not start (§7.2),
+  and the metrics for the profile attribute (§10.1).
 
 ### 6.2 Normal sequence
 
@@ -512,8 +523,10 @@ Admission MUST run only when all of these conditions are true:
   keeps only its first reservation, and a boot longer than `reservationExpiry` loses its job.
   With no owned VM, JobStates has nothing to ask, and its data is new at each refresh.
 
-A source whose calls fail keeps its last data. The Reaper continues, because its own rules (§7.2)
-decide what old data permits it to do.
+A source whose calls fail keeps its last data. The Reaper continues, and its own rules decide what
+old data permits it to do (§7.1, rule 3). Rows 1, 2, and 4 to 6 need no phase of a VM, and row 13
+extends the reservations of the VMs that start. Rows 7 and 9 to 12 act on the phase of a VM, so
+they wait for Inventory data that is newer than `stateFreshness`.
 
 Admission MUST measure the age of the data at the time of its decision, from the clock of the
 controller, and not at the start of the tick. The refresh and the Reaper run first and can take
@@ -535,7 +548,7 @@ Admission does these steps:
    lasts a short time. The default value of `maxInFlight` is 0, which means the total VM slots of
    the eligible workers. Because of this, the limit follows the fleet, and it does not hold slots
    empty at the target scale (SC-01, QA-02). A value more than 0 limits the controller to that
-   number of VMs, for example during a pilot.
+   number of VMs, for example while an operator tries the controller on a few hosts.
 3. **Eligible workers for each profile.** A worker is eligible if it is online, it is not paused
    for scheduling, and its labels contain the profile `workerLabels`.
 4. **Free resources of each worker.** Subtract the resources of all VMs on the worker from the
@@ -601,7 +614,8 @@ jobs behind them: a job behind N such jobs reaches a read in about (N − 2000) 
 slot is free at that read, the job waits for the next sweep.
 
 Whether Buildkite accepts a cursor in a later tick is `UNKNOWN` (owner: the maintainers; trigger:
-the pilot, or the first failed read of a sweep page). If it does not, each sweep page with a
+the first runs against a real queue with more than 2000 jobs, or the first failed read of a sweep
+page). If it does not, each sweep page with a
 cursor of an earlier read fails. That read keeps the first 2000 jobs, and the next read starts
 the sweep after the head again, with a cursor of the same read. The Poller then sees the first
 3000 jobs at every other read, and the first 2000 jobs at the others.
@@ -623,10 +637,21 @@ For the admitted jobs, the Launcher MUST do these steps:
 2. Send `POST job-acquisition-tokens` for the reserved jobs, in one call for each lifetime. The
    lifetime of the token of a job MUST be `unplaced + boot + acquire` of its profile and one
    minute, and MUST NOT be more than `jobTokenLifetime` (1800 s by default). With the default
-   timeouts it is 23 min. A token that outlived the start of its VM would be of no use to the VM,
-   and could still take the job when the job went back to the queue (§9.1). Skip the jobs in
-   `not_issued`. Their reservations expire. A call that fails ends the calls of the tick: the
-   jobs of the calls before it keep their tokens and get their VMs.
+   timeouts it is 23 min. For each job that gets a token, record in memory the time that its call
+   left, on the clock of the controller. Row 10 counts from it (§7.1, rule 1). Skip the jobs in
+   `not_issued`. Their reservations expire. A call that
+   fails ends the calls of the tick: the jobs of the calls before it keep their tokens and get
+   their VMs. The calls MUST end inside a budget of 3 call limits (§4).
+
+   The reservation bounds the token in most cases already: Buildkite ends a token when the
+   reservation of its job expires (§3), a finish of rows 11 and 12 ends the job, and after row
+   10, or after a stop of the controller, the reservation lapses within `reservationExpiry`
+   (300 s). The lifetime of each token is a second bound for the cases in which the controller
+   holds the reservation longer than the start of the VM needs. While the Inventory data is
+   stale, row 13 extends the reservations of the VMs that start and no timeout applies (§7.1,
+   rule 3). After a restart, a VM whose tags name no profile of the configuration gets the widest
+   timeouts (§7.2). The lifetime also bounds the token if Buildkite does not end it with the
+   reservation, which the project has not tested (O-6 of the test strategy).
 3. Send `POST /v1/vms` for each job, with the specification below. The creates run at most 8 at
    a time, inside a budget of 3 call limits, and a create that finds Orchard not answering stops
    the creates that have not started (§4). The job of a create that did not start keeps its
@@ -757,27 +782,82 @@ above, and for `download` also `BKASO_AGENT_URL` and `BKASO_AGENT_SHA256`. When
 ### 7.1 Principles
 
 1. **Observed state only.** Decisions MUST use Inventory data and JobStates data. Decisions
-   MUST NOT use counters. Timeouts MUST use the Orchard timestamps `createdAt`, `scheduled_at`,
-   and `started_at`. Because of this, timeouts continue to operate after a controller restart.
+   MUST NOT use counters. The start timeouts of rows 10 to 12 MUST measure their age on the clock
+   of the controller. Row 10 MUST measure from the time that this process sent the token call of
+   the job (§6.4, step 2). If this process sent no token call for the job, as after a restart, or
+   sent it after the first Inventory answer of this process that listed the VM, row 10 MUST
+   measure from that first answer. Row 11 MUST measure from the first Inventory answer of this
+   process that showed the VM on a worker, and row 12 from the first one that showed the VM
+   `running`. They MUST NOT compare a time of Orchard, such as `createdAt`, `scheduled_at`, or
+   `started_at`, with the clock of the controller. These timeouts last minutes. An Orchard clock
+   that runs behind by more than a timeout would end each VM at its first sighting, and one that
+   runs ahead would hide each timeout. Each start of rows 11 and 12, and the first listing, is no
+   earlier than the event that it marks, so an age errs short and a timeout errs long. The token
+   call comes before the create, so row 10 ends the wait for a worker inside the token (§7.3). It
+   errs short by the time from the token call to the create, which is at most the token and create
+   budgets of a tick (60 s, §4). Row 10 returns the job to the queue and does not fail it, so this
+   costs a new start and not a build. After a restart, the first answer of the new process starts
+   each of these ages again. A restart can therefore extend a start timeout by up to the age that
+   the VM had in that phase when the new process first listed it: the time that the controller was
+   down, and the part of the timeout that the process before it had counted. This is the
+   conservative direction: a VM that stays longer costs a slot, and a job that the controller ends
+   early costs a build.
+
+   The lifetime of row 2 MUST count from the `createdAt` of the VM. The Reaper compares this
+   Orchard time with the clock of the controller. The lifetime is an absolute limit, so a restart
+   MUST NOT start it again. If a restart started it again, each restart could extend the life of
+   a VM by up to a whole lifetime (25 h by default), and repeated restarts could keep a VM
+   forever. A clock skew between Orchard and the controller moves the end of the lifetime by the
+   skew. An Orchard clock that runs behind ends a VM early, and one that runs ahead keeps it
+   longer. A skew of minutes is small against a lifetime of hours, so the design accepts it. A VM
+   that has no `createdAt` MUST count its lifetime from the first Inventory answer of this process
+   that listed it.
 2. **Causally fresh job state.** The Reaper MUST use a job state for a VM only if the controller
    observed the state after the first Inventory answer that listed the VM. If the state is older,
    the Reaper MUST wait for the next JobStates refresh. Both times MUST be on the clock of the
    controller. The VM `createdAt` is on the clock of Orchard, and an Orchard clock that runs
-   behind would make an older state look newer than the VM. A VM with the same name and another
-   `createdAt` is a new VM, such as the second VM of a job, and the first answer that lists it
-   counts for it. After a restart, the first answer of the new process counts. JobStates reads
-   after the Inventory in each tick, so this adds no wait. The observation time of a state MUST
-   be the time that JobStates sent the request, which is the earliest moment that the answer can
-   describe. A time taken from the answer makes a state look newer than it is, and this rule and
-   the next one would then trust it too soon.
+   behind would make an older state look newer than the VM. Row 2 accepts a skew of minutes
+   against a lifetime of hours (rule 1), but here a skew of seconds already gives a wrong answer.
+   A VM with the same name and another `createdAt` is a new VM, such as the second VM of a job,
+   and the first answer that lists it counts for it. After a restart, the first answer of the new
+   process counts. JobStates reads after the Inventory in each tick, so this adds no wait. The
+   observation time of a state MUST be the time that JobStates sent the request, which is the
+   earliest moment that the answer can describe. A time taken from the answer makes a state look
+   newer than it is, and this rule and the next one would then trust it too soon.
 3. **Fresh data or no action.** If the job state of a VM is older than `stateFreshness` (60 s),
-   the Reaper MUST do only the orphan action and the maximum-lifetime action.
-4. **Permanent errors are terminal.** If finish or delete returns 404 or 422, the controller
-   MUST mark the job as ignored in memory. The controller MUST NOT send the call again in a
-   loop. The get-states call asks about many jobs at once, so a 404 or 422 on it is a failure
-   of the call and not an answer about one job. The controller MUST count it in
-   `cicd.system.errors` (§10.1). A job that the get-states answer does not name is unknown to
-   Buildkite (row 5).
+   the Reaper MUST do only the orphan action and the maximum-lifetime action. A row that finishes
+   a job (rows 9, 11, and 12) MUST use only a job state that JobStates asked for in the same
+   tick, after the last pass of the Reaper. An agent can acquire a job at any moment, so a
+   `reserved` state from an earlier tick can describe a job that an agent runs now. The refresh
+   of a tick comes before its pass, so the state is a few seconds old at most, and a finish waits
+   at most `jobStatesInterval` (5 s) for it. The Stacks API has no call that reads the state of
+   one job (`GetJob` of `buildkite/stacksapi` v1.2.0 gives the environment and the command only,
+   read 2026-11-03), so the Reaper cannot read the state again just before the finish. A row
+   that acts on the phase of a VM (rows 7 and 9 to 12) MUST use Inventory data that is newer than
+   `stateFreshness`, measured on the clock of the controller at the time of the pass, as the gate
+   of admission measures it (§6.3). A snapshot of any age keeps the phase that a VM had then, so
+   while the lists of Orchard fail, a VM that runs now can still look `pending`, and a job whose
+   agent is about to acquire it would fail. On older Inventory data, a failed VM waits with no
+   action, and row 13 applies to a `pending` or `running` VM.
+4. **Permanent errors are not proof.** If a finish returns 404 or 422, the job may have ended,
+   Buildkite may not know it, or an agent may have acquired it after the state that the finish
+   read (the real answer for an acquired job is `UNKNOWN`, O-6 of the test strategy). The
+   controller MUST NOT delete the VM in the same pass, because the VM can carry a running build.
+   It MUST mark the job in memory and MUST NOT send the finish again. The next job state of a
+   later tick decides: an agent keeps the VM (row 8, or row 7 if the VM failed), a terminal job
+   or a lapsed reservation deletes it (rows 4 and 6), and a job that is still `reserved` loses
+   its VM without a second finish. A delete that returns 404 is a success. The get-states call
+   asks about many jobs at once, so a 404 or 422 on it is a failure of the call and not an
+   answer about one job. The controller MUST count it in
+   `cicd.system.errors` (§10.1). An answer of get-states that names none of the jobs of a request
+   is also a failed call, because a renamed field, a filter of the server, or a fault gives the
+   same empty map (§3). The JobStates data then becomes stale, and the rules for stale data
+   apply. A job is unknown to Buildkite (row 5) only when two answers in a row leave it out, and
+   each of the two names at least one other job. Row 5 comes before the rows of an acquired job,
+   so one answer that leaves out jobs by a fault would otherwise delete the VMs of running builds.
+   The cost: when every owned VM has a job that Buildkite does not know, every answer names no
+   job, the JobStates data stays stale, and only rows 1 and 2 delete those VMs. Readiness then
+   fails, so an operator sees it.
 5. **Fail a job only before an agent acquires it.** After an agent acquires a job, the Buildkite
    lost-agent procedure controls the job result. The controller MUST NOT finish that job. The
    controller MUST only delete the VM.
@@ -789,24 +869,29 @@ The Reaper MUST examine each owned VM at each tick. The first row that matches a
 | # | VM (Orchard) | Job (Buildkite) | Action | `reason` |
 |---|---|---|---|---|
 | 1 | The name has the owned prefix and does not end in a valid UUID | — | Delete the VM. | `orphan` |
-| 2 | The age since `createdAt` is more than `maxVMLifetime` (25 h) | Any | Delete the VM. | `lifetime` |
+| 2 | The age since `createdAt` is more than `maxVMLifetime` (25 h). A VM without `createdAt` counts from the first listing (§7.1, rule 1) | Any | Delete the VM. | `lifetime` |
 | 3 | Any | Not causally fresh, or stale | No action. | — |
 | 4 | Any | Terminal: `finished`, `canceled`, `expired`, `timed_out`, `skipped`, `broken` | Delete the VM. | `job_terminal` |
-| 5 | Any | Unknown to Buildkite (404, or not in the get-states result) | Delete the VM. Ignore the job. | `job_unknown` |
+| 5 | Any | Unknown to Buildkite: two get-states answers in a row leave it out (rule 4) | Delete the VM. Ignore the job. After one such answer, no action. | `job_unknown` |
 | 6 | Any | `scheduled` (the reservation expired) | Delete the VM. | `reservation_lapsed` |
 | 7 | `failed` | An agent owns the job: `assigned`, `accepted`, `running`, `canceling`, `timing_out` | Send a notification with `status_message`. Delete the VM. | `vm_failed` |
 | 8 | Not `failed` | An agent owns the job | No action. | — |
-| 9 | `failed` | `reserved` | Finish the job (`-1`, `status_message`, and the last 50 startup-script log lines when the script wrote any). Delete the VM. | `vm_failed` |
-| 10 | `pending`, no worker, and the age since `createdAt` is more than `unplaced` (2 min) | `reserved` | Delete the VM. Do not extend the reservation. The job becomes `scheduled` again, and Admission starts it again. | `unplaced_timeout` |
-| 11 | `pending`, a worker is set, and the age since `scheduled_at` is more than `boot` (15 min) | `reserved` | Finish the job (`-1`, `status_message`). Delete the VM. | `boot_timeout` |
-| 12 | `running`, and the age since `started_at` is more than `acquire` (5 min) | `reserved` | Finish the job (`-1`, the last 50 startup-script log lines from `GET /v1/vms/{name}/events`). Delete the VM. | `acquire_timeout` |
+| 9 | `failed` | `reserved`, asked for in this tick (rule 3) | Finish the job (`-1`, `status_message`, and the last 50 startup-script log lines when the script wrote any). Delete the VM. | `vm_failed` |
+| 10 | `pending`, no worker, and the age since the token call of the job is more than `unplaced` (2 min). Without a token call of this process, the age counts from the first listing (§7.1, rule 1) | `reserved` | Delete the VM. Do not extend the reservation. The job becomes `scheduled` again, and Admission starts it again. | `unplaced_timeout` |
+| 11 | `pending`, a worker is set, and the age since the first answer that showed a worker is more than `boot` (15 min) | `reserved`, asked for in this tick (rule 3) | Finish the job (`-1`, `status_message`). Delete the VM. | `boot_timeout` |
+| 12 | `running`, and the age since the first answer that showed it `running` is more than `acquire` (5 min) | `reserved`, asked for in this tick (rule 3) | Finish the job (`-1`, the last 50 startup-script log lines from `GET /v1/vms/{name}/events`). Delete the VM. | `acquire_timeout` |
 | 13 | `pending` or `running` | `reserved` | Extend the reservation when `reservedUntil − now` is less than `reservationRenewBefore` (120 s). If `reservedUntil` is unknown, extend it immediately. | — |
 
-The timeouts of a VM are the effective timeouts of its profile. A VM does not carry the name of
-its profile (§6.1), so after a restart the controller cannot name the profile of a VM that it did
-not start. The Reaper MUST then use the largest value of each timeout across the profiles. A
-restart MUST NOT end a VM sooner than its own profile allows: a VM that stays longer costs a slot,
-and a job that the controller ends early costs a build.
+A row that finishes a job and whose job state is from an earlier tick does not apply. A failed VM
+then waits with no action, and row 13 applies to a `pending` or `running` VM. After Buildkite
+refused a finish of the job (rule 4), rows 9, 11, and 12 delete the VM and send no finish.
+
+The timeouts of a VM are the effective timeouts of its profile. For a VM that this process did not
+start, such as a VM of the process before a restart, the Reaper MUST read the profile from the tags
+of the VM (§6.1). If the tags name no profile of the configuration, for example because an operator
+removed the profile before the restart, the Reaper MUST use the largest value of each timeout
+across the profiles. A restart MUST NOT end a VM sooner than its own profile allows: a VM that
+stays longer costs a slot, and a job that the controller ends early costs a build.
 
 Orchard sets the VM status to `running` when the Tart VM process starts. At this time, macOS has
 not completed its boot. Because of this:
@@ -833,11 +918,27 @@ one `batch-reserve` call, before the other actions of the Reaper (§4).
 
 ### 7.3 Timeout consistency
 
-The sum `unplaced + boot + acquire` MUST NOT be more than `jobTokenLifetime`. If the sum is
-more, a slow but healthy VM can start with an expired token. Each token lasts the sum of its
-profile and one minute, up to `jobTokenLifetime` (§7.2).
+The sum `unplaced + boot + acquire` and one minute MUST NOT be more than `jobTokenLifetime`. If
+it is more, a slow but healthy VM can start with an expired token. Each token lasts the sum of
+its profile and one minute, up to `jobTokenLifetime` (§6.4). A sum that filled the whole
+`jobTokenLifetime` would give a token with no margin.
 
-With the default values, the sum is 2 min + 15 min + 5 min = 22 min. This is less than 30 min.
+The unplaced timeout counts from the time that the Launcher sent the token call (§7.1, rule 1).
+This time is never later than the issue of the token. Row 10 therefore ends the wait for a worker
+inside the token, however long the tick that creates the VM is. When the calls take their whole
+limits (§4), the first listing can come more than two minutes after the token call. That is more
+than the minute, so a count from the first listing would not keep the wait inside the token.
+
+The boot and acquire timeouts count from the first Inventory answers that showed the VM on a
+worker and `running`. Each of these answers can come up to one tick after the event, and the pass
+of the Reaper that acts on row 12 can come one tick after the end of the acquire timeout. The
+minute covers these three lags while a tick takes less than 20 s. A tick takes a few seconds when
+both APIs answer, so the lags take about 10 s of the minute. In a tick whose calls take their
+whole limits (230 s, §4), the lags can be more than the minute, and a healthy VM can then meet an
+expired token near the end of its acquire timeout.
+
+With the default values, the sum is 2 min + 15 min + 5 min = 22 min, and 23 min with the minute.
+This is less than 30 min.
 The controller MUST validate this sum for each profile at start-up. The validation MUST include
 the timeout values that a profile overrides.
 
@@ -865,15 +966,16 @@ At start-up, before the first Admission, the controller MUST do these steps:
 |---|---|
 | After the reservation, before the VM creation | No VM exists, so the controller cannot see the job. The reservation expires in a maximum of `reservationExpiry` (300 s). Admission then starts the job again. The accepted cost is a delay of up to 5 minutes for these jobs. |
 | After the VM creation | The controller finds the VM by its name. The Reaper then controls the VM. |
-| Between the finish call and the delete call | The controller sends the delete call again at the next tick. A second finish call returns 422. The controller treats 422 as complete. |
+| Between the finish call and the delete call | The new process reads the job as terminal, and row 4 deletes the VM. If it still reads `reserved` and finishes the job again, the second finish returns 422. The controller keeps the VM in that pass and sends no third finish, and the next state deletes the VM by row 4, or by the row of the timeout without a finish (§7.1, rule 4). |
 
 ### 7.5 Dependency outages
 
 | Outage | Behavior |
 |---|---|
-| The Orchard controller is not available | Inventory data becomes stale. Admission stops. The Reaper cannot delete VMs. VMs on the workers continue to run. Readiness fails. Liveness passes. |
+| The Orchard controller is not available | Inventory data becomes stale. Admission stops. Once the data is older than `stateFreshness`, the Reaper takes no action that reads the phase of a VM (rows 7 and 9 to 12), and it extends the reservations of the VMs that start (row 13). A job whose VM passes a timeout during the outage stays reserved until the data is fresh again, and its token still expires at its own lifetime (§6.4). The Reaper cannot delete VMs while Orchard does not answer, and it tries again at each tick. If only the lists fail, its deletes by rows 1, 2, and 4 to 6 still reach Orchard. VMs on the workers continue to run. Readiness fails. Liveness passes. |
 | The Buildkite API is not available, or applies a rate limit | The controller obeys `Retry-After`. JobStates data becomes stale. The controller does not reserve or finish jobs. The controller deletes VMs only for rows 1 and 2. |
 | A worker is offline | After the worker offline timeout (3 min), Orchard sets the VMs of the worker to `failed`. Rows 7 and 9 apply. `restart_policy: Never` prevents a new VM for the same job on a different worker. |
+| The get-states answer names none of the jobs | JobStates counts it as a failed call, and its data becomes stale (§7.1, rule 4). The result is the same as for a Buildkite outage of the get-states call only: admission stops while owned VMs exist, and the Reaper deletes VMs only by rows 1 and 2. |
 | The queue is `dispatch_paused` | Admission stops. The controller does not write new notifications for unmatched jobs. The Reaper continues for existing VMs. |
 
 An API that accepts calls and does not answer is an outage of the same kind. Each call ends at
@@ -956,8 +1058,8 @@ natively (`grpc: {port, service}`).
 `liveness` serves while the process serves and its loop finishes its ticks. It does not depend
 on either API, because a restart cures nothing that an API causes. The loop records its progress
 when it starts, after the registration, and when each tick ends. `liveness` stops serving only
-when the loop has made no progress for 15 minutes. That is more than four times the longest tick
-of §4 (210 s), so only a tick that never ends fails it. A loop that waits without an end does
+when the loop has made no progress for 15 minutes. That is more than three times the longest tick
+of §4 (230 s), so only a tick that never ends fails it. A loop that waits without an end does
 nothing, and a restart cures it. While the controller registers its stack, before the loop
 starts, `liveness` serves.
 
@@ -1059,8 +1161,11 @@ The controller MUST treat all builds as untrusted (PR-030). Each VM MUST have th
 * The VM gets only a job acquisition token for its own job. The token lasts the start timeouts of
   its profile and one minute (23 min with the defaults), and never more than 30 minutes (1800 s):
   the controller refuses a longer `jobTokenLifetime` at start-up (§8). After the agent acquires
-  the job, the token has no use, and after the reaper gives up on the start of the VM, the token
-  expires within a minute.
+  the job, the token has no use. Buildkite ends the token when the reservation of its job
+  expires (§3). After the Reaper gives up on the start of a VM, it finishes the job (rows 11 and
+  12) or stops the extensions (row 10), so the reservation, and with it the token, ends within
+  `reservationExpiry` (300 s) at most. The lifetime of the token bounds it when the controller
+  holds a reservation for longer (§6.4).
 
 The cluster agent token and the Orchard credentials MUST NOT go into a VM.
 
@@ -1223,7 +1328,8 @@ These rules come from the conventions and MUST hold:
   in a terminal state, and it ends at the deletion that Orchard accepted. A failed deletion does
   not end it. A restart loses the start, so the first tick after a restart starts the time again.
   It has the tolerance of `jobStatesInterval`, like the other phases. The value of the
-  attribute `bkaso.profile` is `unknown` for a VM that this process did not start.
+  attribute `bkaso.profile` is `unknown` for a VM that this process did not start and whose tags
+  name no profile of the configuration.
 
 Metric attributes MUST NOT contain job UUIDs or VM names. The `bkaso.pool` attribute is the value
 of the worker `pool` label. If the worker has no `pool` label, the value is `none`.

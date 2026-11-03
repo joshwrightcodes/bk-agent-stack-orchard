@@ -49,14 +49,14 @@ The connection to Buildkite.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `buildkite.queue` | string |  | The self-hosted Buildkite queue that this controller serves. Use a queue that no other agent or stack serves. Required. |
+| `buildkite.queue` | string |  | The self-hosted Buildkite queue that this controller serves. Other agents and stacks may serve the same queue: the controller counts only the workers that its profiles select, and it leaves each job that no profile carries in the queue for them. Required. |
 | `buildkite.endpoint` | string | `https://agent.buildkite.com/v3` | The URL of the agent API of Buildkite. It must use https, except on a loopback address. |
 | `buildkite.plainHTTPEndpoint` | boolean | `false` | Allows an endpoint without TLS that is not a loopback address, such as a fake API in a test cluster. The agent token then travels unencrypted, and the controller warns at start. |
 | `buildkite.pollInterval` | duration | `1s` | How often the controller reads the scheduled jobs of the queue. It must be shorter than stateFreshness. |
 | `buildkite.jobStatesInterval` | duration | `5s` | How often the controller reads the state of the jobs that have a VM. It must be shorter than stateFreshness. |
 | `buildkite.reservationExpiry` | duration | `5m` | How long Buildkite holds a job for this controller after it reserves the job. From 1 s to 1 h, in whole seconds. |
 | `buildkite.reservationRenewBefore` | duration | `2m` | How long before a reservation expires the controller renews it, while the VM of the job starts. It must be shorter than reservationExpiry. |
-| `buildkite.jobTokenLifetime` | duration | `30m` | The longest that the token that the controller gives each VM stays valid. The token opens one job only. Each token stays valid for the unplaced, boot, and acquire timeouts of the profile of its job and one minute more, up to this value. From 1 s to 30 min, in whole seconds, and at least the sum of the unplaced, boot, and acquire timeouts of each profile. |
+| `buildkite.jobTokenLifetime` | duration | `30m` | The longest that the token that the controller gives each VM stays valid. The token opens one job only. Each token stays valid for the unplaced, boot, and acquire timeouts of the profile of its job and one minute more, up to this value. From 1 s to 30 min, in whole seconds, and at least the sum of the unplaced, boot, and acquire timeouts of each profile and one minute. |
 
 ### `orchard`
 
@@ -158,8 +158,9 @@ first. It does not start until each one is fixed. Besides the limits in the tabl
 
 * two profiles with the same name or the same `match` map;
 * a `match` key `queue`, `profile`, or `agent-stack`, which the controller sets itself;
-* a profile whose `unplaced`, `boot`, and `acquire` timeouts add up to more than
-  `buildkite.jobTokenLifetime`;
+* a negative `unplaced`, `boot`, or `acquire` timeout;
+* a profile whose `unplaced`, `boot`, and `acquire` timeouts and one minute add up to more
+  than `buildkite.jobTokenLifetime`;
 * `vmCredentials` that do not agree with `startupTransport`;
 * half of an `agent` pair: `url` without `sha256`, or the reverse.
 

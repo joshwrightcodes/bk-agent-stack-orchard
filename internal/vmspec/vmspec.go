@@ -278,10 +278,38 @@ esac
 exec buildkite-agent start
 `
 
+// profileTag is the key of the agent tag that names the profile of a machine. A job cannot use the
+// key, so the one tag with it is the tag of the controller.
+const profileTag = "profile"
+
+// tagsVariable is the variable that carries the tags of the agent.
+const tagsVariable = "BUILDKITE_AGENT_TAGS"
+
+// ProfileOf gives the profile that the tags of a machine name, and empty text for a machine whose
+// tags name none. The specification of a machine carries its tags, and Orchard gives the
+// specification back when it lists the machines, so a process that did not start the machine,
+// such as the process after a restart, can still name its profile.
+//
+// The name is what the specification says, and nothing more: a caller that needs a profile of its
+// configuration looks the name up there.
+func ProfileOf(vm orchard.VM) string {
+	if vm.StartupScript == nil {
+		return ""
+	}
+
+	for tag := range strings.SplitSeq(vm.StartupScript.Env[tagsVariable], ",") {
+		if name, found := strings.CutPrefix(tag, profileTag+"="); found {
+			return name
+		}
+	}
+
+	return ""
+}
+
 // agentTags gives the tags of the agent as the list that the agent reads: the three fixed tags
 // first, then the tags of the job in the order of their keys.
 func (r Request) agentTags() string {
-	list := []string{"queue=" + r.Queue, "agent-stack=orchard", "profile=" + r.Profile.Name}
+	list := []string{"queue=" + r.Queue, "agent-stack=orchard", profileTag + "=" + r.Profile.Name}
 
 	for _, key := range slices.Sorted(maps.Keys(r.Tags)) {
 		list = append(list, key+"="+r.Tags[key])
@@ -297,7 +325,7 @@ func (r Request) environment(name string) map[string]string {
 		"BUILDKITE_AGENT_TOKEN":       r.JobToken.Reveal(),
 		"BUILDKITE_AGENT_ACQUIRE_JOB": r.JobID.String(),
 		"BUILDKITE_AGENT_NAME":        name,
-		"BUILDKITE_AGENT_TAGS":        r.agentTags(),
+		tagsVariable:                  r.agentTags(),
 	}
 
 	if r.Profile.Agent.Source == profile.AgentDownload {

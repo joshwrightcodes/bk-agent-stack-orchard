@@ -66,6 +66,23 @@ type stacksFake struct {
 	// never answers does.
 	hangs bool
 
+	// nameless makes each answer of the job states name no job, as an answer whose field
+	// Buildkite renamed does. omit holds, for each job, how many more answers leave it out while
+	// they name the other jobs, as a partial answer does.
+	nameless bool
+	omit     map[job.ID]int
+
+	// takenAtFinish holds the jobs that an agent acquires just before a finish of the controller
+	// arrives, after the state that the finish read.
+	takenAtFinish map[job.ID]bool
+
+	// afterTokens runs once, after the next token call has issued its tokens and before it
+	// answers. A test uses it to make the rest of the tick slow, on the clock of the suite.
+	afterTokens func()
+
+	// expires holds when the token of each job expires.
+	expires map[job.ID]time.Time
+
 	// calls holds each call, with the endpoint and the time of the suite, for the request
 	// budget. finished holds each job that a finish call ended, and lines each line of a job page.
 	calls    []call
@@ -81,11 +98,15 @@ type stacksFake struct {
 
 func newStacks(now func() time.Time, violations *[]string) *stacksFake {
 	return &stacksFake{
-		now:        now,
-		jobs:       map[job.ID]*work{},
-		reported:   map[job.ID]string{},
-		failing:    map[string]error{},
-		violations: violations,
+		now:      now,
+		jobs:     map[job.ID]*work{},
+		reported: map[job.ID]string{},
+		omit:     map[job.ID]int{},
+
+		takenAtFinish: map[job.ID]bool{},
+		expires:       map[job.ID]time.Time{},
+		failing:       map[string]error{},
+		violations:    violations,
 	}
 }
 
@@ -111,6 +132,15 @@ func (s *stacksFake) scheduleRules(id job.ID, rules []string, matched bool) {
 		state:       stateScheduled,
 	}
 	s.order = append(s.order, id)
+}
+
+// forget removes a job from Buildkite, as if the job never existed.
+func (s *stacksFake) forget(id job.ID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	delete(s.jobs, id)
+	s.order = slices.DeleteFunc(s.order, func(other job.ID) bool { return other == id })
 }
 
 // lapse schedules again each reserved job whose reservation ended, as Buildkite does.
@@ -243,18 +273,27 @@ func (s *stacksFake) Tokens(ctx context.Context, ids []job.ID, lifetime time.Dur
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	var answer buildkite.Tokens
 
 	for _, id := range ids {
 		if w, known := s.jobs[id]; known && w.state == stateReserved {
+			expires := s.now().Add(lifetime)
+			s.expires[id] = expires
 			answer.Issued = append(answer.Issued, buildkite.Token{
-				JobID: id, Token: "bkaj_component", ExpiresAt: s.now().Add(lifetime),
+				JobID: id, Token: "bkaj_component", ExpiresAt: expires,
 			})
 		} else {
 			answer.NotIssued = append(answer.NotIssued, id)
 		}
+	}
+
+	after := s.afterTokens
+	s.afterTokens = nil
+	s.mu.Unlock()
+
+	if after != nil {
+		after()
 	}
 
 	return answer, nil
@@ -272,7 +311,17 @@ func (s *stacksFake) States(ctx context.Context, ids []job.ID) (map[job.ID]strin
 
 	states := map[job.ID]string{}
 
+	if s.nameless {
+		return states, nil
+	}
+
 	for _, id := range ids {
+		if s.omit[id] > 0 {
+			s.omit[id]--
+
+			continue
+		}
+
 		if w, known := s.jobs[id]; known {
 			states[id] = w.state
 			s.reported[id] = w.state
@@ -299,6 +348,11 @@ func (s *stacksFake) Finish(ctx context.Context, id job.ID, _ int, _ string) err
 	}
 
 	w, known := s.jobs[id]
+
+	if known && s.takenAtFinish[id] {
+		w.acquired, w.state = true, stateRunning
+	}
+
 	if !known || w.acquired || w.state != stateReserved {
 		return buildkite.ErrTerminal
 	}

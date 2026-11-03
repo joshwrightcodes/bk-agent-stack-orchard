@@ -39,9 +39,21 @@ type orchardFake struct {
 	// created is called with each machine that the controller asks for, before Orchard holds it.
 	created func(spec orchard.VM)
 
+	// deleting is called with each machine that the controller deletes, before Orchard removes
+	// it.
+	deleting func(vm orchard.VM)
+
 	// down is the answer of every call while the Orchard controller is not available. Its
 	// scheduler stops too, and the machines on the workers run on.
 	down error
+
+	// skew is how far the clock of Orchard runs ahead of the clock of the suite, and a negative
+	// value runs behind. Orchard gives its times to the machines on its own clock.
+	skew time.Duration
+
+	// readsFail is the answer of every list while it is set. The other calls and the scheduler
+	// work, as when the answers of Orchard no longer decode after a change of its API.
+	readsFail error
 
 	// deleteFails is the answer of every delete while it is set. The other calls work, so a
 	// machine that has to go stays in the listing.
@@ -121,6 +133,11 @@ func newOrchardOf(now func() time.Time, offline time.Duration, shapes []hostShap
 	return fake
 }
 
+// clock gives the time on the clock of Orchard.
+func (o *orchardFake) clock() time.Time {
+	return o.now().Add(o.skew)
+}
+
 // online reports a worker that reported inside the offline timeout, as Orchard decides it.
 func (o *orchardFake) online(w orchard.Worker) bool {
 	return o.now().Sub(w.LastSeen) <= o.offline
@@ -172,7 +189,8 @@ func (o *orchardFake) sync() {
 			vm.Worker = h.worker.Name
 			vm.Conditions = []orchard.Condition{{Type: "scheduled", State: "true"}}
 			vm.Status = orchard.StatusRunning
-			vm.StartedAt = o.now()
+			vm.ScheduledAt = o.clock()
+			vm.StartedAt = o.clock()
 
 			break
 		}
@@ -239,7 +257,7 @@ func (o *orchardFake) CreateVM(ctx context.Context, spec orchard.VM) error {
 
 	vm := spec
 	vm.Status = orchard.StatusPending
-	vm.CreatedAt = o.now()
+	vm.CreatedAt = o.clock()
 	o.vms[spec.Name] = &vm
 
 	if o.answerLost[spec.Name] {
@@ -260,6 +278,10 @@ func (o *orchardFake) CreateVM(ctx context.Context, spec orchard.VM) error {
 func (o *orchardFake) ListVMs(ctx context.Context) ([]orchard.VM, error) {
 	if err := o.unavailable(ctx, "list machines"); err != nil {
 		return nil, err
+	}
+
+	if o.readsFail != nil {
+		return nil, o.readsFail
 	}
 
 	o.mu.Lock()
@@ -289,6 +311,10 @@ func (o *orchardFake) DeleteVM(ctx context.Context, name string) error {
 		return o.deleteFails
 	}
 
+	if vm, exists := o.vms[name]; exists && o.deleting != nil {
+		o.deleting(*vm)
+	}
+
 	delete(o.vms, name)
 
 	return nil
@@ -297,6 +323,10 @@ func (o *orchardFake) DeleteVM(ctx context.Context, name string) error {
 func (o *orchardFake) ListWorkers(ctx context.Context) ([]orchard.Worker, error) {
 	if err := o.unavailable(ctx, "list workers"); err != nil {
 		return nil, err
+	}
+
+	if o.readsFail != nil {
+		return nil, o.readsFail
 	}
 
 	o.mu.Lock()

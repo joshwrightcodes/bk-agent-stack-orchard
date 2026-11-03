@@ -32,7 +32,8 @@ const (
 )
 
 // observed holds what the job states say. A state is one that the controller asked for a
-// second ago, and Buildkite named it. A nil map is a controller that has asked about nothing.
+// second ago, and Buildkite named it. A job that the map leaves out is one that the last two
+// answers left out. A nil map is a controller that has asked about nothing.
 type observed struct {
 	states map[job.ID]string
 	reads  int
@@ -47,7 +48,12 @@ func (b *observed) Observed(id job.ID) (jobstates.Observation, bool) {
 
 	state, named := b.states[id]
 
-	return jobstates.Observation{State: state, Named: named, At: now.Add(-time.Second)}, true
+	observation := jobstates.Observation{State: state, Named: named, At: now.Add(-time.Second)}
+	if !named {
+		observation.Absent = 2
+	}
+
+	return observation, true
 }
 
 // pages answers finish and notify as Buildkite, and records what the job pages received.
@@ -119,7 +125,16 @@ func (f *fleet) Events(context.Context, string) ([]orchard.Event, error) {
 	return f.events, f.eventsErr
 }
 
-func (f *fleet) Latest() (inventory.Snapshot, bool) { return f.snapshot, f.read }
+// Latest gives the snapshot. A snapshot with no time is one that Orchard answered two seconds
+// ago, before the job states that observed gives.
+func (f *fleet) Latest() (inventory.Snapshot, bool) {
+	snapshot := f.snapshot
+	if snapshot.At.IsZero() {
+		snapshot.At = now.Add(-2 * time.Second)
+	}
+
+	return snapshot, f.read
+}
 
 func (f *fleet) Forget(name string) {
 	f.mu.Lock()
@@ -207,6 +222,15 @@ func buildHolding(t *testing.T, api *observed, machines *fleet, log *decisions,
 ) *reaper.Reaper {
 	t.Helper()
 
+	return buildProfiles(t, api, machines, log, jobPages, reservations,
+		[]profile.Profile{{Name: "xcode-27"}})
+}
+
+func buildProfiles(t *testing.T, api *observed, machines *fleet, log *decisions,
+	jobPages *pages, reservations *held, profiles []profile.Profile,
+) *reaper.Reaper {
+	t.Helper()
+
 	provider := sdkmetric.NewMeterProvider()
 	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
 
@@ -223,7 +247,7 @@ func buildHolding(t *testing.T, api *observed, machines *fleet, log *decisions,
 		CallTimeout:  time.Second,
 		Orchard:      machines,
 		Fleet:        machines,
-		Profiles:     []profile.Profile{{Name: "xcode-27"}},
+		Profiles:     profiles,
 		Defaults:     limits,
 		Freshness:    freshness,
 		Metrics:      instruments,
@@ -234,7 +258,21 @@ func buildHolding(t *testing.T, api *observed, machines *fleet, log *decisions,
 		t.Fatalf("New() = %v, want the reaper", err)
 	}
 
+	sawAtCreation(built, machines.snapshot)
+
 	return built
+}
+
+// sawAtCreation records that the reaper first saw each machine of a snapshot when Orchard created
+// it, in the phase that the machine has now, as a process that has run since then would have. The
+// reaper measures each age from what it saw on its own clock, and a test of a timeout states the
+// age through the creation time of the machine.
+func sawAtCreation(r *reaper.Reaper, snapshot inventory.Snapshot) {
+	for _, machine := range snapshot.Owned {
+		if !machine.VM.CreatedAt.IsZero() {
+			r.Saw(machine.VM, machine.VM.CreatedAt)
+		}
+	}
 }
 
 // The walking skeleton ends here: a job finished, and its machine goes.
@@ -289,6 +327,30 @@ func TestWithoutStatesOnlyTheLifetimeActs(t *testing.T) {
 	}
 }
 
+// A new process, as after a restart, first lists a machine that Orchard created more than a
+// lifetime ago. The lifetime counts from that creation, so the first pass deletes the machine
+// although its job runs.
+func TestAFreshProcessEndsAMachineThatOutlivedItsLifetime(t *testing.T) {
+	t.Parallel()
+
+	api := &observed{states: map[job.ID]string{running: "running", ancient: "running"}}
+	machines := &fleet{read: true}
+	r := build(t, api, machines, &decisions{})
+
+	machines.snapshot = inventory.Snapshot{
+		Owned: []inventory.Owned{owned(running, time.Hour), owned(ancient, 26*time.Hour)},
+	}
+
+	if err := r.Reap(t.Context()); err != nil {
+		t.Fatalf("Reap() = %v, want no error", err)
+	}
+
+	if len(machines.deleted) != 1 || machines.deleted[0] != "bk-macos-prod-"+string(ancient) {
+		t.Errorf("orchard deleted %v, want only the machine that outlived its lifetime",
+			machines.deleted)
+	}
+}
+
 // A job that Buildkite does not name is unknown to it, and its machine goes (row 5). A job that
 // the controller has not asked about is a different thing, and the test above keeps its machine.
 func TestAJobThatBuildkiteDoesNotNameLosesItsMachine(t *testing.T) {
@@ -305,6 +367,44 @@ func TestAJobThatBuildkiteDoesNotNameLosesItsMachine(t *testing.T) {
 
 	if len(machines.deleted) != 1 {
 		t.Errorf("orchard deleted %v, want the machine of the job that Buildkite does not know",
+			machines.deleted)
+	}
+}
+
+// Row 5 with the job states that the controller runs. One answer that leaves a job out, beside a
+// job that it names, can be a fault of the answer, so the machine stays. A second answer in a row
+// that leaves the job out makes it unknown to Buildkite, and its machine goes.
+func TestAJobIsUnknownOnlyAfterTwoAnswersInARowLeaveItOut(t *testing.T) {
+	t.Parallel()
+
+	c := &clock{at: now}
+	api := &stacks{states: map[job.ID]string{running: "running"}}
+	machines := &fleet{read: true, snapshot: inventory.Snapshot{
+		Owned: []inventory.Owned{owned(running, time.Hour), owned(ended, time.Hour)},
+		At:    now.Add(-time.Second),
+	}}
+
+	states, reaping := joined(t, api, machines, c)
+
+	for answer := 1; answer <= 2; answer++ {
+		c.at = c.at.Add(5 * time.Second)
+
+		if err := states.Refresh(t.Context()); err != nil {
+			t.Fatalf("Refresh() = %v, want no error", err)
+		}
+
+		if err := reaping.Reap(t.Context()); err != nil {
+			t.Fatalf("Reap() = %v, want no error", err)
+		}
+
+		if want := answer - 1; len(machines.deleted) != want {
+			t.Fatalf("after answer %d orchard deleted %v, want %d machines", answer,
+				machines.deleted, want)
+		}
+	}
+
+	if machines.deleted[0] != "bk-macos-prod-"+string(ended) {
+		t.Errorf("orchard deleted %v, want the machine of the job that Buildkite left out",
 			machines.deleted)
 	}
 }
@@ -380,6 +480,16 @@ func joined(t *testing.T, api *stacks, machines *fleet, c *clock) (*jobstates.St
 ) {
 	t.Helper()
 
+	return joinedWith(t, api, machines, c, &pages{})
+}
+
+// joinedWith builds the real job states and a reaper that reads them, on one clock, with the job
+// pages that the caller gives.
+func joinedWith(t *testing.T, api *stacks, machines *fleet, c *clock, jobPages *pages) (
+	*jobstates.States, *reaper.Reaper,
+) {
+	t.Helper()
+
 	states, err := jobstates.New(jobstates.Options{
 		Stacks: api, Fleet: machines, Interval: 5 * time.Second, Now: c.now,
 	})
@@ -396,7 +506,7 @@ func joined(t *testing.T, api *stacks, machines *fleet, c *clock) (*jobstates.St
 	}
 
 	built, err := reaper.New(reaper.Options{
-		Stacks:       &pages{},
+		Stacks:       jobPages,
 		States:       states,
 		Reservations: &held{},
 		RenewBefore:  120 * time.Second,
@@ -520,6 +630,58 @@ func TestAMachineIsListedFromTheFirstSnapshotThatShowsIt(t *testing.T) {
 	}
 }
 
+// A machine that Orchard deleted leaves no first sighting behind. A new machine with the same name
+// and no creation time, which the old sighting cannot tell apart from the old machine, starts its
+// time again.
+func TestADeletedMachineLeavesNoSightingForItsName(t *testing.T) {
+	t.Parallel()
+
+	c := &clock{at: now}
+	api := &stacks{states: map[job.ID]string{ended: "scheduled"}}
+	first := owned(ended, time.Hour)
+	first.VM.CreatedAt = time.Time{}
+	machines := &fleet{read: true, snapshot: inventory.Snapshot{
+		Owned: []inventory.Owned{first}, At: now,
+	}}
+
+	states, reaping := joined(t, api, machines, c)
+
+	if err := reaping.Reap(t.Context()); err != nil {
+		t.Fatalf("Reap() = %v, want no error", err)
+	}
+
+	c.at = now.Add(time.Second)
+	if err := states.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh() = %v, want no error", err)
+	}
+
+	machines.snapshot.At = now.Add(2 * time.Second)
+
+	if err := reaping.Reap(t.Context()); err != nil {
+		t.Fatalf("Reap() = %v, want no error", err)
+	}
+
+	if len(machines.deleted) != 1 {
+		t.Fatalf("orchard deleted %v, want the machine of the lapsed reservation", machines.deleted)
+	}
+
+	// The next snapshot already lists a new machine with the same name and no creation time. The
+	// state was asked for before that snapshot, so it must not end the new machine.
+	second := owned(ended, time.Minute)
+	second.VM.CreatedAt = time.Time{}
+	machines.snapshot = inventory.Snapshot{Owned: []inventory.Owned{second}, At: now.Add(3 * time.Second)}
+	c.at = now.Add(4 * time.Second)
+
+	if err := reaping.Reap(t.Context()); err != nil {
+		t.Fatalf("Reap() = %v, want no error", err)
+	}
+
+	if len(machines.deleted) != 1 {
+		t.Errorf("orchard deleted %v, want no deletion of the new machine on the old state",
+			machines.deleted)
+	}
+}
+
 // The stale rule, with the job states that the controller runs. When Buildkite stops answering,
 // the last state grows old, and past the freshness limit it no longer ends a machine. A fresh
 // state that says the same thing may.
@@ -629,39 +791,120 @@ func TestAMachineStaysWhenItsJobDidNotFinish(t *testing.T) {
 	}
 }
 
-// Rule 4 of the design. A job that Buildkite refuses with a 422 already ended, which a second
-// finish after a restart meets. It counts as done, and the controller sends no further call
-// about it, even when the machine is still there at the next tick.
-func TestARefusedFinishCountsAsDoneAndIsNotSentAgain(t *testing.T) {
+// pass runs one tick of the parts under test: a refresh of the job states when the tick asks
+// for one, then the pass of the reaper.
+func pass(t *testing.T, c *clock, states *jobstates.States, reaping *reaper.Reaper, refresh bool) {
+	t.Helper()
+
+	c.at = c.at.Add(time.Second)
+
+	if refresh {
+		if err := states.Refresh(t.Context()); err != nil {
+			t.Fatalf("Refresh() = %v, want no error", err)
+		}
+	}
+
+	_ = reaping.Reap(t.Context())
+}
+
+// timedOut gives a machine that runs for an hour, and whose agent did not acquire the job inside
+// the acquire limit.
+func timedOut(id job.ID) inventory.Owned {
+	return owned(id, time.Hour)
+}
+
+// A finish acts only on a state of this tick. A state from an earlier tick can be the reserved
+// state of a job that an agent has acquired since, and a finish of it would fail a running build.
+// A tick that did not ask again leaves the job and its machine alone, and the next tick that asks
+// finishes the job.
+func TestAFinishWaitsForAStateOfThisTick(t *testing.T) {
 	t.Parallel()
 
-	api := &observed{states: map[job.ID]string{ended: "reserved"}}
-	machine := failing(ended)
-	machines := &fleet{
-		read:     true,
-		refuse:   map[string]bool{machine.VM.Name: true},
-		snapshot: inventory.Snapshot{Owned: []inventory.Owned{machine}},
-	}
-	jobPages := &pages{finishErr: fmt.Errorf("finish: %w", buildkite.ErrTerminal)}
-	reaping := buildWith(t, api, machines, &decisions{}, jobPages)
+	c := &clock{at: now}
+	api := &stacks{states: map[job.ID]string{ended: "reserved"}}
+	machines := &fleet{read: true, snapshot: inventory.Snapshot{
+		Owned: []inventory.Owned{timedOut(ended)}, At: now,
+	}}
+	jobPages := &pages{finishErr: errors.New("buildkite is not available")}
+	states, reaping := joinedWith(t, api, machines, c, jobPages)
+	sawAtCreation(reaping, machines.snapshot)
 
-	// The first tick: the finish is refused, and Orchard refuses the deletion too.
-	_ = reaping.Reap(t.Context())
-
-	// The second tick: the machine is still there, and the decision is the same.
-	machines.refuse = nil
-	if err := reaping.Reap(t.Context()); err != nil {
-		t.Fatalf("Reap() = %v, want no error", err)
-	}
+	// The tick asks, and the finish fails.
+	pass(t, c, states, reaping, true)
 
 	if len(jobPages.finished) != 1 {
-		t.Errorf("buildkite saw %d finishes, want 1: a refused job gets no second call",
-			len(jobPages.finished))
+		t.Fatalf("buildkite saw %d finishes, want 1 on a state of this tick", len(jobPages.finished))
 	}
 
-	if len(machines.deleted) != 1 {
-		t.Errorf("orchard deleted %v, want the machine once the job counted as done",
-			machines.deleted)
+	// The next tick does not ask, so the state is from an earlier tick.
+	jobPages.finishErr = nil
+	pass(t, c, states, reaping, false)
+
+	if len(jobPages.finished) != 1 || len(machines.deleted) != 0 {
+		t.Fatalf("buildkite saw %d finishes and orchard deleted %v on a state of an earlier "+
+			"tick, want neither", len(jobPages.finished), machines.deleted)
+	}
+
+	pass(t, c, states, reaping, true)
+
+	if len(jobPages.finished) != 2 || len(machines.deleted) != 1 {
+		t.Errorf("buildkite saw %d finishes and orchard deleted %v, want the finish and the "+
+			"deletion on a state of this tick", len(jobPages.finished), machines.deleted)
+	}
+}
+
+// Rule 4 of the design. Buildkite refuses a finish with a 422 or a 404, which can mean that the
+// job ended, and also that an agent acquired it after the state that the finish acted on. The
+// refusal is not a reason to delete the machine, so the pass keeps it, and the next state
+// decides: an agent that owns the job keeps the machine (row 8), and a job that ended loses it
+// (row 4). A job that is still reserved loses its machine without a second finish, which
+// Buildkite would refuse the same way, so a second finish after a restart costs one tick and no
+// loop of refusals.
+func TestARefusedFinishKeepsTheMachineUntilTheNextState(t *testing.T) {
+	t.Parallel()
+
+	for name, test := range map[string]struct {
+		next    string
+		deleted int
+	}{
+		"an agent acquired the job": {next: "running", deleted: 0},
+		"the job ended":             {next: "finished", deleted: 1},
+		"the job is still reserved": {next: "reserved", deleted: 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			c := &clock{at: now}
+			api := &stacks{states: map[job.ID]string{ended: "reserved"}}
+			machines := &fleet{read: true, snapshot: inventory.Snapshot{
+				Owned: []inventory.Owned{timedOut(ended)}, At: now,
+			}}
+			jobPages := &pages{finishErr: fmt.Errorf("finish: %w", buildkite.ErrTerminal)}
+			states, reaping := joinedWith(t, api, machines, c, jobPages)
+			sawAtCreation(reaping, machines.snapshot)
+
+			pass(t, c, states, reaping, true)
+
+			if len(jobPages.finished) != 1 || len(machines.deleted) != 0 {
+				t.Fatalf("buildkite saw %d finishes and orchard deleted %v, want one refused "+
+					"finish and the machine kept", len(jobPages.finished), machines.deleted)
+			}
+
+			// A tick that does not ask again changes nothing.
+			pass(t, c, states, reaping, false)
+
+			api.states[ended] = test.next
+			pass(t, c, states, reaping, true)
+
+			if len(jobPages.finished) != 1 {
+				t.Errorf("buildkite saw %d finishes, want 1: a refused job gets no second call",
+					len(jobPages.finished))
+			}
+
+			if len(machines.deleted) != test.deleted {
+				t.Errorf("orchard deleted %v, want %d machines", machines.deleted, test.deleted)
+			}
+		})
 	}
 }
 
@@ -818,5 +1061,53 @@ func TestADeletedMachineIsForgottenAndARefusedDeletionIsNot(t *testing.T) {
 	if len(machines.forgot) != 1 || machines.forgot[0] != "bk-macos-prod-"+string(ended) {
 		t.Errorf("the reaper told the fleet to forget %v, want only the machine that went",
 			machines.forgot)
+	}
+}
+
+// After a restart, this process did not start the machines that it finds, and its memory names no
+// profile for them. The tags of each machine name its profile, so the timeouts of that profile
+// apply, and a machine of a profile with a short acquire limit does not get the widest limits of
+// the fleet. A tag that names a profile that the configuration no longer has gives the widest
+// limits, so that no machine ends sooner than its own profile allows.
+func TestTheTagsOfAMachineNameItsTimeoutsAfterARestart(t *testing.T) {
+	t.Parallel()
+
+	profiles := []profile.Profile{
+		{Name: "short", Timeouts: profile.Timeouts{Acquire: 2 * time.Minute}},
+		{Name: "slow", Timeouts: profile.Timeouts{Acquire: 20 * time.Minute}},
+	}
+
+	for name, test := range map[string]struct {
+		tag      string
+		finished int
+	}{
+		"a profile of the configuration": {tag: "short", finished: 1},
+		"a profile that is gone":         {tag: "removed", finished: 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			// The machine runs for 10 minutes, past the 2 minutes of the short profile and the
+			// 5 minutes of the defaults, and inside the 20 minutes of the slow one.
+			machine := owned(ended, 10*time.Minute)
+			machine.VM.StartupScript = &orchard.Script{Env: map[string]string{
+				"BUILDKITE_AGENT_TAGS": "queue=macos,agent-stack=orchard,profile=" + test.tag,
+			}}
+
+			api := &observed{states: map[job.ID]string{ended: "reserved"}}
+			machines := &fleet{read: true, snapshot: inventory.Snapshot{
+				Owned: []inventory.Owned{machine},
+			}}
+			jobPages := &pages{}
+
+			reaping := buildProfiles(t, api, machines, &decisions{}, jobPages, &held{}, profiles)
+			if err := reaping.Reap(t.Context()); err != nil {
+				t.Fatalf("Reap() = %v, want no error", err)
+			}
+
+			if len(jobPages.finished) != test.finished {
+				t.Errorf("buildkite saw %d finishes, want %d", len(jobPages.finished), test.finished)
+			}
+		})
 	}
 }

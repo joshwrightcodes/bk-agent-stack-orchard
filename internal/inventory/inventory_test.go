@@ -12,6 +12,7 @@ import (
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/inventory"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/profile"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
 )
 
@@ -282,12 +283,12 @@ func TestTheSnapshotFillsTheObservationOfTheInstruments(t *testing.T) {
 
 	observation := telemetry.Observation{}
 	snapshot.Observe(&observation, func(orchard.Worker) bool { return true },
-		func(id job.ID) string {
-			if id == job.ID(first) {
+		func(owned inventory.Owned) string {
+			if owned.Job == job.ID(first) {
 				return "xcode-27"
 			}
 
-			// A machine that this process did not start has no profile that it can name.
+			// A machine whose profile the caller cannot name.
 			return ""
 		})
 
@@ -338,7 +339,7 @@ func TestAFullWorkerHasNothingFreeAndNotLess(t *testing.T) {
 
 	observation := telemetry.Observation{}
 	snapshot.Observe(&observation, func(orchard.Worker) bool { return true },
-		func(job.ID) string { return "" })
+		func(inventory.Owned) string { return "" })
 
 	if got := observation.Slots[telemetry.Slot{State: telemetry.SlotsFree}]; got != 0 {
 		t.Errorf("the pool has %d slots free, want 0", got)
@@ -358,7 +359,7 @@ func TestAnOfflineWorkerGivesNoSlots(t *testing.T) {
 
 	observation := telemetry.Observation{}
 	snapshot.Observe(&observation, func(orchard.Worker) bool { return false },
-		func(job.ID) string { return "" })
+		func(inventory.Owned) string { return "" })
 
 	if len(observation.Slots) != 0 {
 		t.Errorf("the observation holds %+v, want no slots for an offline worker",
@@ -502,5 +503,40 @@ func TestTheMachinesOfAControllerWithAShorterIdentifierAreNotOrphans(t *testing.
 	snapshot, _ := held.Latest()
 	if len(snapshot.Orphans) != 0 || len(snapshot.Owned) != 0 {
 		t.Errorf("Orphans = %+v, Owned = %+v, want none", snapshot.Orphans, snapshot.Owned)
+	}
+}
+
+// The profile of a machine comes from this process when it started the machine, and else from the
+// tags of the machine, which a process after a restart reads from Orchard. A tag that names no
+// profile of the configuration names nothing.
+func TestTheProfileOfAMachineComesFromTheProcessOrFromItsTags(t *testing.T) {
+	t.Parallel()
+
+	tagged := func(name string) inventory.Owned {
+		return inventory.Owned{Job: job.ID(first), VM: orchard.VM{StartupScript: &orchard.Script{
+			Env: map[string]string{
+				"BUILDKITE_AGENT_TAGS": "queue=macos,agent-stack=orchard,profile=" + name + ",xcode=27",
+			},
+		}}}
+	}
+
+	profiles := []profile.Profile{{Name: "xcode-27"}, {Name: "default"}}
+	none := func(job.ID) string { return "" }
+
+	for name, test := range map[string]struct {
+		owned   inventory.Owned
+		started func(job.ID) string
+		want    string
+	}{
+		"started by this process": {
+			tagged("default"), func(job.ID) string { return "xcode-27" }, "xcode-27",
+		},
+		"named by its tags":           {tagged("default"), none, "default"},
+		"named by its tags, but gone": {tagged("removed"), none, ""},
+		"no tags":                     {inventory.Owned{Job: job.ID(first)}, none, ""},
+	} {
+		if got := inventory.ProfileOf(test.owned, test.started, profiles); got != test.want {
+			t.Errorf("%s: ProfileOf() = %q, want %q", name, got, test.want)
+		}
 	}
 }

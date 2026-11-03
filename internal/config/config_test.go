@@ -3,6 +3,7 @@
 package config_test
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -199,6 +200,62 @@ profiles:`, 1)
 	_, err := load(t, body, secrets())
 	if err == nil || !strings.Contains(err.Error(), "jobTokenLifetime") {
 		t.Errorf("Load() with timeouts that outlast the token = %v, want an error naming the token", err)
+	}
+}
+
+// The token outlives the start timeouts of its profile by one minute, because it is issued before
+// the create, and the unplaced timeout counts from the first snapshot that lists the machine. A
+// profile whose timeouts fill the whole lifetime of the token leaves no minute, and a slow but
+// healthy machine can then meet an expired token. A sum that leaves the minute loads.
+func TestLoadKeepsTheMinuteOfTheTokenMargin(t *testing.T) {
+	for name, test := range map[string]struct {
+		boot  string
+		loads bool
+	}{
+		// 2 min + 23 min + 5 min fills the 30 min of the token.
+		"no minute left": {boot: "23m", loads: false},
+		// 2 min + 22 min + 5 min leaves the minute.
+		"the minute left": {boot: "22m", loads: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			body := strings.Replace(minimal, "profiles:", "defaults:\n  timeouts:\n    boot: "+
+				test.boot+"\nprofiles:", 1)
+
+			_, err := load(t, body, secrets())
+
+			if test.loads && err != nil {
+				t.Errorf("Load() with boot %s = %v, want it to load", test.boot, err)
+			}
+
+			if !test.loads && (err == nil || !strings.Contains(err.Error(), "jobTokenLifetime") ||
+				!strings.Contains(err.Error(), "one minute")) {
+				t.Errorf("Load() with boot %s = %v, want an error that names the token and the "+
+					"minute", test.boot, err)
+			}
+		})
+	}
+}
+
+// The start timeouts set the lifetime of each token, so their sum must not wrap. Two timeouts near
+// the largest duration add up to a negative sum, and a negative timeout makes the sum small. Each
+// sum would pass the check against the token, and the launcher would ask for a token that has
+// already expired.
+func TestLoadRefusesStartTimeoutsThatBreakTheSum(t *testing.T) {
+	largest := time.Duration(math.MaxInt64).String()
+
+	for name, timeouts := range map[string]string{
+		"a sum that wraps":   "    boot: " + largest + "\n    acquire: " + largest + "\n",
+		"a negative timeout": "    boot: -1h\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			body := strings.Replace(minimal, "profiles:", "defaults:\n  timeouts:\n"+timeouts+
+				"profiles:", 1)
+
+			_, err := load(t, body, secrets())
+			if err == nil || !strings.Contains(err.Error(), "xcode-27") {
+				t.Errorf("Load() with %s = %v, want an error that names the profile", name, err)
+			}
+		})
 	}
 }
 

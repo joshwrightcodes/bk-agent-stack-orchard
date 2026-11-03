@@ -79,8 +79,8 @@ type Options struct {
 	ReservationExpiry time.Duration
 
 	// TokenLifetime is the longest that a job acquisition token works (buildkite.jobTokenLifetime).
-	// Each token works for the start timeouts of the profile of its job and tokenMargin, inside
-	// this limit.
+	// Each token works for the start timeouts of the profile of its job and profile.TokenMargin,
+	// inside this limit.
 	TokenLifetime time.Duration
 
 	// DefaultTimeouts are the timeouts of a profile that states none (defaults.timeouts). The
@@ -121,9 +121,10 @@ type Launcher struct {
 	now          func() time.Time
 
 	// held is what this process knows about the jobs that it started: when the reservation of a
-	// job ends, and which profile carries it. Neither is in Orchard, and a machine does not
-	// carry the name of its profile, so this is the only place that has them. A restart loses
-	// them, and the reaper treats an unknown reservation as one to extend at once.
+	// job ends, and which profile carries it. The end of a reservation is in neither Orchard nor
+	// Buildkite, so this is the only place that has it. A restart loses both, the reaper treats
+	// an unknown reservation as one to extend at once, and it reads the profile from the tags of
+	// the machine.
 	held *memory
 
 	// notified holds the unmatched jobs that this process wrote a notification for, so that it
@@ -254,6 +255,14 @@ func (l *Launcher) Held(fleet inventory.Snapshot) map[job.ID]string {
 // ReservedUntil gives when the reservation of a job ends, for a job that this process reserved.
 func (l *Launcher) ReservedUntil(id job.ID) (time.Time, bool) {
 	return l.held.reservedUntil(id)
+}
+
+// TokenAt gives when this process sent the token call of a job, on the clock of the controller,
+// and the zero time for a job that got no token from this process. The reaper counts the unplaced
+// timeout of the machine of the job from it, because the token starts to expire at that call. A
+// restart loses it, and the reaper then counts from the first listing of the machine.
+func (l *Launcher) TokenAt(id job.ID) time.Time {
+	return l.held.tokenSent(id)
 }
 
 // PerTick gives the most jobs that one tick reserves and starts. Admission admits no more, and
@@ -553,24 +562,39 @@ func (l *Launcher) tell(ctx context.Context, fresh []admission.Unmatched) error 
 	return nil
 }
 
-// tokenMargin is how long a token outlives the start timeouts of its profile. The token is issued
-// before the create, and the unplaced timeout counts from the create on the clock of Orchard, so
-// the margin covers the budget of the step and a skew of the clocks.
-const tokenMargin = time.Minute
-
 // lifetimeOf is how long the token of a job of the profile works: the time that the reaper gives
-// its machine to start, and tokenMargin, inside the configured limit. A token that outlived the
-// start would be of no use to its machine, and could still take the job when the job went back to
-// the queue.
+// its machine to start, and profile.TokenMargin, inside the configured limit.
+//
+// The reservation of the job bounds the token already: Buildkite ends a token when the reservation
+// of its job expires, and a finish ends the job. The lifetime is a second bound, for the times
+// when the controller holds a reservation longer than the start of the machine needs, such as while
+// its snapshot of Orchard is stale, and for a Buildkite that did not end the token with the
+// reservation.
+//
+// The configuration refuses start timeouts whose sum is negative or wraps. A sum that is not
+// positive still gives the configured limit, and never a token that has expired.
 func (l *Launcher) lifetimeOf(carrier profile.Profile) time.Duration {
-	return min(carrier.EffectiveTimeouts(l.defaults).StartSum()+tokenMargin, l.lifetime)
+	lifetime := carrier.EffectiveTimeouts(l.defaults).StartSum() + profile.TokenMargin
+	if lifetime <= 0 {
+		return l.lifetime
+	}
+
+	return min(lifetime, l.lifetime)
 }
 
 // tokens gets one job acquisition token for each reserved job, in one call for each lifetime. A
 // call that fails ends the calls, and the tokens of the calls before it stay.
+//
+// The calls share the time budget of a step, as the creates do, so that the longest tick does not
+// grow with the number of profiles (target design, section 4). The calls are quick when Buildkite
+// answers, so every lifetime gets its call. When each call takes most of its limit, the budget
+// ends the later calls, and their jobs keep reservations that lapse.
 func (l *Launcher) tokens(ctx context.Context, wanted []admission.Candidate) (map[job.ID]secret.String, error) {
 	ctx, span := l.tracer.Start(ctx, "stacks.issue_token")
 	defer span.End()
+
+	ctx, cancel := context.WithTimeout(ctx, l.budget)
+	defer cancel()
 
 	var lifetimes []time.Duration
 
@@ -590,6 +614,11 @@ func (l *Launcher) tokens(ctx context.Context, wanted []admission.Candidate) (ma
 	for _, lifetime := range lifetimes {
 		ids := groups[lifetime]
 
+		// A token starts to expire when Buildkite handles the call, which is after the call
+		// leaves. A time taken from the send is therefore never later than the issue, so the
+		// unplaced timeout that counts from it ends inside the token (target design, section 7.3).
+		sent := l.now()
+
 		answer, err := l.stacks.Tokens(ctx, ids, lifetime)
 		if err != nil {
 			span.RecordError(err)
@@ -597,9 +626,14 @@ func (l *Launcher) tokens(ctx context.Context, wanted []admission.Candidate) (ma
 			return issued, fmt.Errorf("getting the tokens of %d jobs: %w", len(ids), err)
 		}
 
+		got := make([]job.ID, 0, len(answer.Issued))
+
 		for _, token := range answer.Issued {
 			issued[token.JobID] = token.Token
+			got = append(got, token.JobID)
 		}
+
+		l.held.tokened(got, sent)
 
 		// A job with no token gets no machine. Its reservation expires by itself, and admission
 		// meets the job again at a later tick.

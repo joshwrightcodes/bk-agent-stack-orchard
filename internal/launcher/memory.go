@@ -26,17 +26,21 @@ type held struct {
 	// reserved it. The phase durations of the job start from them.
 	scheduledAt time.Time
 	reservedAt  time.Time
+
+	// tokenAt is when this process sent the token call that got the token of the job, on the
+	// clock of the controller. The unplaced timeout of the machine of the job counts from it.
+	tokenAt time.Time
 }
 
 // memory holds what only this process knows about the jobs that it started.
 //
-// Two things are in neither Orchard nor Buildkite. The first is when a reservation ends: the
-// reaper extends a reservation before it lapses, and nothing else records that time. The second
-// is the profile of a machine: a machine carries the worker labels of its profile and nothing
-// that names the profile itself.
+// When a reservation ends is in neither Orchard nor Buildkite: the reaper extends a reservation
+// before it lapses, and nothing else records that time. The memory also holds the profile of each
+// machine, which the tags of the machine name too, and when the token call of each job left.
 //
-// A restart loses both, which the design allows. The reaper then extends every reservation at
-// once, and the machines of the process before the restart count under an unknown profile.
+// A restart loses them, which the design allows. The reaper then extends every reservation at
+// once, it reads the profile of each machine of the process before the restart from its tags, and
+// it counts the unplaced timeout from the first listing of the machine.
 type memory struct {
 	mu   sync.RWMutex
 	jobs map[job.ID]held
@@ -67,6 +71,27 @@ func (m *memory) admitted(id job.ID, scheduledAt, reservedAt time.Time) {
 	entry.scheduledAt = scheduledAt
 	entry.reservedAt = reservedAt
 	m.jobs[id] = entry
+}
+
+// tokened records when this process sent the token call that got the tokens of jobs.
+func (m *memory) tokened(ids []job.ID, sent time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, id := range ids {
+		entry := m.jobs[id]
+		entry.tokenAt = sent
+		m.jobs[id] = entry
+	}
+}
+
+// tokenSent gives when this process sent the token call of a job, and the zero time for a job
+// that got no token from this process.
+func (m *memory) tokenSent(id job.ID) time.Time {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return m.jobs[id].tokenAt
 }
 
 // timeline gives what this process knows of the start of a job.
