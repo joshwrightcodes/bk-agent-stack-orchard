@@ -1,0 +1,40 @@
+#!/bin/sh
+# {{ ansible_managed }}
+#
+# Keeps the pf rules of the job VMs in force (templates/vm-isolation.pf.j2). launchd runs this
+# script as root when the host starts, when the network configuration changes, and every 30
+# seconds. Each run loads the rules again, so "self" in them holds the addresses that the host has
+# now. A run also enables pf when pf is not enabled. The script writes a line to its log only when
+# it corrects something or fails. At the start of the host, it writes that it enables pf and loads
+# the rules. At any other time, such a line means that the VMs could reach the host until then.
+set -u
+
+anchor={{ orchard_worker_pf_anchor | quote }}
+rules={{ orchard_worker_pf_rules | quote }}
+
+log() {
+	printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"
+}
+
+# macOS evaluates the anchors under com.apple/ only while the main ruleset of /etc/pf.conf names
+# them. A run cannot know which other rules a person loaded on purpose, so it reports this and
+# changes nothing.
+if ! /sbin/pfctl -s rules 2>/dev/null | grep -q '^anchor "com.apple/\*"'; then
+	log "the main pf ruleset does not evaluate com.apple/*, so pf does not apply $anchor:" \
+		"load /etc/pf.conf again with pfctl -f /etc/pf.conf"
+fi
+
+# pfctl -E takes a reference on pf at each call, so only a pf that is not enabled gets one.
+if ! /sbin/pfctl -s info 2>/dev/null | grep -q '^Status: Enabled'; then
+	log "pf is not enabled, so the job VMs can reach the host: enabling pf"
+	/sbin/pfctl -E >/dev/null 2>&1 || log "pfctl -E failed"
+fi
+
+if ! /sbin/pfctl -a "$anchor" -s rules 2>/dev/null | grep -q '^block drop in quick'; then
+	log "the anchor $anchor has no block rule: loading $rules"
+fi
+
+if ! output=$(/sbin/pfctl -a "$anchor" -f "$rules" 2>&1); then
+	log "pfctl could not load $rules into $anchor: $output"
+	exit 1
+fi

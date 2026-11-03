@@ -119,7 +119,7 @@ is required.
 | `profiles[].memoryMiB` | integer |  | The memory of each VM, in MiB. Required. |
 | `profiles[].diskSizeGB` | integer |  | The disk of each VM, in GB. It must be at least the disk of the image. Required. |
 | `profiles[].workerLabels` | map of strings |  | The labels that a worker must have to run the VMs of this profile. |
-| `profiles[].softnetAllow` | list of strings |  | IPv4 ranges in private networks that the VMs can reach, such as a mirror or an artifact store. Each one is a range with a prefix length from /16 to /32. Every pipeline on the queue can reach them, so the controller warns at start. |
+| `profiles[].softnetAllow` | list of strings |  | IPv4 ranges in private networks that the VMs can reach, such as a mirror or an artifact store. Each one is a range with a prefix length from /16 to /32. In 10.0.0.0/8, 172.16.0.0/12, and 192.168.0.0 to 192.168.99.255, where the VM networks are, the prefix length is from /29 to /32. Every pipeline on the queue can reach them, so the controller warns at start. |
 | `profiles[].startupTransport` | string | `tart-guest-agent` | How the Orchard worker runs the startup script of a VM: tart-guest-agent, or ssh with vmCredentials. |
 | `profiles[].vmCredentials` | object |  | The credentials of the image, for startupTransport ssh only. |
 | `profiles[].vmCredentials.usernameEnv` | string |  | The environment variable of the controller that holds the user name of the image. It must start with VM_. Required with vmCredentials. |

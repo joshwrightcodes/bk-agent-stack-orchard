@@ -6,6 +6,9 @@
 #   - the worker registers with the labels of the inventory, through TLS with the CA in the token;
 #   - the token is in no process listing, softnet has the setuid bit, the host does not sleep, and
 #     pf keeps the VMs away from the host, also after a restart;
+#   - only the worker user and root can run softnet, and root owns the programs that it runs;
+#   - the launchd job of the pf rules enables pf and loads the rules again after a person
+#     disables pf and removes the rules;
 #   - a second run of the playbook changes nothing;
 #   - the worker registers again after a restart of the host.
 #
@@ -220,6 +223,9 @@ check=$(guest <<'EOF'
 echo "token_in_ps=$(ps axww -o command | grep -c '[o]rchard-bootstrap-token' || true)"
 echo "token_mode=$(sudo stat -f '%Su %Mp%Lp' /usr/local/etc/orchard-worker/bootstrap-token)"
 echo "softnet=$(stat -f '%Su %Mp%Lp' /usr/local/bin/softnet)"
+echo "softnet_admin=$(/usr/local/bin/softnet --version >/dev/null 2>&1 && echo runs || echo refused)"
+echo "softnet_nobody=$(sudo -u nobody /usr/local/bin/softnet --version >/dev/null 2>&1 && echo runs || echo refused)"
+echo "tools_owner=$(sudo find /usr/local/opt/bkaso ! -user root | wc -l | tr -d ' ')"
 echo "pf_block=$(sudo /sbin/pfctl -a com.apple/400.bkaso-vm-isolation -s rules 2>/dev/null | grep -c 'block drop in quick')"
 echo "pf_enabled=$(sudo /sbin/pfctl -s info 2>/dev/null | grep -c 'Status: Enabled')"
 echo "worker_user=$(ps axo user,command | awk '$2 ~ /orchard$/ && $3 == "worker" {print $1}' | sort -u | tr '\n' ' ')"
@@ -229,7 +235,10 @@ EOF
 echo "$check"
 grep -qx "token_in_ps=0" <<<"$check" || die "the token is in a process listing"
 grep -qx "token_mode=root 0600" <<<"$check" || die "the token file is not root 0600"
-grep -qx "softnet=root 4755" <<<"$check" || die "softnet has no setuid bit"
+grep -qx "softnet=root 4750" <<<"$check" || die "softnet is not root 4750"
+grep -qx "softnet_admin=runs" <<<"$check" || die "the worker user cannot run softnet"
+grep -qx "softnet_nobody=refused" <<<"$check" || die "a user other than the worker user can run softnet"
+grep -qx "tools_owner=0" <<<"$check" || die "root does not own every file of the tools"
 grep -Eqx "pf_block=[1-9][0-9]*" <<<"$check" || die "pf has no rule that keeps the VMs away from the host"
 grep -qx "pf_enabled=1" <<<"$check" || die "pf is not enabled"
 grep -qx "sleep=disksleep=0 sleep=0 " <<<"$check" || die "the host can sleep"
@@ -272,4 +281,31 @@ echo "$after"
 grep -Eqx "pf_block=[1-9][0-9]*" <<<"$after" || die "the pf rules did not survive the restart"
 grep -qx "pf_enabled=1" <<<"$after" || die "pf is not enabled after the restart"
 
-say "PASS: the worker registers, the token stays secret, the playbook is idempotent, and the worker and the pf rules survive a restart"
+# The launchd job runs every 30 seconds, so it undoes a disabled pf and removed rules within that
+# time, and its log says so.
+say "disabling pf and removing the rules, which the launchd job must undo"
+# The job also writes that it enables pf at each start of the host, so the test counts the lines.
+logged=$(guest <<<'grep -c "pf is not enabled" /var/log/bkaso-vm-isolation.log || true')
+guest <<'EOF'
+sudo /sbin/pfctl -d >/dev/null 2>&1
+sudo /sbin/pfctl -a com.apple/400.bkaso-vm-isolation -F rules >/dev/null 2>&1
+EOF
+restored=""
+for _ in $(seq 1 30); do
+  sleep 2
+  state=$(guest <<'EOF'
+echo "pf_block=$(sudo /sbin/pfctl -a com.apple/400.bkaso-vm-isolation -s rules 2>/dev/null | grep -c 'block drop in quick')"
+echo "pf_enabled=$(sudo /sbin/pfctl -s info 2>/dev/null | grep -c 'Status: Enabled')"
+EOF
+  )
+  if grep -Eqx "pf_block=[1-9][0-9]*" <<<"$state" && grep -qx "pf_enabled=1" <<<"$state"; then
+    restored=1
+    break
+  fi
+done
+[[ -n "$restored" ]] || die "the launchd job did not enable pf and load the rules again within 60 seconds"
+now=$(guest <<<'grep -c "pf is not enabled" /var/log/bkaso-vm-isolation.log || true')
+((now > logged)) || die "the launchd job enabled pf, and its log does not say so"
+say "the launchd job enabled pf and loaded the rules again"
+
+say "PASS: the worker registers, the token stays secret, the playbook is idempotent, the worker and the pf rules survive a restart, and the launchd job keeps the pf rules in force"

@@ -58,6 +58,8 @@ again when it starts, and it refuses a value that the schema cannot express. For
 * a `reservationRenewBefore` that is not shorter than `reservationExpiry`;
 * a source interval that is not shorter than `stateFreshness`;
 * a `softnetAllow` list with the same range in two spellings;
+* a `softnetAllow` range wider than /29 inside `10.0.0.0/8`, `172.16.0.0/12`, or `192.168.0.0` to
+  `192.168.99.255`, where Softnet puts the network of each VM and an address of the host;
 * an `agent.url` without its `agent.sha256`, or the reverse;
 * a `vmCredentials` block that does not agree with `startupTransport`;
 * a variable that holds no value in the Secret.

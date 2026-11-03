@@ -1,0 +1,33 @@
+# Root runs orchard (launchd), the script of the pf rules (launchd), softnet (setuid), and tart
+# (this playbook), and reads the token, the pf rules, and the launchd jobs. A user who can change
+# one of these files, or rename an entry of a directory above it, gets root. A VM that escapes
+# lands as the worker user, so each of these paths MUST be owned by root and the group wheel, and
+# no group or other user may write it (0755 for a directory).
+- name: Read the owners of what root runs and reads
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: true
+    get_checksum: false
+    get_mime: false
+  loop: "{{ orchard_worker_root_paths }}"
+  register: orchard_worker_root_stats
+  become: true
+
+- name: Check that only root can change what root runs and reads
+  ansible.builtin.assert:
+    quiet: true
+    that: orchard_worker_unsafe | length == 0
+    fail_msg: >-
+      Root runs or reads these paths, so each MUST be owned by root and the group wheel, and no
+      group or other user may write it. These are missing or break that rule:
+      {{ orchard_worker_unsafe | join(', ') }}. Fix them with chown root:wheel and chmod go-w,
+      then run the playbook again.
+  vars:
+    orchard_worker_present: "{{ orchard_worker_root_stats.results | selectattr('stat.exists') | list }}"
+    orchard_worker_unsafe: >-
+      {{ ((orchard_worker_root_stats.results | rejectattr('stat.exists') | list)
+      + (orchard_worker_present | rejectattr('stat.pw_name', 'eq', 'root') | list)
+      + (orchard_worker_present | rejectattr('stat.gr_name', 'eq', 'wheel') | list)
+      + (orchard_worker_present | selectattr('stat.wgrp') | list)
+      + (orchard_worker_present | selectattr('stat.woth') | list))
+      | map(attribute='item') | unique | list }}

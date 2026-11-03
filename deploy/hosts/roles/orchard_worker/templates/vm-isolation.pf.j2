@@ -6,21 +6,48 @@
 # gateway of its network on every port, and the gateway is this host. A Softnet block of the
 # gateway also blocks DNS, because the gateway is the DNS server of the VM.
 #
-# Softnet 0.24 gives each VM a network of its own, with an address of the host in a private range
-# that it picks when the VM starts. pf on macOS has no interface groups, and "(self)" matches
-# nothing, so these rules cannot name those interfaces or addresses (2026-10-10, tested on a VM).
-# They block by destination instead: from anything but the admin interfaces, the host is reachable
-# only for DHCP and DNS, and the private ranges only where a profile permits them.
+# Softnet gives each VM a network of its own when the VM starts: a /29 that it picks at random from
+# the ranges in <bkaso_softnet_pools>, on a new bridge interface, with the first address of the /29
+# for the host. pf on macOS cannot follow those interfaces or addresses. It has no interface
+# groups, "(self)" matches nothing, and "self" holds only the addresses that the host has when the
+# rules load (2026-10-10, tested on a VM). The rules therefore block by destination, in layers
+# that do not depend on when an address appears:
+#
+# 1. From anything but the admin interfaces, the host is reachable only for DHCP and DNS.
+# 2. "self" blocks the addresses that the host has when the rules load. "($admin_if)" blocks the
+#    addresses that each admin interface has now, because pf follows the addresses of a named
+#    interface. The launchd job loads the rules again when the network changes and every 30
+#    seconds (vm-isolation.sh.j2), so "self" follows the other interfaces too.
+# 3. Every gateway that Softnet can give the host is inside <bkaso_softnet_pools>, and the last
+#    rule blocks the private ranges. Only a softnetAllow entry opens a part of them, and
+#    <bkaso_softnet_host_guard> holds the gateways inside those entries. A mirror can have such an
+#    address too, and pf cannot tell the two apart by the address. So the guard refuses only a
+#    connection that a socket of the host takes: for "user", pf looks up the socket that the
+#    packet goes to, and a connection that the host forwards to a mirror has no socket of the host,
+#    so its user is "unknown". A socket that listens on every address, such as SSH, matches a
+#    forwarded connection to the same port too, so the guard also refuses that port of a mirror at
+#    a gateway address. The controller and select.yml refuse an entry wider than /29 that overlaps
+#    the pools, so the guard holds a few single addresses.
 {#
   pf has no quoting for a value in a macro or a table, so the role checks these values instead:
   preflight.yml the names of the admin interfaces, and select.yml the addresses of softnetAllow.
+  The pools come from vars/main.yml, and the guard from the filters of filter_plugins/softnet.py.
 #}
 
 admin_ifs = "{ {{ orchard_worker_admin_interfaces | join(', ') }} }"
+admin_addrs = "{ {% for interface in orchard_worker_admin_interfaces %}({{ interface }}){{ '' if loop.last else ', ' }}{% endfor %} }"
 private = "{ 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, fc00::/7, fe80::/10 }"
+
+# The ranges from which Softnet picks the network of each VM (vars/main.yml).
+table <bkaso_softnet_pools> const { {{ orchard_worker_softnet_pools | join(', ') }} }
 
 # The private addresses that the profiles of this host permit (softnetAllow).
 table <bkaso_softnet_allow> persist{% if orchard_worker_softnet_allow %} { {{ orchard_worker_softnet_allow | join(', ') }} }{% endif %}
+
+
+# The addresses inside softnetAllow that Softnet can give the host.
+{% set orchard_worker_softnet_guard = orchard_worker_softnet_allow | softnet_host_guard(orchard_worker_softnet_pools) %}
+table <bkaso_softnet_host_guard> persist{% if orchard_worker_softnet_guard %} { {{ orchard_worker_softnet_guard | join(', ') }} }{% endif %}
 
 
 # Connections that the host opens, to a VM or anywhere, keep their replies.
@@ -32,10 +59,15 @@ pass in quick on $admin_ifs all
 # From any other interface, a VM network included: DHCP, for a VM on the shared network of Tart,
 # and DNS, which the gateway of each VM network serves.
 pass in quick proto udp from any port 68 to any port 67
-pass in quick proto { udp, tcp } from any to $private port 53
+pass in quick proto { udp, tcp } from any to <bkaso_softnet_pools> port 53
 
-# Not the addresses of the host that it has when the rules load, even when a profile permits them.
+# The addresses of the host, even when a profile permits them: those of the last load, and those
+# that the admin interfaces have now.
 block in quick from any to self
+block in quick from any to $admin_addrs
+
+# A gateway inside softnetAllow, for a connection that a socket of the host takes.
+block in quick proto { tcp, udp } from any to <bkaso_softnet_host_guard> user != unknown
 
 # The private addresses that a profile permits, and no other.
 pass in quick from any to <bkaso_softnet_allow>

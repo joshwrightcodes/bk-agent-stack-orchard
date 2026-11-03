@@ -13,6 +13,10 @@ This directory makes each Mac host an Orchard worker (target design, section 11)
 2. It installs Orchard, Tart, and Softnet at pinned versions, from their release archives, checked
    against their SHA-256. Orchard is the version of `mise.toml`, and `scripts/check-deps.py` keeps
    the two in agreement. Softnet gets the setuid bit, because Tart starts it for each VM with root.
+   Only root and the worker user can run it: its mode is `04750`, and an access control entry
+   lets the worker user in. Root owns every file of the tools. The playbook checks each program
+   that root runs, and each directory above it up to `/usr/local`. It stops when one is not owned
+   by root and the group wheel, or when a group or other user can write it.
    The same tools are in the `openai/tools` Homebrew tap, which a developer Mac uses
    (`docs/development.md`). A host does not use the tap, for these reasons:
    - The tap has one version of each tool.
@@ -23,13 +27,19 @@ This directory makes each Mac host an Orchard worker (target design, section 11)
    not report for 3 minutes. A host that sleeps therefore fails the jobs on it.
 4. It loads pf rules that keep the VMs away from the host (`templates/vm-isolation.pf.j2`).
    Softnet lets a VM reach the gateway of its network on every port, and the gateway is the host.
-   Softnet 0.24 gives each VM its own network. pf on macOS cannot name these interfaces or their
-   addresses. Because of this, the rules block traffic by destination. Traffic from an interface
-   that is not an admin interface can reach the host only for DHCP and DNS. It can reach a private
-   range only when a profile of the host permits that range (`softnetAllow`). By default, the admin
-   interfaces (`orchard_worker_admin_interfaces`) are the interface of the default route. A launchd
-   job loads the rules into the anchor `com.apple/400.bkaso-vm-isolation` and enables pf at each
-   start of the host. For this reason, `/etc/pf.conf` stays as macOS ships it.
+   Softnet gives each VM its own network, a /29 from a few private ranges, with the first address
+   for the host. pf on macOS cannot name these interfaces or their addresses. Because of this, the
+   rules block traffic by destination. Traffic from an interface that is not an admin interface
+   can reach the host only for DHCP and DNS. It can reach a private range only when a profile of
+   the host permits that range (`softnetAllow`). An address that Softnet can give the host stays
+   closed inside a permitted range too, as the comments of the template explain. By default, the
+   admin interfaces (`orchard_worker_admin_interfaces`) are the interface of the default route. A
+   launchd job loads the rules into the anchor `com.apple/400.bkaso-vm-isolation` and enables pf.
+   It runs at each start of the host, when the network changes, and every 30 seconds, so the rules
+   follow the addresses of the host, and pf stays enabled. For this reason, `/etc/pf.conf` stays
+   as macOS ships it. The job writes to `/var/log/bkaso-vm-isolation.log` only when it enables pf,
+   loads rules that were missing, or fails. Outside a start of the host, such a line means that
+   the VMs could reach the host until then.
 5. It runs `orchard worker run` from launchd, as root, and the worker drops to the worker user.
    This is the Orchard workaround for the Local Network permission of macOS.
 6. It pulls the image of each profile that the host can take.
@@ -76,7 +86,10 @@ input, and it logs out after the pull. The keychain of the host therefore keeps 
 
 Each `softnetAllow` entry of the profiles of a host is an address or a range inside the private
 ranges that the pf rules block, such as `10.20.30.40/32`. The playbook stops on a wider entry,
-such as `0.0.0.0/0`. Each key of `orchard_worker_labels` has only lower case letters, digits, `_`,
+such as `0.0.0.0/0`. It also stops on an entry wider than /29 inside the ranges from which
+Softnet picks the networks of the VMs (`orchard_worker_softnet_pools` in `vars/main.yml`), such as
+`192.168.0.0/16`, because such an entry holds an address of the host. The controller refuses the
+same entries. Each key of `orchard_worker_labels` has only lower case letters, digits, `_`,
 `.`, and `-`. A label value has no comma, equals sign, or space.
 
 ## Run
@@ -101,8 +114,9 @@ failed start to `/var/log/orchard-worker.stdout.log`.
 ## Tests
 
 `mise run check-hosts` lints the role, and checks the images that a host pulls for different
-labels. It also checks that the role refuses a `softnetAllow` entry outside the private ranges. CI
-runs it.
+labels. It also checks that the role refuses a `softnetAllow` entry outside the private ranges,
+and a wide entry inside the networks of the VMs. It renders the pf rules, checks their order, and
+parses them with `pfctl -n` on a Mac. CI runs it.
 
 `mise run hosts-test` runs the playbook against a Tart VM on an Apple silicon Mac. An Orchard
 controller is on the Mac, and the certificate comes from a test CA. The test checks these points:

@@ -3,7 +3,8 @@
 #
 # macOS evaluates every anchor under com.apple/ from /etc/pf.conf, so the rules go into one of
 # those, and /etc/pf.conf, which a macOS update can replace, stays as it is. A launchd job loads
-# them and enables pf at each start of the host.
+# them and enables pf when the host starts, when the network changes, and every 30 seconds
+# (templates/vm-isolation.sh.j2).
 - name: Write the pf rules
   ansible.builtin.template:
     src: vm-isolation.pf.j2
@@ -14,6 +15,17 @@
     validate: /sbin/pfctl -n -f %s
   become: true
   register: orchard_worker_pf_rules_file
+
+- name: Write the script that keeps the pf rules in force
+  ansible.builtin.template:
+    src: vm-isolation.sh.j2
+    dest: "{{ orchard_worker_pf_script }}"
+    owner: root
+    group: wheel
+    mode: "0755"
+    validate: /bin/sh -n %s
+  become: true
+  register: orchard_worker_pf_script_file
 
 - name: Write the launchd job that loads the pf rules
   ansible.builtin.template:
@@ -33,8 +45,9 @@
   failed_when: false
   become: true
 
-# The job loads the rules, enables pf, and ends. launchd reads a job definition only when it loads
-# the job, so a change unloads the job and loads it again, which runs it.
+# Each run of the job loads the rules, enables pf, and ends, and launchd runs it again later.
+# launchd reads a job definition only when it loads the job, so a change unloads the job and loads
+# it again, which runs it.
 - name: Load the pf rules
   ansible.builtin.shell: |
     launchctl bootout system/{{ orchard_worker_pf_label }} 2>/dev/null
@@ -44,8 +57,8 @@
     done
     launchctl bootstrap system {{ orchard_worker_pf_plist }}
   when: >-
-    orchard_worker_pf_rules_file.changed or orchard_worker_pf_plist_file.changed or
-    orchard_worker_pf_loaded.rc != 0
+    orchard_worker_pf_rules_file.changed or orchard_worker_pf_script_file.changed or
+    orchard_worker_pf_plist_file.changed or orchard_worker_pf_loaded.rc != 0
   changed_when: true
   become: true
 
@@ -61,12 +74,21 @@
   changed_when: false
   become: true
 
+- name: Read the main pf ruleset
+  ansible.builtin.command: /sbin/pfctl -s rules
+  register: orchard_worker_pf_main
+  changed_when: false
+  become: true
+
 - name: Check that pf keeps the VMs away from the host
   ansible.builtin.assert:
     quiet: true
     that:
       - orchard_worker_pf_rules_active.stdout is search('block drop in quick inet from any to 10.0.0.0/8')
+      - orchard_worker_pf_rules_active.stdout is search('to <bkaso_softnet_host_guard> user != unknown')
       - orchard_worker_pf_info.stdout is search('Status:\s+Enabled')
+      - orchard_worker_pf_main.stdout is search('anchor "com.apple/[*]"')
     fail_msg: >-
-      pf is not enabled, or the anchor {{ orchard_worker_pf_anchor }} has no block rule, so a job
-      VM can reach every service of this host.
+      pf is not enabled, the anchor {{ orchard_worker_pf_anchor }} lacks its block or guard rules,
+      or the main pf ruleset does not evaluate com.apple/*, so a job VM can reach the services of
+      this host.

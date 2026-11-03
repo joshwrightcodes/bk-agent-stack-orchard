@@ -6,10 +6,15 @@
 # admin interface is the interface of the default route. It needs ansible and jq on the PATH (run
 # it with mise x --), and sudo.
 #
-# Usage: deploy/hosts/test/pf.sh load [CIDR...] | unload
+# Usage: deploy/hosts/test/pf.sh load [--pools] [CIDR...] | unload
 #
 #   load [CIDR...]   load the rules, with each CIDR as a softnetAllow of a profile, and enable pf
+#   --pools          also permit the ranges from which Softnet picks the network of each VM, so
+#                    that softnetAllow holds the gateway of every VM, which is the host
 #   unload           remove the rules, and give back the reference on pf that load took
+#
+# load also keeps a copy of the rules in $TMPDIR/bkaso-pf.rules, which the Softnet test reads to
+# find what the rules permit, because pfctl shows the loaded rules only to root.
 #
 # Exit status: 0 success, 1 failure, 2 usage error.
 set -euo pipefail
@@ -22,6 +27,8 @@ ANCHOR=com.apple/400.bkaso-vm-isolation
 # TMPDIR at a restart, which also drops every reference.
 tmp="${TMPDIR:-/tmp}"
 TOKEN_FILE="${tmp%/}/bkaso-pf.token"
+RULES_FILE="${tmp%/}/bkaso-pf.rules"
+ROLE="$HOSTS/roles/orchard_worker"
 
 say() { printf '%s: %s\n' "$PROG" "$*"; }
 die() {
@@ -61,15 +68,25 @@ load)
 	shift
 	command -v ansible >/dev/null || die "ansible is not on the PATH: run mise x -- $0 load"
 	command -v jq >/dev/null || die "jq is not on the PATH: run mise x -- $0 load"
+	# The pools are a variable of the role (vars/main.yml), so ansible adds them.
+	allow='{{ bkaso_pf_allow }}'
+	if [[ "${1:-}" == --pools ]]; then
+		shift
+		allow='{{ bkaso_pf_allow + orchard_worker_softnet_pools }}'
+	fi
 	admin="$(/sbin/route -n get default | awk '/interface:/ {print $2}')"
 	[[ -n "$admin" ]] || die "this Mac has no default route, so it has no admin interface"
 	# jq writes the CIDRs as JSON, so a value cannot change the shape of the variables.
-	vars="$(jq -nc --arg admin "$admin" \
-		'{orchard_worker_admin_interfaces: [$admin], orchard_worker_softnet_allow: $ARGS.positional}' \
+	vars="$(jq -nc --arg admin "$admin" --arg allow "$allow" \
+		'{orchard_worker_admin_interfaces: [$admin], bkaso_pf_allow: $ARGS.positional,
+		  orchard_worker_softnet_allow: $allow}' \
 		--args "$@")"
-	ANSIBLE_CONFIG="$HOSTS/ansible.cfg" ansible localhost -i localhost, -c local \
+	# The template takes the pools from the variables of the role, and the guard from its filters.
+	ANSIBLE_CONFIG="$HOSTS/ansible.cfg" ANSIBLE_FILTER_PLUGINS="$ROLE/filter_plugins" \
+		ansible localhost -i localhost, -c local \
 		-m ansible.builtin.template \
-		-a "src=$HOSTS/roles/orchard_worker/templates/vm-isolation.pf.j2 dest=$work/rules" \
+		-a "src=$ROLE/templates/vm-isolation.pf.j2 dest=$work/rules" \
+		-e "@$ROLE/vars/main.yml" \
 		-e "$vars" \
 		-e ansible_python_interpreter=/usr/bin/python3 \
 		>/dev/null ||
@@ -81,12 +98,15 @@ load)
 	pf -E
 	sed -n 's/^Token : //p' "$work/pf.err" >"$TOKEN_FILE"
 	pf -a "$ANCHOR" -f "$work/rules"
-	say "the rules of the hosts are loaded, with the admin interface $admin and softnetAllow $*"
+	cp "$work/rules" "$RULES_FILE"
+	say "the rules of the hosts are loaded, with the admin interface $admin and softnetAllow:"
+	sed -n 's/^table <bkaso_softnet_allow> persist//p' "$RULES_FILE"
 	;;
 unload)
 	[[ $# -eq 1 ]] || usage
 	pf -a "$ANCHOR" -F all
 	give_back
+	rm -f "$RULES_FILE"
 	say "the rules of the hosts are removed, and this script holds no reference on pf"
 	;;
 *)

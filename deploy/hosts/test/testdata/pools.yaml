@@ -1,0 +1,7 @@
+# A profile that permits a range wider than /29 inside the networks that Softnet gives the VMs:
+# the host refuses it.
+profiles:
+  - name: pools
+    image: registry.test/pools@sha256:6666666666666666666666666666666666666666666666666666666666666666
+    workerLabels: {pool: pools}
+    softnetAllow: ["10.20.30.41/32", "192.168.100.0/24", "192.168.0.0/16"]

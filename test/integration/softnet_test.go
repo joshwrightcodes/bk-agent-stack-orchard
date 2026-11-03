@@ -8,8 +8,10 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"net/netip"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -40,14 +42,15 @@ echo "probe done"
 
 // TestSoftnetKeepsABuildAwayFromTheHostAndThePrivateNetwork (a preview of T-101): the machine
 // that the controller specifies reaches the Internet, and not the host, another machine, or a
-// private address. softnetAllow opens exactly the addresses that it names.
+// private address. softnetAllow opens exactly the addresses that it names, and never the host.
 //
 // Softnet lets a machine reach the gateway of its network on every port, and the gateway is the
 // host, so the pf rules of the hosts close it (deploy/hosts, templates/vm-isolation.pf.j2). This
-// test checks the host that runs it, so that Mac needs the same rules, with the router of the LAN
-// as the private address that the profile of the control permits:
+// test checks the host that runs it, so that Mac needs the same rules. They permit the router of
+// the LAN, which the profile of the control permits, and the ranges from which Softnet picks the
+// network of each machine (--pools), so that softnetAllow holds the gateway of every machine:
 //
-//	deploy/hosts/test/pf.sh load "$(route -n get default | awk '/gateway:/ {print $2}')/32"
+//	deploy/hosts/test/pf.sh load --pools "$(route -n get default | awk '/gateway:/ {print $2}')/32"
 func TestSoftnetKeepsABuildAwayFromTheHostAndThePrivateNetwork(t *testing.T) {
 	image := os.Getenv("BKASO_TART_IMAGE")
 	if image == "" {
@@ -55,6 +58,9 @@ func TestSoftnetKeepsABuildAwayFromTheHostAndThePrivateNetwork(t *testing.T) {
 	}
 
 	requireTart(t)
+
+	pools, permitted := loadedRules(t)
+
 	startRealOrchard(t, orchardBinary(t))
 
 	port := listenOnEveryAddress(t)
@@ -75,6 +81,7 @@ func TestSoftnetKeepsABuildAwayFromTheHostAndThePrivateNetwork(t *testing.T) {
 
 	closed := probeFrom(t, image, "018f3b2c-1c4a-7e5b-9a3d-2f1e4c5b6a70", nil, env)
 	t.Logf("the default profile: %v", closed)
+	checkGatewayIsPermitted(t, closed["gateway-address"], pools, permitted)
 
 	// The machine keeps DNS, which the host serves, and reaches no other service of the host.
 	want := map[string]string{
@@ -104,11 +111,18 @@ func TestSoftnetKeepsABuildAwayFromTheHostAndThePrivateNetwork(t *testing.T) {
 
 	// The control: the LAN device answers when the profile permits it, in Softnet and in the pf
 	// rules, so its block above was real, not a device that does not answer. The host stays
-	// blocked: pf blocks every address of the host, whatever a profile permits.
+	// blocked: pf blocks every address of the host, whatever a profile permits. The profile also
+	// permits the ranges of Softnet, as a profile with 192.168.0.0/16 did, so softnetAllow holds the
+	// gateway in Softnet as well as in pf. The controller refuses such a profile, and vmspec.Build
+	// does not check it. The listener of the host listens on every address, as SSH does.
 	allow := []string{device + "/32", lan + "/32"}
+	for _, pool := range pools {
+		allow = append(allow, pool.String())
+	}
 
 	opened := probeFrom(t, image, "018f3b2c-1c4a-7e5b-9a3d-2f1e4c5b6a71", allow, env)
 	t.Logf("softnetAllow %v: %v", allow, opened)
+	checkGatewayIsPermitted(t, opened["gateway-address"], pools, permitted)
 
 	for name, result := range map[string]string{
 		"lan-device":   "ok",
@@ -118,6 +132,91 @@ func TestSoftnetKeepsABuildAwayFromTheHostAndThePrivateNetwork(t *testing.T) {
 		if opened[name] != result {
 			t.Errorf("with softnetAllow %v, %s is %q, want %q", allow, name, opened[name], result)
 		}
+	}
+}
+
+// rulesCopy is the copy of the pf rules that deploy/hosts/test/pf.sh load keeps, because pfctl
+// shows the loaded rules only to root.
+func rulesCopy() string {
+	return filepath.Join(os.TempDir(), "bkaso-pf.rules")
+}
+
+// loadedRules gives the ranges of Softnet and the softnetAllow ranges of the pf rules that pf.sh
+// loaded on this Mac.
+func loadedRules(t *testing.T) (pools, permitted []netip.Prefix) {
+	t.Helper()
+
+	rules, err := os.ReadFile(rulesCopy())
+	if err != nil {
+		t.Fatalf("reading the pf rules that pf.sh loaded: %v; load them as the comment of this test "+
+			"shows", err)
+	}
+
+	for line := range strings.Lines(string(rules)) {
+		fields := strings.Fields(strings.NewReplacer("{", " ", "}", " ", ",", " ").Replace(line))
+		if len(fields) < 3 || fields[0] != "table" {
+			continue
+		}
+
+		var into *[]netip.Prefix
+
+		switch fields[1] {
+		case "<bkaso_softnet_pools>":
+			into = &pools
+		case "<bkaso_softnet_allow>":
+			into = &permitted
+		default:
+			continue
+		}
+
+		for _, field := range fields[3:] {
+			prefix, err := netip.ParsePrefix(field)
+			if err != nil {
+				t.Fatalf("the pf rules in %s list %q, which is not a CIDR", rulesCopy(), field)
+			}
+
+			*into = append(*into, prefix)
+		}
+	}
+
+	if len(pools) == 0 {
+		t.Fatalf("the pf rules in %s have no ranges of Softnet: load them again with pf.sh, as the "+
+			"comment of this test shows", rulesCopy())
+	}
+
+	return pools, permitted
+}
+
+// checkGatewayIsPermitted fails the test when the gateway of a machine is outside the ranges of
+// Softnet, which the controller and the pf rules take from the subnet finder of Softnet, or
+// outside softnetAllow of the pf rules, where the test would not check that the host stays closed.
+func checkGatewayIsPermitted(t *testing.T, gateway string, pools, permitted []netip.Prefix) {
+	t.Helper()
+
+	address, err := netip.ParseAddr(gateway)
+	if err != nil {
+		t.Errorf("the machine gave the gateway %q, which is not an address", gateway)
+		return
+	}
+
+	contains := func(prefixes []netip.Prefix) bool {
+		for _, prefix := range prefixes {
+			if prefix.Contains(address) {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	if !contains(pools) {
+		t.Errorf("Softnet gave the machine the gateway %s, outside the ranges %v that the "+
+			"controller and the pf rules take from its subnet finder", address, pools)
+	}
+
+	if !contains(permitted) {
+		t.Errorf("the pf rules do not permit the gateway %s, so this test did not check that the "+
+			"host stays closed inside softnetAllow: load them with pf.sh load --pools", address)
 	}
 }
 

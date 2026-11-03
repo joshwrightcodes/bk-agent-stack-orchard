@@ -16,5 +16,8 @@
 - name: Run the worker
   ansible.builtin.import_tasks: service.yml
 
+- name: Check that only root can change what root runs
+  ansible.builtin.import_tasks: ownership.yml
+
 - name: Pull the images of the profiles
   ansible.builtin.import_tasks: images.yml
