@@ -37,7 +37,8 @@ Each release has a signed Helm chart in an OCI registry. The
 [Releases page](https://github.com/joshwrightcodes/bk-agent-stack-orchard/releases) lists the
 releases.
 
-1. [Verify the release](#verify-a-release).
+1. [Verify the release](#verify-a-release). Put the chart package of the release in the directory
+   that you verify, or keep the chart digest that the check prints.
 2. Create a namespace and a Secret. The keys of the Secret are environment variables of the
    controller. The chart does not create a Secret, so no secret goes through the values of a
    release. Read each value from your secret store, and do not write it to a file.
@@ -62,18 +63,45 @@ releases.
    `VM_`. Add the variable with `extraEnv`. Only a `VM_` variable can go into a VM, because the
    controller pod holds other secrets.
 
-4. Install the chart. Replace `<version>` with an exact version:
+4. Install the chart that you verified. Do not install it by `--version`. A version is a tag in
+   the registry, and Helm reads the tag again when it installs, after your check. Use one of these
+   two ways instead:
 
-   ```sh
-   helm install bk-agent-stack-orchard \
-     oci://ghcr.io/joshwrightcodes/charts/bk-agent-stack-orchard --version <version> \
-     --namespace bk-agent-stack-orchard --values values.yaml
-   ```
+   * Install the chart package of the release. `scripts/verify-release.sh` verified its
+     signature. Replace `<version>` with the version, without the `v`:
+
+     ```sh
+     helm install bk-agent-stack-orchard ./downloads/bk-agent-stack-orchard-<version>.tgz \
+       --namespace bk-agent-stack-orchard --values values.yaml
+     ```
+
+   * Install the chart from the registry by its digest. The last line of
+     `scripts/verify-release.sh` gives the digest that the signature covers. Helm 4 accepts a
+     chart by digest:
+
+     ```sh
+     helm install bk-agent-stack-orchard \
+       oci://ghcr.io/joshwrightcodes/charts/bk-agent-stack-orchard@sha256:<digest> \
+       --namespace bk-agent-stack-orchard --values values.yaml
+     ```
+
+   The chart refers to the image of the controller by its digest, so the image is the one that
+   you verified too.
 
 The [chart README](../../deploy/helm/bk-agent-stack-orchard/README.md) describes the values, the
 NetworkPolicy, and what to do when the Secret changes. The
 [configuration reference](configuration.md) lists every configuration key and environment
 variable.
+
+### Check signatures in the cluster
+
+You do not need this step to run the controller. Helm does not check signatures. If you want your
+cluster to refuse an image that the release workflow did not sign, use an admission controller
+that checks cosign signatures when a pod starts, for example the
+[Sigstore policy controller](https://docs.sigstore.dev/policy-controller/overview/) or
+[Kyverno](https://kyverno.io/docs/policy-types/image-validating-policy/). Give it the issuer
+`https://token.actions.githubusercontent.com`, and the identity of the release workflow for any
+`v` tag. [Verify a release](#verify-a-release) shows the identity.
 
 ## The agent in each VM
 
@@ -149,14 +177,39 @@ The release workflow of this repository signs each release with a keyless
 | Image | `ghcr.io/joshwrightcodes/bk-agent-stack-orchard`, tags `v<version>` and `<version>` | On the index and on each platform image | An attestation of type `spdxjson` on each platform image |
 | Chart | `oci://ghcr.io/joshwrightcodes/charts/bk-agent-stack-orchard`, and the GitHub release | On the chart in the registry, and `<chart>.tgz.sigstore.json` on the release | None. The chart refers to the image by its digest |
 
-To verify all the artifacts of a release, put the downloaded files in one directory, and run this
-command. It needs cosign, docker with buildx, and jq.
+To verify all the artifacts of a release, download these files of the release into one
+directory: `checksums.txt`, `checksums.txt.sigstore.json`, at least one archive, and the chart
+package `bk-agent-stack-orchard-<version>.tgz` with its signature file `.tgz.sigstore.json`. For
+example, with the GitHub CLI:
+
+```sh
+gh release download v0.1.0 --repo joshwrightcodes/bk-agent-stack-orchard --dir downloads \
+  --pattern 'checksums.txt*' --pattern '*_linux_amd64.tar.gz' --pattern '*.tgz*'
+```
+
+Then run this command from a clone of this repository. It needs cosign, docker with buildx, jq,
+and curl.
 
 ```sh
 scripts/verify-release.sh v0.1.0 ./downloads
 ```
 
-To verify one artifact, require the identity of the release workflow at the tag:
+The command:
+
+1. Asks GitHub for the commit of the tag, and checks that the `main` branch of this repository
+   contains that commit. A release from a commit that is not on `main` fails here, even if its
+   signatures are good.
+2. Checks each signature. Each one must come from the release workflow of this repository at the
+   tag, and for that commit.
+3. Checks the checksum of each archive that is in the directory.
+4. Prints the digest of the chart in the registry that the signature covers. Use this digest to
+   install the chart.
+
+If you set `GH_TOKEN`, the command uses it for its calls to GitHub, which gives a higher rate
+limit. The command works without a token.
+
+To verify one artifact, require the identity of the release workflow at the tag. This command
+does not check that the commit is on `main`. The script does.
 
 ```sh
 cosign verify \
