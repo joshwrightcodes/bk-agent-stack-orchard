@@ -7,24 +7,41 @@
 # controller log, in the collector output, or in the machine list of Orchard (invariant I-3, and the
 # rule of the test strategy that a test that writes a token to a log or to telemetry must fail).
 #
-# Usage: scripts/smoke.sh
+# Usage: scripts/smoke.sh        (mise run smoke)
 #
-# KEEP=1 keeps the cluster after the run, for a person who wants to look at it. The tools come
-# from mise: kind, ko, kubectl, kustomize, helm, and docker.
+# Environment:
+#   KEEP   1 keeps the cluster after the run, for a person who wants to look at it
+#
+# The tools come from mise: kind, ko, kubectl, kustomize, helm, jq, and docker.
+#
+# Exit status: 0 success, 1 failure, 2 usage error.
 set -euo pipefail
 
+readonly PROG="smoke"
 CLUSTER="bkaso-smoke"
+
+say() { printf '%s: %s\n' "$PROG" "$*"; }
+die() {
+	printf '%s: %s\n' "$PROG" "$*" >&2
+	exit 1
+}
+usage() {
+	sed -n 's/^# Usage: /usage: /p' "${BASH_SOURCE[0]}" >&2
+	exit 2
+}
+
+[[ $# -eq 0 ]] || usage
+
 ROOT="$(git rev-parse --show-toplevel)"
+# mktemp -d makes the directory with mode 0700, so the token files in it are for this user only.
 WORK="$(mktemp -d)"
 forward=""
-
-say() { printf 'smoke: %s\n' "$*"; }
 
 cleanup() {
 	status=$?
 
 	if [[ $status -ne 0 ]]; then
-		say "the smoke test failed; the state of the cluster follows"
+		printf '%s: the smoke test failed; the state of the cluster follows\n' "$PROG" >&2
 		for ns in smoke orchard; do
 			kubectl -n "$ns" get pods,jobs -o wide || true
 			kubectl -n "$ns" get events --sort-by=.lastTimestamp | tail -20 || true
@@ -50,8 +67,11 @@ trap cleanup EXIT
 
 cd "$ROOT"
 
+if kind get clusters 2>/dev/null | grep -qx "$CLUSTER"; then
+	say "deleting the existing cluster $CLUSTER, which an earlier run left"
+	kind delete cluster --name "$CLUSTER" >/dev/null
+fi
 say "creating the kind cluster $CLUSTER"
-kind delete cluster --name "$CLUSTER" >/dev/null 2>&1 || true
 kind create cluster --name "$CLUSTER" --wait 120s
 
 say "building the images and loading them into the cluster"
@@ -80,18 +100,26 @@ kubectl -n orchard create secret generic orchard-tls \
 	--from-file=tls.crt="$WORK/tls.crt" --from-file=tls.key="$WORK/tls.key" \
 	--from-file=ca.crt="$WORK/ca.crt"
 
+# The tokens go to kubectl in files, so they are in no process listing. printf writes each one
+# without a newline, which would become part of the value.
+secret() { printf '%s' "$2" >"$WORK/$1"; }
 controller_token="$(openssl rand -hex 24)"
+agent_token="bkct_smoke_$(openssl rand -hex 16)"
+secret admin-token "$(openssl rand -hex 24)"
+secret controller-token "$controller_token"
+secret worker-token "$(openssl rand -hex 24)"
+secret agent-token "$agent_token"
+
 kubectl -n orchard create secret generic orchard-bootstrap \
-	--from-literal=bootstrap-admin-token="$(openssl rand -hex 24)" \
-	--from-literal=controller-token="$controller_token"
+	--from-file=bootstrap-admin-token="$WORK/admin-token" \
+	--from-file=controller-token="$WORK/controller-token"
 # One key for each Mac host. Smoke registers no worker, but the Job needs one host to complete.
 kubectl -n orchard create secret generic orchard-worker-tokens \
-	--from-literal=worker-smoke-host="$(openssl rand -hex 24)"
+	--from-file=worker-smoke-host="$WORK/worker-token"
 
-agent_token="bkct_smoke_$(openssl rand -hex 16)"
 kubectl -n smoke create secret generic bk-agent-stack-orchard \
-	--from-literal=BK_AGENT_STACK_ORCHARD_BUILDKITE_AGENT_TOKEN="$agent_token" \
-	--from-literal=BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN="$controller_token" \
+	--from-file=BK_AGENT_STACK_ORCHARD_BUILDKITE_AGENT_TOKEN="$WORK/agent-token" \
+	--from-file=BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN="$WORK/controller-token" \
 	--from-file=BK_AGENT_STACK_ORCHARD_ORCHARD_CA_CERT="$WORK/ca.crt"
 
 say "starting the collector and the fake Stacks API"
@@ -127,8 +155,7 @@ while :; do
 	[[ ${#missing[@]} -eq 0 ]] && break
 
 	if ((SECONDS > deadline)); then
-		say "the collector received no ${missing[*]} inside three minutes"
-		exit 1
+		die "the collector received no ${missing[*]} inside three minutes"
 	fi
 
 	sleep 10
@@ -148,8 +175,7 @@ leaked() {
 		shift 2
 
 		if grep -qF -- "$value" <<<"$text"; then
-			say "the $name leaked into the $source"
-			return 1
+			die "the $name leaked into the $source"
 		fi
 	done
 }
@@ -160,14 +186,8 @@ controller_log="$(kubectl -n smoke logs -l app.kubernetes.io/name=bk-agent-stack
 collector_log="$(kubectl -n smoke logs deployment/collector --tail=-1)"
 
 # A source with no content proves nothing, so an empty one is a failure.
-[[ -n "$controller_log" ]] || {
-	say "the controller wrote no log, so the check of it proves nothing"
-	exit 1
-}
-[[ -n "$collector_log" ]] || {
-	say "the collector wrote no output, so the check of it proves nothing"
-	exit 1
-}
+[[ -n "$controller_log" ]] || die "the controller wrote no log, so the check of it proves nothing"
+[[ -n "$collector_log" ]] || die "the collector wrote no output, so the check of it proves nothing"
 
 kubectl -n orchard port-forward svc/orchard 16120:6120 >/dev/null 2>&1 &
 forward=$!
@@ -186,23 +206,14 @@ for _ in $(seq 1 30); do
 	sleep 1
 done
 
-[[ "$code" == 200 ]] || {
-	say "orchard answered with the status $code, so the check of its machine list proves nothing"
-	exit 1
-}
+[[ "$code" == 200 ]] || die "orchard answered with the status $code, so the check of its machine list proves nothing"
 
 vms="$(<"$WORK/vms.json")"
 
-[[ -n "$vms" ]] || {
-	say "orchard gave an empty body, so the check of its machine list proves nothing"
-	exit 1
-}
+[[ -n "$vms" ]] || die "orchard gave an empty body, so the check of its machine list proves nothing"
 
 # The list is an array, or null when Orchard has no machine and encodes the empty list as null.
-jq -e 'type == "array" or . == null' <<<"$vms" >/dev/null || {
-	say "the machine list of orchard is not a JSON array"
-	exit 1
-}
+jq -e 'type == "array" or . == null' <<<"$vms" >/dev/null || die "the machine list of orchard is not a JSON array"
 
 for source in "controller log:$controller_log" "collector output:$collector_log" \
 	"machine list of orchard:$vms"; do

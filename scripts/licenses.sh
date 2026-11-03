@@ -7,7 +7,26 @@
 # NOTICE, go to cmd/bk-agent-stack-orchard/kodata/licenses, which ko copies into the image at
 # /var/run/ko/licenses. GoReleaser runs this script before a build (before.hooks), so a release
 # and a snapshot always carry the notices. build/ and kodata/licenses are git-ignored.
+#
+# Usage: scripts/licenses.sh        (mise run licenses)
+#
+# Exit status: 0 success, 1 failure, 2 usage error.
 set -euo pipefail
+
+readonly PROG="licenses"
+
+say() { printf '%s: %s\n' "$PROG" "$*"; }
+die() {
+  printf '%s: %s\n' "$PROG" "$*" >&2
+  exit 1
+}
+usage() {
+  sed -n 's/^# Usage: /usage: /p' "${BASH_SOURCE[0]}" >&2
+  exit 2
+}
+
+[[ $# -eq 0 ]] || usage
+command -v go-licenses >/dev/null || die "go-licenses is not on the PATH: run mise run licenses"
 
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
@@ -29,4 +48,4 @@ mkdir -p "$kodata"
 cp LICENSE NOTICE "$kodata/"
 mkdir -p "$kodata/third-party"
 cp -R "$out/." "$kodata/third-party/"
-echo "licenses: wrote $out and $kodata"
+say "wrote $out and $kodata"

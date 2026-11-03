@@ -136,6 +136,41 @@ class CheckTest(unittest.TestCase):
                     contextlib.redirect_stderr(io.StringIO()):
                 self.assertEqual(check_commits.main(), code, length)
 
+    def test_a_usage_error_exits_2_and_reads_no_range(self) -> None:
+        for argv in (["--title"], ["origin/main", "--title", "feat: x"], ["--base", "x"]):
+            with self.subTest(argv=argv), \
+                    mock.patch.object(check_commits, "commits") as commits, \
+                    contextlib.redirect_stderr(io.StringIO()), \
+                    self.assertRaises(SystemExit) as raised:
+                check_commits.main(argv)
+            self.assertEqual(raised.exception.code, 2)
+            commits.assert_not_called()
+
+    def test_git_says_why_it_cannot_read_the_range(self) -> None:
+        error = check_commits.subprocess.CalledProcessError(
+            128, ["git"], stderr="fatal: bad revision 'nope..HEAD'\n")
+        with mock.patch.object(check_commits, "commits", side_effect=error), \
+                contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(check_commits.main(["nope"]), 2)
+        self.assertIn("bad revision", err.getvalue())
+
+    def test_a_base_that_looks_like_an_option_stays_a_revision(self) -> None:
+        with mock.patch.object(check_commits.subprocess, "run") as run:
+            run.return_value.stdout = ""
+            check_commits.commits("--output=x")
+        self.assertEqual(run.call_args.args[0][:4],
+                         ["git", "rev-list", "--no-merges", "--end-of-options"])
+
+    def test_only_a_breaking_change_footer_needs_the_mark(self) -> None:
+        footer = "feat: drop a flag\n\nBody.\n\nBREAKING CHANGE: the flag is gone"
+        problems = check_commits.check("r", footer)
+        self.assertTrue(any("BREAKING CHANGE" in p for p in problems), problems)
+        hyphen = "feat: drop a flag\n\nBREAKING-CHANGE: the flag is gone"
+        self.assertTrue(check_commits.check("r", hyphen))
+        self.assertEqual(check_commits.check("r", "feat!: drop a flag\n\nBREAKING CHANGE: gone"), [])
+        prose = "docs: explain\n\nA BREAKING CHANGE footer needs a mark.\n\nSigned-off-by: A <a@b.c>"
+        self.assertEqual(check_commits.check("r", prose), [])
+
 
 if __name__ == "__main__":
     unittest.main()

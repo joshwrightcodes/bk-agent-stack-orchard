@@ -28,18 +28,26 @@
 #   IMAGE_REGISTRY        a registry and namespace, for example ghcr.io/joshwrightcodes. With it,
 #                         the build pushes bkaso-<image>:<tag> there. TART_REGISTRY_USERNAME and
 #                         TART_REGISTRY_PASSWORD give the credentials.
-#   IMAGE_TAG             the tag of the push (the commit of this repository by default).
+#   IMAGE_TAG             the tag of the push (the commit of this repository by default, with
+#                         -dirty when the tree has changes).
+#
+# Usage: images/build.sh agent|pilot        (mise run agent-image, mise run pilot-image)
+#
+# Exit status: 0 success, 1 failure, 2 usage error.
 set -euo pipefail
 
-HERE="$(cd "$(dirname "$0")" && pwd)"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 IMAGE="${1:-}"
 
+usage() {
+	sed -n 's/^# Usage: /usage: /p' "${BASH_SOURCE[0]}" >&2
+	exit 2
+}
+
+[[ $# -eq 1 ]] || usage
 case "$IMAGE" in
 agent | pilot) ;;
-*)
-	printf 'usage: %s agent|pilot\n' "$0" >&2
-	exit 2
-	;;
+*) usage ;;
 esac
 
 # The base, pinned by digest: the vanilla image of Cirrus Labs, which is the restore image of Apple
@@ -50,7 +58,9 @@ BASE="ghcr.io/cirruslabs/macos-golden-gate-vanilla@sha256:b35695ce30453bcc1db961
 VM="${VM_NAME:-bkaso-${IMAGE}}"
 DESTINATION="${ARTIFACT_DESTINATION:-}"
 REGISTRY="${IMAGE_REGISTRY:-}"
-TAG="${IMAGE_TAG:-$(git -C "$HERE" rev-parse --short=12 HEAD 2>/dev/null || date -u +%Y%m%d%H%M%S)}"
+# --exclude='*' leaves out every git tag, so the name is the commit, and -dirty marks an image built
+# from a tree with changes.
+TAG="${IMAGE_TAG:-$(git -C "$HERE" describe --always --dirty --abbrev=12 --exclude='*' 2>/dev/null || date -u +%Y%m%d%H%M%S)}"
 
 # buildkite-agent, and the SHA-256 that its release publishes in its SHA256SUMS.
 AGENT_VERSION="4.9.0"
@@ -109,31 +119,48 @@ die() {
 }
 
 # The destinations that buildkite-agent accepts. An empty one is allowed: it is the storage of
-# Buildkite, and the hook leaves it alone.
+# Buildkite, and the hook leaves it alone. The value goes into a sed replacement and into a
+# double-quoted string of the hook, so it may hold only the characters of a bucket path, none of
+# which sed or the shell reads as syntax.
+path_chars='[A-Za-z0-9._~/-]'
 if [[ -n "$DESTINATION" &&
-	! "$DESTINATION" =~ ^(s3|gs|rt)://[^[:space:]]+$ &&
-	! "$DESTINATION" =~ ^https://[^[:space:]]+\.blob\.core\.windows\.net/[^[:space:]]+$ ]]; then
-	die "ARTIFACT_DESTINATION is s3://, gs://, rt://, or an Azure blob URL, which are the destinations that buildkite-agent accepts"
+	! "$DESTINATION" =~ ^(s3|gs|rt)://${path_chars}+$ &&
+	! "$DESTINATION" =~ ^https://[a-z0-9]+\.blob\.core\.windows\.net/${path_chars}+$ ]]; then
+	die "ARTIFACT_DESTINATION is s3://, gs://, rt://, or an Azure blob URL, which are the destinations that buildkite-agent accepts, with only letters, digits, and . _ ~ / - in its path"
 fi
 
 # The pilot checks its Xcode archive before it makes a VM, so a missing or changed archive fails in
 # seconds.
 if [[ "$IMAGE" == pilot ]]; then
+	# check_xcode checks an archive against XCODE_SHA256 and the signature of Apple. xip does not
+	# check the signature ("validation not attempted"), so pkgutil does.
+	check_xcode() {
+		local sum
+		sum="$(shasum -a 256 "$1" | cut -d' ' -f1)"
+		[[ "$sum" == "$XCODE_SHA256" ]] ||
+			die "the Xcode archive $1 has the SHA-256 $sum, and XCODE_SHA256 is $XCODE_SHA256"
+		pkgutil --check-signature "$1" | grep -q 'Status: signed Apple Software$' ||
+			die "Apple did not sign the Xcode archive $1"
+	}
 	if [[ ! -f "$XCODE_ARCHIVE" ]]; then
 		[[ "${XCODE_URL:-}" =~ ^https:// ]] ||
 			die "no Xcode archive at $XCODE_ARCHIVE: download Xcode $XCODE_VERSION from https://developer.apple.com/download/all/ and put it there, or set XCODE_ARCHIVE, or set XCODE_URL to an HTTPS URL of it"
 		say "downloading the Xcode archive"
 		mkdir -p "$(dirname "$XCODE_ARCHIVE")"
-		curl -fsSL -o "${XCODE_ARCHIVE}.part" "$XCODE_URL"
+		# -C - continues a download that an earlier run left in the .part file. The archive takes
+		# its name only after the check, so a bad download never looks like a good archive to a
+		# later run, and the .part file of a bad download is deleted.
+		curl -fsSL --retry 3 -C - -o "${XCODE_ARCHIVE}.part" "$XCODE_URL"
+		say "checking the Xcode archive"
+		(check_xcode "${XCODE_ARCHIVE}.part") || {
+			rm -f "${XCODE_ARCHIVE}.part"
+			exit 1
+		}
 		mv "${XCODE_ARCHIVE}.part" "$XCODE_ARCHIVE"
+	else
+		say "checking the Xcode archive"
+		check_xcode "$XCODE_ARCHIVE"
 	fi
-	say "checking the Xcode archive"
-	xcode_sum="$(shasum -a 256 "$XCODE_ARCHIVE" | cut -d' ' -f1)"
-	[[ "$xcode_sum" == "$XCODE_SHA256" ]] ||
-		die "the Xcode archive $XCODE_ARCHIVE has the SHA-256 $xcode_sum, and XCODE_SHA256 is $XCODE_SHA256"
-	# xip does not check the signature ("validation not attempted"), so pkgutil does.
-	pkgutil --check-signature "$XCODE_ARCHIVE" | grep -q 'Status: signed Apple Software$' ||
-		die "Apple did not sign the Xcode archive $XCODE_ARCHIVE"
 fi
 
 # run runs a script in the VM, with the environment that its arguments give.
@@ -431,7 +458,6 @@ if [[ -x /opt/homebrew/bin/brew ]]; then
 else
 	printf 'formulae=\ncasks=\n'
 fi
-printf 'wwdr=%s\n' "$(security find-certificate -a -c 'Apple Worldwide Developer Relations' /Library/Keychains/System.keychain 2>/dev/null | grep -c '"labl"')"
 BUILDKITE_PIPELINE_SLUG=p BUILDKITE_BUILD_ID=b BUILDKITE_JOB_ID=j bash -c '
 . ~/.buildkite-agent/hooks/environment 2>/dev/null
 printf "hook=%s\n" "$BUILDKITE_ARTIFACT_UPLOAD_DESTINATION"

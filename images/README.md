@@ -48,7 +48,8 @@ does not check the signature). For each new Xcode, the owner does these steps:
 1. Download `Xcode_<version>.xip` from <https://developer.apple.com/download/all/>.
 2. Put it in `~/XcodesCache/Xcode_<version>.xip` on the build Mac. As an alternative, put it in
    the owner-managed storage. A build then downloads it through `XCODE_URL`, an HTTPS URL such as
-   a presigned URL.
+   a presigned URL. The build checks the download before it gives the file the name of the
+   archive, and it deletes a download that fails the checks.
 3. Set `XCODE_VERSION` and `XCODE_SHA256` in `build.sh` (`shasum -a 256` of the archive).
 
 `XCODE_ARCHIVE` names another place on the build Mac. The build expands the archive on the Mac,
@@ -65,7 +66,9 @@ Buildkite-managed storage is acceptable for artifacts, so
 `buildkite-agent` uploads the artifacts to the storage of Buildkite. When the build takes an
 owner-managed storage as `ARTIFACT_DESTINATION`, for example `s3://<bucket>/<prefix>`, the hook
 sends the artifacts of each job to `<destination>/<pipeline>/<build>/<job>`, and a step may name
-another place inside the same storage. `scripts/check-hook.sh` checks these cases.
+another place inside the same storage. `scripts/check-hook.sh` checks these cases. The path of the
+destination can hold letters, digits, `.`, `_`, `~`, `/`, and `-`. The build stops on any other
+character, because the hook would read it as shell syntax.
 
 ## No well-known credentials over the network
 
@@ -111,7 +114,8 @@ tart run bkaso-pilot   # look at it
 
 The build makes the local Tart VM `bkaso-<image>` (`VM_NAME` changes it). With `IMAGE_REGISTRY`, for
 example `registry.example.internal/macos` (a private registry), it pushes
-`<registry>/bkaso-<image>:<tag>` (`IMAGE_TAG`, the commit by default), with the credentials in
+`<registry>/bkaso-<image>:<tag>` (`IMAGE_TAG`, the commit by default, with `-dirty` when the
+tree has changes), with the credentials in
 `TART_REGISTRY_USERNAME` and `TART_REGISTRY_PASSWORD`.
 A profile names the image by the digest that the registry gives.
 
