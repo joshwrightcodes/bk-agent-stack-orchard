@@ -22,6 +22,11 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Every install that mise starts after the action, through mise x or mise run, also uses mise.lock,
+# and fails on a tool or a checksum that the lock does not hold.
+env:
+  MISE_LOCKED: "1"
+
 jobs:
   go:
     name: lint and test
@@ -71,6 +76,11 @@ jobs:
         with:
           version: 2026.10.24
       - run: mise run lint-scripts
+      # mise lock reads the release of each tool from GitHub, which limits an anonymous caller.
+      - name: check the lock
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: mise run check-lock
 
   vulnerabilities:
     name: known vulnerabilities
