@@ -27,12 +27,15 @@ import (
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/profile"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/secret"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/vmspec"
 )
 
 const (
 	controller = "macos-prod"
 	first      = job.ID("018f3b2c-1c4a-7e5b-9a3d-2f1e4c5b6a7d")
 	second     = job.ID("018f3b2c-1c4a-7e5b-9a3d-2f1e4c5b6a7e")
+	third      = job.ID("018f3b2c-1c4a-7e5b-9a3d-2f1e4c5b6a7f")
+	fourth     = job.ID("018f3b2c-1c4a-7e5b-9a3d-2f1e4c5b6a80")
 )
 
 var pilot = profile.Profile{
@@ -43,6 +46,11 @@ var pilot = profile.Profile{
 	MemoryMiB:        28672,
 	DiskSizeGB:       150,
 	StartupTransport: profile.TransportGuestAgent,
+}
+
+// defaultTimeouts are the timeouts of the design: 2 min, 15 min, and 5 min, which add to 22 min.
+var defaultTimeouts = profile.Timeouts{
+	Unplaced: 2 * time.Minute, Boot: 15 * time.Minute, Acquire: 5 * time.Minute,
 }
 
 // stacks answers as Buildkite and records the calls.
@@ -66,6 +74,9 @@ type stacks struct {
 
 	// refuse holds the jobs whose lines Buildkite refuses, as it does for a job that ended.
 	refuse map[job.ID]bool
+
+	// failTokenCall holds the calls of Tokens, by number from 0, that fail.
+	failTokenCall map[int]error
 
 	// failCall holds the calls of Notify, by number from 0, that fail as a whole.
 	failCall map[int]error
@@ -103,6 +114,10 @@ func (s *stacks) Tokens(_ context.Context, ids []job.ID, lifetime time.Duration)
 	s.order = append(s.order, "tokens")
 	s.tokenCalls = append(s.tokenCalls, ids)
 	s.lifetimes = append(s.lifetimes, lifetime)
+
+	if err := s.failTokenCall[len(s.tokenCalls)-1]; err != nil {
+		return buildkite.Tokens{}, err
+	}
 
 	if s.tokenErr != nil {
 		return buildkite.Tokens{}, s.tokenErr
@@ -266,6 +281,7 @@ func buildTimed(t *testing.T, api *stacks, fleet launcher.Machines, log *records
 		Queue:             "macos-prod",
 		ReservationExpiry: 300 * time.Second,
 		TokenLifetime:     1800 * time.Second,
+		DefaultTimeouts:   defaultTimeouts,
 		CallTimeout:       limit,
 		Metrics:           instruments,
 		Logger:            slog.New(log),
@@ -339,8 +355,9 @@ func TestALaunchHoldsTheJobThenGetsATokenThenAsksForAMachine(t *testing.T) {
 		t.Errorf("the reservation lasts %s, want 300s", api.expiries[0])
 	}
 
-	if len(api.tokenCalls) != 1 || api.lifetimes[0] != 1800*time.Second {
-		t.Errorf("the token call asked for %v over %v, want the job and 1800s",
+	// The pilot profile takes the default timeouts: 22 min to start, and the margin of a minute.
+	if len(api.tokenCalls) != 1 || api.lifetimes[0] != 23*time.Minute {
+		t.Errorf("the token call asked for %v over %v, want the job and 23m",
 			api.tokenCalls, api.lifetimes)
 	}
 
@@ -1318,6 +1335,7 @@ func buildMeasured(t *testing.T, api *stacks, fleet launcher.Machines,
 		Queue:             "macos-prod",
 		ReservationExpiry: 300 * time.Second,
 		TokenLifetime:     1800 * time.Second,
+		DefaultTimeouts:   defaultTimeouts,
 		CallTimeout:       time.Second,
 		Metrics:           instruments,
 		Logger:            slog.New(log),
@@ -1382,6 +1400,7 @@ func buildAt(t *testing.T, api *stacks, fleet launcher.Machines, clock *time.Tim
 		Queue:             "macos-prod",
 		ReservationExpiry: 300 * time.Second,
 		TokenLifetime:     1800 * time.Second,
+		DefaultTimeouts:   defaultTimeouts,
 		CallTimeout:       time.Second,
 		Metrics:           instruments,
 		Logger:            slog.New(slog.DiscardHandler),
@@ -1480,5 +1499,97 @@ func TestAJobThatWasNotExtendedKeepsItsEnd(t *testing.T) {
 
 	if after, _ := started.ReservedUntil(first); !after.Equal(before) {
 		t.Errorf("the reservation now ends at %s, want the end it had, %s", after, before)
+	}
+}
+
+// A token works for as long as the reaper lets the machine of its job start, and a minute more,
+// never longer than buildkite.jobTokenLifetime. A token that outlived the start would be of no use
+// to its machine, and could still take the job when the job went back to the queue. The jobs of
+// one lifetime share one call.
+func TestEachTokenLastsTheStartOfItsProfile(t *testing.T) {
+	t.Parallel()
+
+	quick := pilot
+	quick.Name = "quick"
+	quick.Timeouts = profile.Timeouts{
+		Unplaced: time.Minute, Boot: 5 * time.Minute, Acquire: 2 * time.Minute,
+	}
+
+	slow := pilot
+	slow.Name = "slow"
+	slow.Timeouts = profile.Timeouts{
+		Unplaced: 5 * time.Minute, Boot: 20 * time.Minute, Acquire: 4*time.Minute + 30*time.Second,
+	}
+
+	api, fleet := &stacks{}, &machines{}
+	started := build(t, api, fleet)
+
+	admit := []admission.Candidate{
+		{Job: buildkite.ScheduledJob{ID: first}, Profile: quick},
+		{Job: buildkite.ScheduledJob{ID: second}, Profile: pilot},
+		{Job: buildkite.ScheduledJob{ID: third}, Profile: slow},
+		{Job: buildkite.ScheduledJob{ID: fourth}, Profile: quick},
+	}
+
+	err := started.Launch(t.Context(), admission.Result{Admit: admit}, inventory.Snapshot{})
+	if err != nil {
+		t.Fatalf("Launch() = %v, want no error", err)
+	}
+
+	got := map[time.Duration][]job.ID{}
+	for index, ids := range api.tokenCalls {
+		got[api.lifetimes[index]] = ids
+	}
+
+	want := map[time.Duration][]job.ID{
+		9 * time.Minute:  {first, fourth},
+		23 * time.Minute: {second},
+		30 * time.Minute: {third}, // 29.5 min and the margin, cut to the limit
+	}
+
+	if len(api.tokenCalls) != len(want) {
+		t.Fatalf("the controller made %d token calls %v over %v, want one for each lifetime",
+			len(api.tokenCalls), api.tokenCalls, api.lifetimes)
+	}
+
+	for lifetime, ids := range want {
+		if !slices.Equal(got[lifetime], ids) {
+			t.Errorf("the tokens of %s went to %v, want %v", lifetime, got[lifetime], ids)
+		}
+	}
+
+	if len(fleet.created) != len(admit) {
+		t.Errorf("orchard saw %d machines, want %d", len(fleet.created), len(admit))
+	}
+}
+
+// A token call that fails ends the token calls of the tick. The jobs whose tokens came in the
+// calls before it still get their machines, and the others keep reservations that lapse.
+func TestAFailedTokenCallKeepsTheTokensBeforeIt(t *testing.T) {
+	t.Parallel()
+
+	quick := pilot
+	quick.Name = "quick"
+	quick.Timeouts = profile.Timeouts{
+		Unplaced: time.Minute, Boot: 5 * time.Minute, Acquire: 2 * time.Minute,
+	}
+
+	api := &stacks{failTokenCall: map[int]error{1: errors.New("buildkite is not available")}}
+	fleet := &machines{}
+	started := build(t, api, fleet)
+
+	admit := []admission.Candidate{
+		{Job: buildkite.ScheduledJob{ID: first}, Profile: quick},
+		{Job: buildkite.ScheduledJob{ID: second}, Profile: pilot},
+	}
+
+	if err := started.Launch(t.Context(), admission.Result{Admit: admit},
+		inventory.Snapshot{}); err == nil {
+		t.Error("Launch() = nil, want the error of the failed token call")
+	}
+
+	if len(fleet.created) != 1 || fleet.created[0].Name != vmspec.Name(controller, first) {
+		t.Errorf("orchard saw %d machines, want only the machine of the job with a token",
+			len(fleet.created))
 	}
 }

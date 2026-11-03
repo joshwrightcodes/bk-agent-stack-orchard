@@ -122,6 +122,7 @@ func Build(options Options) (*controller.Controller, error) {
 		Queue:             settings.Buildkite.Queue,
 		ReservationExpiry: settings.Buildkite.ReservationExpiry,
 		TokenLifetime:     settings.Buildkite.JobTokenLifetime,
+		DefaultTimeouts:   settings.Defaults.Timeouts,
 		CallTimeout:       limit,
 		Environment:       environment,
 		Metrics:           recorder.Metrics,
