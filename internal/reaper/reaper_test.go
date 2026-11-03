@@ -52,22 +52,32 @@ func (b *observed) Observed(id job.ID) (jobstates.Observation, bool) {
 
 // pages answers finish and notify as Buildkite, and records what the job pages received.
 type pages struct {
+	mu        sync.Mutex
 	finished  []job.ID
 	details   []string
 	notified  []buildkite.Notification
+	requests  []int
 	finishErr error
 	notifyErr error
 }
 
 func (p *pages) Finish(_ context.Context, id job.ID, _ int, detail string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	p.finished = append(p.finished, id)
 	p.details = append(p.details, detail)
 
 	return p.finishErr
 }
 
+// Notify records the lines, and the number of lines of each request.
 func (p *pages) Notify(_ context.Context, lines []buildkite.Notification) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	p.notified = append(p.notified, lines...)
+	p.requests = append(p.requests, len(lines))
 
 	return p.notifyErr
 }

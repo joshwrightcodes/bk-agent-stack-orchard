@@ -1228,10 +1228,13 @@ The Launcher sends "VM requested" when it creates the VM. At each tick, before t
 controller compares each owned VM with what it saw before: it sends "placed on <worker>" when
 Orchard first gives the VM a worker, and "booting" when Orchard first reports the VM `running`,
 because macOS starts after that. The Reaper sends "failed: <status message>" for row 7, and
-"VM deleted: <reason>" after each deletion. After a restart, the controller does not send a
-step again for a VM that the last process started, because the job page already shows it. The
-same steps are span events in the job trace, and the times between them are the phase durations
-of §10.1.
+"VM deleted: <reason>" after each deletion. The Reaper MUST send the lines of one pass
+together after the pass, in requests of at most 1000 lines, and not one request for each VM. An
+orphan has no job page, so it gets no line. Buildkite can refuse a line for a job that ended, and
+the controller MUST NOT write a warning for that refusal. After a restart, the controller does
+not send a step again for a VM that the last process started, because the job page already shows
+it. The same steps are span events in the job trace, and the times between them are the phase
+durations of §10.1.
 
 A notification detail MUST NOT be longer than 256 characters. The controller cuts a longer
 detail between characters, and the cut detail ends with an ellipsis (§3).

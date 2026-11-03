@@ -223,6 +223,7 @@ func (r *Reaper) Reap(ctx context.Context) error {
 	var (
 		failures int
 		extend   []job.ID
+		lines    []buildkite.Notification
 	)
 
 	for _, machine := range r.collect(snapshot) {
@@ -235,7 +236,7 @@ func (r *Reaper) Reap(ctx context.Context) error {
 			continue
 		}
 
-		if err := r.carry(ctx, machine, decision); err != nil {
+		if err := r.carry(ctx, machine, decision, &lines); err != nil {
 			failures++
 		}
 	}
@@ -247,6 +248,7 @@ func (r *Reaper) Reap(ctx context.Context) error {
 			"that start", "jobs", len(extend), "error", err)
 	}
 
+	r.write(ctx, lines)
 	r.forget(snapshot)
 
 	if failures > 0 {
@@ -310,8 +312,10 @@ func (r *Reaper) list(vm orchard.VM, at time.Time) time.Time {
 	return seen.at
 }
 
-// carry carries out one decision.
-func (r *Reaper) carry(ctx context.Context, machine Machine, decision Decision) error {
+// carry carries out one decision, and adds the lines of the job page of the machine to lines.
+func (r *Reaper) carry(ctx context.Context, machine Machine, decision Decision,
+	lines *[]buildkite.Notification,
+) error {
 	switch decision.Action {
 	case Keep:
 		if decision.Row == 0 {
@@ -355,7 +359,11 @@ func (r *Reaper) carry(ctx context.Context, machine Machine, decision Decision) 
 			return err
 		}
 	case NotifyAndDelete:
-		r.notify(ctx, machine)
+		// Why the machine failed comes before its removal on the job page, and it goes whether
+		// the removal works or not: a line that does not arrive is worth less than the removal.
+		if !r.ignored[machine.Job] {
+			*lines = r.line(*lines, machine, Failed(machine.VM.StatusMessage))
+		}
 	case Keep, Extend, Delete:
 	}
 
@@ -378,7 +386,7 @@ func (r *Reaper) carry(ctx context.Context, machine Machine, decision Decision) 
 
 	// The last step on the job page. Buildkite may refuse a line for a job that ended, which
 	// changes nothing here.
-	r.tell(ctx, machine, Deleted(decision.Reason))
+	*lines = r.line(*lines, machine, Deleted(decision.Reason))
 
 	return nil
 }
@@ -440,25 +448,38 @@ func (r *Reaper) script(ctx context.Context, machine Machine, decision Decision)
 	return logLines(events)
 }
 
-// notify writes on the job page why the machine failed. A line that does not arrive is worth
-// less than the removal of the machine, so a failure here is a log record and nothing more.
-func (r *Reaper) notify(ctx context.Context, machine Machine) {
-	if r.ignored[machine.Job] {
-		return
+// line adds one line for the job page of a machine to lines. An orphan has no job, and so no page.
+func (r *Reaper) line(lines []buildkite.Notification, machine Machine, detail string,
+) []buildkite.Notification {
+	if machine.Job == "" {
+		return lines
 	}
 
-	r.tell(ctx, machine, Failed(machine.VM.StatusMessage))
+	return append(lines, buildkite.Notification{JobID: machine.Job, Detail: detail, At: r.now()})
 }
 
-// tell writes one line on the job page of a machine. A line that does not arrive is worth less
-// than the removal of the machine, so a failure here is a log record and nothing more.
-func (r *Reaper) tell(ctx context.Context, machine Machine, line string) {
-	err := r.stacks.Notify(ctx, []buildkite.Notification{{
-		JobID: machine.Job, Detail: line, At: r.now(),
-	}})
-	if err != nil {
-		r.logger.WarnContext(ctx, "the reaper could not write to the job page",
-			telemetry.LogJob, string(machine.Job), "error", err)
+// write sends the lines of one pass, in as few requests as the limit of a request permits, as the
+// extensions go in one call. One request for each machine would spend the rate limit of the
+// organisation when a wave of jobs ends together (target design, section 4).
+//
+// A line that does not arrive is worth less than the removal of the machine, so a failure here is
+// a log record and nothing more. Buildkite refuses a line for a job that ended, which is the usual
+// case for the line of a deletion, so a refusal is a debug record and not a warning at each pass.
+func (r *Reaper) write(ctx context.Context, lines []buildkite.Notification) {
+	for start := 0; start < len(lines); start += buildkite.NotificationsPerRequest {
+		batch := lines[start:min(start+buildkite.NotificationsPerRequest, len(lines))]
+
+		err := r.stacks.Notify(ctx, batch)
+
+		switch {
+		case err == nil:
+		case errors.Is(err, buildkite.ErrRefused):
+			r.logger.DebugContext(ctx, "buildkite refused some lines of the reaper",
+				"lines", len(batch), "error", err)
+		default:
+			r.logger.WarnContext(ctx, "the reaper could not write to the job pages",
+				"lines", len(batch), "error", err)
+		}
 	}
 }
 
