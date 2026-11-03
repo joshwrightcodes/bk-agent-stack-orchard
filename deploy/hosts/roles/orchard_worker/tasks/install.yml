@@ -1,5 +1,16 @@
 # Each tool goes into a directory of its version, from its release archive, checked against its
 # SHA-256. The unarchive module needs GNU tar, which macOS does not have, so tar runs directly.
+#
+# Root runs programs from these directories (launchd, and this playbook), so only root may change
+# them. ownership.yml checks that at the end of the play. This task makes /usr/local/bin when it is
+# missing, and leaves the owner and the mode of one that exists, so that the check shows a wrong
+# owner instead of a silent change.
+- name: Make the directory of the commands # noqa: risky-file-permissions (ownership.yml checks it)
+  ansible.builtin.file:
+    path: /usr/local/bin
+    state: directory
+  become: true
+
 - name: Make the directory of the tools
   ansible.builtin.file:
     path: "{{ orchard_worker_prefix }}/downloads"
@@ -34,12 +45,30 @@
   loop_control:
     label: "{{ item.name }} {{ item.version }}"
 
+# tar as root gives each file the owner of the archive: uid 501, the first user of a Mac, in the
+# archives of Tart and Softnet, and uid 1001 in the archive of Orchard. --no-same-owner keeps
+# root, so the worker user cannot change a program that root runs.
 - name: Unpack the archives # noqa: command-instead-of-module (unarchive needs GNU tar)
   ansible.builtin.command:
     cmd: >-
       tar -xzf {{ orchard_worker_prefix }}/downloads/{{ item.name }}-{{ item.version }}.tar.gz
-      -C {{ orchard_worker_prefix }}/{{ item.name }}-{{ item.version }}
+      --no-same-owner -C {{ orchard_worker_prefix }}/{{ item.name }}-{{ item.version }}
     creates: "{{ orchard_worker_prefix }}/{{ item.name }}-{{ item.version }}/{{ item.creates }}"
+  become: true
+  loop: "{{ orchard_worker_tools }}"
+  loop_control:
+    label: "{{ item.name }} {{ item.version }}"
+
+# A host that an older playbook set up has the owners of the archives, so the owners are set
+# again, and no group or other user can write the files.
+- name: Give the tools to root
+  ansible.builtin.file:
+    path: "{{ orchard_worker_prefix }}/{{ item.name }}-{{ item.version }}"
+    owner: root
+    group: wheel
+    mode: go-w
+    recurse: true
+    follow: false
   become: true
   loop: "{{ orchard_worker_tools }}"
   loop_control:
@@ -69,7 +98,13 @@
   notify: Restart the worker
 
 # Tart starts Softnet for each VM, and Softnet needs root. Without the setuid bit, Tart asks for
-# a sudo password on a terminal, which a worker does not have.
+# a sudo password on a terminal, which a worker does not have. Tart checks only that root owns
+# softnet and that the bit is set.
+#
+# Only root and the worker user may run it. Orchard drops to the worker user with setregid and
+# setreuid, and keeps the groups of root (chacha privdrop, which Orchard 0.58.0 uses), so a group
+# of the worker user would not let Tart run softnet. An access control entry for the user matches
+# the effective user ID, so the mode leaves out other users, and the entry lets the worker user in.
 - name: Install softnet with the setuid bit
   ansible.builtin.copy:
     src: "{{ orchard_worker_prefix }}/softnet-{{ orchard_worker_softnet_version }}/softnet"
@@ -77,9 +112,29 @@
     remote_src: true
     owner: root
     group: wheel
-    mode: "04755"
+    mode: "04750"
   become: true
   notify: Restart the worker
+
+- name: Read the access control list of softnet
+  ansible.builtin.command: ls -le /usr/local/bin/softnet
+  register: orchard_worker_softnet_acl
+  changed_when: false
+  become: true
+
+# A new copy of softnet has no entry, so this runs after each copy.
+- name: Let the worker user run softnet
+  ansible.builtin.command:
+    argv: [/bin/chmod, +a, "user:{{ orchard_worker_user }} allow execute", /usr/local/bin/softnet]
+  when: orchard_worker_softnet_acl.stdout is not search(' user:' ~ orchard_worker_user ~ ' allow execute$', multiline=True)
+  changed_when: true
+  become: true
+
+- name: Check that the worker user can run softnet
+  ansible.builtin.command: /usr/local/bin/softnet --version
+  changed_when: false
+  become: true
+  become_user: "{{ orchard_worker_user }}"
 
 - name: Read the installed versions
   ansible.builtin.command: "{{ item }} --version"

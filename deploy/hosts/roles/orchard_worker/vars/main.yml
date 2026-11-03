@@ -29,6 +29,35 @@ orchard_worker_pf_rules: /etc/pf.anchors/{{ orchard_worker_pf_label }}
 orchard_worker_pf_plist: "/Library/LaunchDaemons/{{ orchard_worker_pf_label }}.plist"
 orchard_worker_pf_script: "{{ orchard_worker_prefix }}/vm-isolation.sh"
 
+# The programs that root runs and the files that it reads, with each directory above them up to
+# /usr/local (tasks/ownership.yml). / and /usr belong to macOS, which protects them.
+orchard_worker_root_paths:
+  - /usr/local
+  - /usr/local/bin
+  - /usr/local/bin/orchard
+  - /usr/local/bin/tart
+  - /usr/local/bin/softnet
+  - "{{ orchard_worker_prefix | dirname }}"
+  - "{{ orchard_worker_prefix }}"
+  - "{{ orchard_worker_prefix }}/orchard-{{ orchard_worker_orchard_version }}"
+  - "{{ orchard_worker_prefix }}/orchard-{{ orchard_worker_orchard_version }}/orchard"
+  - "{{ orchard_worker_prefix }}/tart-{{ orchard_worker_tart_version }}"
+  - "{{ orchard_worker_prefix }}/tart-{{ orchard_worker_tart_version }}/tart.app"
+  - "{{ orchard_worker_prefix }}/tart-{{ orchard_worker_tart_version }}/tart.app/Contents"
+  - "{{ orchard_worker_prefix }}/tart-{{ orchard_worker_tart_version }}/tart.app/Contents/MacOS"
+  - "{{ orchard_worker_prefix }}/tart-{{ orchard_worker_tart_version }}/tart.app/Contents/MacOS/tart"
+  - "{{ orchard_worker_prefix }}/softnet-{{ orchard_worker_softnet_version }}"
+  - "{{ orchard_worker_prefix }}/softnet-{{ orchard_worker_softnet_version }}/softnet"
+  - "{{ orchard_worker_pf_script }}"
+  - "{{ orchard_worker_etc | dirname }}"
+  - "{{ orchard_worker_etc }}"
+  - "{{ orchard_worker_etc }}/bootstrap-token"
+  - /Library/LaunchDaemons
+  - "{{ orchard_worker_plist }}"
+  - "{{ orchard_worker_pf_plist }}"
+  - /etc/pf.anchors
+  - "{{ orchard_worker_pf_rules }}"
+
 # The ranges from which Softnet picks the /29 network of each VM, whose first address is the
 # host (Softnet 0.24.1, lib/subnet_finder/mod.rs). They change only with Softnet, so a test of the
 # controller checks that they equal its own copy, for the Softnet version of defaults/main.yml.

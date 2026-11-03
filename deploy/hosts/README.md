@@ -13,6 +13,10 @@ This directory makes each Mac host an Orchard worker (target design, section 11)
 2. It installs Orchard, Tart, and Softnet at pinned versions, from their release archives, checked
    against their SHA-256. Orchard is the version of `mise.toml`, and `scripts/check-deps.py` keeps
    the two in agreement. Softnet gets the setuid bit, because Tart starts it for each VM with root.
+   Only root and the worker user can run it: its mode is `04750`, and an access control entry
+   lets the worker user in. Root owns every file of the tools. The playbook checks each program
+   that root runs, and each directory above it up to `/usr/local`. It stops when one is not owned
+   by root and the group wheel, or when a group or other user can write it.
    The same tools are in the `openai/tools` Homebrew tap, which a developer Mac uses
    (`docs/development.md`). A host does not use the tap, for these reasons:
    - The tap has one version of each tool.

@@ -6,6 +6,7 @@
 #   - the worker registers with the labels of the inventory, through TLS with the CA in the token;
 #   - the token is in no process listing, softnet has the setuid bit, the host does not sleep, and
 #     pf keeps the VMs away from the host, also after a restart;
+#   - only the worker user and root can run softnet, and root owns the programs that it runs;
 #   - the launchd job of the pf rules enables pf and loads the rules again after a person
 #     disables pf and removes the rules;
 #   - a second run of the playbook changes nothing;
@@ -222,6 +223,9 @@ check=$(guest <<'EOF'
 echo "token_in_ps=$(ps axww -o command | grep -c '[o]rchard-bootstrap-token' || true)"
 echo "token_mode=$(sudo stat -f '%Su %Mp%Lp' /usr/local/etc/orchard-worker/bootstrap-token)"
 echo "softnet=$(stat -f '%Su %Mp%Lp' /usr/local/bin/softnet)"
+echo "softnet_admin=$(/usr/local/bin/softnet --version >/dev/null 2>&1 && echo runs || echo refused)"
+echo "softnet_nobody=$(sudo -u nobody /usr/local/bin/softnet --version >/dev/null 2>&1 && echo runs || echo refused)"
+echo "tools_owner=$(sudo find /usr/local/opt/bkaso ! -user root | wc -l | tr -d ' ')"
 echo "pf_block=$(sudo /sbin/pfctl -a com.apple/400.bkaso-vm-isolation -s rules 2>/dev/null | grep -c 'block drop in quick')"
 echo "pf_enabled=$(sudo /sbin/pfctl -s info 2>/dev/null | grep -c 'Status: Enabled')"
 echo "worker_user=$(ps axo user,command | awk '$2 ~ /orchard$/ && $3 == "worker" {print $1}' | sort -u | tr '\n' ' ')"
@@ -231,7 +235,10 @@ EOF
 echo "$check"
 grep -qx "token_in_ps=0" <<<"$check" || die "the token is in a process listing"
 grep -qx "token_mode=root 0600" <<<"$check" || die "the token file is not root 0600"
-grep -qx "softnet=root 4755" <<<"$check" || die "softnet has no setuid bit"
+grep -qx "softnet=root 4750" <<<"$check" || die "softnet is not root 4750"
+grep -qx "softnet_admin=runs" <<<"$check" || die "the worker user cannot run softnet"
+grep -qx "softnet_nobody=refused" <<<"$check" || die "a user other than the worker user can run softnet"
+grep -qx "tools_owner=0" <<<"$check" || die "root does not own every file of the tools"
 grep -Eqx "pf_block=[1-9][0-9]*" <<<"$check" || die "pf has no rule that keeps the VMs away from the host"
 grep -qx "pf_enabled=1" <<<"$check" || die "pf is not enabled"
 grep -qx "sleep=disksleep=0 sleep=0 " <<<"$check" || die "the host can sleep"
