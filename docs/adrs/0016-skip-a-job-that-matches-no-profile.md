@@ -23,6 +23,11 @@ a dedicated queue, but the queue is a Buildkite object, and the owner can run an
 plain agent on it. Every stack of a queue reads the same list of scheduled jobs. A job that this
 controller does not carry is therefore not an error of the job: another runner can carry it.
 
+ADR-0007 and PR-031 also say that only VMs of this fleet serve the queue. Under that rule, no
+other runner exists, and a skipped job can only wait until Buildkite expires it. The owner decided
+on 2026-11-03 that unmatched jobs stay skipped, so that another runner can take them, and that
+the macOS queue may also be served by other agents or stacks.
+
 If this controller reserves such a job and finishes it, it ends a job that a second runner could
 have run. The owner decided on 2026-11-01 (decision D1) that this controller always skips an
 unmatched job. A job is unmatched if its tags match no profile, if a rule is not a literal
@@ -89,6 +94,18 @@ This decision replaces only the sentence of ADR-0006 that says that a job with n
 profile fails immediately, and the consequence "A mismatch fails immediately with a message". The
 rest of ADR-0006 holds, so ADR-0006 keeps its status. ADR-0015 did the same for ADR-0010.
 
+This decision also amends ADR-0007:
+
+* The macOS queue MAY also be served by other agents or stacks. This replaces the rule of ADR-0007
+  that only VMs of this fleet run the jobs of the queue: the goal "Job separation", its Decision
+  sentence "Only VMs of this fleet run the jobs of this queue", the consequence "Only VMs of this
+  fleet run macOS jobs", and its Confirmation.
+* The capacity accounting of this controller MUST count only the workers that its profiles
+  select. A job that another runner can take is not a concern of this controller.
+* The rest of ADR-0007 holds: the fleet has a dedicated self-hosted queue, the cluster MAY contain
+  other queues, the fleet runs no job of another queue, and a leaked cluster agent token reaches
+  the other self-hosted queues of the cluster. ADR-0007 keeps its status.
+
 ## Consequences
 
 Good:
@@ -106,6 +123,10 @@ Bad:
   the target design). More than 3 pages of 1000 skipped jobs make the jobs behind them wait for
   later reads, and the counter `bkaso.queue.truncated` is the sign.
 * After a restart, the controller can write a second notification for a job.
+* Another agent or stack on the queue runs untrusted macOS builds as well. ADR-0004 binds the VMs
+  of this fleet only. The operator decides the isolation of each other runner of the queue.
+* The free slots and the waiting jobs that this controller reports cover only its own workers and
+  the jobs that its profiles carry. They do not show the capacity of the other runners.
 
 ## Confirmation
 
@@ -116,3 +137,5 @@ Bad:
   jobs.
 * A test confirms that the set of notified jobs has a bound and evicts jobs that left the list.
 * The property tests (I-8) confirm that an unmatched job has no VM.
+* Before the controller goes live, a review of the queue lists each agent and stack that serves
+  it (T-140).

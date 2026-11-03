@@ -31,11 +31,11 @@ at each tick of 1 s. The time budget of a tick (§4 of the target design) counts
 queue as one call that can hang, because a page that fails ends the read. These two facts limit
 the requests of one read to a small, fixed number.
 
-ADR-0016 keeps an unmatched job in the list until Buildkite times it out, or a person cancels it.
-Such a job stays at the head, because new jobs arrive behind it. A security review on 2026-11-03
-found that one pipeline upload of 3000 or more steps with tags that no profile carries hides
-every later job of the queue. The counter `bkaso.queue.truncated` and a warning existed, but no
-alert used them, and nothing recovered without a person.
+ADR-0016 keeps an unmatched job in the list until another runner of the queue takes it, Buildkite
+times it out, or a person cancels it. Such a job stays at the head, because new jobs arrive behind
+it. A security review on 2026-11-03 found that one pipeline upload of 3000 or more steps with tags
+that no profile carries hides every later job of the queue. The counter `bkaso.queue.truncated` and
+a warning existed, but no alert used them, and nothing recovered without a person.
 
 ## Goals and non-goals
 

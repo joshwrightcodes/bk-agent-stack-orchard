@@ -198,8 +198,10 @@ can permit a smaller fleet at peak. The pilot must measure the real arrival rate
   minutes or less.
 * **Controller credential:** a dedicated cluster agent token with an expiry of 90 days or less.
   Its IP allowlist contains the controller and the job VMs (ADR-0008).
-* **Queue separation:** the fleet has a dedicated queue (ADR-0007). The cluster may contain other
-  queues. A leaked cluster agent token reaches all self-hosted queues of the cluster.
+* **Queue separation:** the fleet has a dedicated queue (ADR-0007). Other agents or stacks may also
+  serve the queue, and the capacity of the controller counts only its own workers (ADR-0016). The
+  cluster may contain other queues. A leaked cluster agent token reaches all self-hosted queues of
+  the cluster.
 * **Orchard role:** the `compute:write` role also permits the deletion of workers. This risk is
   accepted.
 * **Source code:** checkouts and build data MUST stay on owner infrastructure, in the
@@ -272,7 +274,7 @@ can permit a smaller fleet at peak. The pilot must measure the real arrival rate
 | SE-01 | Security | Trust of builds | APPLICABLE | DRIVER | CONFIRMED | All builds untrusted | ADR-0004 | A trusted queue becomes necessary |
 | SE-02 | Security | Credentials in VMs | APPLICABLE | DRIVER | CONFIRMED | Job acquisition token only; 30 min or less | PR-030; ADR-0004 | — |
 | SE-03 | Security | Controller Buildkite credential | APPLICABLE | DRIVER | CONFIRMED | Dedicated token; 90 days or less; allowlist | ADR-0008 | Short-lived Stacks API credential |
-| SE-04 | Security | Queue separation | APPLICABLE | SUPPORTING | CONFIRMED | Dedicated queue for the fleet; the cluster may contain other queues | Owner comment (2026-09-19); ADR-0007 | Tokens with a smaller scope |
+| SE-04 | Security | Queue separation | APPLICABLE | SUPPORTING | CONFIRMED | Dedicated queue for the fleet; other agents or stacks may also serve it; the cluster may contain other queues | Owner comment (2026-09-19); owner decision (2026-11-03); ADR-0007; ADR-0016 | Tokens with a smaller scope |
 | SE-05 | Sovereignty | Source code location | APPLICABLE | DRIVER | CONFIRMED | Owner infrastructure, in the operating country | Owner answer Q-A2 | Change of operating country |
 | SE-06 | Security | Orchard role scope | APPLICABLE | SUPPORTING | CONFIRMED | `compute:write` also permits worker deletion; accepted | Orchard 0.57.0 role list (2026-09-19) | A narrower Orchard role |
 | SE-07 | Sovereignty | Build log location | APPLICABLE | SUPPORTING | CONFIRMED | Buildkite SaaS in Amazon Web Services, region not stated; accepted by the owner | Buildkite documentation (2026-09-14); owner answer Q-A7 | Logs must stay in the operating country |

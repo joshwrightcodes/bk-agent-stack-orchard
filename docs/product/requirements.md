@@ -348,11 +348,16 @@ The target design describes the configuration, the credentials, and the observab
 
 **PR-031: Use a dedicated queue for the macOS fleet.**
 
-* Requirement: The macOS fleet MUST have its own Buildkite queue. Other agents MUST NOT serve this
-  queue. The cluster MAY contain other queues.
-* Source: owner comment (2026-09-19). Status: `accepted`.
+* Requirement: The macOS fleet MUST have its own Buildkite queue. Other agents or stacks MAY also
+  serve this queue. The cluster MAY contain other queues. The product MUST count only the workers
+  that its profiles select as its capacity. A job that another runner of the queue can take is not
+  a concern of the product.
+* Source: owner comment (2026-09-19); owner decision (2026-11-03). Status: `accepted`.
+* History: until 2026-11-03, this requirement stated that other agents MUST NOT serve this queue.
+  The owner decided on 2026-11-03 that a job that no profile carries stays skipped for another
+  runner (PR-004), so other runners MAY serve the queue (ADR-0016).
 * Acceptance: Given the Buildkite cluster. When the fleet operator reviews the queue before the
-  controller goes live. Then only VMs of this fleet serve the queue.
+  controller goes live. Then the review lists each agent and stack that serves the queue.
 
 **PR-032: Keep checkouts and build data in the operating country.**
 

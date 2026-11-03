@@ -79,7 +79,7 @@ date. The content of an accepted ADR does not change: a new ADR supersedes it.
 | [ADR-0004](0004-treat-all-builds-as-untrusted.md) | Treat all builds as untrusted and isolate each job VM | accepted |
 | [ADR-0005](0005-run-and-schedule-vms-with-tart-and-orchard.md) | Run and schedule the job VMs with Tart and Orchard | accepted |
 | [ADR-0006](0006-route-jobs-to-vm-profiles-by-agent-tags.md) | Route jobs to VM profiles by their agent tags | accepted (the "fails immediately" sentence is replaced by ADR-0016) |
-| [ADR-0007](0007-use-a-dedicated-queue-for-the-macos-fleet.md) | Use a dedicated queue for the macOS fleet | accepted |
+| [ADR-0007](0007-use-a-dedicated-queue-for-the-macos-fleet.md) | Use a dedicated queue for the macOS fleet | accepted (the rule that only VMs of this fleet serve the queue is replaced by ADR-0016) |
 | [ADR-0008](0008-use-a-dedicated-cluster-agent-token.md) | Use a dedicated cluster agent token with an expiry and an IP allowlist | accepted |
 | [ADR-0009](0009-run-startup-scripts-over-the-tart-guest-agent.md) | Run VM startup scripts over the Tart guest agent | accepted |
 | [ADR-0010](0010-call-the-orchard-api-with-a-client-of-this-project.md) | Call the Orchard API with a client of this project | accepted |

@@ -228,7 +228,7 @@ These obligations are reviews, not automated tests. Both come from ADR confirmat
 
 | ID | Basis | Review | When |
 |---|---|---|---|
-| T-140 | ADR-0007, PR-031 | A review of the Buildkite queue confirms that only VMs of this fleet serve it | Before the controller goes live |
+| T-140 | ADR-0007, ADR-0016, PR-031 | A review of the Buildkite queue lists each agent and stack that serves it | Before the controller goes live |
 | T-141 | ADR-0008, SE-03 | A review of the token confirms that `expires_at` is 90 days or less, and that `allowed_ip_addresses` contains the egress addresses of the controller and of the job VMs | Before the controller goes live, and at each replacement |
 
 ## 7. Environments, data, and secrets

@@ -1088,8 +1088,12 @@ would delete the account of a live host. The operator therefore removes a host b
 
 The controller MUST fail its readiness check when the Stacks API returns HTTP 401.
 
-**Queue separation.** The controller MUST serve a dedicated queue (PR-031). The cluster MAY
-contain other queues. A leaked cluster agent token reaches all self-hosted queues of the cluster.
+**Queue separation.** The controller MUST serve a dedicated queue (PR-031). Other agents or stacks
+MAY also serve the queue (ADR-0016). Admission counts only the workers that the profiles of this
+controller select, so a job that another runner takes is not a concern of this controller, and a
+job that no profile carries stays for the other runners (§5). Each other runner of the queue runs
+untrusted builds too, and the operator decides its isolation. The cluster MAY contain other
+queues. A leaked cluster agent token reaches all self-hosted queues of the cluster.
 
 **Orchard version.** The minimum Orchard version MUST be 0.58.0 (released 2026-10-19). Pull
 request #465 makes the worker wait for VM shutdown before it releases capacity. Pull request #470

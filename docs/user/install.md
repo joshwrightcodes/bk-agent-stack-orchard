@@ -11,8 +11,10 @@ setup that suits you.
 You need these items:
 
 * **A Buildkite cluster** with a self-hosted queue for the macOS jobs, and a cluster agent token
-  for that queue. Use a queue that only this controller serves. Give the token an expiry and an
-  IP allowlist.
+  for that queue. Give the token an expiry and an IP allowlist. Other agents or stacks can serve
+  the same queue. The controller skips a job that no profile carries, so another runner can take
+  it. The controller counts only its own workers, and it does not see the capacity of the other
+  runners.
 * **Apple silicon Mac hosts** that run an Orchard worker and Tart 2.39.0 or later.
 * **An Orchard controller**, version 0.58.0 or later, and an Orchard service account for this
   controller.
