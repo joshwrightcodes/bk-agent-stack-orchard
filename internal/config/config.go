@@ -81,7 +81,7 @@ type Buildkite struct {
 	// The longest that the token that the controller gives each VM stays valid. The token opens one
 	// job only. Each token stays valid for the unplaced, boot, and acquire timeouts of the profile
 	// of its job and one minute more, up to this value. From 1 s to 30 min, in whole seconds, and
-	// at least the sum of the unplaced, boot, and acquire timeouts of each profile.
+	// at least the sum of the unplaced, boot, and acquire timeouts of each profile and one minute.
 	JobTokenLifetime time.Duration `yaml:"jobTokenLifetime,omitempty"`
 }
 
@@ -462,15 +462,17 @@ func (c *Config) validateProfiles() []error {
 }
 
 // validateProfileTimeouts keeps a healthy but slow virtual machine inside the life of its job
-// acquisition token. A token that expires first fails a job that would have run.
+// acquisition token, with the margin that the token keeps after the start timeouts. A token that
+// expires first fails a job that would have run.
 func (c *Config) validateProfileTimeouts(p profile.Profile) error {
 	sum := p.EffectiveTimeouts(c.Defaults.Timeouts).StartSum()
-	if sum <= c.Buildkite.JobTokenLifetime {
+	if sum+profile.TokenMargin <= c.Buildkite.JobTokenLifetime {
 		return nil
 	}
 
 	return fmt.Errorf(
-		"profile %q: unplaced, boot, and acquire add to %s, which is longer than buildkite.jobTokenLifetime (%s)",
+		"profile %q: unplaced, boot, and acquire add to %s, and with the margin of one minute "+
+			"that a token keeps, that is longer than buildkite.jobTokenLifetime (%s)",
 		p.Name, sum, c.Buildkite.JobTokenLifetime)
 }
 

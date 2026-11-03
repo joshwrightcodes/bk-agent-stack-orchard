@@ -202,6 +202,39 @@ profiles:`, 1)
 	}
 }
 
+// The token outlives the start timeouts of its profile by one minute, because it is issued before
+// the create, and the unplaced timeout counts from the first snapshot that lists the machine. A
+// profile whose timeouts fill the whole lifetime of the token leaves no minute, and a slow but
+// healthy machine can then meet an expired token. A sum that leaves the minute loads.
+func TestLoadKeepsTheMinuteOfTheTokenMargin(t *testing.T) {
+	for name, test := range map[string]struct {
+		boot  string
+		loads bool
+	}{
+		// 2 min + 23 min + 5 min fills the 30 min of the token.
+		"no minute left": {boot: "23m", loads: false},
+		// 2 min + 22 min + 5 min leaves the minute.
+		"the minute left": {boot: "22m", loads: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			body := strings.Replace(minimal, "profiles:", "defaults:\n  timeouts:\n    boot: "+
+				test.boot+"\nprofiles:", 1)
+
+			_, err := load(t, body, secrets())
+
+			if test.loads && err != nil {
+				t.Errorf("Load() with boot %s = %v, want it to load", test.boot, err)
+			}
+
+			if !test.loads && (err == nil || !strings.Contains(err.Error(), "jobTokenLifetime") ||
+				!strings.Contains(err.Error(), "one minute")) {
+				t.Errorf("Load() with boot %s = %v, want an error that names the token and the "+
+					"minute", test.boot, err)
+			}
+		})
+	}
+}
+
 // The Stacks API accepts a reservation of 3600 s at most, and a token of the same length at most.
 // A value above that fails at start-up, and not at the first job, where Buildkite would refuse it.
 func TestLoadRefusesAReservationOverOneHour(t *testing.T) {

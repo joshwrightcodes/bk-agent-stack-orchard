@@ -56,7 +56,7 @@ The connection to Buildkite.
 | `buildkite.jobStatesInterval` | duration | `5s` | How often the controller reads the state of the jobs that have a VM. It must be shorter than stateFreshness. |
 | `buildkite.reservationExpiry` | duration | `5m` | How long Buildkite holds a job for this controller after it reserves the job. From 1 s to 1 h, in whole seconds. |
 | `buildkite.reservationRenewBefore` | duration | `2m` | How long before a reservation expires the controller renews it, while the VM of the job starts. It must be shorter than reservationExpiry. |
-| `buildkite.jobTokenLifetime` | duration | `30m` | The longest that the token that the controller gives each VM stays valid. The token opens one job only. Each token stays valid for the unplaced, boot, and acquire timeouts of the profile of its job and one minute more, up to this value. From 1 s to 30 min, in whole seconds, and at least the sum of the unplaced, boot, and acquire timeouts of each profile. |
+| `buildkite.jobTokenLifetime` | duration | `30m` | The longest that the token that the controller gives each VM stays valid. The token opens one job only. Each token stays valid for the unplaced, boot, and acquire timeouts of the profile of its job and one minute more, up to this value. From 1 s to 30 min, in whole seconds, and at least the sum of the unplaced, boot, and acquire timeouts of each profile and one minute. |
 
 ### `orchard`
 

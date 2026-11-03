@@ -876,11 +876,15 @@ one `batch-reserve` call, before the other actions of the Reaper (§4).
 
 ### 7.3 Timeout consistency
 
-The sum `unplaced + boot + acquire` MUST NOT be more than `jobTokenLifetime`. If the sum is
-more, a slow but healthy VM can start with an expired token. Each token lasts the sum of its
-profile and one minute, up to `jobTokenLifetime` (§7.2).
+The sum `unplaced + boot + acquire` and one minute MUST NOT be more than `jobTokenLifetime`. If
+it is more, a slow but healthy VM can start with an expired token. Each token lasts the sum of
+its profile and one minute, up to `jobTokenLifetime` (§6.4). The minute covers the time from the
+token to the create, which is inside the time budget of the creates of a tick (§4), and the
+interval of the Inventory, because the unplaced timeout counts from the first listing (§7.1, rule
+1). A sum that filled the whole `jobTokenLifetime` would give a token with no margin.
 
-With the default values, the sum is 2 min + 15 min + 5 min = 22 min. This is less than 30 min.
+With the default values, the sum is 2 min + 15 min + 5 min = 22 min, and 23 min with the minute.
+This is less than 30 min.
 The controller MUST validate this sum for each profile at start-up. The validation MUST include
 the timeout values that a profile overrides.
 

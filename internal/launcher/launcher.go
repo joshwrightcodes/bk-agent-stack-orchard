@@ -79,8 +79,8 @@ type Options struct {
 	ReservationExpiry time.Duration
 
 	// TokenLifetime is the longest that a job acquisition token works (buildkite.jobTokenLifetime).
-	// Each token works for the start timeouts of the profile of its job and tokenMargin, inside
-	// this limit.
+	// Each token works for the start timeouts of the profile of its job and profile.TokenMargin,
+	// inside this limit.
 	TokenLifetime time.Duration
 
 	// DefaultTimeouts are the timeouts of a profile that states none (defaults.timeouts). The
@@ -553,18 +553,12 @@ func (l *Launcher) tell(ctx context.Context, fresh []admission.Unmatched) error 
 	return nil
 }
 
-// tokenMargin is how long a token outlives the start timeouts of its profile. The token is issued
-// before the create, and the unplaced timeout counts from the first snapshot that lists the
-// machine, on the clock of the controller, so the margin covers the budget of the step and the
-// interval of the inventory.
-const tokenMargin = time.Minute
-
 // lifetimeOf is how long the token of a job of the profile works: the time that the reaper gives
-// its machine to start, and tokenMargin, inside the configured limit. A token that outlived the
+// its machine to start, and profile.TokenMargin, inside the configured limit. A token that outlived the
 // start would be of no use to its machine, and could still take the job when the job went back to
 // the queue.
 func (l *Launcher) lifetimeOf(carrier profile.Profile) time.Duration {
-	return min(carrier.EffectiveTimeouts(l.defaults).StartSum()+tokenMargin, l.lifetime)
+	return min(carrier.EffectiveTimeouts(l.defaults).StartSum()+profile.TokenMargin, l.lifetime)
 }
 
 // tokens gets one job acquisition token for each reserved job, in one call for each lifetime. A

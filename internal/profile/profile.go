@@ -71,10 +71,16 @@ type Timeouts struct {
 }
 
 // StartSum is the time that a healthy virtual machine may take before its agent acquires the
-// job. The job acquisition token must outlive this sum.
+// job. The job acquisition token must outlive this sum by TokenMargin.
 func (t Timeouts) StartSum() time.Duration {
 	return t.Unplaced + t.Boot + t.Acquire
 }
+
+// TokenMargin is how long a job acquisition token outlives the start timeouts of its profile. The
+// token is issued before the create, and the unplaced timeout counts from the first snapshot that
+// lists the machine, on the clock of the controller, so the margin covers the time budget of the
+// creates of a tick and the interval of the inventory.
+const TokenMargin = time.Minute
 
 // OTel carries the optional telemetry of the agent inside the virtual machine.
 type OTel struct {
