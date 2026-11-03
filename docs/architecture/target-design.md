@@ -984,6 +984,7 @@ At start-up, before the first Admission, the controller MUST do these steps:
 | The Buildkite API is not available, or applies a rate limit | The controller obeys `Retry-After`. JobStates data becomes stale. The controller does not reserve or finish jobs. The controller deletes VMs only for rows 1 and 2. |
 | A worker is offline | After the worker offline timeout (3 min), Orchard sets the VMs of the worker to `failed`. Rows 7 and 9 apply. `restart_policy: Never` prevents a new VM for the same job on a different worker. |
 | The get-states answer names none of the jobs | JobStates counts it as a failed call, and its data becomes stale (§7.1, rule 4). The result is the same as for a Buildkite outage of the get-states call only: admission stops while owned VMs exist, and the Reaper deletes VMs only by rows 1 and 2. |
+| Orchard refuses the creates, for example after an upgrade that no longer accepts a field of the VM | The Launcher counts each refused create as `create_failed` in `bkaso.vm.starts` and writes "VM request failed" on the job page (§10.5). The job keeps its reservation with no VM, and returns to the queue when the reservation ends. Admission then starts it again, so the job loops until Orchard accepts the create. |
 | The queue is `dispatch_paused` | Admission stops. The controller does not write new notifications for unmatched jobs. The Reaper continues for existing VMs. |
 
 An API that accepts calls and does not answer is an outage of the same kind. Each call ends at
@@ -1286,6 +1287,7 @@ The name that an operator queries has the full prefix.
 | UpDownCounter | `bkaso.vm.count` (`{vm}`) | `bkaso.profile`, `bkaso.vm.phase` = `unplaced`/`booting`/`running`/`failed` |
 | UpDownCounter | `cicd.worker.count` (`{worker}`) | `cicd.worker.state` = `busy`/`offline` |
 | Histogram | `bkaso.job.phase.duration` (`s`) | `bkaso.profile`, `bkaso.job.phase` = `scheduled_to_reserved`/`reserved_to_placed`/`placed_to_running`/`running_to_accepted`/`finished_to_deleted`/`total` |
+| Counter | `bkaso.vm.starts` (`{vm}`) | `bkaso.profile`, `bkaso.vm.start.outcome` = `created`/`create_failed`/`no_token`/`not_sent` |
 | Counter | `bkaso.vm.deletions` (`{vm}`) | `bkaso.profile`, `bkaso.worker.name`, `bkaso.vm.delete.reason` (§7.2) |
 | Counter | `cicd.system.errors` (`{error}`) | `cicd.system.component` = `buildkite`/`orchard`, `bkaso.operation`, `error.type` |
 | Histogram | `bkaso.tick.duration` (`s`) | `bkaso.tick.step` |
@@ -1347,6 +1349,11 @@ These rules come from the conventions and MUST hold:
   `bkaso.stack.registered` is 0 while the controller registers its stack (§7.4, step 1) and after
   it withdrew it, and 1 between.
 
+* **`bkaso.vm.starts` counts each start of a reserved job.** The Launcher counts one outcome for
+  each reserved job of a tick: `created` when Orchard accepted the VM, `create_failed` when the
+  create failed, `no_token` when Buildkite issued no token, and `not_sent` when the step did not
+  send the create (§4). Each outcome but `created` leaves the job reserved with no VM until the
+  reservation ends (§7.4), so these starts are the denominator of a start success rate.
 * **`bkaso.vm.leftover` counts the owned VMs whose job is terminal.** At each tick, the controller
   counts the VMs in the last inventory whose job has a terminal state in the last job states
   (`finished`, `canceled`, `expired`, `timed_out`, `skipped`, or `broken`, the states of row 4 of
@@ -1470,11 +1477,14 @@ the job trace. The default value of `profile.otel.enabled` is false.
 
 ### 10.5 Buildkite stack notifications
 
-The controller MUST send a notification at each step: "VM requested", "placed on mac-03",
-"booting", "failed: …", and "VM deleted: …". Pipeline authors can then find problems from the
-job page.
+The controller MUST send a notification at each step: "VM requested", "VM request failed",
+"placed on mac-03", "booting", "failed: …", and "VM deleted: …". Pipeline authors can then find
+problems from the job page.
 
-The Launcher sends "VM requested" when it creates the VM. At each tick, before the Reaper, the
+The Launcher sends "VM requested" when it creates the VM, and "VM request failed" when the create
+fails. That line says that the job returns to the queue when its reservation ends. The cause stays
+in the log and in the trace of the job, because an answer of Orchard can repeat the VM
+specification. At each tick, before the Reaper, the
 controller compares each owned VM with what it saw before: it sends "placed on <worker>" when
 Orchard first gives the VM a worker, and "booting" when Orchard first reports the VM `running`,
 because macOS starts after that. The Reaper sends "failed: <status message>" for row 7, and

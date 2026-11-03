@@ -60,6 +60,7 @@ func recordAll(t *testing.T) []metricdata.Metrics {
 	instruments.QueueTruncated(ctx)
 	instruments.Failed(ctx, telemetry.Failure{Profile: "xcode-27", Worker: "mac-01"}, "boot_timeout")
 	instruments.Deleted(ctx, telemetry.Failure{Profile: "xcode-27"}, "job_terminal")
+	instruments.Started(ctx, "xcode-27", telemetry.StartCreated)
 	instruments.SystemError(ctx, telemetry.ComponentBuildkite, telemetry.OperationReserve,
 		"rate_limited")
 	instruments.JobPhase(ctx, "xcode-27", telemetry.PhaseTotal, 4*time.Minute)
@@ -182,6 +183,11 @@ var design = []struct {
 			"bk_agent_stack_orchard.profile", "bk_agent_stack_orchard.vm.delete.reason",
 			"bk_agent_stack_orchard.worker.name",
 		},
+		true,
+	},
+	{
+		"bk_agent_stack_orchard.vm.starts", "{vm}",
+		[]string{"bk_agent_stack_orchard.profile", "bk_agent_stack_orchard.vm.start.outcome"},
 		true,
 	},
 	{

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/admission"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/inventory"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/launcher"
@@ -148,9 +149,23 @@ func TestAnOrchardThatDoesNotAnswerStopsTheCreatesThatWait(t *testing.T) {
 					"failed", fleet.asked, parallel.Limit)
 			}
 
-			if len(api.notified) != 0 {
-				t.Errorf("buildkite saw %v, want no line for a machine that was not made",
-					api.notified)
+			// A create that ran and failed gets the line of a failed request, and a create that
+			// the step did not send gets no line.
+			var lines []buildkite.Notification
+			for _, call := range api.notified {
+				lines = append(lines, call...)
+			}
+
+			if len(lines) != fleet.asked {
+				t.Errorf("buildkite saw %d lines, want one for each of the %d creates that ran",
+					len(lines), fleet.asked)
+			}
+
+			for _, line := range lines {
+				if !strings.HasPrefix(line.Detail, "VM request failed") {
+					t.Errorf("a job page reads %q, want only the line of a failed request",
+						line.Detail)
+				}
 			}
 
 			if !strings.Contains(strings.Join(log.failures(), "\n"), "could not start a machine") {

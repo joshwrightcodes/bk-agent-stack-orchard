@@ -53,6 +53,11 @@ const NotifiedLimit = 10_000
 // requested is the first line that a job page gets from this controller.
 const requested = "VM requested"
 
+// refused is the line of a job whose create failed. The job keeps its reservation with no machine,
+// so Buildkite schedules it again when the reservation ends. The cause is in the log and in the
+// trace of the job, and not on the page: an answer of Orchard can repeat the specification.
+const refused = "VM request failed. The job returns to the queue when its reservation ends"
+
 // Stacks is what the launcher needs of Buildkite.
 type Stacks interface {
 	Reserve(ctx context.Context, ids []job.ID, expiry time.Duration) (buildkite.Reservation, error)
@@ -705,9 +710,14 @@ func (l *Launcher) create(ctx context.Context, wanted []admission.Candidate,
 	orders := make([]order, 0, len(wanted))
 
 	for _, candidate := range wanted {
-		if token, has := tokens[candidate.Job.ID]; has {
-			orders = append(orders, order{candidate: candidate, token: token})
+		token, has := tokens[candidate.Job.ID]
+		if !has {
+			l.metrics.Started(ctx, candidate.Profile.Name, telemetry.StartNoToken)
+
+			continue
 		}
+
+		orders = append(orders, order{candidate: candidate, token: token})
 	}
 
 	step, cancel := context.WithTimeout(ctx, l.budget)
@@ -723,14 +733,20 @@ func (l *Launcher) create(ctx context.Context, wanted []admission.Candidate,
 	)
 
 	for i, outcome := range outcomes {
+		id, name := orders[i].candidate.Job.ID, orders[i].candidate.Profile.Name
+
 		switch {
 		case !outcome.Done:
 			left++
-		case outcome.Value == nil:
-			id := orders[i].candidate.Job.ID
 
-			l.held.started(id, orders[i].candidate.Profile.Name, l.now())
+			l.metrics.Started(ctx, name, telemetry.StartNotSent)
+		case outcome.Value == nil:
+			l.held.started(id, name, l.now())
+			l.metrics.Started(ctx, name, telemetry.StartCreated)
 			lines = append(lines, buildkite.Notification{JobID: id, Detail: requested, At: l.now()})
+		default:
+			l.metrics.Started(ctx, name, telemetry.StartCreateFailed)
+			lines = append(lines, buildkite.Notification{JobID: id, Detail: refused, At: l.now()})
 		}
 	}
 

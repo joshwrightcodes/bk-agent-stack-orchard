@@ -36,6 +36,7 @@ small.
 | `bk_agent_stack_orchard.vm.count` | up-down counter, `{vm}` | `bk_agent_stack_orchard.profile`, `bk_agent_stack_orchard.vm.phase` (`unplaced`, `booting`, `running`, `failed`) | VMs of this controller, by phase |
 | `cicd.worker.count` | up-down counter, `{worker}` | `cicd.worker.state` (`busy`, `offline`) | Job VMs, by the status that Orchard gives them: `busy` while the VM runs, and `offline` when it failed. A VM carries one job, so no VM is `available` |
 | `bk_agent_stack_orchard.job.phase.duration` | histogram, `s` | `bk_agent_stack_orchard.profile`, `bk_agent_stack_orchard.job.phase` | How long each phase of a start took (below) |
+| `bk_agent_stack_orchard.vm.starts` | counter, `{vm}` | `bk_agent_stack_orchard.profile`, `bk_agent_stack_orchard.vm.start.outcome` (`created`, `create_failed`, `no_token`, `not_sent`) | Starts of a VM for a reserved job, by outcome (below) |
 | `bk_agent_stack_orchard.vm.deletions` | counter, `{vm}` | `bk_agent_stack_orchard.profile`, `bk_agent_stack_orchard.worker.name`, `bk_agent_stack_orchard.vm.delete.reason` | VMs that the controller deleted, by reason (below) |
 | `cicd.system.errors` | counter, `{error}` | `cicd.system.component` (`buildkite`, `orchard`), `bk_agent_stack_orchard.operation` (below), `error.type` (`unauthorized`, `rate_limited`, `timeout`, `_OTHER`) | Calls to Buildkite or Orchard that failed |
 | `bk_agent_stack_orchard.tick.duration` | histogram, `s` | `bk_agent_stack_orchard.tick.step` | How long each step of the loop took |
@@ -72,6 +73,17 @@ not a failure of the system. The calls of `bk_agent_stack_orchard.operation`:
 |---|---|
 | `buildkite` | `register`, `deregister`, `scheduled_jobs`, `reserve`, `tokens`, `states`, `finish`, `notify` |
 | `orchard` | `create_vm`, `list_vms`, `delete_vm`, `list_workers`, `events` |
+
+The outcomes of `bk_agent_stack_orchard.vm.start.outcome`. Each outcome but `created` leaves the
+job reserved with no VM, and Buildkite schedules the job again when the reservation ends
+(`reservationExpiry`):
+
+| Outcome | What happened |
+|---|---|
+| `created` | Orchard accepted the VM. |
+| `create_failed` | The create failed, for example because Orchard refused it. The job page says "VM request failed". `cicd.system.errors` with the operation `create_vm` gives the cause. |
+| `no_token` | Buildkite issued no token for the job, so the controller asked for no VM. |
+| `not_sent` | The controller did not send the create, because Orchard did not answer an earlier create of the tick, or the step ran out of time. |
 
 The two gauges of the waiting jobs read the last read of the queue at each tick, also while
 admission is stopped. A read that did not list the whole queue (`queue.truncated`) does not count
@@ -175,6 +187,7 @@ fleet. These conditions are a good start:
 | Jobs wait too long | `bk_agent_stack_orchard.job.waiting.oldest.age` rises and stays high. | Jobs wait longer than your wait objective. The fleet is full, or no host carries the profile. | [A job stays scheduled](troubleshooting.md#a-job-stays-scheduled) |
 | The controller is not ready | `bk_agent_stack_orchard.source.staleness` of a source rises and stays high. | The controller has no fresh answer from Buildkite or Orchard, so it starts no VM. | [A job stays scheduled](troubleshooting.md#a-job-stays-scheduled), the row about readiness |
 | Admission is stopped | `bk_agent_stack_orchard.admission.blocked` stays at 1 for a reason. | The controller starts no VM, and the reason says why. `queue_paused` is a choice of an operator. | [A job stays scheduled](troubleshooting.md#a-job-stays-scheduled) |
+| VMs do not start | `bk_agent_stack_orchard.vm.starts` with an outcome other than `created` keeps going up. | The controller reserves jobs and gets no VM for them, so each job waits for its reservation to end. | [A job stays scheduled](troubleshooting.md#a-job-stays-scheduled) |
 | The controller fails jobs | `bk_agent_stack_orchard.job.failed` keeps going up. | VMs fail, or time out before an agent takes the job. | [A job fails before it runs](troubleshooting.md#a-job-fails-before-it-runs) |
 | Timeouts repeat | `bk_agent_stack_orchard.vm.deletions` with a reason that ends in `_timeout` keeps going up. | VMs do not reach a host, boot, or start an agent in time. | [A job fails before it runs](troubleshooting.md#a-job-fails-before-it-runs) |
 | VMs remain | `bk_agent_stack_orchard.vm.leftover` rises and stays high. Ignore it while Buildkite is down. | The controller does not delete the VMs of ended jobs. | [VMs remain after their jobs](troubleshooting.md#vms-remain-after-their-jobs) |

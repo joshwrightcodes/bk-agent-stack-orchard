@@ -37,6 +37,7 @@ const (
 	attributeAdmission    = prefix + "admission.reason"
 	attributeOperation    = prefix + "operation"
 	attributeWorker       = prefix + "worker.name"
+	attributeStartOutcome = prefix + "vm.start.outcome"
 )
 
 // The attributes of the job.match span: the profile that carries the job, or none. A job that no
@@ -220,6 +221,27 @@ func Stale(source Source) AdmissionBlock {
 	}
 }
 
+// StartOutcome is how one start of a machine for a reserved job ended. It is the value of
+// bk_agent_stack_orchard.vm.start.outcome.
+type StartOutcome string
+
+// The outcomes of a start. Each one but the first leaves the job reserved with no machine, and the
+// job comes back to the queue when its reservation ends.
+const (
+	// StartCreated is a machine that Orchard accepted.
+	StartCreated StartOutcome = "created"
+
+	// StartCreateFailed is a create that failed, such as one that Orchard refused.
+	StartCreateFailed StartOutcome = "create_failed"
+
+	// StartNoToken is a job that got no token, so no create was sent.
+	StartNoToken StartOutcome = "no_token"
+
+	// StartNotSent is a create that the step did not send, because Orchard did not answer an
+	// earlier create or the step ran out of time.
+	StartNotSent StartOutcome = "not_sent"
+)
+
 // Slot names one series of the slot count.
 type Slot struct {
 	Pool  string
@@ -335,6 +357,7 @@ type Metrics struct {
 	truncated   metric.Int64Counter
 	failed      metric.Int64Counter
 	deletions   metric.Int64Counter
+	starts      metric.Int64Counter
 	errors      metric.Int64Counter
 	jobPhase    metric.Float64Histogram
 	tick        metric.Float64Histogram
@@ -491,6 +514,13 @@ func (m *Metrics) synchronous(meter metric.Meter) error {
 		metric.WithDescription("Deleted virtual machines, by the reason of the decision table."))
 	if err != nil {
 		return fmt.Errorf("building the instrument of the deletions: %w", err)
+	}
+
+	m.starts, err = meter.Int64Counter(prefix+"vm.starts",
+		metric.WithUnit("{vm}"),
+		metric.WithDescription("Starts of a machine for a reserved job, by outcome."))
+	if err != nil {
+		return fmt.Errorf("building the instrument of the starts: %w", err)
 	}
 
 	m.errors, err = meter.Int64Counter("cicd.system.errors",
@@ -732,6 +762,14 @@ func (m *Metrics) Failed(ctx context.Context, where Failure, cause string) {
 func (m *Metrics) Deleted(ctx context.Context, where Failure, reason string) {
 	m.deletions.Add(ctx, 1, metric.WithAttributes(
 		append(where.attributes(), attribute.String(attributeDeleteReason, reason))...))
+}
+
+// Started counts one start of a machine for a reserved job of a profile, by its outcome.
+func (m *Metrics) Started(ctx context.Context, profile string, outcome StartOutcome) {
+	m.starts.Add(ctx, 1, metric.WithAttributes(
+		attribute.String(attributeProfile, profile),
+		attribute.String(attributeStartOutcome, string(outcome)),
+	))
 }
 
 // SystemError counts one call to Buildkite or to Orchard that failed, such as a rate limit or a

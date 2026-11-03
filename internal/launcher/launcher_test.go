@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -1950,4 +1951,79 @@ func attributeBool(attributes []attribute.KeyValue, key string) bool {
 	}
 
 	return false
+}
+
+// starts gives the value of each series of vm.starts, by its outcome.
+func starts(t *testing.T, reader *sdkmetric.ManualReader) map[string]int64 {
+	t.Helper()
+
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(t.Context(), &collected); err != nil {
+		t.Fatalf("Collect() = %v, want the metrics", err)
+	}
+
+	values := map[string]int64{}
+
+	for _, scope := range collected.ScopeMetrics {
+		for _, one := range scope.Metrics {
+			if one.Name != "bk_agent_stack_orchard.vm.starts" {
+				continue
+			}
+
+			for _, point := range one.Data.(metricdata.Sum[int64]).DataPoints {
+				outcome, _ := point.Attributes.Value("bk_agent_stack_orchard.vm.start.outcome")
+				profileOf, _ := point.Attributes.Value("bk_agent_stack_orchard.profile")
+				values[profileOf.AsString()+"/"+outcome.AsString()] = point.Value
+			}
+		}
+	}
+
+	return values
+}
+
+// A start that Orchard refuses, and a job that got no token, start no machine. The job comes back
+// to the queue when its reservation ends, and nothing else counts it, so the starts count each
+// outcome, and a refused create writes a line on the job page.
+func TestEachStartIsCountedByItsOutcome(t *testing.T) {
+	t.Parallel()
+
+	api := &stacks{tokens: buildkite.Tokens{
+		Issued:    []buildkite.Token{{JobID: first, Token: secret.String("bkjat_first")}},
+		NotIssued: []job.ID{second},
+	}}
+	fleet := &machines{err: errors.New("orchard answered 422 Unprocessable Entity")}
+	started, reader := buildMeasured(t, api, fleet, &records{Handler: slog.DiscardHandler})
+
+	if err := started.Launch(t.Context(), admission.Result{Admit: candidates(first, second)},
+		inventory.Snapshot{}); err != nil {
+		t.Fatalf("Launch() = %v, want no error", err)
+	}
+
+	want := map[string]int64{"xcode-27/create_failed": 1, "xcode-27/no_token": 1}
+	if got := starts(t, reader); !maps.Equal(got, want) {
+		t.Errorf("vm.starts holds %v, want %v", got, want)
+	}
+
+	if len(api.notified) != 1 || len(api.notified[0]) != 1 ||
+		api.notified[0][0].JobID != first ||
+		!strings.HasPrefix(api.notified[0][0].Detail, "VM request failed") {
+		t.Errorf("the job pages got %v, want one line that the request of the first job failed",
+			api.notified)
+	}
+}
+
+// A start that Orchard accepts counts as created, which is the denominator of the failures.
+func TestACreatedStartIsCounted(t *testing.T) {
+	t.Parallel()
+
+	started, reader := buildMeasured(t, &stacks{}, &machines{}, &records{Handler: slog.DiscardHandler})
+
+	if err := started.Launch(t.Context(), admission.Result{Admit: candidates(first)},
+		inventory.Snapshot{}); err != nil {
+		t.Fatalf("Launch() = %v, want no error", err)
+	}
+
+	if got := starts(t, reader); !maps.Equal(got, map[string]int64{"xcode-27/created": 1}) {
+		t.Errorf("vm.starts holds %v, want one created", got)
+	}
 }
