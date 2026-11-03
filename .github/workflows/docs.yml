@@ -1,40 +1,52 @@
 name: documents
 
 # The document set is accepted, so drift in it is a defect. These checks are the gate that keeps
-# the set whole: the documents, the commit messages, and the C4 model.
+# the set whole: the documents, the commit messages, and the C4 model. The title of a pull request
+# has its own workflow, title.yml, so that a new title or description runs only that gate.
+#
+# Each mise-action step pins the same mise as release.yml (see ci.yml).
 
 on:
   pull_request:
-    # A new title runs the title gate again. The first three are the defaults.
-    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main]
 
 permissions:
   contents: read
 
+# A new push to a pull request cancels the run that it replaces. A run on main always finishes.
 concurrency:
   group: documents-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   documents:
     name: document integrity
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          version: 2026.10.24
       - run: mise run check-docs
 
   commits:
     name: commit messages
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          # The gate reads the history of the pull request. It pushes nothing.
           fetch-depth: 0
+          persist-credentials: false
       - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          version: 2026.10.24
       # The rules of the checker have tests of their own, with real messages, such as one from
       # Dependabot and one from Renovate.
       - run: mise run test-scripts
@@ -52,26 +64,19 @@ jobs:
           else
             base="$BASE_SHA"
           fi
-          python3 scripts/check-commits.py "$base"
-
-  title:
-    name: pull request title
-    runs-on: ubuntu-latest
-    # A bot writes its own titles, and a module path can pass 65 characters. A skipped job
-    # reports success, so this job can still be a required check.
-    if: github.event_name == 'pull_request' && github.event.pull_request.user.type != 'Bot'
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      # The squash commit takes the title, and GitHub adds " (#NNN)", so the limit is 65.
-      - env:
-          # The title is free text from the author, so it reaches the shell only as a variable.
-          PR_TITLE: ${{ github.event.pull_request.title }}
-        run: python3 scripts/check-commits.py --title "$PR_TITLE"
+          # The Python of mise, not the one of the runner, so that CI and a developer run the
+          # same interpreter.
+          mise x -- python3 scripts/check-commits.py "$base"
 
   c4:
     name: c4 model
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          version: 2026.10.24
       - run: mise run check-c4

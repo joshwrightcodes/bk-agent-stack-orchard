@@ -27,15 +27,22 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels the run that it replaces. A run on main always finishes.
 concurrency:
   group: generate-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   generated-files:
     name: generated files are current
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      # The same mise as release.yml (see ci.yml).
       - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          version: 2026.10.24
       - run: mise run check-generate
