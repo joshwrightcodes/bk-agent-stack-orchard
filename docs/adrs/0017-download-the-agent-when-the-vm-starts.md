@@ -1,7 +1,7 @@
 ---
-status: proposed
+status: accepted
 date: 2026-11-03
-decision-makers: maintainers
+decision-makers: Josh Wright
 ---
 
 # ADR-0017: Download the agent when the VM starts
@@ -131,3 +131,21 @@ Bad:
 * A test on a real Tart VM confirms that a job runs on the upstream base image with the
   downloaded agent. It also confirms that a wrong SHA-256 fails the job before an agent acquires
   it, and that the job page shows the line of the script that names the failed check.
+
+**Evidence (2026-11-03).** T-107 ran on real Tart VMs on the Buildkite test queue, in builds 25 to
+30 of the test pipeline. The commit messages of the change that added the download and of the
+change that removes extra Git credential helpers record the runs:
+
+* On the upstream base image with the download, agent 4.9.0 acquired the job, not the agent
+  3.138.2 of the image (build 25). The checkout of that build failed, because the image sets two
+  Git credential helpers. After the startup script removed them, the job checked out with the
+  repository credentials of Buildkite and passed (build 30).
+* With a wrong `agent.sha256` on the upstream base image, no agent acquired the job. The job
+  ended with `-1`, and the job page showed the line that names the failed check (builds 26 and
+  27).
+* With `agent.source: image` on the upstream base image, no agent acquired the job. The job ended
+  with `-1`, and the job page showed the line that names agent 3.138.2 of the image (builds 26 and
+  27).
+* On the agent image of `images/` with the download, the job passed (build 28).
+* On the Xcode 27 image of `images/` with `agent.source: image` (agent 4.9.0), the job passed
+  (build 29).

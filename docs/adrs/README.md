@@ -69,7 +69,8 @@ correct a fact inside them. A change of the decision, or of a meaning, needs a n
 ## Index
 
 The status column gives the state of each decision, and the front matter of each ADR gives its
-date. The content of an accepted ADR does not change: a new ADR supersedes it.
+date. The content of an accepted ADR does not change: a new ADR supersedes it. A row with the
+status `reserved` holds a number that no ADR has yet, so that a new ADR does not take it.
 
 | ADR | Decision | Status |
 |---|---|---|
@@ -85,9 +86,10 @@ date. The content of an accepted ADR does not change: a new ADR supersedes it.
 | [ADR-0010](0010-call-the-orchard-api-with-a-client-of-this-project.md) | Call the Orchard API with a client of this project | accepted |
 | [ADR-0011](0011-generate-the-orchard-wire-types.md) | Generate the Orchard wire types from the pinned version | superseded by ADR-0015 |
 | [ADR-0012](0012-build-the-job-vm-images-from-a-vanilla-macos-image.md) | Build the job VM images from a vanilla macOS image | accepted |
-| [ADR-0013](0013-sign-releases-with-keyless-cosign-signatures.md) | Sign releases with keyless cosign signatures | proposed |
-| [ADR-0014](0014-calculate-releases-with-release-please.md) | Calculate releases with release-please | proposed |
-| [ADR-0015](0015-generate-only-the-orchard-fields-the-controller-uses.md) | Generate only the Orchard fields that the controller uses | proposed |
-| [ADR-0016](0016-skip-a-job-that-matches-no-profile.md) | Skip a job that matches no profile | proposed |
-| [ADR-0017](0017-download-the-agent-when-the-vm-starts.md) | Download the agent when the VM starts | proposed |
-| [ADR-0019](0019-sweep-the-queue-behind-a-long-head.md) | Sweep the queue behind a long head | proposed |
+| [ADR-0013](0013-sign-releases-with-keyless-cosign-signatures.md) | Sign releases with keyless cosign signatures | accepted |
+| [ADR-0014](0014-calculate-releases-with-release-please.md) | Calculate releases with release-please | accepted |
+| [ADR-0015](0015-generate-only-the-orchard-fields-the-controller-uses.md) | Generate only the Orchard fields that the controller uses | accepted |
+| [ADR-0016](0016-skip-a-job-that-matches-no-profile.md) | Skip a job that matches no profile | accepted |
+| [ADR-0017](0017-download-the-agent-when-the-vm-starts.md) | Download the agent when the VM starts | accepted |
+| 0018 | Reserved. The number stays free for a later decision, and no ADR has it. | reserved |
+| [ADR-0019](0019-sweep-the-queue-behind-a-long-head.md) | Sweep the queue behind a long head | accepted |

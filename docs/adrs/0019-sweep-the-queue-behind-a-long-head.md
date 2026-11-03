@@ -1,7 +1,7 @@
 ---
-status: proposed
+status: accepted
 date: 2026-11-03
-decision-makers: maintainers
+decision-makers: Josh Wright
 ---
 
 # ADR-0019: Sweep the queue behind a long head
@@ -133,7 +133,8 @@ Bad:
 * A job behind the head is in one read of each sweep. If no slot is free at that read, the job
   waits for the next sweep. Each 1000 jobs of a flood add about 1 s to that wait.
 * Whether Buildkite accepts a cursor in a later tick is `UNKNOWN` (owner: the maintainers; trigger:
-  the pilot, or the first failed read of a sweep page). If it does not, each sweep page with a
+  the first queue of more than 3000 jobs on a real cluster, or the first failed read of a sweep
+  page). If it does not, each sweep page with a
   cursor of an earlier read fails. That read keeps the 2000 head jobs, and the next sweep starts
   again after the head, with a cursor of the same read. The controller then sees 3000 jobs at
   every other read and 2000 jobs at the others, so no job behind the first 3000 jobs reaches a

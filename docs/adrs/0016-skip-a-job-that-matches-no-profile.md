@@ -1,7 +1,7 @@
 ---
-status: proposed
-date: 2026-11-01
-decision-makers: maintainers
+status: accepted
+date: 2026-11-03
+decision-makers: Josh Wright
 ---
 
 # ADR-0016: Skip a job that matches no profile

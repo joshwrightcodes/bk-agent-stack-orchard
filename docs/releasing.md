@@ -41,9 +41,7 @@ Each merge to `main` that changes behaviour updates it: the next version, `CHANG
 version in `Chart.yaml`. The pull request collects all changes until the maintainers merge it.
 
 1. Read the release pull request. Check that the version and the changelog are correct. Check that
-   the Limitations section of `README.md` is still correct for the new version. For version 0.1.0,
-   finish the legal review of ADR-0015 first: a lawyer confirms the licence position, and the
-   maintainers record the result in the ADR.
+   the Limitations section of `README.md` is still correct for the new version.
 2. Run the quick start with `main` on a Mac
    (`mise run quickstart -- --queue <queue> --from-source`), and run the step that it prints.
    Check that the job passes and that Ctrl-C leaves no VM. A hosted runner cannot start a macOS

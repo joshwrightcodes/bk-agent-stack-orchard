@@ -9,7 +9,7 @@
   * [System design baseline](../architecture/system-design-baseline.md): driver identifiers such as
     `QA-01`, and quality scenarios such as `QS-1`
   * [Target design](../architecture/target-design.md)
-  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0016
+  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0019
 
 ## Conventions
 

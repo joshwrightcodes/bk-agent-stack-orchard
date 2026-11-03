@@ -17,7 +17,7 @@ reasoning.
 The project does copy one thing from the Orchard source: the field names, the JSON tags, and the
 types of the fields that the controller uses, in `types_gen.go`. It copies them so that the
 controller works with the Orchard API, and it copies no more than that. It never copies other code
-that is under the FSL. This is the view of the project, and a lawyer has not yet confirmed it
+that is under the FSL. This is the view of the project, and it is not legal advice
 (`ADR-0015`).
 
 ## What is generated, and what is not
