@@ -32,8 +32,9 @@ on an argv or into a file. The controller account cannot do these checks: it has
 
 1. Confirm that the bootstrap Job completed and that the controller and the Mac hosts connect with
    their own accounts.
-2. Remove the `ORCHARD_BOOTSTRAP_ADMIN_TOKEN` entry from the StatefulSet `orchard` in the overlay
-   (the patch is in the README). Apply the overlay. Wait until the pod is ready.
+2. Remove the component `deploy/orchard-overlays/first-start` from the overlay, which takes
+   `ORCHARD_BOOTSTRAP_ADMIN_TOKEN` out of the StatefulSet `orchard`. Apply the overlay. Wait until
+   the pod is ready.
 3. Rotate the token (the section "Rotation" below), so the token of the first start does not stay.
 4. Check that only the Job uses the Secret `orchard-bootstrap`, and that the pod has no token:
 
@@ -98,10 +99,11 @@ Check that the second command ends with `HTTP 401`. Delete the key only after th
 because Orchard needs no key for it. After the deletion, the next change of a host needs the
 account back. To re-create it:
 
-1. Put `ORCHARD_BOOTSTRAP_ADMIN_TOKEN` back in the StatefulSet from the key `bootstrap-admin-token`
-   of the Secret `orchard-bootstrap`, and put a new token in that key.
-2. Restart Orchard. The API is out for a short time, and the workers and the controller connect
-   again after it.
+1. Put a new token in the key `bootstrap-admin-token` of the Secret `orchard-bootstrap`, and add
+   the component `deploy/orchard-overlays/first-start` to the overlay again. The component reads
+   that key.
+2. Apply the overlay, which restarts Orchard. The API is out for a short time, and the workers and
+   the controller connect again after it.
 3. Run the bootstrap Job (delete it, apply the overlay) and wait until it completes.
 4. Retire again with the steps 2 to 6 of the procedure.
 
@@ -111,7 +113,8 @@ After the retirement, the loss of the PVC gives Orchard an empty database and no
 0.58.0 then makes `bootstrap-admin` with a random token that has all roles, and it prints the token
 in its log. A log shipper copies the log. Treat the log of the Orchard pod as a secret.
 
-* Prevention: before a start with an empty PVC, put the variable back with the token of the key
+* Prevention: before a start with an empty PVC, add the component
+  `deploy/orchard-overlays/first-start` to the overlay again. It gives Orchard the token of the key
   `bootstrap-admin-token`. Orchard then uses the known token and logs `<hidden>`
   (`internal/command/controller/bootstrap.go`, tag `0.58.0`, read on 2026-11-02). Retire again
   after the Job completes.

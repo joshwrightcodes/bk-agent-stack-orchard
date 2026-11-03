@@ -34,7 +34,7 @@ The base creates no Secret, so no token goes through the repository. Create thes
 
 | Key | Use |
 |---|---|
-| `bootstrap-admin-token` | The `bootstrap-admin` account of Orchard. After the first bootstrap only the bootstrap Job mounts it (see "After the first bootstrap") |
+| `bootstrap-admin-token` | The `bootstrap-admin` account of Orchard. The Orchard pod reads it only during the first start, and after that only the bootstrap Job mounts it (see "First start and after the first bootstrap") |
 | `controller-token` | The `bk-agent-stack-orchard` account: `BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN` of the controller |
 
 `orchard-worker-tokens`, with one key for each Mac host and no other key:
@@ -64,6 +64,10 @@ kind: Kustomization
 namespace: orchard
 resources:
   - github.com/joshwrightcodes/bk-agent-stack-orchard/deploy/orchard?ref=<tag>
+# For the first start only. Remove it when the bootstrap Job completes (see "First start and after
+# the first bootstrap").
+components:
+  - github.com/joshwrightcodes/bk-agent-stack-orchard/deploy/orchard-overlays/first-start?ref=<tag>
 images:
   - name: orchard
     newName: <registry of the fleet>/orchard
@@ -109,6 +113,9 @@ balancer public in an overlay.
 - `networkpolicy.yaml`: the Orchard pod accepts TCP 6120 from the controller of this project (by
   namespace and pod label), from the bootstrap Job, and from the CIDRs of the Mac hosts, and from
   nothing else. See "The NetworkPolicy".
+- `../orchard-overlays/first-start`: a kustomize component that gives the Orchard container
+  `ORCHARD_BOOTSTRAP_ADMIN_TOKEN` for the first start. See "First start and after the first
+  bootstrap".
 - `bootstrap-job.yaml`: sets the accounts `bk-agent-stack-orchard` and `worker-<host>` for each key
   of the Secret `orchard-worker-tokens`, each with `compute:read` and `compute:write` only (the
   roles that an Orchard worker needs, target design section 9.2), through the REST API of Orchard.
@@ -207,24 +214,20 @@ the orchard 0.58.0 binary that mise installs, `mise x -- orchard delete --help`)
   `bootstrap-admin` with a random token and prints that token in its log.
 - Orchard does not refuse to start in any of these cases.
 
-The bootstrap admin is retired in this sense: the Orchard pod no longer holds its token, and the
+The bootstrap admin is retired in this sense: the Orchard pod does not hold its token, and the
 token stays in one place, the Secret `orchard-bootstrap`, which only the bootstrap Job mounts.
 The account stays in Orchard, because every change of a host (add, rotate, migrate, revoke) runs
 the Job again, and the Job needs it. Each of these changes then works with no restart of Orchard.
 
-1. Do the first start with the variable set, and wait for the bootstrap Job to complete.
-2. Remove `ORCHARD_BOOTSTRAP_ADMIN_TOKEN` from the StatefulSet with this patch in the overlay, and
-   wait until the new pod is ready. Orchard then does not make the account again at each start,
-   and the Orchard pod holds no admin token in its environment:
+Only the kustomize component `deploy/orchard-overlays/first-start` gives Orchard the variable, and
+only the first start uses the component. With this order, the safe state is the default: the pod
+of an overlay without the component holds no admin token.
 
-   ```yaml
-   patches:
-     - target: {kind: StatefulSet, name: orchard}
-       patch: |
-         - op: remove
-           path: /spec/template/spec/containers/0/env/0
-   ```
-
+1. For the first start, add the component to the overlay, as the overlay example shows. Apply the
+   overlay, and wait for the bootstrap Job to complete.
+2. Remove the component from the overlay. Apply the overlay, and wait until the new pod is ready.
+   Orchard then does not make the account again at each start, and the Orchard pod holds no admin
+   token in its environment.
 3. Rotate the token now, so the token of the first start is not the standing one (the procedure
    is in `docs/user/runbooks/orchard-bootstrap-admin.md`, "Rotation"). Rotate it again on a schedule
    of the operator and when a person who could read the Secret leaves.
@@ -249,6 +252,14 @@ the Job again, and the Job needs it. Each of these changes then works with no re
      grep ORCHARD_BOOTSTRAP_ADMIN_TOKEN
    ```
 
+If the first start ran without the component, Orchard made `bootstrap-admin` with a random token
+and printed that token in its log. The bootstrap Job then fails, and its log says that Orchard
+refused the token of `bootstrap-admin`. Add the component, apply the overlay, and wait until the
+Orchard pod restarts. Orchard then sets the account again with the token of the Secret, so the
+token of the log no longer works. If the Job has failed by then, delete it, and apply the overlay
+again to run it. When the Job completes, continue with step 2. Treat the log of the first start
+as a secret, and purge it where the logging system allows it.
+
 ### Delete the account completely
 
 If your fleet has no planned change of a host, you can delete `bootstrap-admin` and its Secret key
@@ -265,8 +276,10 @@ kubectl -n orchard patch secret orchard-bootstrap --type json \
 
 To change a host later, re-create the account:
 
-1. Put the variable back in the StatefulSet, and the key `bootstrap-admin-token` in the Secret.
-2. Restart Orchard. The API of Orchard is down for a short time for the workers and the controller.
+1. Put the key `bootstrap-admin-token` back in the Secret, and add the component `first-start`
+   to the overlay.
+2. Apply the overlay, which restarts Orchard. The API of Orchard is down for a short time for the
+   workers and the controller.
 3. Run the Job.
 4. Retire the account again with steps 2 to 5.
 
@@ -277,11 +290,12 @@ gives Orchard an empty database and no variable. Orchard then makes `bootstrap-a
 token that has all roles, and it prints that token in its log. A log shipper copies it. Treat the
 log of the Orchard pod as a secret.
 
-- Prevention: before a start with an empty PVC, put the variable back (with the token of the key
-  `bootstrap-admin-token`, which stays in the Secret unless the operator deleted it). Orchard then
-  uses the known token and logs `<hidden>`. Source: `internal/command/controller/bootstrap.go` at
-  the tag `0.58.0`, read on 2026-11-02, which sets `serviceAccountTokenToDisplay = "<hidden>"`
-  when the variable is present. Do steps 2 and 3 after the bootstrap Job completes.
+- Prevention: before a start with an empty PVC, add the component `first-start` to the overlay
+  again. It reads the token of the key `bootstrap-admin-token`, which stays in the Secret unless
+  the operator deleted it. Orchard then uses the known token and logs `<hidden>`. Source:
+  `internal/command/controller/bootstrap.go` at the tag `0.58.0`, read on 2026-11-02, which sets
+  `serviceAccountTokenToDisplay = "<hidden>"` when the variable is present. Do steps 2 and 3 after
+  the bootstrap Job completes.
 - Recovery, if it already happened: set the account again with a new token (the rotation in the
   runbook), and purge the log lines where the logging system allows it.
 

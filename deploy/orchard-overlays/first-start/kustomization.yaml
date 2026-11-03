@@ -1,0 +1,35 @@
+# The first start of Orchard. Add this component to the overlay of the operator for the first
+# start only, and for a start with an empty PVC:
+#
+#   components:
+#     - github.com/joshwrightcodes/bk-agent-stack-orchard/deploy/orchard-overlays/first-start?ref=<tag>
+#
+# It gives the Orchard container ORCHARD_BOOTSTRAP_ADMIN_TOKEN from the key bootstrap-admin-token
+# of the Secret orchard-bootstrap. Orchard 0.58.0 then makes the bootstrap-admin account with that
+# token, which the bootstrap Job uses, and logs the token as <hidden>. While the variable is set,
+# each start makes the account again with all roles, and the pod holds an admin token. After the
+# bootstrap Job completes, the operator MUST remove this component from the overlay and apply it
+# again (README of deploy/orchard, section "First start and after the first bootstrap").
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  - target:
+      kind: StatefulSet
+      name: orchard
+    patch: |
+      apiVersion: apps/v1
+      kind: StatefulSet
+      metadata:
+        name: orchard
+      spec:
+        template:
+          spec:
+            containers:
+              - name: orchard
+                env:
+                  - name: ORCHARD_BOOTSTRAP_ADMIN_TOKEN
+                    valueFrom:
+                      secretKeyRef:
+                        name: orchard-bootstrap
+                        key: bootstrap-admin-token
