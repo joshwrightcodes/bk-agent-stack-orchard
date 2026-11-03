@@ -190,8 +190,8 @@ One goroutine runs the tick. Each tick does these steps in sequence:
 
 1. If the interval is complete, refresh Inventory and JobStates.
 2. Run the Reaper on each owned VM.
-3. If the stack is not paused, and the Inventory data and Poller data are fresh, run Admission.
-   Then run the Launcher.
+3. If the stack is not paused, and the Inventory, Poller, and JobStates data are fresh (§6.3),
+   run Admission. Then run the Launcher.
 
 API calls in one step MAY run concurrently, with a concurrency limit. The steps MUST run in
 sequence. Because of this, Admission always sees the Reaper deletions of the same tick.
@@ -440,6 +440,10 @@ Admission MUST run only when all of these conditions are true:
 * The queue is not `dispatch_paused`.
 * The Inventory data is newer than `stateFreshness` (60 s).
 * The scheduled-jobs list is newer than `stateFreshness`.
+* If the Inventory data holds an owned VM, the JobStates data is newer than `stateFreshness`.
+  The Reaper extends no reservation on older job states (§7.1, rule 3). A VM that starts then
+  keeps only its first reservation, and a boot longer than `reservationExpiry` loses its job.
+  With no owned VM, JobStates has nothing to ask, and its data is new at each refresh.
 
 A source whose calls fail keeps its last data. The Reaper continues, because its own rules (§7.2)
 decide what old data permits it to do.

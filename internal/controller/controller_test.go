@@ -239,12 +239,16 @@ func TestAnUnreadQueueStopsAdmission(t *testing.T) {
 }
 
 // A source whose calls fail keeps its last answer, and the fleet and the queue move on without it.
-// A job started on that answer can take a slot that is gone, so an old answer stops admission. The
-// reaper still runs, because its own rules decide what an old answer allows it.
+// A job started on that answer can take a slot that is gone, so an old answer stops admission. Old
+// job states stop it too: the reaper cannot extend a reservation on them, so a machine started
+// then keeps only its first reservation. The reaper still runs, because its own rules decide what
+// an old answer allows it.
 func TestAnOldAnswerStopsAdmissionAndNotTheReaper(t *testing.T) {
 	t.Parallel()
 
-	for _, stale := range []telemetry.Source{telemetry.SourceScheduledJobs, telemetry.SourceInventory} {
+	for _, stale := range []telemetry.Source{
+		telemetry.SourceScheduledJobs, telemetry.SourceInventory, telemetry.SourceJobStates,
+	} {
 		for name, at := range map[string]time.Time{
 			"older than the limit": time.Now().Add(-2 * time.Minute),
 			"never answered":       {},
@@ -292,19 +296,6 @@ func TestAdmissionWaitsForTheFirstJobStates(t *testing.T) {
 	if slices.Contains(r.seen(), "admit") {
 		t.Errorf("the loop admitted a job before the job states answered: %v", r.seen())
 	}
-}
-
-// The job states gate only the first admission. Once they have answered, an old answer stops the
-// reaper by its own rules, and admission rests on the queue and the fleet alone (section 6.3).
-func TestAnOldAnswerOfTheJobStatesDoesNotStopAdmission(t *testing.T) {
-	t.Parallel()
-
-	r := &recorder{}
-	settings := options(t, r)
-	settings.Sources[2].(*source).at = time.Now().Add(-time.Hour)
-	settings.Admit = func(context.Context) error { r.add("admit"); return nil }
-
-	runOnce(t, settings, func() bool { return slices.Contains(r.seen(), "admit") })
 }
 
 // Run times each tick with the clock of the controller, and not with the beat of its ticker. A

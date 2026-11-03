@@ -204,6 +204,44 @@ func TestABuildkiteOutageDeletesOnlyByRowsOneAndTwo(t *testing.T) {
 	s.budget()
 }
 
+// Only the job states fail, and the queue, the reservations, and Orchard still answer. The reaper
+// cannot extend a reservation on old job states, so a machine started now would keep only its
+// first reservation, and a boot longer than that loses its job. Admission therefore stops while
+// the fleet holds machines and their job states are old, and it starts again once they answer.
+func TestAJobStatesOutageStopsAdmission(t *testing.T) {
+	s := newScenario(t)
+
+	running := s.arrive()
+	s.run(5)
+	s.acquire(running)
+	s.run(10)
+
+	s.stacks.failing["states"] = errUnavailable
+
+	// The last answer of the job states ages past the freshness limit.
+	s.run(70)
+
+	late := s.arrive()
+	s.run(30)
+
+	if state := s.stacks.jobs[late].state; state != stateScheduled {
+		t.Errorf("the job that arrived while the job states failed is %s, want it scheduled", state)
+	}
+
+	if _, exists := s.machine(late); exists {
+		t.Error("the job that arrived while the job states failed has a machine, want none")
+	}
+
+	delete(s.stacks.failing, "states")
+	s.run(30)
+
+	if vm, exists := s.machine(late); !exists || vm.Status != orchard.StatusRunning {
+		t.Error("the job that arrived while the job states failed has no running machine after it")
+	}
+
+	s.budget()
+}
+
 // The Orchard controller is not available. The inventory ages, admission stops, the reaper cannot
 // delete, and the machines on the workers run on. Once Orchard answers, the controller catches up.
 func TestAnOrchardOutageStopsAdmissionAndDeletion(t *testing.T) {

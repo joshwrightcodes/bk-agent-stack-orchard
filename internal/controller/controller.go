@@ -58,9 +58,15 @@ type Queue interface {
 }
 
 // admissionRests are the sources that a decision to start a job rests on (target design, section
-// 6.3). An old answer of either one can start a job for a slot that is gone, or for a job that
-// another agent took.
-var admissionRests = []telemetry.Source{telemetry.SourceScheduledJobs, telemetry.SourceInventory}
+// 6.3). An old answer of the queue or of the fleet can start a job for a slot that is gone, or for
+// a job that another agent took. Old job states mean that the reaper extends no reservation, so a
+// machine started then keeps only its first one, and a boot longer than that loses its job.
+//
+// The job states bind only while the fleet holds machines of this controller. With none, the
+// source has nothing to ask, and it answers at each refresh without a call.
+var admissionRests = []telemetry.Source{
+	telemetry.SourceScheduledJobs, telemetry.SourceInventory, telemetry.SourceJobStates,
+}
 
 // admissionFollows is the source that must have answered once before the first admission (target
 // design, section 7.4). After a restart the machines of the last process still run, and a reaper
@@ -170,7 +176,7 @@ func New(options Options) (*Controller, error) {
 	// Without a source, the gate of admission has nothing to measure, and a wiring that left one
 	// out would start jobs on an answer of any age.
 	if options.Admit != nil {
-		for _, rest := range append(slices.Clone(admissionRests), admissionFollows) {
+		for _, rest := range admissionRests {
 			if !slices.ContainsFunc(options.Sources, func(s Source) bool { return s.Source() == rest }) {
 				problems = append(problems, fmt.Errorf("admission rests on the source %s, and the "+
 					"loop does not have it", rest))

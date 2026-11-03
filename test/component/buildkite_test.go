@@ -53,6 +53,9 @@ type stacksFake struct {
 	// down is the answer of every call while Buildkite is not available.
 	down error
 
+	// failing holds the answer of one endpoint that fails while the others answer.
+	failing map[string]error
+
 	// calls holds each call, with the endpoint and the time of the suite, for the request
 	// budget. finished holds each job that a finish call ended, and lines each line of a job page.
 	calls    []call
@@ -71,6 +74,7 @@ func newStacks(now func() time.Time, violations *[]string) *stacksFake {
 		now:        now,
 		jobs:       map[job.ID]*work{},
 		reported:   map[job.ID]string{},
+		failing:    map[string]error{},
 		violations: violations,
 	}
 }
@@ -121,6 +125,10 @@ type call struct {
 // called records a request, and gives the answer of an API that is not available.
 func (s *stacksFake) called(endpoint string) error {
 	s.calls = append(s.calls, call{endpoint: endpoint, at: s.now()})
+
+	if err := s.failing[endpoint]; err != nil {
+		return err
+	}
 
 	return s.down
 }
