@@ -38,11 +38,30 @@ type Candidate struct {
 type Unmatched struct {
 	Job buildkite.ScheduledJob
 
-	// Reason is the full message, with the tags of the job and every profile.
-	Reason string
+	// Mismatch says why no profile carries the job, and is a *match.Mismatch when the matcher
+	// gave one. The job stays in the queue, and meets admission at each tick, so the decision
+	// keeps the error and writes no text: Reason and Summary write it out when a part needs it,
+	// which is once for each job.
+	Mismatch error
+}
 
-	// Summary is the short line for the job page.
-	Summary string
+// Reason gives the full message, with the tags of the job and every profile.
+func (u Unmatched) Reason() string {
+	if u.Mismatch == nil {
+		return ""
+	}
+
+	return u.Mismatch.Error()
+}
+
+// Summary gives the short line for the job page.
+func (u Unmatched) Summary() string {
+	var mismatch *match.Mismatch
+	if errors.As(u.Mismatch, &mismatch) {
+		return mismatch.Summary()
+	}
+
+	return u.Reason()
 }
 
 // Eligible reports a worker that may take a new machine with these labels.
@@ -158,17 +177,23 @@ func Decide(request Request) Result {
 func sift(request Request, result *Result) []Candidate {
 	var candidates []Candidate
 
+	// One set for the decision, and not one search of the machines for each job of the queue.
+	owned := make(map[job.ID]bool, len(request.Fleet.Owned))
+	for _, machine := range request.Fleet.Owned {
+		owned[machine.Job] = true
+	}
+
 	for _, waiting := range request.Jobs {
 		chosen, err := match.Match(waiting.Rules, request.Profiles)
 		if err != nil {
-			result.Unmatched = append(result.Unmatched, unmatched(waiting, err))
+			result.Unmatched = append(result.Unmatched, Unmatched{Job: waiting, Mismatch: err})
 
 			continue
 		}
 
 		// A job that already has a machine is running, or about to. A second machine for it
 		// would be a second agent for one job.
-		if _, has := request.Fleet.Job(waiting.ID); has {
+		if owned[waiting.ID] {
 			continue
 		}
 
@@ -300,16 +325,4 @@ func place(request Request, free map[string]map[string]uint64, chosen profile.Pr
 	}
 
 	return false
-}
-
-// unmatched builds the entry of a job that the matcher refused.
-func unmatched(waiting buildkite.ScheduledJob, err error) Unmatched {
-	entry := Unmatched{Job: waiting, Reason: err.Error(), Summary: err.Error()}
-
-	var mismatch *match.Mismatch
-	if errors.As(err, &mismatch) {
-		entry.Summary = mismatch.Summary()
-	}
-
-	return entry
 }

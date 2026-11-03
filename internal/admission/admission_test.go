@@ -407,11 +407,11 @@ func TestAJobThatNoProfileCarriesIsUnmatched(t *testing.T) {
 		t.Fatalf("admission reported %+v, want the job as unmatched", result.Unmatched)
 	}
 
-	if result.Unmatched[0].Reason == "" {
+	if result.Unmatched[0].Reason() == "" {
 		t.Error("the unmatched job has no reason, and the log needs one")
 	}
 
-	if result.Unmatched[0].Summary == "" {
+	if result.Unmatched[0].Summary() == "" {
 		t.Error("the unmatched job has no summary, and the job page needs one")
 	}
 

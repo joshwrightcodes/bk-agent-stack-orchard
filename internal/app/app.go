@@ -282,9 +282,9 @@ func (a *admitter) trace(ctx context.Context, waiting []buildkite.ScheduledJob,
 		profiles[candidate.Job.ID] = candidate.Profile.Name
 	}
 
-	reasons := make(map[job.ID]string, len(result.Unmatched))
+	skipped := make(map[job.ID]admission.Unmatched, len(result.Unmatched))
 	for _, unmatched := range result.Unmatched {
-		reasons[unmatched.Job.ID] = unmatched.Reason
+		skipped[unmatched.Job.ID] = unmatched
 	}
 
 	queued := make(map[job.ID]bool, len(waiting))
@@ -297,7 +297,7 @@ func (a *admitter) trace(ctx context.Context, waiting []buildkite.ScheduledJob,
 		}
 
 		profile, matched := profiles[scheduled.ID]
-		reason, unmatched := reasons[scheduled.ID]
+		skip, unmatched := skipped[scheduled.ID]
 
 		// A job with a machine is in neither list, and its match is in its trace already.
 		if !matched && !unmatched {
@@ -312,7 +312,7 @@ func (a *admitter) trace(ctx context.Context, waiting []buildkite.ScheduledJob,
 		if unmatched {
 			// A skip is not an error of the controller: another runner may carry the job.
 			span.SetAttributes(attribute.Bool(telemetry.SpanSkipped, true))
-			span.AddEvent("no profile", trace.WithAttributes(attribute.String("reason", reason)))
+			span.AddEvent("no profile", trace.WithAttributes(attribute.String("reason", skip.Reason())))
 		}
 		span.End()
 

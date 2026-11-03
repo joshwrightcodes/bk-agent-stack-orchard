@@ -461,7 +461,7 @@ func (l *Launcher) tell(ctx context.Context, fresh []admission.Unmatched) error 
 
 	for _, entry := range fresh {
 		lines = append(lines, buildkite.Notification{
-			JobID: entry.Job.ID, Detail: entry.Summary, At: at,
+			JobID: entry.Job.ID, Detail: entry.Summary(), At: at,
 		})
 	}
 
@@ -500,7 +500,7 @@ func (l *Launcher) tell(ctx context.Context, fresh []admission.Unmatched) error 
 		l.logger.InfoContext(ctx, "the controller skips a job that no profile carries",
 			telemetry.LogJob, string(entry.Job.ID),
 			telemetry.LogPipeline, entry.Job.Pipeline,
-			"reason", entry.Reason)
+			"reason", entry.Reason())
 	}
 
 	return nil

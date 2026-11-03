@@ -369,9 +369,8 @@ func TestAMixedBatchReservesOnlyTheAdmittedJobs(t *testing.T) {
 	decision := admission.Result{
 		Admit: candidates(first),
 		Unmatched: []admission.Unmatched{{
-			Job:     buildkite.ScheduledJob{ID: second},
-			Reason:  "no profile has these tags",
-			Summary: "no profile carries this job",
+			Job:      buildkite.ScheduledJob{ID: second},
+			Mismatch: errors.New("no profile carries this job"),
 		}},
 	}
 
@@ -747,9 +746,8 @@ func TestAnUnmatchedJobIsLeftAlone(t *testing.T) {
 	}
 
 	decision := admission.Result{Unmatched: []admission.Unmatched{{
-		Job:     buildkite.ScheduledJob{ID: second, Rules: rules},
-		Reason:  err.Error(),
-		Summary: mismatch.Summary(),
+		Job:      buildkite.ScheduledJob{ID: second, Rules: rules},
+		Mismatch: err,
 	}}}
 
 	for tick := range 2 {
@@ -795,6 +793,51 @@ func TestAnUnmatchedJobIsLeftAlone(t *testing.T) {
 	full := log.infoWith(string(second))
 	if len(full) != 1 || !strings.Contains(full[0], pilot.Name) {
 		t.Errorf("the log has %q for the job, want one line that names the profiles", full)
+	}
+}
+
+// formatted is a reason for a skip that counts how often a part writes it out.
+type formatted struct{ count *int }
+
+func (f formatted) Error() string {
+	*f.count++
+
+	return "no profile carries this job"
+}
+
+// A job that stays in the queue meets admission at each tick. The texts of its skip cost
+// allocations, and the queue can hold thousands of such jobs, so the launcher writes them out only
+// for a job that has no line yet.
+func TestTheTextOfASkipIsWrittenOnlyForAJobWithoutALine(t *testing.T) {
+	t.Parallel()
+
+	api, fleet := &stacks{}, &machines{}
+	started := build(t, api, fleet)
+
+	var count int
+
+	decision := admission.Result{Unmatched: []admission.Unmatched{{
+		Job: buildkite.ScheduledJob{ID: second}, Mismatch: formatted{count: &count},
+	}}}
+
+	if err := started.Launch(t.Context(), decision, inventory.Snapshot{}); err != nil {
+		t.Fatalf("Launch() = %v, want no error", err)
+	}
+
+	first := count
+	if first == 0 {
+		t.Fatal("the launcher wrote no text for a job without a line")
+	}
+
+	for tick := range 3 {
+		if err := started.Launch(t.Context(), decision, inventory.Snapshot{}); err != nil {
+			t.Fatalf("Launch() at tick %d = %v, want no error", tick, err)
+		}
+	}
+
+	if count != first {
+		t.Errorf("the launcher wrote the text %d times more for a job that has its line, want "+
+			"none", count-first)
 	}
 }
 
@@ -862,8 +905,7 @@ func unmatchedJobs(from, n int) admission.Result {
 	for i := from; i < from+n; i++ {
 		id := job.ID(fmt.Sprintf("018f3b2c-1c4a-7e5b-9a3d-%012x", i))
 		result.Unmatched = append(result.Unmatched, admission.Unmatched{
-			Job: buildkite.ScheduledJob{ID: id}, Reason: "no profile has these tags",
-			Summary: "no profile carries this job",
+			Job: buildkite.ScheduledJob{ID: id}, Mismatch: errors.New("no profile carries this job"),
 		})
 	}
 
