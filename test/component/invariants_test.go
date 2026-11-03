@@ -513,7 +513,7 @@ func (f *fleet) ArriveMatched(rt *rapid.T) {
 // controller sees an error, and the machine exists. The controller must not start a second
 // machine for the job, and must count the first one.
 func (f *fleet) ArriveWithLostCreateAnswer(rt *rapid.T) {
-	f.orchard.answerLost = true
+	f.orchard.answerLost[vmspec.Name(controllerID, jobID(f.jobs+1))] = true
 	f.ArriveMatched(rt)
 }
 
@@ -521,7 +521,7 @@ func (f *fleet) ArriveWithLostCreateAnswer(rt *rapid.T) {
 // as after the restart of the process that made it. Orchard answers 409, and the job has its
 // machine.
 func (f *fleet) ArriveWithConflictAtCreate(rt *rapid.T) {
-	f.orchard.conflictNext = true
+	f.orchard.conflict[vmspec.Name(controllerID, jobID(f.jobs+1))] = true
 	f.ArriveMatched(rt)
 }
 
@@ -536,7 +536,12 @@ func (f *fleet) ArriveUnmatched(*rapid.T) {
 func (f *fleet) nextJob() job.ID {
 	f.jobs++
 
-	return job.ID(fmt.Sprintf("018f3b2c-1c4a-7e5b-9a3d-%012x", f.jobs))
+	return jobID(f.jobs)
+}
+
+// jobID gives the identifier of the job that arrives in the place n of a sequence, from 1.
+func jobID(n int) job.ID {
+	return job.ID(fmt.Sprintf("018f3b2c-1c4a-7e5b-9a3d-%012x", n))
 }
 
 // Cancel is a person who cancels a job, in any state that has not ended.

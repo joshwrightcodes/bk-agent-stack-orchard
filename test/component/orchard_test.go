@@ -26,7 +26,7 @@ type host struct {
 // is online, not paused, carries the labels of the machine, and has room for it.
 //
 // The controller calls it from several goroutines at once, so each call holds mu while it reads or
-// changes the state. The knobs (down, deleteFails, answerLost, conflictNext, hangs) change only
+// changes the state. The knobs (down, deleteFails, answerLost, conflict, hangs) change only
 // between ticks, and a call that hangs holds no lock while it waits.
 type orchardFake struct {
 	mu sync.Mutex
@@ -47,13 +47,19 @@ type orchardFake struct {
 	// machine that has to go stays in the listing.
 	deleteFails error
 
-	// answerLost makes the next create reach Orchard and the answer get lost: the machine exists,
-	// and the controller sees a transport error. The knob clears itself when a create uses it.
-	answerLost bool
+	// answerLost holds the machines whose create reaches Orchard and whose answer gets lost: the
+	// machine exists, and the controller sees a transport error. A machine leaves the set when its
+	// create uses it.
+	//
+	// This knob and conflict name their machines. The launcher sends the creates of one tick at
+	// the same time, and the order of its goroutines must not decide which create a knob hits, or
+	// rapid could not replay the sequence.
+	answerLost map[string]bool
 
-	// conflictNext makes the next create answer 409, with the machine in place, as the retry of a
-	// create that an earlier process made shows. The knob clears itself when a create uses it.
-	conflictNext bool
+	// conflict holds the machines whose create answers 409, with the machine in place, as the
+	// retry of a create that an earlier process made shows. A machine leaves the set when its
+	// create uses it.
+	conflict map[string]bool
 
 	// hangs makes every call wait for the end of its context, as an Orchard controller that
 	// accepts a call and never answers does. Its scheduler stops too, as it does while it is
@@ -93,7 +99,10 @@ var defaultHost = hostShape{slots: 2, cores: 16, memoryMiB: 65536}
 
 // newOrchardOf builds an Orchard with one worker for each shape.
 func newOrchardOf(now func() time.Time, offline time.Duration, shapes []hostShape) *orchardFake {
-	fake := &orchardFake{now: now, offline: offline, vms: map[string]*orchard.VM{}}
+	fake := &orchardFake{
+		now: now, offline: offline, vms: map[string]*orchard.VM{},
+		answerLost: map[string]bool{}, conflict: map[string]bool{},
+	}
 
 	for i, shape := range shapes {
 		fake.hosts = append(fake.hosts, &host{worker: orchard.Worker{
@@ -233,14 +242,14 @@ func (o *orchardFake) CreateVM(ctx context.Context, spec orchard.VM) error {
 	vm.CreatedAt = o.now()
 	o.vms[spec.Name] = &vm
 
-	if o.answerLost {
-		o.answerLost = false
+	if o.answerLost[spec.Name] {
+		delete(o.answerLost, spec.Name)
 
 		return errLostAnswer
 	}
 
-	if o.conflictNext {
-		o.conflictNext = false
+	if o.conflict[spec.Name] {
+		delete(o.conflict, spec.Name)
 
 		return orchard.ErrAlreadyExists
 	}
