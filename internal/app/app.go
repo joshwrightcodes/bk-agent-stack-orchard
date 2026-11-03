@@ -197,6 +197,7 @@ func Build(options Options) (*controller.Controller, error) {
 		Admit:     decisions.admit,
 		Interval:  settings.Buildkite.PollInterval,
 		Freshness: settings.StateFreshness,
+		Now:       now,
 		Metrics:   recorder.Metrics,
 		Logger:    recorder.Logger,
 		Tracer:    recorder.Tracer,

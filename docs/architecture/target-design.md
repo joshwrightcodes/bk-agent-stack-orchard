@@ -206,6 +206,11 @@ for a source that waits for the ones before it in the same tick, so a comparison
 a source whose interval equals the tick interval at only every other tick. A source that failed
 MUST wait for its interval like one that answered.
 
+The loop MUST take the time of a tick from the one clock of the controller (§15), and not from
+the ticker. A ticker gives the time that a beat was due. After a tick that took longer than the
+interval, that time is in the past, and the freshness gate of admission (§6.3) would measure an
+old answer against an old time.
+
 With 100 VMs, the controller makes approximately three API calls each second in a normal tick. A
 tick that lists a long queue makes up to 3 list requests (one for each page of 1000 jobs), and each
 batch of at most 1000 notice lines adds one more call. All rate limits are higher. The Stacks API

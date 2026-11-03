@@ -127,6 +127,7 @@ func options(t *testing.T, r *recorder) controller.Options {
 		Queue:     queue{latest: stack.Queue{At: time.Now()}, read: true},
 		Interval:  time.Millisecond,
 		Freshness: time.Minute,
+		Now:       time.Now,
 		Metrics:   instruments,
 		Logger:    slog.New(slog.DiscardHandler),
 	}
@@ -306,6 +307,28 @@ func TestAnOldAnswerOfTheJobStatesDoesNotStopAdmission(t *testing.T) {
 	runOnce(t, settings, func() bool { return slices.Contains(r.seen(), "admit") })
 }
 
+// Run times each tick with the clock of the controller, and not with the beat of its ticker. A
+// ticker gives the time that a beat was due, so after a long tick that time is in the past, and the
+// freshness gate then measures an old answer against an old time and admits on it. Here the clock
+// of the controller stands at a moment long before the ticker, and the answers are fresh at that
+// moment, so only a tick on that clock admits.
+func TestRunTimesATickWithTheClockOfTheController(t *testing.T) {
+	t.Parallel()
+
+	r := &recorder{}
+	settings := options(t, r)
+	moment := time.Date(2020, 1, 1, 9, 0, 0, 0, time.UTC)
+
+	for _, s := range settings.Sources {
+		s.(*source).at = moment
+	}
+
+	settings.Now = func() time.Time { return moment }
+	settings.Admit = func(context.Context) error { r.add("admit"); return nil }
+
+	runOnce(t, settings, func() bool { return slices.Contains(r.seen(), "admit") })
+}
+
 // Almost every failure here is one call to one API, and the next tick reads the world again. A
 // loop that stopped would need an operator for something that fixes itself.
 func TestAStepThatFailsDoesNotStopTheLoop(t *testing.T) {
@@ -385,6 +408,7 @@ func TestNewRefusesAnIncompleteLoop(t *testing.T) {
 		"no logger":      func(o *controller.Options) { o.Logger = nil },
 		"no interval":    func(o *controller.Options) { o.Interval = 0 },
 		"no freshness":   func(o *controller.Options) { o.Freshness = 0 },
+		"no clock":       func(o *controller.Options) { o.Now = nil },
 		"admission without the inventory": func(o *controller.Options) {
 			o.Admit = func(context.Context) error { return nil }
 			o.Sources = o.Sources[:1]

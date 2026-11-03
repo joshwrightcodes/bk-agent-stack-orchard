@@ -56,6 +56,7 @@ func loop(t *testing.T, source Source) *Controller {
 		Sources:   []Source{source},
 		Interval:  time.Second,
 		Freshness: time.Minute,
+		Now:       func() time.Time { return start },
 		Metrics:   instruments,
 		Logger:    slog.New(slog.DiscardHandler),
 	})

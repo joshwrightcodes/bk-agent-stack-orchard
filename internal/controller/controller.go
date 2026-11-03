@@ -104,6 +104,9 @@ type Options struct {
 	// admission, and not the reaper.
 	Freshness time.Duration
 
+	// Now is the clock that times each tick. internal/app gives every part the same one.
+	Now func() time.Time
+
 	// Metrics, Logger, and Tracer record what the loop did. A nil Tracer records no span.
 	Metrics *telemetry.Metrics
 	Logger  *slog.Logger
@@ -120,6 +123,7 @@ type Controller struct {
 	admit     func(ctx context.Context) error
 	interval  time.Duration
 	freshness time.Duration
+	now       func() time.Time
 	metrics   *telemetry.Metrics
 	logger    *slog.Logger
 	tracer    trace.Tracer
@@ -159,6 +163,10 @@ func New(options Options) (*Controller, error) {
 			"than zero", options.Freshness))
 	}
 
+	if options.Now == nil {
+		problems = append(problems, errors.New("the controller needs a clock"))
+	}
+
 	// Without a source, the gate of admission has nothing to measure, and a wiring that left one
 	// out would start jobs on an answer of any age.
 	if options.Admit != nil {
@@ -188,6 +196,7 @@ func New(options Options) (*Controller, error) {
 		admit:     options.Admit,
 		interval:  options.Interval,
 		freshness: options.Freshness,
+		now:       options.Now,
 		metrics:   options.Metrics,
 		logger:    options.Logger,
 		tracer:    tracer,
@@ -220,8 +229,11 @@ func (c *Controller) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return c.withdraw(ctx)
-		case at := <-ticker.C:
-			c.Tick(ctx, at)
+		case <-ticker.C:
+			// The value of the ticker is the time that the beat was due. After a tick that took
+			// longer than the interval, that time is in the past, and the freshness gate would
+			// measure an old answer against it. The clock gives the time of the work.
+			c.Tick(ctx, c.now())
 		}
 	}
 }
@@ -244,9 +256,10 @@ func (c *Controller) withdraw(ctx context.Context) error {
 
 // Tick runs the steps of one tick, in order. At is the time of the tick.
 //
-// Run calls it at each beat of its ticker. The component suite calls it directly, with the time of
-// its own clock, so that it runs the loop one tick at a time without a ticker or a sleep. One
-// goroutine at a time may call it, and never while Run runs.
+// Run calls it at each beat of its ticker, with the time of the clock of the controller. The
+// component suite calls it directly, with the time of its own clock, so that it runs the loop one
+// tick at a time without a ticker or a sleep. One goroutine at a time may call it, and never while
+// Run runs.
 func (c *Controller) Tick(ctx context.Context, at time.Time) {
 	// The observation comes last, so that it reports the fleet as this tick left it and not as
 	// this tick found it.
