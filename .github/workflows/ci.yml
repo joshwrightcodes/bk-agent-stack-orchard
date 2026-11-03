@@ -60,7 +60,21 @@ jobs:
 
       - run: mise run lint-format
       - run: mise run lint-config
-      - run: mise run test
+      # coverage runs the tests of mise run test, with the race detector and a coverage profile,
+      # and fails when the total is below the threshold in scripts/coverage.sh.
+      - run: mise run coverage
+      - name: write the coverage summary
+        if: always() && hashFiles('build/coverage.md') != ''
+        run: cat build/coverage.md >>"$GITHUB_STEP_SUMMARY"
+      - name: upload the coverage report
+        if: always() && hashFiles('build/coverage.out') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage
+          path: |
+            build/coverage.out
+            build/coverage.html
+          retention-days: 30
 
   scripts:
     name: lint scripts

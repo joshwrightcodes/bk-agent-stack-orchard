@@ -306,7 +306,8 @@ depends = ["check-docs", "check-commits", "check-c4", "check-deps", "check-deplo
 # ci differs from check. check is the gate before a pull request: it holds the checks of the
 # repository, and it needs Docker for check-c4. ci runs what the required jobs of CI run, so a
 # green ci predicts a green pull request. It adds vuln, check-hook, check-hosts, check-generate,
-# integration, test-startup-script, and test-scripts, which check does not run. It leaves out the
+# integration, test-startup-script, and test-scripts, which check does not run. It runs coverage in
+# place of test: the same tests, with the coverage threshold of CI. It leaves out the
 # title gate, which needs the title of a pull request. check-commits reads the commits since
 # origin/main.
 # check-generate rewrites the generated files, and the other checks compile them, so ci runs
@@ -320,7 +321,7 @@ run = [{ task = "check-generate" }, { task = "ci-checks" }]
 [tasks.ci-checks]
 description = "Run the checks of ci in parallel, after check-generate (use mise run ci)"
 depends = ["check-docs", "check-commits", "test-scripts", "check-deps", "lint", "lint-format",
-           "lint-config", "test", "vuln", "check-deploy", "check-hook", "check-hosts",
+           "lint-config", "coverage", "vuln", "check-deploy", "check-hook", "check-hosts",
            "integration", "test-startup-script", "ci-docker", "lint-scripts", "check-tidy",
            "check-lock"]
 
@@ -404,3 +405,8 @@ zizmor --offline .github/workflows
 [tasks.check-tidy]
 description = "Fail when go.mod or go.sum differs from what go mod tidy writes"
 run = "go mod tidy -diff"
+
+# The test coverage. CI runs coverage in place of test.
+[tasks.coverage]
+description = "Run the Go tests with the race detector and coverage, and fail below the threshold (build/coverage.out)"
+run = "./scripts/coverage.sh"
