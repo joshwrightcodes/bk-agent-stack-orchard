@@ -77,3 +77,12 @@ SPDX-License-Identifier = "CC-BY-4.0 AND AGPL-3.0-or-later"
 path = ["**/*.go", "**/*.sh", "**/*.py", "Brewfile"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Josh Wright"
+
+# The SARIF template of actionlint is the template file of the actionlint test data at v1.7.12
+# (testdata/format/sarif_template.txt), without change, under the MIT licence of actionlint. A
+# REUSE.toml table that matches a file later takes precedence over one that matches it earlier.
+[[annotations]]
+path = ".github/actionlint-sarif.tmpl"
+precedence = "override"
+SPDX-FileCopyrightText = "2021 rhysd"
+SPDX-License-Identifier = "MIT"

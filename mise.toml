@@ -161,7 +161,24 @@ run = "go test -race ./..."
 
 [tasks.vuln]
 description = "Report known vulnerabilities that the code can reach (govulncheck)"
-run = "govulncheck ./..."
+# With SARIF_DIR set, govulncheck writes its SARIF output there, for code scanning. It then exits 0
+# whatever it finds, and gives level error to a vulnerability that the code calls, which is what
+# its text output fails on, so the task fails on each result of that level.
+run = '''
+set -eu
+if [ -z "${SARIF_DIR:-}" ]; then
+  exec govulncheck ./...
+fi
+mkdir -p "$SARIF_DIR"
+govulncheck -format sarif ./... >"$SARIF_DIR/govulncheck.sarif"
+called=$(jq '[.runs[].results[] | select(.level == "error")] | length' "$SARIF_DIR/govulncheck.sarif")
+if [ "$called" -gt 0 ]; then
+  echo "govulncheck: the code calls $called known vulnerabilities:" >&2
+  jq -r '.runs[].results[] | select(.level == "error") | "  \(.ruleId): \(.message.text)"' "$SARIF_DIR/govulncheck.sarif" >&2
+  exit 3
+fi
+echo "govulncheck: the code calls no known vulnerability"
+'''
 
 # go test runs the seed inputs of each fuzz test with the other tests. This task fuzzes each target
 # in turn, for FUZZTIME each. go test can fuzz one target of one package at a time.
@@ -306,7 +323,8 @@ depends = ["check-docs", "check-commits", "check-c4", "check-deps", "check-deplo
 # ci differs from check. check is the gate before a pull request: it holds the checks of the
 # repository, and it needs Docker for check-c4. ci runs what the required jobs of CI run, so a
 # green ci predicts a green pull request. It adds vuln, check-hook, check-hosts, check-generate,
-# integration, test-startup-script, and test-scripts, which check does not run. It leaves out the
+# integration, test-startup-script, and test-scripts, which check does not run. It runs coverage in
+# place of test: the same tests, with the coverage threshold of CI. It leaves out the
 # title gate, which needs the title of a pull request. check-commits reads the commits since
 # origin/main.
 # check-generate rewrites the generated files, and the other checks compile them, so ci runs
@@ -320,7 +338,7 @@ run = [{ task = "check-generate" }, { task = "ci-checks" }]
 [tasks.ci-checks]
 description = "Run the checks of ci in parallel, after check-generate (use mise run ci)"
 depends = ["check-docs", "check-commits", "test-scripts", "check-deps", "lint", "lint-format",
-           "lint-config", "test", "vuln", "check-deploy", "check-hook", "check-hosts",
+           "lint-config", "coverage", "vuln", "check-deploy", "check-hook", "check-hosts",
            "integration", "test-startup-script", "ci-docker", "lint-scripts", "check-tidy",
            "check-lock"]
 
@@ -391,16 +409,60 @@ if [ -n "$formatted" ]; then
   shfmt -i 0 -d $formatted
 fi
 
-# ruff.toml holds the rules, and the files that ruff format does not check yet.
-ruff check --no-cache $python
-ruff format --check --no-cache --force-exclude $python
+# With SARIF_DIR set, ruff, actionlint, and zizmor write their findings in their own SARIF output
+# there, for code scanning, and the gate still fails on a finding. Each tool runs even when one
+# before it failed, so that each report exists. A failure prints each finding of the report.
+status=0
+findings() {
+  jq -r --arg root "file://$PWD/" '.runs[].results[] | "\(.locations[0].physicalLocation.artifactLocation.uri | ltrimstr($root)):\(.locations[0].physicalLocation.region.startLine): \(.ruleId): \(.message.text)"' "$1" >&2
+}
+if [ -n "${SARIF_DIR:-}" ]; then
+  mkdir -p "$SARIF_DIR"
+fi
 
-# actionlint also runs shellcheck over the run: blocks of the workflows.
-actionlint
-# --offline runs the audits that work without the GitHub API.
-zizmor --offline .github/workflows
+# ruff.toml holds the rules, and the files that ruff format does not check yet.
+if [ -n "${SARIF_DIR:-}" ]; then
+  ruff check --no-cache --output-format sarif --output-file "$SARIF_DIR/ruff.sarif" $python ||
+    { status=1; findings "$SARIF_DIR/ruff.sarif"; }
+else
+  ruff check --no-cache $python || status=1
+fi
+ruff format --check --no-cache --force-exclude $python || status=1
+
+# actionlint also runs shellcheck over the run: blocks of the workflows. Its -format option takes a
+# template, and .github/actionlint-sarif.tmpl is the SARIF template of the actionlint project.
+if [ -n "${SARIF_DIR:-}" ]; then
+  actionlint -format "$(cat .github/actionlint-sarif.tmpl)" >"$SARIF_DIR/actionlint.sarif" ||
+    { status=1; findings "$SARIF_DIR/actionlint.sarif"; }
+else
+  actionlint || status=1
+fi
+
+# --offline runs the audits that work without the GitHub API. With SARIF output, zizmor exits 0
+# whatever it finds, and leaves out the findings that the workflows suppress, so a result is a
+# failure.
+if [ -n "${SARIF_DIR:-}" ]; then
+  zizmor --offline --format sarif .github/workflows >"$SARIF_DIR/zizmor.sarif" || status=1
+  if [ "$(jq '[.runs[].results[]] | length' "$SARIF_DIR/zizmor.sarif")" -gt 0 ]; then
+    status=1
+    findings "$SARIF_DIR/zizmor.sarif"
+  fi
+else
+  zizmor --offline .github/workflows || status=1
+fi
+
+exit "$status"
 '''
 
 [tasks.check-tidy]
 description = "Fail when go.mod or go.sum differs from what go mod tidy writes"
 run = "go mod tidy -diff"
+
+# Test coverage and the SARIF reports for code scanning. CI runs coverage in place of test, and
+# uploads each SARIF report to code scanning with a category of its own. A SARIF task exits 0 when
+# its tool finds a problem, and fails only when the tool cannot run: the gate tasks (lint, vuln,
+# lint-scripts) decide whether a finding fails CI.
+[tasks.coverage]
+description = "Run the Go tests with the race detector and coverage, and fail below the threshold (build/coverage.out)"
+run = "./scripts/coverage.sh"
+
