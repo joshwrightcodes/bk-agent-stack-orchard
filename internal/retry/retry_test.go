@@ -380,3 +380,19 @@ func TestUnavailableTellsAnOutageFromARefusal(t *testing.T) {
 		}
 	}
 }
+
+// A log record names the error under the mark, so Unmark gives it for the mark itself, and
+// nothing for an error that is not a mark.
+func TestUnmarkGivesTheErrorUnderTheMark(t *testing.T) {
+	t.Parallel()
+
+	cause := errors.New("orchard answered 503")
+
+	if under := retry.Unmark(retry.Again(cause, 0)); !errors.Is(under, cause) || under.Error() != cause.Error() {
+		t.Errorf("Unmark(Again(cause)) = %v, want the cause", under)
+	}
+
+	if under := retry.Unmark(fmt.Errorf("listing: %w", retry.Again(cause, 0))); under != nil {
+		t.Errorf("Unmark(a wrapped mark) = %v, want nil, because the caller walks the chain", under)
+	}
+}

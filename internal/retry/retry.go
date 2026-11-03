@@ -187,6 +187,19 @@ func Again(err error, after time.Duration) error {
 	return &again{err: err, after: after}
 }
 
+// Unmark gives the error that a mark of Again carries, and nil when err is not such a mark itself.
+// A log record names the type of that error, because the type of the mark is the same for every
+// failure that another try can pass.
+func Unmark(err error) error {
+	// The mark itself, and not a mark further down the chain: the caller walks the chain.
+	marked, ok := err.(*again) //nolint:errorlint // only the mark itself
+	if !ok {
+		return nil
+	}
+
+	return marked.err
+}
+
 // Retryable reports an error that Again marked.
 func Retryable(err error) bool {
 	var marked *again

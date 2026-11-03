@@ -157,10 +157,14 @@ func Setup(ctx context.Context, options Options) (*Telemetry, error) {
 // describe builds the resource that every signal carries.
 func describe(ctx context.Context, options Options) (*resource.Resource, error) {
 	attributes := []resource.Option{
-		resource.WithAttributes(
-			semconv.ServiceName(options.ServiceName),
-			semconv.ServiceVersion(options.Version),
-		),
+		resource.WithAttributes(semconv.ServiceName(options.ServiceName)),
+	}
+
+	// A build without a version leaves the attribute out. An empty one is a version of its own
+	// in a backend.
+	if options.Version != "" {
+		attributes = append(attributes,
+			resource.WithAttributes(semconv.ServiceVersion(options.Version)))
 	}
 
 	if options.ControllerID != "" {
@@ -276,8 +280,8 @@ func (t *Telemetry) logs(ctx context.Context, described *resource.Resource,
 	t.shutdown = append(t.shutdown, provider.Shutdown)
 	otel.SetLoggerProvider(provider)
 
-	logger := slog.New(otelslog.NewHandler(options.ServiceName,
-		otelslog.WithLoggerProvider(provider)))
+	logger := slog.New(exceptionTyped{otelslog.NewHandler(options.ServiceName,
+		otelslog.WithLoggerProvider(provider))})
 	slog.SetDefault(logger)
 
 	return logger, nil
