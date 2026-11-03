@@ -48,6 +48,7 @@ path = [
   "go.mod",
   "go.sum",
   ".gitignore",
+  ".gitattributes",
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Josh Wright"
