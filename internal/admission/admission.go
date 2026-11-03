@@ -14,6 +14,7 @@ package admission
 import (
 	"cmp"
 	"errors"
+	"maps"
 	"slices"
 	"time"
 
@@ -284,11 +285,17 @@ func freeResources(request Request) map[string]map[string]uint64 {
 }
 
 // requested gives the profiles of the machines that this process asked for and the inventory does
-// not show yet.
+// not show yet, in the order of their jobs.
+//
+// Each machine takes its room on the first worker with room, so the order decides what is left.
+// The order of a map changes from one read to the next, and the decision must be a pure function
+// of what the controller observed (target design, section 12). Held does not carry the order of
+// the creates, and the order of the job identifiers is fixed.
 func requested(request Request) []profile.Profile {
 	var machines []profile.Profile
 
-	for _, name := range request.Held {
+	for _, id := range slices.Sorted(maps.Keys(request.Held)) {
+		name := request.Held[id]
 		if name == "" {
 			continue
 		}
