@@ -28,7 +28,7 @@ small.
 |---|---|---|---|
 | `bk_agent_stack_orchard.job.waiting.count` | up-down counter, `{job}` | `bk_agent_stack_orchard.profile` | Matched jobs of the last read of the queue that wait for a VM |
 | `bk_agent_stack_orchard.job.waiting.oldest.age` | gauge, `s` | `bk_agent_stack_orchard.profile` | How long the oldest waiting job has waited, or 0 when no job of the profile waits |
-| `bk_agent_stack_orchard.admission.blocked` | gauge, `1` | `bk_agent_stack_orchard.admission.reason` | 1 for the reason that stopped admission at the last tick, and 0 for each other reason (below) |
+| `bk_agent_stack_orchard.admission.blocked` | gauge, `{gate}` | `bk_agent_stack_orchard.admission.reason` | 1 for the reason that stopped admission at the last tick, and 0 for each other reason (below) |
 | `bk_agent_stack_orchard.job.skipped` | counter, `{job}` | | Jobs that match no profile, and that the controller leaves for another runner |
 | `bk_agent_stack_orchard.queue.truncated` | counter, `{read}` | | Reads of the queue that did not list it whole, so that jobs behind the head of the queue wait for a later read |
 | `bk_agent_stack_orchard.job.failed` | counter, `{job}` | `bk_agent_stack_orchard.profile`, `bk_agent_stack_orchard.worker.name`, `error.type` (`vm_failed`, `boot_timeout`, `acquire_timeout`) | Jobs that the controller failed before an agent took them. The causes are the reasons of the same name (below) |
@@ -44,7 +44,7 @@ small.
 | `bk_agent_stack_orchard.vm.leftover` | gauge, `{vm}` | | VMs whose job ended, and that are not deleted yet |
 | `bk_agent_stack_orchard.source.staleness` | gauge, `s` | `bk_agent_stack_orchard.source` (`scheduled_jobs`, `job_states`, `inventory`) | How old the last answer of each source is. A source that has not answered since the start is as old as the process |
 | `bk_agent_stack_orchard.loop.heartbeat.age` | gauge, `s` | | Time since the loop last finished a tick. Before the loop starts, it is the age of the process |
-| `bk_agent_stack_orchard.stack.registered` | gauge, `1` | | 1 while Buildkite holds the registration of the stack. 0 while the controller registers, which it tries again while Buildkite does not answer, and after it withdrew |
+| `bk_agent_stack_orchard.stack.registered` | gauge, `{stack}` | | 1 while Buildkite holds the registration of the stack. 0 while the controller registers, which it tries again while Buildkite does not answer, and after it withdrew |
 
 `bk_agent_stack_orchard.pool` is the `pool` label of the worker, or `none`. On the two failure
 counters, `bk_agent_stack_orchard.worker.name` is the Mac host of the VM, or `none` for a VM that no

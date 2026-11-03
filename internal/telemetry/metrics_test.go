@@ -213,9 +213,9 @@ var design = []struct {
 		false,
 	},
 	{"bk_agent_stack_orchard.loop.heartbeat.age", "s", nil, false},
-	{"bk_agent_stack_orchard.stack.registered", "1", nil, false},
+	{"bk_agent_stack_orchard.stack.registered", "{stack}", nil, false},
 	{
-		"bk_agent_stack_orchard.admission.blocked", "1",
+		"bk_agent_stack_orchard.admission.blocked", "{gate}",
 		[]string{"bk_agent_stack_orchard.admission.reason"},
 		false,
 	},

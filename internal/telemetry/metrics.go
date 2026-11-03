@@ -507,8 +507,11 @@ func (m *Metrics) observable(meter metric.Meter) error {
 		return fmt.Errorf("building the instrument of the heartbeat: %w", err)
 	}
 
+	// A gauge of 0 or 1 counts the things in a state, as the conventions do for the condition
+	// of a node, so its unit names the thing. The unit 1 would read as a ratio in a backend that
+	// adds the unit to the name.
 	m.registered, err = meter.Int64ObservableGauge(prefix+"stack.registered",
-		metric.WithUnit("1"),
+		metric.WithUnit("{stack}"),
 		metric.WithDescription("1 while Buildkite holds the registration of the stack, and 0 "+
 			"while the controller registers or after it withdrew."))
 	if err != nil {
@@ -516,7 +519,7 @@ func (m *Metrics) observable(meter metric.Meter) error {
 	}
 
 	m.blocked, err = meter.Int64ObservableGauge(prefix+"admission.blocked",
-		metric.WithUnit("1"),
+		metric.WithUnit("{gate}"),
 		metric.WithDescription("1 for the reason that closed the gate of admission at the last "+
 			"tick, and 0 for each other reason. Every series is 0 while the gate is open."))
 	if err != nil {

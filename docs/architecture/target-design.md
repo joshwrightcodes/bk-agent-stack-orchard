@@ -1279,7 +1279,7 @@ The name that an operator queries has the full prefix.
 |---|---|---|
 | UpDownCounter | `bkaso.job.waiting.count` (`{job}`) | `bkaso.profile` |
 | Gauge | `bkaso.job.waiting.oldest.age` (`s`) | `bkaso.profile` |
-| Gauge | `bkaso.admission.blocked` (`1`) | `bkaso.admission.reason` = `queue_unread`/`queue_paused`/`scheduled_jobs_stale`/`inventory_unanswered`/`inventory_stale`/`job_states_unanswered`/`job_states_stale` |
+| Gauge | `bkaso.admission.blocked` (`{gate}`) | `bkaso.admission.reason` = `queue_unread`/`queue_paused`/`scheduled_jobs_stale`/`inventory_unanswered`/`inventory_stale`/`job_states_unanswered`/`job_states_stale` |
 | Counter | `bkaso.job.skipped` (`{job}`) | — |
 | Counter | `bkaso.queue.truncated` (`{read}`) | — |
 | Counter | `bkaso.job.failed` (`{job}`) | `bkaso.profile`, `bkaso.worker.name`, `error.type` = `vm_failed`/`boot_timeout`/`acquire_timeout` |
@@ -1295,7 +1295,7 @@ The name that an operator queries has the full prefix.
 | Gauge | `bkaso.vm.leftover` (`{vm}`) | — |
 | Gauge | `bkaso.source.staleness` (`s`) | `bkaso.source` = `scheduled_jobs`/`job_states`/`inventory` |
 | Gauge | `bkaso.loop.heartbeat.age` (`s`) | — |
-| Gauge | `bkaso.stack.registered` (`1`) | — |
+| Gauge | `bkaso.stack.registered` (`{stack}`) | — |
 
 These rules come from the conventions and MUST hold:
 
