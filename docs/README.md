@@ -39,6 +39,7 @@ a number, such as the demand model or a quality target.
 | [Releasing](releasing.md) | How are versions calculated, and how do the maintainers make a release? |
 | [Writing guide](writing-guide.md) | How does a contributor write a document? |
 | [Glossary](glossary.md) | What does a term or an identifier mean? |
+| [Quick start](user/quickstart.md) | How does an operator see one real job run in a Tart VM on one Mac? |
 | [Install the controller](user/install.md) | What does an operator need, and how does an operator install, verify, and upgrade a release? |
 | [Third-party terms](user/third-party-terms.md) | Which terms of Apple, Tart, and Orchard affect a fleet? |
 | [Runbook: replace the agent token](runbooks/token-replacement.md) | How does an operator replace the cluster agent token? |

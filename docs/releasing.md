@@ -44,9 +44,13 @@ version in `Chart.yaml`. The pull request collects all changes until the maintai
    the Limitations section of `README.md` is still correct for the new version. For version 0.1.0,
    finish the legal review of ADR-0015 first: a lawyer confirms the licence position, and the
    maintainers record the result in the ADR.
-2. Merge the release pull request. release-please creates the tag and a draft release with the
+2. Run the quick start with `main` on a Mac
+   (`mise run quickstart -- --queue <queue> --from-source`), and run the step that it prints.
+   Check that the job passes and that Ctrl-C leaves no VM. A hosted runner cannot start a macOS
+   VM, so CI does not run the quick start.
+3. Merge the release pull request. release-please creates the tag and a draft release with the
    changelog.
-3. The tag starts the release workflow in the `release` environment. Check that the SHA of the tag
+4. The tag starts the release workflow in the `release` environment. Check that the SHA of the tag
    is the merge commit of the release pull request, and then approve the deployment. The workflow
    builds and signs the artifacts, verifies the signatures and the assets, and then publishes the
    release.
@@ -57,6 +61,10 @@ version in `Chart.yaml`. The pull request collects all changes until the maintai
    from before the rule of `scripts/check-commits.py`. release-please rebuilds the release pull
    request on each push to `main`, so an edit of `CHANGELOG.md` there does not stay.
    `CHANGELOG.md` keeps these entries for version 0.1.0, and the project accepts this.
+
+After the release is published, run the quick start again with the release
+(`mise run quickstart -- --queue <queue> --version v<version>`). It downloads the archive, checks
+its signature and checksum, and runs one job with it.
 
 To set a version that the commits do not give, for example a release candidate such as
 `0.4.0-rc.1`, or `1.0.0`, add `"release-as": "<version>"` to `release-please-config.json` in a

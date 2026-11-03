@@ -22,6 +22,26 @@ for each job, and deletes the VM when the job ends. It does for macOS what
   stays with the controller.
 * **Profiles by agent tags.** Send `xcode=27` jobs to one image and `xcode=26` jobs to another.
 
+## Quick start
+
+See a real job run in a new Tart VM on your Mac. You need an Apple silicon Mac with
+[Tart](https://tart.run) and [mise](https://mise.jdx.dev), and a Buildkite cluster with a
+self-hosted queue and a cluster agent token.
+
+```sh
+git clone https://github.com/joshwrightcodes/bk-agent-stack-orchard
+cd bk-agent-stack-orchard
+mise install
+export BUILDKITE_AGENT_TOKEN=...   # your cluster agent token
+mise run quickstart -- --queue macos-quickstart
+```
+
+The command downloads and verifies the newest release of the controller, starts it with a local
+Orchard, and prints a pipeline step. Run the step in
+Buildkite: the job runs in a new VM, and the VM is deleted when the job ends. Press Ctrl-C to stop.
+The first run downloads a macOS image of about 40 GB. The [quick start](docs/user/quickstart.md)
+gives each step, the Buildkite setup included.
+
 ## How it works
 
 ```mermaid
@@ -77,7 +97,8 @@ The repository also has examples that you can adapt:
 
 | Run it | Work on it |
 |---|---|
-| [Install the controller](docs/user/install.md) | [Contributing](CONTRIBUTING.md) |
+| [Quick start](docs/user/quickstart.md) | [Contributing](CONTRIBUTING.md) |
+| [Install the controller](docs/user/install.md) | [Releasing](docs/releasing.md) |
 | [Replace the agent token](docs/runbooks/token-replacement.md) | [Development guide](docs/development.md) |
 | [Orchard worker accounts](docs/runbooks/orchard-worker-accounts.md) | [Target design](docs/architecture/target-design.md) |
 | [Third-party terms](docs/user/third-party-terms.md) | [All design documents](docs/README.md) |
