@@ -327,3 +327,22 @@ mise run orchard-image
 mise run smoke
 mise run snapshot
 '''
+
+# The linters of the shell and Python scripts and of the workflows, and their tasks. They are in
+# tables of their own, so that they stay together in one block. The aqua backend of mise checks
+# the checksum or the build attestation that each release publishes. ShellCheck publishes neither,
+# so only its version pins it.
+[tools.shellcheck]
+version = "0.11.0"
+
+[tools.shfmt]
+version = "3.14.1"
+
+[tools.ruff]
+version = "0.17.3"
+
+[tools.actionlint]
+version = "1.7.12"
+
+[tools.zizmor]
+version = "1.31.1"
