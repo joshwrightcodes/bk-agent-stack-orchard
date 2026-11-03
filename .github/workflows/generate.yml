@@ -4,9 +4,10 @@ name: generate
 # again and fails when the result is different from the tree, which is how a contract that moved
 # reaches a person.
 #
-# It runs only for a change that can move the generated file, because it reads the GitHub API and
-# a pull request that touches neither the client nor the generator should not wait for it. The
-# weekly upstream job runs the same check without a change, which catches a tag that moved.
+# It runs only for a change that can move the generated file, because it reads Orchard over the
+# network and a pull request that touches neither the client nor the generator should not wait
+# for it. The weekly upstream job runs the same check without a change, which catches a tag that
+# moved.
 
 on:
   pull_request:
@@ -37,7 +38,5 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
-      - env:
-          # The generator reads the GitHub API, which limits an anonymous caller.
-          GITHUB_TOKEN: ${{ github.token }}
-        run: mise run check-generate
+      # No token: the generator reads only public data, outside the GitHub API, and sends none.
+      - run: mise run check-generate
