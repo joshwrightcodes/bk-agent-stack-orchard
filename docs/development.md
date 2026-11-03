@@ -57,8 +57,8 @@ The gates are also tasks of their own: `check-docs`, `check-commits`, `check-dep
   jobs are then "CI only".
 * The title gate of a pull request is CI only, because it needs the pull request title.
 
-If `check-deps` fails because NOTICE does not name a module, a dependency update added a module
-that the binary links. Fix it in this order:
+If `test` fails because NOTICE does not name a module, a dependency update added a module that the
+binary links. Fix it in this order:
 
 1. Run `mise run licenses`, or `go-licenses`, to see the new module and its licence. The texts are
    in `build/licenses`.
@@ -66,7 +66,7 @@ that the binary links. Fix it in this order:
    `  * <module path>`, in alphabetical order.
 3. Copy `NOTICE` to `deploy/helm/bk-agent-stack-orchard/NOTICE`, because the chart carries a copy
    that equals the file of the root.
-4. Run `mise run check-deps`.
+4. Run `go test ./internal/repocheck` and `mise run check-deps`.
 
 ## The package map
 
