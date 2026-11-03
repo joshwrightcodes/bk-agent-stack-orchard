@@ -335,10 +335,10 @@ func (l *Launcher) reserve(ctx context.Context, decision admission.Result) (map[
 	}
 
 	until := sent.Add(l.expiry)
-	held := make(map[job.ID]bool, len(answer.Reserved))
+	taken := make(map[job.ID]bool, len(answer.Reserved))
 
 	for _, id := range answer.Reserved {
-		held[id] = true
+		taken[id] = true
 
 		l.held.reserved(id, until, sent)
 	}
@@ -346,7 +346,7 @@ func (l *Launcher) reserve(ctx context.Context, decision admission.Result) (map[
 	// The first phase of a job ends with its reservation. The later phases are what the progress
 	// of its machine shows, and they start from these times.
 	for _, candidate := range decision.Admit {
-		if !held[candidate.Job.ID] {
+		if !taken[candidate.Job.ID] {
 			continue
 		}
 
@@ -361,7 +361,7 @@ func (l *Launcher) reserve(ctx context.Context, decision admission.Result) (map[
 			telemetry.LogJob, string(id))
 	}
 
-	return held, nil
+	return taken, nil
 }
 
 // skip tells each unmatched job that has no line yet, and it keeps the set of notified jobs.

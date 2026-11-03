@@ -59,15 +59,19 @@ type Queue interface {
 	Latest() (stack.Queue, bool)
 }
 
-// admissionRests are the sources that a decision to start a job rests on (target design, section
+// admissionRests gives the sources that a decision to start a job rests on (target design, section
 // 6.3). An old answer of the queue or of the fleet can start a job for a slot that is gone, or for
 // a job that another agent took. Old job states mean that the reaper extends no reservation, so a
 // machine started then keeps only its first one, and a boot longer than that loses its job.
 //
 // The job states bind only while the fleet holds machines of this controller. With none, the
 // source has nothing to ask, and it answers at each refresh without a call.
-var admissionRests = []telemetry.Source{
-	telemetry.SourceScheduledJobs, telemetry.SourceInventory, telemetry.SourceJobStates,
+//
+// A function and not a variable, so that no part can change the list.
+func admissionRests() []telemetry.Source {
+	return []telemetry.Source{
+		telemetry.SourceScheduledJobs, telemetry.SourceInventory, telemetry.SourceJobStates,
+	}
 }
 
 // admissionFollows is the source that must have answered once before the first admission (target
@@ -76,11 +80,19 @@ var admissionRests = []telemetry.Source{
 // Admission comes after that pass, and not before it.
 const admissionFollows = telemetry.SourceJobStates
 
-// step names the part of a tick that a span and a metric carry.
-var step = map[telemetry.Source]string{
-	telemetry.SourceScheduledJobs: "poll",
-	telemetry.SourceInventory:     "inventory",
-	telemetry.SourceJobStates:     "job_states",
+// step names the part of a tick that reads a source, for a span and a metric. A source that the
+// loop does not name here takes its own name.
+func step(source telemetry.Source) string {
+	switch source {
+	case telemetry.SourceScheduledJobs:
+		return "poll"
+	case telemetry.SourceInventory:
+		return "inventory"
+	case telemetry.SourceJobStates:
+		return "job_states"
+	default:
+		return string(source)
+	}
 }
 
 // Options configures the loop.
@@ -187,7 +199,7 @@ func New(options Options) (*Controller, error) {
 	// Without a source, the gate of admission has nothing to measure, and a wiring that left one
 	// out would start jobs on an answer of any age.
 	if options.Admit != nil {
-		for _, rest := range admissionRests {
+		for _, rest := range admissionRests() {
 			if !slices.ContainsFunc(options.Sources, func(s Source) bool { return s.Source() == rest }) {
 				problems = append(problems, fmt.Errorf("admission rests on the source %s, and the "+
 					"loop does not have it", rest))
@@ -321,7 +333,7 @@ func (c *Controller) refresh(ctx context.Context, at time.Time) {
 		// and a call at every tick would press it harder.
 		c.refreshed[source.Source()] = at
 
-		c.run(ctx, step[source.Source()], func(ctx context.Context) error {
+		c.run(ctx, step(source.Source()), func(ctx context.Context) error {
 			err := source.Refresh(ctx)
 
 			// A server that named a wait in Retry-After gets it here, as a time before which
@@ -415,13 +427,15 @@ func (c *Controller) mayAdmit(at time.Time) (string, bool) {
 		return "an operator paused the queue", false
 	}
 
+	rests := admissionRests()
+
 	for _, source := range c.sources {
 		if source.Source() == admissionFollows && source.At().IsZero() {
 			return fmt.Sprintf("the source %s has not answered yet, so no reaper pass has seen "+
 				"the machines of the last process", source.Source()), false
 		}
 
-		if !slices.Contains(admissionRests, source.Source()) {
+		if !slices.Contains(rests, source.Source()) {
 			continue
 		}
 
