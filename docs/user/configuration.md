@@ -158,8 +158,8 @@ first. It does not start until each one is fixed. Besides the limits in the tabl
 
 * two profiles with the same name or the same `match` map;
 * a `match` key `queue`, `profile`, or `agent-stack`, which the controller sets itself;
-* a profile whose `unplaced`, `boot`, and `acquire` timeouts add up to more than
-  `buildkite.jobTokenLifetime`;
+* a profile whose `unplaced`, `boot`, and `acquire` timeouts and one minute add up to more
+  than `buildkite.jobTokenLifetime`;
 * `vmCredentials` that do not agree with `startupTransport`;
 * half of an `agent` pair: `url` without `sha256`, or the reverse.
 
