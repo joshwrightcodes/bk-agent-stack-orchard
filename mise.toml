@@ -406,7 +406,32 @@ zizmor --offline .github/workflows
 description = "Fail when go.mod or go.sum differs from what go mod tidy writes"
 run = "go mod tidy -diff"
 
-# The test coverage. CI runs coverage in place of test.
+# Test coverage and the SARIF reports for code scanning. CI runs coverage in place of test, and
+# uploads each SARIF report to code scanning with a category of its own. A SARIF task exits 0 when
+# its tool finds a problem, and fails only when the tool cannot run: the gate tasks (lint, vuln,
+# lint-scripts) decide whether a finding fails CI.
 [tasks.coverage]
 description = "Run the Go tests with the race detector and coverage, and fail below the threshold (build/coverage.out)"
 run = "./scripts/coverage.sh"
+
+[tasks.sarif-vuln]
+description = "Write the govulncheck findings as SARIF to build/sarif, for code scanning"
+run = "mkdir -p build/sarif && govulncheck -format sarif ./... >build/sarif/govulncheck.sarif"
+
+[tasks.sarif-scripts]
+description = "Write the ruff, actionlint, and zizmor findings as SARIF to build/sarif, for code scanning"
+run = '''
+set -euf
+mkdir -p build/sarif
+python="$(git ls-files '*.py')"
+ruff check --no-cache --exit-zero --output-format sarif $python >build/sarif/ruff.sarif
+# actionlint has no SARIF format of its own. The template is the SARIF template of the actionlint
+# documentation. actionlint exits 1 when it finds a problem, and 2 or 3 when it cannot run.
+status=0
+actionlint -format "$(cat .github/actionlint-sarif.tmpl)" >build/sarif/actionlint.sarif || status=$?
+if [ "$status" -gt 1 ]; then
+  echo "sarif-scripts: actionlint failed with exit status $status" >&2
+  exit "$status"
+fi
+zizmor --offline --no-exit-codes --format sarif .github/workflows >build/sarif/zizmor.sarif
+'''

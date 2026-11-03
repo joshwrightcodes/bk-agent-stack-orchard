@@ -12,7 +12,8 @@ on:
   push:
     branches: [main]
 
-# Each job reads the repository only. The lint job alone gets more, below.
+# Each job reads the repository only. The jobs that upload findings to code scanning get more,
+# below.
 permissions:
   contents: read
 
@@ -26,6 +27,13 @@ concurrency:
 # and fails on a tool or a checksum that the lock does not hold.
 env:
   MISE_LOCKED: "1"
+  # The linters upload their findings to code scanning, one category for each tool, on a push to
+  # main and on a pull request from a branch of this repository. The token of a pull request from
+  # a fork cannot write security events, so that run skips the uploads. The upload steps use this
+  # value.
+  SARIF_UPLOAD: >-
+    ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    || github.event.pull_request.head.repo.full_name == github.repository }}
 
 jobs:
   go:
@@ -36,6 +44,8 @@ jobs:
       contents: read
       # only-new-issues reads the diff of the pull request.
       pull-requests: read
+      # The upload of the golangci-lint findings to code scanning.
+      security-events: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -57,6 +67,9 @@ jobs:
           # A pull request reports only its new findings. A push to main reports all of them, so
           # a finding that a pull request did not touch still fails main.
           only-new-issues: ${{ github.event_name == 'pull_request' }}
+          # The text output feeds the problem matchers, and the SARIF output feeds code scanning.
+          # golangci-lint prints no text output when only a SARIF path is given.
+          args: --output.text.path=stdout --output.sarif.path=build/sarif/golangci-lint.sarif
 
       - run: mise run lint-format
       - run: mise run lint-config
@@ -76,12 +89,25 @@ jobs:
             build/coverage.html
           retention-days: 30
 
+      # A failed lint step still uploads its findings. The upload runs last, so that a failed
+      # upload does not stop the gates above.
+      - name: upload the golangci-lint findings
+        if: always() && env.SARIF_UPLOAD == 'true' && hashFiles('build/sarif/golangci-lint.sarif') != ''
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          sarif_file: build/sarif/golangci-lint.sarif
+          category: golangci-lint
+
   scripts:
     name: lint scripts
     # shellcheck and shfmt for the shell scripts, ruff for the Python scripts, and actionlint and
     # zizmor for the workflows (mise run lint-scripts).
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      # The upload of the ruff, actionlint, and zizmor findings to code scanning.
+      security-events: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -96,12 +122,41 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: mise run check-lock
 
+      # The SARIF reports run after a failed gate too, and their result does not change the result
+      # of the job. lint-scripts above is the gate.
+      - name: write the SARIF reports
+        if: always()
+        continue-on-error: true
+        run: mise run sarif-scripts
+      - name: upload the ruff findings
+        if: always() && env.SARIF_UPLOAD == 'true' && hashFiles('build/sarif/ruff.sarif') != ''
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          sarif_file: build/sarif/ruff.sarif
+          category: ruff
+      - name: upload the actionlint findings
+        if: always() && env.SARIF_UPLOAD == 'true' && hashFiles('build/sarif/actionlint.sarif') != ''
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          sarif_file: build/sarif/actionlint.sarif
+          category: actionlint
+      - name: upload the zizmor findings
+        if: always() && env.SARIF_UPLOAD == 'true' && hashFiles('build/sarif/zizmor.sarif') != ''
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          sarif_file: build/sarif/zizmor.sarif
+          category: zizmor
+
   vulnerabilities:
     name: known vulnerabilities
     # govulncheck fails only on a vulnerability that the code can call. A vulnerable module that
     # the code does not reach is a report, not a failure.
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      # The upload of the govulncheck findings to code scanning.
+      security-events: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -110,6 +165,19 @@ jobs:
         with:
           version: 2026.10.24
       - run: mise run vuln
+      # govulncheck exits 0 with SARIF output, also when it finds a vulnerability, so mise run vuln
+      # above stays the gate. The SARIF report runs after a failed gate too, and its result does
+      # not change the result of the job.
+      - name: write the SARIF report
+        if: always()
+        continue-on-error: true
+        run: mise run sarif-vuln
+      - name: upload the govulncheck findings
+        if: always() && env.SARIF_UPLOAD == 'true' && hashFiles('build/sarif/govulncheck.sarif') != ''
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          sarif_file: build/sarif/govulncheck.sarif
+          category: govulncheck
 
   deploy:
     name: deploy manifests
