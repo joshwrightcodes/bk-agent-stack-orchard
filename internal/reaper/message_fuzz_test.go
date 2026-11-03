@@ -67,7 +67,6 @@ func FuzzTheFinishMessageOfAnyVMEvents(f *testing.F) {
 		case 1:
 			machine = owned(ended, time.Hour)
 			machine.VM.Status = orchard.StatusPending
-			machine.VM.ScheduledAt = now.Add(-20 * time.Minute)
 		}
 
 		machine.VM.StatusMessage = status

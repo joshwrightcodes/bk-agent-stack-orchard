@@ -249,7 +249,21 @@ func buildHolding(t *testing.T, api *observed, machines *fleet, log *decisions,
 		t.Fatalf("New() = %v, want the reaper", err)
 	}
 
+	sawAtCreation(built, machines.snapshot)
+
 	return built
+}
+
+// sawAtCreation records that the reaper first saw each machine of a snapshot when Orchard created
+// it, in the phase that the machine has now, as a process that has run since then would have. The
+// reaper measures each age from what it saw on its own clock, and a test of a timeout states the
+// age through the creation time of the machine.
+func sawAtCreation(r *reaper.Reaper, snapshot inventory.Snapshot) {
+	for _, machine := range snapshot.Owned {
+		if !machine.VM.CreatedAt.IsZero() {
+			r.Saw(machine.VM, machine.VM.CreatedAt)
+		}
+	}
 }
 
 // The walking skeleton ends here: a job finished, and its machine goes.
@@ -708,12 +722,10 @@ func pass(t *testing.T, c *clock, states *jobstates.States, reaping *reaper.Reap
 	_ = reaping.Reap(t.Context())
 }
 
-// timedOut gives a machine whose agent did not acquire the job inside the acquire limit.
+// timedOut gives a machine that runs for an hour, and whose agent did not acquire the job inside
+// the acquire limit.
 func timedOut(id job.ID) inventory.Owned {
-	machine := owned(id, time.Hour)
-	machine.VM.StartedAt = now.Add(-10 * time.Minute)
-
-	return machine
+	return owned(id, time.Hour)
 }
 
 // A finish acts only on a state of this tick. A state from an earlier tick can be the reserved
@@ -730,6 +742,7 @@ func TestAFinishWaitsForAStateOfThisTick(t *testing.T) {
 	}}
 	jobPages := &pages{finishErr: errors.New("buildkite is not available")}
 	states, reaping := joinedWith(t, api, machines, c, jobPages)
+	sawAtCreation(reaping, machines.snapshot)
 
 	// The tick asks, and the finish fails.
 	pass(t, c, states, reaping, true)
@@ -783,6 +796,7 @@ func TestARefusedFinishKeepsTheMachineUntilTheNextState(t *testing.T) {
 			}}
 			jobPages := &pages{finishErr: fmt.Errorf("finish: %w", buildkite.ErrTerminal)}
 			states, reaping := joinedWith(t, api, machines, c, jobPages)
+			sawAtCreation(reaping, machines.snapshot)
 
 			pass(t, c, states, reaping, true)
 

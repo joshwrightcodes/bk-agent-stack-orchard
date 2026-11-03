@@ -3,7 +3,9 @@
 package component_test
 
 import (
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
@@ -106,4 +108,51 @@ func TestAFinishThatMeetsAnAgentDeletesNoMachine(t *testing.T) {
 	}
 
 	s.budget()
+}
+
+// T-029. The clock of Orchard runs ten minutes behind the clock of the controller, or ten minutes
+// ahead. The timeouts count on the clock of the controller alone: a machine whose agent is slow
+// keeps its job inside the acquire timeout, and the job fails when the timeout ends, whatever the
+// clock of Orchard says.
+func TestTheTimeoutsIgnoreTheClockOfOrchard(t *testing.T) {
+	for name, skew := range map[string]time.Duration{
+		"behind": -10 * time.Minute,
+		"ahead":  10 * time.Minute,
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := newScenario(t)
+			s.orchard.skew = skew
+
+			slow := s.arrive()
+			s.run(5)
+
+			if vm, exists := s.machine(slow); !exists || vm.Status != orchard.StatusRunning {
+				t.Fatal("the job has no running machine")
+			}
+
+			acquire := s.settings.Defaults.Timeouts.Acquire
+
+			// Inside the acquire timeout, the job keeps its machine and its reservation.
+			s.run(int((acquire - 30*time.Second).Seconds()))
+
+			if w := s.stacks.jobs[slow]; w.state != stateReserved {
+				t.Fatalf("the job is %s inside its acquire timeout, want it reserved", w.state)
+			}
+
+			if _, exists := s.machine(slow); !exists {
+				t.Fatal("the machine is gone inside its acquire timeout")
+			}
+
+			// The timeout ends, and the job fails with the reason.
+			s.run(45)
+
+			if !slices.Contains(s.stacks.finished, slow) {
+				t.Error("the job did not fail at the end of its acquire timeout")
+			}
+
+			if _, exists := s.machine(slow); exists {
+				t.Error("the machine remains after the acquire timeout")
+			}
+		})
+	}
 }

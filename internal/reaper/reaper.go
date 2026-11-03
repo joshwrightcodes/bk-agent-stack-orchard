@@ -141,21 +141,23 @@ type Reaper struct {
 	// then starts the time again, which the design states.
 	ended map[job.ID]time.Time
 
-	// listed holds, for each machine of a snapshot, when a snapshot first listed it and the
-	// creation time that Orchard gave it then. A machine with another creation time is a new
-	// machine with the same name, such as the second machine of a job, and its time starts again.
-	// Only the goroutine of the loop reads and writes it.
+	// listed holds, for each machine of a snapshot, when a snapshot first listed it, first
+	// showed it on a worker, and first showed it running, and the creation time that Orchard gave
+	// it. A machine with another creation time is a new machine with the same name, such as the
+	// second machine of a job, and its times start again. Only the goroutine of the loop reads and
+	// writes it.
 	listed map[string]sighting
 }
 
-// sighting is the first snapshot that listed one machine.
+// sighting is what the snapshots of this process first showed of one machine.
 type sighting struct {
 	// created is the creation time that Orchard gave the machine, which tells two machines of one
 	// name apart. It is never compared with a time of the controller.
 	created time.Time
 
-	// at is when that snapshot was taken, on the clock of the controller.
-	at time.Time
+	// at, placed, and running are when a snapshot first listed the machine, first showed it on a
+	// worker, and first showed it running, on the clock of the controller.
+	at, placed, running time.Time
 }
 
 // New builds the reaper.
@@ -362,11 +364,14 @@ func (r *Reaper) collect(snapshot inventory.Snapshot) []Machine {
 	}
 
 	for _, owned := range snapshot.Owned {
+		seen := r.list(owned.VM, snapshot.At)
 		machine := Machine{
 			VM:         owned.VM,
 			Job:        owned.Job,
 			SnapshotAt: snapshot.At,
-			ListedAt:   r.list(owned.VM, snapshot.At),
+			ListedAt:   seen.at,
+			PlacedAt:   seen.placed,
+			RunningAt:  seen.running,
 			Timeouts:   Timeouts(r.profile(owned.Job), r.profiles, r.defaults),
 		}
 
@@ -396,16 +401,26 @@ func (r *Reaper) collect(snapshot inventory.Snapshot) []Machine {
 	return machines
 }
 
-// list gives when a snapshot first listed a machine, and records the snapshot at as the first one
-// for a machine that no snapshot listed before.
-func (r *Reaper) list(vm orchard.VM, at time.Time) time.Time {
+// list gives what the snapshots first showed of a machine, and records the snapshot at as the
+// first one that listed it, placed it, or showed it running, for each of those that no snapshot
+// showed before.
+func (r *Reaper) list(vm orchard.VM, at time.Time) sighting {
 	seen, known := r.listed[vm.Name]
 	if !known || !seen.created.Equal(vm.CreatedAt) {
 		seen = sighting{created: vm.CreatedAt, at: at}
-		r.listed[vm.Name] = seen
 	}
 
-	return seen.at
+	if seen.placed.IsZero() && vm.Placed() {
+		seen.placed = at
+	}
+
+	if seen.running.IsZero() && vm.Status == orchard.StatusRunning {
+		seen.running = at
+	}
+
+	r.listed[vm.Name] = seen
+
+	return seen
 }
 
 // carry carries out one task, and gives what it did. It runs on a goroutine of the step, so it

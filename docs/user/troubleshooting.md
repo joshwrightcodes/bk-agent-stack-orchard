@@ -35,7 +35,8 @@ After the agent takes the job, Buildkite decides the result, as for any agent. T
 deletes the VM when the job ends. A VM that fails while its job runs gives the reason on the job
 page, and Buildkite marks the agent as lost.
 
-A job that runs longer than `maxVMLifetime` (25 h) loses its VM.
+A job that runs longer than `maxVMLifetime` (25 h) loses its VM. The controller counts the 25 h
+from the moment that it first sees the VM, so a restart of the controller starts the count again.
 
 ## The controller does not start
 

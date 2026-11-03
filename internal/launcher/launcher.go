@@ -554,8 +554,9 @@ func (l *Launcher) tell(ctx context.Context, fresh []admission.Unmatched) error 
 }
 
 // tokenMargin is how long a token outlives the start timeouts of its profile. The token is issued
-// before the create, and the unplaced timeout counts from the create on the clock of Orchard, so
-// the margin covers the budget of the step and a skew of the clocks.
+// before the create, and the unplaced timeout counts from the first snapshot that lists the
+// machine, on the clock of the controller, so the margin covers the budget of the step and the
+// interval of the inventory.
 const tokenMargin = time.Minute
 
 // lifetimeOf is how long the token of a job of the profile works: the time that the reaper gives

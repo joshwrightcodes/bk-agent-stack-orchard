@@ -114,9 +114,18 @@ type Machine struct {
 	// and a reserved state from an earlier tick may describe a job that an agent runs now.
 	Current bool
 
-	// ListedAt is when a snapshot of the controller first listed the machine. It is on the clock
-	// of the controller, as ObservedAt is, so the two compare without the clock of Orchard.
-	ListedAt time.Time
+	// ListedAt is when a snapshot of the controller first listed the machine, PlacedAt when one
+	// first showed it on a worker, and RunningAt when one first showed it running, each the zero
+	// time while no snapshot has. They are on the clock of the controller, as ObservedAt and now
+	// are, so every age of the table compares two times of one clock. The times that Orchard
+	// gives a machine are on the clock of Orchard, and an Orchard clock that runs behind would
+	// make a new machine look old enough to end at once.
+	//
+	// Each time is no earlier than the event that it marks, so an age errs short and a timeout
+	// errs long. After a restart, the first snapshot of the new process sets all three.
+	ListedAt  time.Time
+	PlacedAt  time.Time
+	RunningAt time.Time
 
 	// ReservedUntil is when the reservation of the job ends, and the zero time when the
 	// controller does not know, which is every job after a restart.
@@ -164,7 +173,7 @@ func Decide(m Machine, now time.Time, rules Rules) Decision {
 	// Row 2. A machine that outlives every other limit goes, whatever its job says. The row comes
 	// before the freshness rule on purpose: it reads only the machine, so a controller that
 	// cannot reach Buildkite still removes a machine that nothing else will.
-	if older(now, m.VM.CreatedAt, m.Timeouts.MaxVMLifetime) {
+	if older(now, m.ListedAt, m.Timeouts.MaxVMLifetime) {
 		return Decision{Row: 2, Action: Delete, Reason: ReasonLifetime}
 	}
 
@@ -250,7 +259,7 @@ func reserved(m Machine, now time.Time, rules Rules, failed bool) Decision {
 	// Row 10. No worker took the machine in time, which means that the fleet is full. The machine
 	// goes and the reservation is left to lapse, so the job returns to the queue and admission
 	// starts it again when there is room. The job does not fail.
-	if fresh && pending && !m.VM.Placed() && older(now, m.VM.CreatedAt, m.Timeouts.Unplaced) {
+	if fresh && pending && !m.VM.Placed() && older(now, m.ListedAt, m.Timeouts.Unplaced) {
 		return Decision{Row: 10, Action: Delete, Reason: ReasonUnplacedTimeout}
 	}
 
@@ -259,7 +268,7 @@ func reserved(m Machine, now time.Time, rules Rules, failed bool) Decision {
 	// Rows 11 and 12 finish the job, so they wait for a state of this tick, and row 13 holds the
 	// job meanwhile.
 	if fresh && m.Current && pending && m.VM.Placed() &&
-		older(now, m.VM.ScheduledAt, m.Timeouts.Boot) {
+		older(now, m.PlacedAt, m.Timeouts.Boot) {
 		return Decision{Row: 11, Action: FinishAndDelete, Reason: ReasonBootTimeout}
 	}
 
@@ -267,7 +276,7 @@ func reserved(m Machine, now time.Time, rules Rules, failed bool) Decision {
 
 	// Row 12. The machine runs and no agent acquired the job in time. The limit counts from the
 	// start of the machine process, which is when macOS begins to boot.
-	if fresh && m.Current && running && older(now, m.VM.StartedAt, m.Timeouts.Acquire) {
+	if fresh && m.Current && running && older(now, m.RunningAt, m.Timeouts.Acquire) {
 		return Decision{Row: 12, Action: FinishAndDelete, Reason: ReasonAcquireTimeout}
 	}
 
