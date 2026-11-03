@@ -928,11 +928,24 @@ The controller MUST treat all builds as untrusted (PR-030). Each VM MUST have th
   controller specification reached a service of the host through its gateway; Softnet 0.24.1
   `lib/proxy/vm.rs` keeps that rule). A Softnet block of the gateway also blocks DNS, because the
   gateway is the DNS server of the VM. pf rules on each host therefore close it (§11). Softnet 0.24
-  gives each VM a network of its own, with an address of the host in a private range that it
-  picks when the VM starts, and pf on macOS has no interface groups, and its `(self)` matches
-  nothing (2026-10-10, tested on a VM). The rules therefore block by destination: from any
-  interface but the admin interfaces of the host, only DHCP and DNS reach the host, and only the
-  `softnetAllow` CIDRs of the profiles of the host reach the private ranges.
+  gives each VM a network of its own when the VM starts: a random /29 from `10.0.0.0/8`,
+  `172.16.0.0/12`, `192.168.0.0/18`, `192.168.64.0/19`, or `192.168.96.0/22` that does not
+  overlap a network of an interface of the host, with the first address of the /29 for the host
+  (Softnet 0.24.1 `lib/subnet_finder/mod.rs`, read 2026-11-03). pf on macOS has no interface
+  groups, its `(self)` matches nothing (2026-10-10, tested on a VM), and its `self` holds only the
+  addresses that the host has when the rules load. The rules therefore block by destination, and
+  the block MUST NOT depend on when an address of the host appears:
+  * From any interface but the admin interfaces of the host, only DHCP and DNS reach the host,
+    and only the `softnetAllow` CIDRs of the profiles of the host reach the private ranges.
+  * The rules block `self`, and the current addresses of each admin interface, which pf follows.
+  * Every gateway of a VM is inside those five ranges, and the rules block the private ranges.
+    Only a `softnetAllow` CIDR opens a part of them. The controller and the playbook therefore
+    refuse a CIDR wider than /29 that overlaps them (§5). A narrower CIDR holds one gateway at
+    most, and a mirror can have that address, so the rules guard each such gateway: they refuse
+    a connection to it that a socket of the host takes. pf finds that socket for a `user` rule
+    (xnu `bsd/net/pf.c`, `pf_socket_lookup`). A connection that the host forwards to a mirror has
+    no socket of the host, so it passes, unless the host listens on the same port on every
+    address, such as SSH.
 * The allow of a profile belongs to every pipeline on the queue. The pipeline author selects the
   profile with the agent tags (§5), and the controller does not check who the author is. A job
   that selects a profile with `softnetAllow` can therefore reach those CIDRs, whoever wrote the

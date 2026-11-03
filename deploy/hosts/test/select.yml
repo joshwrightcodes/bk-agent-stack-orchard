@@ -80,3 +80,107 @@
             that:
               - ansible_failed_task.name == 'Check the private addresses that the profiles permit'
               - ansible_failed_result.msg is search('also give 0.0.0.0/0[.]$')
+
+    - name: A profile that permits a wide range inside the networks of the VMs stops the host
+      block:
+        - name: Choose the profiles of a worker with the profile of the pools
+          ansible.builtin.include_role:
+            name: orchard_worker
+            tasks_from: select
+          vars:
+            orchard_worker_labels: {pool: pools}
+            orchard_worker_config_file: "{{ playbook_dir }}/testdata/pools.yaml"
+
+        - name: The profile of the pools passed
+          ansible.builtin.fail:
+            msg: The role accepted the softnetAllow entry 192.168.0.0/16.
+      rescue:
+        - name: Check that only the range wider than /29 failed
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_task.name == 'Check that no permitted range holds the networks of the VMs'
+              - ansible_failed_result.msg is search('also give 192.168.0.0/16[.]$')
+
+# Checks the pf rules that the template gives for the profiles of a host: the guard holds the
+# addresses inside softnetAllow that Softnet can give the host, before the pass of softnetAllow.
+- name: The pf rules of a host
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Choose the profiles of a general worker
+      ansible.builtin.include_role:
+        name: orchard_worker
+        tasks_from: select
+        public: true
+      vars:
+        orchard_worker_labels: {pool: general}
+        orchard_worker_config_file: "{{ playbook_dir }}/testdata/values.yaml"
+
+    - name: Check the guard of the addresses that Softnet can give the host
+      ansible.builtin.assert:
+        that:
+          # The first address of a /29 in the pools, alone or inside a narrow range, and every
+          # address of a wide range. Not an address that is not the first of its /29, not an
+          # address outside the pools, and not IPv6.
+          - guard == ['10.0.0.0/8', '10.20.30.41/32', '172.16.5.1/32', '192.168.99.249/32']
+          - wide == ['10.0.0.0/8']
+      vars:
+        allow: ['10.20.30.40/32', '10.20.30.41/32', '172.16.5.0/30', '192.168.99.249/32',
+                '192.168.100.1/32', 'fd12:3456::/48', '10.0.0.0/8', '10.20.30.40/29']
+        guard: "{{ allow | softnet_host_guard(orchard_worker_softnet_pools) }}"
+        wide: "{{ allow | softnet_wide_overlaps(orchard_worker_softnet_pools) }}"
+
+    - name: Make a file for the pf rules
+      ansible.builtin.tempfile:
+        suffix: .pf
+      register: rules_file
+
+    # select.yml sets the allow as a fact, which a variable of a task cannot replace.
+    - name: Permit a gateway of Softnet
+      ansible.builtin.set_fact:
+        orchard_worker_softnet_allow: ['10.20.30.40/32', '10.20.30.41/32', '192.168.100.0/24']
+
+    - name: Write the pf rules of a host with a gateway in softnetAllow
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../roles/orchard_worker/templates/vm-isolation.pf.j2"
+        dest: "{{ rules_file.path }}"
+        mode: "0644"
+      vars:
+        orchard_worker_admin_interfaces: [en0, en1]
+
+    - name: Read the pf rules
+      ansible.builtin.set_fact:
+        pf_rules: "{{ lookup('ansible.builtin.file', rules_file.path) }}"
+
+    - name: Check the order of the pf rules
+      ansible.builtin.assert:
+        that:
+          - pf_rules is search('table <bkaso_softnet_host_guard> persist [{] 10[.]20[.]30[.]41/32 [}]')
+          - pf_rules is search('admin_addrs = "[{] [(]en0[)], [(]en1[)] [}]"')
+          - positions == (positions | sort)
+      vars:
+        positions:
+          - "{{ pf_rules.find('pass in quick on $admin_ifs all') }}"
+          - "{{ pf_rules.find('port 53') }}"
+          - "{{ pf_rules.find('block in quick from any to self') }}"
+          - "{{ pf_rules.find('block in quick from any to $admin_addrs') }}"
+          - "{{ pf_rules.find('to <bkaso_softnet_host_guard> user != unknown') }}"
+          - "{{ pf_rules.find('pass in quick from any to <bkaso_softnet_allow>') }}"
+          - "{{ pf_rules.find('block in quick from any to $private') }}"
+
+    - name: Look for pfctl
+      ansible.builtin.stat:
+        path: /sbin/pfctl
+      register: pfctl
+
+    # pfctl -n parses the rules and loads nothing, so it needs no root. Only macOS has it.
+    - name: Parse the pf rules with pfctl
+      ansible.builtin.command: /sbin/pfctl -n -f {{ rules_file.path }}
+      when: pfctl.stat.exists
+      changed_when: false
+
+    - name: Remove the pf rules of the test
+      ansible.builtin.file:
+        path: "{{ rules_file.path }}"
+        state: absent

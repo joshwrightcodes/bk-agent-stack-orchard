@@ -28,6 +28,16 @@ orchard_worker_plist: "/Library/LaunchDaemons/{{ orchard_worker_label_name }}.pl
 orchard_worker_pf_rules: /etc/pf.anchors/{{ orchard_worker_pf_label }}
 orchard_worker_pf_plist: "/Library/LaunchDaemons/{{ orchard_worker_pf_label }}.plist"
 
+# The ranges from which Softnet picks the /29 network of each VM, whose first address is the
+# host (Softnet 0.24.1, lib/subnet_finder/mod.rs). They change only with Softnet, so a test of the
+# controller checks that they equal its own copy, for the Softnet version of defaults/main.yml.
+orchard_worker_softnet_pools:
+  - 10.0.0.0/8
+  - 172.16.0.0/12
+  - 192.168.0.0/18
+  - 192.168.64.0/19
+  - 192.168.96.0/22
+
 # An address or a range inside the private ranges that the pf rules block: an IPv4 range no wider
 # than its private range, or an IPv6 range of /10 or narrower.
 orchard_worker_private_range: >-

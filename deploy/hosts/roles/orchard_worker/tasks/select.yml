@@ -36,3 +36,18 @@
       host also give {{ orchard_worker_softnet_wrong | join(', ') }}.
   vars:
     orchard_worker_softnet_wrong: "{{ orchard_worker_softnet_allow | map('string') | reject('match', orchard_worker_private_range) | list }}"
+
+# Softnet gives the host the first address of the /29 network of each VM, inside the pools of
+# vars/main.yml. An entry wider than /29 there holds the gateway of some VM, and the pf rules would
+# have to guard all of it (templates/vm-isolation.pf.j2), so the role refuses it, as the controller
+# does.
+- name: Check that no permitted range holds the networks of the VMs
+  ansible.builtin.assert:
+    quiet: true
+    that: orchard_worker_softnet_wide | length == 0
+    fail_msg: >-
+      Softnet picks the /29 network of each VM from {{ orchard_worker_softnet_pools | join(', ') }},
+      and the host takes an address in each of those networks. A softnetAllow entry there is /29
+      or narrower. The profiles of this host also give {{ orchard_worker_softnet_wide | join(', ') }}.
+  vars:
+    orchard_worker_softnet_wide: "{{ orchard_worker_softnet_allow | softnet_wide_overlaps(orchard_worker_softnet_pools) }}"
