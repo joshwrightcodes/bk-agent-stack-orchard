@@ -106,7 +106,7 @@ The repository also has examples that you can adapt:
 | [Configuration reference](docs/user/configuration.md) | [Releasing](docs/releasing.md) |
 | [Telemetry](docs/user/telemetry.md) | [Writing guide](docs/writing-guide.md) |
 | [Troubleshooting](docs/user/troubleshooting.md) | [Target design](docs/architecture/target-design.md) |
-| [Replace the agent token](docs/runbooks/token-replacement.md) | [Decision records](docs/adrs/README.md) |
+| [Replace the agent token](docs/user/runbooks/token-replacement.md) | [Decision records](docs/adrs/README.md) |
 | [Third-party terms](docs/user/third-party-terms.md) | [All design documents](docs/README.md) |
 
 ## Community

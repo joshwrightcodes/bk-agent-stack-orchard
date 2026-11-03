@@ -7,7 +7,7 @@ This directory makes each Mac host an Orchard worker (target design, section 11)
    - the Command Line Tools, which give Python to Ansible;
    - an Apple silicon Mac;
    - macOS 27.2 or later, because the job VMs run macOS 27.2 and a macOS guest needs a host of the
-     same version or later (CO-07);
+     same version or later;
    - the hypervisor;
    - the automatic login of the worker user.
 2. It installs Orchard, Tart, and Softnet at pinned versions, from their release archives, checked
@@ -68,7 +68,7 @@ standard input. The source is `/usr/local/etc/orchard-worker/bootstrap-token` (r
 this reason, the token is in no process listing.
 
 The host pulls the image of each profile whose `workerLabels` the labels of the worker contain. It
-pulls no other image, because a 1 TB host holds only a few Xcode images (SC-09). A profile names
+pulls no other image, because a 1 TB host holds only a few Xcode images. A profile names
 its image by digest. The image in the cache is therefore always the image of the profile. When the
 registry needs credentials, give `orchard_worker_registry_username` and
 `orchard_worker_registry_password`.

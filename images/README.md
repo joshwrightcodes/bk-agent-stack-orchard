@@ -7,14 +7,14 @@ way to meet them, and the project uses it for its own tests:
 
 | Image | Use |
 |---|---|
-| `agent` | A job that needs no Xcode, every end-to-end scenario of W-24 except the iOS build, and the real-VM tests of this repository |
-| `pilot` | The pilot profile (PR-026): build, test, sign, and publish an iOS or macOS app with Xcode 27 |
+| `agent` | A job that needs no Xcode, every end-to-end test except the iOS build, and the real-VM tests of this repository |
+| `pilot` | The pilot profile: build, test, sign, and publish an iOS or macOS app with Xcode 27 |
 
 Both start from `ghcr.io/cirruslabs/macos-golden-gate-vanilla`, pinned by digest. This base image
 is macOS 27.2 from the restore image of Apple, with the setup assistant finished. It has `admin`
 with passwordless sudo, automatic login, and SSH. It has no Homebrew, no tools, and no Tart guest
 agent ([cirruslabs/macos-image-templates](https://github.com/cirruslabs/macos-image-templates),
-`templates/vanilla-golden-gate.pkr.hcl`). Each image holds only what its list names (ADR-0012).
+`templates/vanilla-golden-gate.pkr.hcl`). Each image holds only what its list names.
 The build adds:
 
 | Part | Image | Source |
@@ -28,9 +28,9 @@ The build adds:
 | `buildkite-agent` 4.9.0 | Both | Its release, checked against the SHA-256 of its `SHA256SUMS`, in `/usr/local/bin`. The controller runs it only for a profile with `agent.source: image`; by default, each VM downloads the same release when it starts |
 | The configuration of the agent | Both | `files/buildkite-agent.cfg`: the build, hooks, and plugins paths. The startup environment of the controller gives the token, the job, the name, and the tags |
 | The agent tags of the image | Both | `/usr/local/etc/bk-agent-stack-orchard/agent-tags`: `image-name`, `image-tag`, `macos`, and `macos-build`, and in the pilot `xcode` and `xcode-build`. The build reads the values in the VM after each install, and its check reads them again |
-| The `environment` hook | Both | `files/environment`: the artifacts of a job go to the optional owner-managed storage, if the build set one (PR-032). In the pilot, it also puts Homebrew on the `PATH` and sets a UTF-8 locale |
+| The `environment` hook | Both | `files/environment`: the artifacts of a job go to the optional owner-managed storage, if the build set one. In the pilot, it also puts Homebrew on the `PATH` and sets a UTF-8 locale |
 
-The controller starts the agent in the VM through the Tart guest agent (ADR-0009), with a startup
+The controller starts the agent in the VM through the Tart guest agent, with a startup
 script that is the same for each VM (target design, section 6.4). Before the agent starts, the
 script sets the host name to the name of the VM with passwordless `sudo`, so Buildkite shows which
 VM ran a job. It also adds the agent tags of the image after the tags of the controller. A tag
@@ -60,7 +60,7 @@ private, because the license of Xcode limits who may receive it.
 
 ## The artifact storage
 
-Buildkite-managed storage is acceptable for artifacts (PR-032, owner decision of 2026-11-02), so
+Buildkite-managed storage is acceptable for artifacts, so
 `ARTIFACT_DESTINATION` is optional. An image built without it leaves the destination alone, and
 `buildkite-agent` uploads the artifacts to the storage of Buildkite. When the build takes an
 owner-managed storage as `ARTIFACT_DESTINATION`, for example `s3://<bucket>/<prefix>`, the hook
@@ -137,7 +137,7 @@ passed when Buildkite ran it again.
 
 Each image holds only what this list names. The second boot lists each place where software
 installs itself. A name that the list lacks fails the build. A tool that a new vanilla image adds
-therefore cannot reach a job VM unseen (ADR-0012). The list is in `build.sh` (`ALLOWED_*`):
+therefore cannot reach a job VM unseen. The list is in `build.sh` (`ALLOWED_*`):
 
 | Place | `agent` | `pilot` |
 |---|---|---|

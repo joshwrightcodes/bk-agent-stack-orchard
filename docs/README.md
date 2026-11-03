@@ -46,9 +46,9 @@ a number, such as the demand model or a quality target.
 | [Telemetry](user/telemetry.md) | Which metrics, traces, and logs does the controller send? |
 | [Troubleshooting](user/troubleshooting.md) | Why does a job wait or fail, and what does an operator do? |
 | [Third-party terms](user/third-party-terms.md) | Which terms of Apple, Tart, and Orchard affect a fleet? |
-| [Runbook: replace the agent token](runbooks/token-replacement.md) | How does an operator replace the cluster agent token? |
-| [Runbook: retire and rotate the Orchard bootstrap admin](runbooks/orchard-bootstrap-admin.md) | How does an operator take the `bootstrap-admin` token out of the Orchard pod and rotate it? |
-| [Runbook: Orchard worker accounts](runbooks/orchard-worker-accounts.md) | How does an operator add, rotate, and revoke the account of one Mac host? |
+| [Runbook: replace the agent token](user/runbooks/token-replacement.md) | How does an operator replace the cluster agent token? |
+| [Runbook: retire and rotate the Orchard bootstrap admin](user/runbooks/orchard-bootstrap-admin.md) | How does an operator take the `bootstrap-admin` token out of the Orchard pod and rotate it? |
+| [Runbook: Orchard worker accounts](user/runbooks/orchard-worker-accounts.md) | How does an operator add, rotate, and revoke the account of one Mac host? |
 
 The direction of the set is from the requirements to the design, the tests, and the plan.
 `mise run check-docs` checks that each cited identifier exists, and that each link resolves.

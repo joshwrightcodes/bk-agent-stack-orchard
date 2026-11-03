@@ -57,7 +57,7 @@ These are known, recorded, and accepted. They are not vulnerabilities in this pr
   read and write VMs, because the roles `compute:read` and `compute:write` are the roles that a
   worker needs. The controls are a token for each host, so the operator revokes one host without
   a change on the others (runbook
-  [`docs/runbooks/orchard-worker-accounts.md`](docs/runbooks/orchard-worker-accounts.md)), and the
+  [`docs/user/runbooks/orchard-worker-accounts.md`](docs/user/runbooks/orchard-worker-accounts.md)), and the
   alert on an unknown worker name (target design, section 10.6). The alert sees only a name that
   the operator does not know. A stolen token that registers a known name, for example the record of
   one host, is not detected. This is a residual risk.
@@ -82,7 +82,7 @@ These are known, recorded, and accepted. They are not vulnerabilities in this pr
   its log, when it starts with an empty database and without `ORCHARD_BOOTSTRAP_ADMIN_TOKEN`. This
   can happen after the loss of the PVC, when the operator has retired the bootstrap admin. The
   control is the runbook
-  [`docs/runbooks/orchard-bootstrap-admin.md`](docs/runbooks/orchard-bootstrap-admin.md): put the
+  [`docs/user/runbooks/orchard-bootstrap-admin.md`](docs/user/runbooks/orchard-bootstrap-admin.md): put the
   variable back before a start with an empty PVC, treat the log of the Orchard pod as a secret, and
   delete the account if it was logged. The residual risk is that an operator forgets, and that a
   log shipper keeps the token until the operator purges it.
@@ -91,7 +91,7 @@ These are known, recorded, and accepted. They are not vulnerabilities in this pr
   revocation of a host runs the bootstrap Job again. The controls are that only the Job mounts
   the Secret (the Orchard pod does not hold the token), that Kubernetes RBAC limits who can read
   Secrets of the `orchard` namespace, and that the operator rotates the token (runbook
-  [`docs/runbooks/orchard-bootstrap-admin.md`](docs/runbooks/orchard-bootstrap-admin.md)). The
+  [`docs/user/runbooks/orchard-bootstrap-admin.md`](docs/user/runbooks/orchard-bootstrap-admin.md)). The
   residual risk is that a person or a workload with the right to read Secrets of the namespace,
   or a copy of the cluster state, gives full control of Orchard, and that a late rotation leaves
   an old token valid. A fleet with no planned host change MAY delete the account.

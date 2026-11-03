@@ -8,15 +8,8 @@ its token stay in the Secret `orchard-bootstrap`, and nothing else holds them.
 **Interim procedure.** People copy, rotate, and remove tokens by hand in this procedure. That is
 not the target state. The owner decided on 2026-11-02 that only an engineer who sets or rotates a
 key in the secret store on a schedule does a manual step, that the tokens on the Mac hosts rotate
-automatically, and that each credential can be rotated on demand. Open item O-9 of the test
-strategy tracks the work that replaces this procedure.
-
-## Conventions
-
-The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT",
-"RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be
-interpreted as described in BCP 14 [RFC 2119] [RFC 8174] when, and only when, they appear in
-all capitals, as shown here.
+automatically, and that each credential can be rotated on demand. The test strategy tracks the
+work that replaces this procedure.
 
 ## Why the account stays
 
@@ -51,10 +44,11 @@ on an argv or into a file. The controller account cannot do these checks: it has
      grep ORCHARD_BOOTSTRAP_ADMIN_TOKEN
    ```
 
-   The first command MUST show only pods of the Job. The second MUST print nothing.
+   The first command shows only pods of the Job. The second prints nothing. If either shows more,
+   stop and find the other user of the Secret.
 5. Check the account: `orchard_admin GET /v1/service-accounts` lists `bootstrap-admin`.
-6. Limit who can read the Secret. Kubernetes RBAC MUST give `get`, `list`, and `watch` on Secrets
-   of the namespace `orchard` to few people only, and to no workload.
+6. Limit who can read the Secret. Give `get`, `list`, and `watch` on Secrets of the namespace
+   `orchard` to few people only, and to no workload.
 
 ## Rotation
 
@@ -84,14 +78,14 @@ unset new
 ```
 
 The answer of Orchard holds the new token, so the command sends it to `/dev/null` and shows only the
-HTTP status, which MUST be `HTTP 200`. Then run `orchard_admin GET /v1/service-accounts`. It MUST
-list `bootstrap-admin`, and it uses the new token from the Secret. The old token is refused from the
-PUT on.
+HTTP status. Check that it is `HTTP 200`. Then run `orchard_admin GET /v1/service-accounts`, and
+check that it lists `bootstrap-admin`. This call uses the new token from the Secret. Orchard refuses
+the old token from the PUT on.
 
 ## Delete the account completely
 
-A fleet with no planned change of a host MAY delete the account. Do the steps 1 and 2 of the
-procedure. Then delete the account, check that the token is refused, and delete the key:
+If your fleet has no planned change of a host, you can delete the account. Do the steps 1 and 2 of
+the procedure. Then delete the account, check that the token is refused, and delete the key:
 
 ```sh
 orchard_admin DELETE /v1/service-accounts/bootstrap-admin
@@ -100,7 +94,7 @@ kubectl -n orchard patch secret orchard-bootstrap --type json \
   -p '[{"op":"remove","path":"/data/bootstrap-admin-token"}]'
 ```
 
-The second command MUST end with `HTTP 401`. Delete the key only after that check,
+Check that the second command ends with `HTTP 401`. Delete the key only after that check,
 because Orchard needs no key for it. After the deletion, the next change of a host needs the
 account back. To re-create it:
 

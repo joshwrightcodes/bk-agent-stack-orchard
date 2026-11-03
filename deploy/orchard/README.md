@@ -5,13 +5,6 @@ section 11). An overlay of the operator sets the namespace, the image, the names
 controller and the CIDRs of the Mac hosts in the NetworkPolicy, an internal load balancer, and the
 endpoint of the collector.
 
-## Conventions
-
-The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT",
-"RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be
-interpreted as described in BCP 14 [RFC 2119] [RFC 8174] when, and only when, they appear in
-all capitals, as shown here.
-
 ## The image
 
 Orchard publishes its image to `ghcr.io/openai/orchard`, and that package does not answer a pull
@@ -31,7 +24,7 @@ docker push <registry of the fleet>/orchard:0.58.0
 
 The image carries the licence of Orchard, FSL-1.1-ALv2, in `/usr/share/doc/orchard/LICENSE`. It is
 not part of the image of the controller of this project, which carries no Orchard code
-(ADR-0010). Push it only to the registry of the fleet.
+Push it only to the registry of the fleet.
 
 ## The Secrets
 
@@ -48,17 +41,17 @@ The base creates no Secret, so no token goes through the repository. Create thes
 
 | Key | Use |
 |---|---|
-| `worker-<host>` | The token of the account `worker-<host>` of that host. `<host>` MUST be a DNS label (lower case letters, digits, and hyphens, a maximum of 63 characters), and it MUST be the `orchard_worker_name` of the host in the inventory |
+| `worker-<host>` | The token of the account `worker-<host>` of that host. `<host>` is a DNS label (lower case letters, digits, and hyphens, a maximum of 63 characters), and it is the `orchard_worker_name` of the host in the inventory |
 
 The keys are the list of hosts, so the tokens stay in a Secret and no ConfigMap holds a token.
-A fleet that has the shared account `worker` MUST follow "Migrate from the shared account" in
-`docs/runbooks/orchard-worker-accounts.md`, because the Job does not delete that account. The
+If your fleet has the shared account `worker`, follow "Migrate from the shared account" in
+`docs/user/runbooks/orchard-worker-accounts.md`, because the Job does not delete that account. The
 bootstrap Job refuses a key whose host is not a DNS label, and it fails when the Secret has no
 such key. Each host has its own token (`openssl rand -hex 24`). The operator keeps the same token
 in the inventory vault (`deploy/hosts/README.md`).
 
 `orchard-tls`, a TLS Secret with `tls.crt`, `tls.key`, and `ca.crt`, for example from
-cert-manager. The certificate MUST name the Service (`orchard`, `orchard.<namespace>.svc`) and the
+cert-manager. The certificate names the Service (`orchard`, `orchard.<namespace>.svc`) and the
 name of the load balancer that the Mac hosts use. `ca.crt` is the PEM that the controller of this
 project takes in `BK_AGENT_STACK_ORCHARD_ORCHARD_CA_CERT`. Orchard can make a certificate for
 itself, but then each client must trust that one certificate, and a new PVC gives a new one.
@@ -99,8 +92,8 @@ configMapGenerator:
 The base keeps Orchard inside the cluster. The Mac hosts are outside it, so they need an internal
 load balancer. `deploy/orchard-overlays/internal-lb` is an example that sets `type: LoadBalancer`
 with the annotation of one cloud. It names the annotations of GKE, AWS, and AKS with their sources,
-checked on 2026-11-02. Use it as a resource of the overlay, or copy its patch. An overlay MUST NOT
-make the load balancer public.
+checked on 2026-11-02. Use it as a resource of the overlay, or copy its patch. Do not make the load
+balancer public in an overlay.
 
 ## What it runs
 
@@ -120,7 +113,7 @@ make the load balancer public.
   of the Secret `orchard-worker-tokens`, each with `compute:read` and `compute:write` only (the
   roles that an Orchard worker needs, target design section 9.2), through the REST API of Orchard.
   It never deletes an account: a host that leaves the Secret keeps its account until the operator
-  revokes it (`docs/runbooks/orchard-worker-accounts.md`). It replaces an account
+  revokes it (`docs/user/runbooks/orchard-worker-accounts.md`). It replaces an account
   that exists and creates one that does not, so a run after a rotation of a token sets the new
   token. Run it again after each change of a host: delete the Job and apply the overlay. It needs
   the bootstrap admin, so that account and its Secret key stay (see "First start and after the
@@ -133,13 +126,13 @@ A cluster enforces a NetworkPolicy only when its CNI plugin does. kind uses kind
 manifest of kind 0.33.0 grants kindnet the right to read NetworkPolicy objects (checked in the
 kind binary on 2026-11-02), so `mise run smoke` runs with the policy in force. The smoke test
 therefore proves the admitted paths: the controller and the bootstrap Job reach Orchard. It does
-not prove the refused paths. An operator MUST test the policy on the CNI of the cluster: a pod of
-another namespace MUST NOT reach 6120.
+not prove the refused paths. Test the policy on the CNI of your cluster: check that a pod of
+another namespace cannot reach 6120.
 
 The probes of the StatefulSet are TCP probes of the kubelet. The Kubernetes documentation says
 that traffic to and from the node where a pod runs is always allowed, so the policy has no rule
 for the probes (checked 2026-11-02,
-`https://kubernetes.io/docs/concepts/services-networking/network-policies/`). A CNI plugin MAY
+`https://kubernetes.io/docs/concepts/services-networking/network-policies/`). A CNI plugin can
 differ. The first smoke run on kindnet is the check: if Orchard never becomes ready, add an
 ingress rule for the node CIDR. Do not remove the policy.
 
@@ -147,7 +140,7 @@ ingress rule for the node CIDR. Do not remove the policy.
 
 The policy admits TCP 6120 only from the controller of this project, the bootstrap Job, and the
 Mac hosts. It refuses a workstation or a bastion, on the ClusterIP and on the internal load
-balancer. An operator MUST NOT add the CIDR of an office to the policy to get round this. Use a
+balancer. Do not add the CIDR of an office to the policy to get round this. Use a
 port-forward:
 
 ```sh
@@ -199,8 +192,8 @@ so it cannot list service accounts (`admin:read`). Use the controller account fo
 **Interim procedure.** People copy, rotate, and remove tokens by hand in this procedure. That is
 not the target state. The owner decided on 2026-11-02 that only an engineer who sets or rotates a
 key in the secret store on a schedule does a manual step, that the tokens on the Mac hosts rotate
-automatically, and that each credential can be rotated on demand. Open item O-9 of the test
-strategy tracks the work that replaces this procedure.
+automatically, and that each credential can be rotated on demand. The test strategy tracks the
+work that replaces this procedure.
 
 Orchard 0.58.0 behaves as follows (source: `internal/command/controller/bootstrap.go` at the tag
 `0.58.0` of the Orchard repository, read on 2026-11-02; `orchard delete service-account` from
@@ -233,11 +226,11 @@ the Job again, and the Job needs it. Each of these changes then works with no re
    ```
 
 3. Rotate the token now, so the token of the first start is not the standing one (the procedure
-   is in `docs/runbooks/orchard-bootstrap-admin.md`, "Rotation"). Rotate it again on a schedule
+   is in `docs/user/runbooks/orchard-bootstrap-admin.md`, "Rotation"). Rotate it again on a schedule
    of the operator and when a person who could read the Secret leaves.
-4. Check that no other pod mounts or reads the Secret. In this repository, only
-   `bootstrap-job.yaml` references `orchard-bootstrap` after step 2, and the command below lists
-   every user of it in the namespace. Only the pods of the Job MUST appear:
+4. Check that no other pod mounts or reads the Secret. In this repository, only `bootstrap-job.yaml`
+   references `orchard-bootstrap` after step 2, and the command below lists every user of it in the
+   namespace. Only the pods of the Job appear. If others do, stop and find out why:
 
    ```sh
    kubectl -n orchard get pods -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.volumes[*].secret.secretName}{"\t"}{.spec.containers[*].env[*].valueFrom.secretKeyRef.name}{"\n"}{end}' |
@@ -258,7 +251,8 @@ the Job again, and the Job needs it. Each of these changes then works with no re
 
 ### Delete the account completely
 
-A fleet with no planned change of a host MAY delete `bootstrap-admin` and its Secret key instead.
+If your fleet has no planned change of a host, you can delete `bootstrap-admin` and its Secret key
+instead.
 First do steps 1 and 2. Then delete the account, check that the token of the Secret is refused
 (the answer ends with `HTTP 401`), and only then delete the key:
 
@@ -276,10 +270,10 @@ retire again with steps 2 to 5.
 
 ### Warning: a start with an empty PVC can log an admin token
 
-The loss of the PVC is recoverable, but it has a side effect. After the retirement above, a new
-PVC gives Orchard an empty database and no variable. Orchard then makes `bootstrap-admin` with a
-random token that has all roles, and it prints that token in its log. A log shipper copies it. The
-operator MUST treat the log of the Orchard pod as a secret.
+The loss of the PVC is recoverable, but it has a side effect. After the retirement above, a new PVC
+gives Orchard an empty database and no variable. Orchard then makes `bootstrap-admin` with a random
+token that has all roles, and it prints that token in its log. A log shipper copies it. Treat the
+log of the Orchard pod as a secret.
 
 - Prevention: before a start with an empty PVC, put the variable back (with the token of the key
   `bootstrap-admin-token`, which stays in the Secret unless the operator deleted it). Orchard then
@@ -289,7 +283,7 @@ operator MUST treat the log of the Orchard pod as a secret.
 - Recovery, if it already happened: set the account again with a new token (the rotation in the
   runbook), and purge the log lines where the logging system allows it.
 
-The Mac hosts, and the way that each worker gets its credentials, are W-22. Orchard does not tie
+[`deploy/hosts`](../hosts/README.md) sets up the Mac hosts, and gives each worker its credentials. Orchard does not tie
 an account to a worker name, so a host with the token of another host can register as any name.
 The alert "Unknown worker" of the target design (section 10.6) sees only a name that the operator
 does not know. It does not see a known name that another host uses.
