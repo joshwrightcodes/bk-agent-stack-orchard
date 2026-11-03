@@ -48,6 +48,13 @@ The command:
 2. Pulls the image `ghcr.io/cirruslabs/macos-golden-gate-base` into the Tart cache. It pulls the
    image by its digest, which [Options](#options) shows, so the image cannot change under you.
 3. Starts a local Orchard controller and one Orchard worker, which uses the Tart of your Mac.
+   The VMs carry the job tokens of your Buildkite jobs, so this Orchard is closed to other
+   computers:
+   * The Orchard controller listens only on `127.0.0.1:6120`, and it uses TLS.
+   * It answers only two service accounts: one for the controller and one for the worker. Each
+     has only the roles that it needs.
+   * Each run makes a new certificate and new tokens. The command does not put them on a command
+     line, so the process list does not show them. It deletes them with its work directory.
 4. Downloads the newest release of the controller for macOS. It checks that the release was
    built from a commit on the `main` branch of this repository. It checks the signature of the
    release, which must come from the release workflow of this repository for that commit, and the
@@ -110,7 +117,7 @@ tart delete ghcr.io/cirruslabs/macos-golden-gate-base@sha256:14f4fc32a778763ccae
 | `has published no release yet` | No release of the controller exists yet. Use `--from-source`. |
 | `the signature of checksums.txt … is not one of the release workflow` | The download is not a release of this project. Do not use it. Report it as [SECURITY.md](../../SECURITY.md) says. |
 | `has no valid provenance attestation` | The provenance of the download is not from the release workflow of this project. Do not use it. Report it as [SECURITY.md](../../SECURITY.md) says. |
-| `something already answers on port 6120` | Another Orchard runs on this Mac. Stop it, or give its address with `--orchard-url`. |
+| `something already answers on port 6120` | Another program, often another Orchard, listens on port 6120 of this Mac. Stop it, or give the address of your Orchard with `--orchard-url`. |
 | `Softnet needs the set-user-ID bit` | Run the two commands that the message shows. |
 | The controller stops with `buildkite did not accept the agent token` | The token is not a cluster agent token. Create one for the cluster of the queue. |
 | The job stays `scheduled`, and the log says `the controller skips a job that no profile carries` | The tags of the job must be the queue and the `--match` tags, and no others. |
