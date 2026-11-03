@@ -23,8 +23,11 @@ You need these items:
   worker, both count the same free slots, they reserve more jobs than the worker can run, and VMs
   wait unplaced until the controller deletes them.
 * **A Tart image for each profile, which you build.** The project publishes no job VM image. The
-  image must run the Tart guest agent, and it must meet the image rules of the target design,
-  section 9.2: no well-known credential over the network, and SSH and Screen Sharing off.
+  image must meet the image rules of the target design, section 9.2. It must not accept a
+  well-known credential over the network. An image for the default `tart-guest-agent` transport
+  must run the Tart guest agent, and it must turn off SSH and Screen Sharing. An image for
+  `startupTransport: ssh` must keep SSH on, with a changed password that the `vmCredentials` of
+  the profile give.
   [`images/`](../../images/README.md) is a reference build. The upstream
   `ghcr.io/cirruslabs/macos-golden-gate-base` image of the quick start runs the guest agent, but it
   does not meet those rules, so use it for evaluation only. By default, each VM downloads a pinned
