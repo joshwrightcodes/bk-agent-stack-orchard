@@ -3,6 +3,7 @@
 package reaper_test
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -37,12 +38,12 @@ func finishedJobs(n int) (map[job.ID]string, []inventory.Owned) {
 func TestThePassWritesItsLinesInOneRequest(t *testing.T) {
 	t.Parallel()
 
-	states, owned := finishedJobs(3)
+	states, list := finishedJobs(3)
 	states[ended] = "running"
-	owned = append(owned, failing(ended))
+	list = append(list, failing(ended))
 
 	machines := &fleet{read: true, snapshot: inventory.Snapshot{
-		Owned:   owned,
+		Owned:   list,
 		Orphans: []orchard.VM{{Name: "bk-macos-prod-not-a-job", CreatedAt: now}},
 	}}
 	jobPages := &pages{}
@@ -75,8 +76,8 @@ func TestThePassWritesItsLinesInOneRequest(t *testing.T) {
 func TestTheLinesOfAPassSplitAtTheLimitOfARequest(t *testing.T) {
 	t.Parallel()
 
-	states, owned := finishedJobs(buildkite.NotificationsPerRequest + 1)
-	machines := &fleet{read: true, snapshot: inventory.Snapshot{Owned: owned}}
+	states, list := finishedJobs(buildkite.NotificationsPerRequest + 1)
+	machines := &fleet{read: true, snapshot: inventory.Snapshot{Owned: list}}
 	jobPages := &pages{}
 
 	if err := buildWith(t, &observed{states: states}, machines, &decisions{}, jobPages).
@@ -95,8 +96,8 @@ func TestTheLinesOfAPassSplitAtTheLimitOfARequest(t *testing.T) {
 func TestARefusedLineIsNoWarning(t *testing.T) {
 	t.Parallel()
 
-	states, owned := finishedJobs(2)
-	machines := &fleet{read: true, snapshot: inventory.Snapshot{Owned: owned}}
+	states, list := finishedJobs(2)
+	machines := &fleet{read: true, snapshot: inventory.Snapshot{Owned: list}}
 	log := &decisions{}
 	jobPages := &pages{notifyErr: &buildkite.RefusedError{
 		Indexes: []int{0, 1}, Total: 2, Reason: "the job has finished",
@@ -115,5 +116,24 @@ func TestARefusedLineIsNoWarning(t *testing.T) {
 			t.Errorf("the reaper wrote %q at %s, want no warning for a refused line",
 				record.Message, record.Level)
 		}
+	}
+}
+
+// A request that finds Buildkite not answering stops the requests behind it, because they would
+// wait for the same Buildkite, each for its whole time limit.
+func TestARequestThatBuildkiteDoesNotAnswerStopsTheLaterRequests(t *testing.T) {
+	t.Parallel()
+
+	states, list := finishedJobs(buildkite.NotificationsPerRequest + 1)
+	machines := &fleet{read: true, snapshot: inventory.Snapshot{Owned: list}}
+	jobPages := &pages{notifyErr: context.DeadlineExceeded}
+
+	if err := buildWith(t, &observed{states: states}, machines, &decisions{}, jobPages).
+		Reap(t.Context()); err != nil {
+		t.Fatalf("Reap() = %v, want no error", err)
+	}
+
+	if !slices.Equal(jobPages.requests, []int{buildkite.NotificationsPerRequest}) {
+		t.Errorf("buildkite saw requests of %v lines, want only the first", jobPages.requests)
 	}
 }

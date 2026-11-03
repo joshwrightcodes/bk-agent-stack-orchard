@@ -174,6 +174,16 @@ func Retryable(err error) bool {
 	return errors.As(err, &marked)
 }
 
+// Unavailable reports an error that says that the API does not answer now: a failure that another
+// try could pass (a failure in transport, a 5xx status, or 429), or a call that ran out of time or
+// was cancelled. A step that makes one call for each machine stops at such an error, because the
+// calls after it would wait for the same API. A refusal of one call is an answer, and the calls
+// after it may pass.
+func Unavailable(err error) bool {
+	return Retryable(err) || errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, context.Canceled)
+}
+
 // After gives the wait that the server named in an error that Again marked, and reports whether
 // it named one.
 func After(err error) (time.Duration, bool) {

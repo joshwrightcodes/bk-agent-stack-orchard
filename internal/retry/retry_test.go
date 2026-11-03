@@ -325,3 +325,25 @@ func TestAgainKeepsTheError(t *testing.T) {
 		t.Error("an unmarked error is retryable, want not")
 	}
 }
+
+// A step that makes one call for each machine stops when the API does not answer: a failure that
+// another try could pass, or a call that ran out of time or was cancelled. A refusal is an answer
+// about one call, and the calls after it may pass.
+func TestUnavailableTellsAnOutageFromARefusal(t *testing.T) {
+	t.Parallel()
+
+	for err, want := range map[error]bool{
+		retry.Again(errBusy, 0):                                 true,
+		fmt.Errorf("creating: %w", retry.Again(errBusy, 0)):     true,
+		context.DeadlineExceeded:                                true,
+		fmt.Errorf("creating: %w", context.DeadlineExceeded):    true,
+		context.Canceled:                                        true,
+		errBusy:                                                 false,
+		errors.New("orchard answered 400 Bad Request: invalid"): false,
+		nil: false,
+	} {
+		if got := retry.Unavailable(err); got != want {
+			t.Errorf("Unavailable(%v) = %t, want %t", err, got, want)
+		}
+	}
+}

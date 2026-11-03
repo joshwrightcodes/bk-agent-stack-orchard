@@ -93,6 +93,38 @@ func request(jobs []buildkite.ScheduledJob, fleet inventory.Snapshot) admission.
 	}
 }
 
+// One tick starts no more jobs than the launcher can start inside the time budget of its step.
+// The jobs past that wait for the next tick, in the order of admission, and they still count as
+// waiting.
+func TestAdmissionStopsAtTheMostOfOneTick(t *testing.T) {
+	t.Parallel()
+
+	ids := identifiers(3)
+	jobs := []buildkite.ScheduledJob{
+		waiting(ids[0], 0, time.Minute),
+		waiting(ids[1], 0, 2*time.Minute),
+		waiting(ids[2], 0, 3*time.Minute),
+	}
+
+	fleet := inventory.Snapshot{Workers: []orchard.Worker{
+		worker("mac-01", nil), worker("mac-02", nil),
+	}, At: now}
+
+	decide := request(jobs, fleet)
+	decide.Most = 2
+
+	result := admission.Decide(decide)
+
+	if len(result.Admit) != 2 || result.Admit[0].Job.ID != jobs[2].ID ||
+		result.Admit[1].Job.ID != jobs[1].ID {
+		t.Errorf("admission started %+v, want the two oldest jobs", result.Admit)
+	}
+
+	if result.Waiting[pilot.Name] != 3 {
+		t.Errorf("%d jobs wait, want 3", result.Waiting[pilot.Name])
+	}
+}
+
 // T-004. The fleet carries what the workers advertise and no more. One job beyond the room of
 // the fleet waits, and it does not become a machine that Orchard can never place.
 func TestAdmissionStopsAtTheRoomOfTheFleet(t *testing.T) {

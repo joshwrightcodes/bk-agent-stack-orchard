@@ -15,8 +15,8 @@ import (
 // waits (internal/retry).
 //
 // One goroutine runs the loop, and the steps of a tick run in sequence, so a call that hangs
-// holds every step after it: the extensions of the reservations and the deletions of the reaper
-// too. The limit keeps a tick in which both APIs hang inside the renewal lead of a reservation.
+// holds every step after it: the extensions of the reservations too. The limit keeps a tick in
+// which both APIs hang inside the renewal lead of a reservation.
 // With the defaults, a reservation lasts 300 s (reservationExpiry), and the reaper extends it
 // once less than 120 s remain (reservationRenewBefore). Before the extension, a tick makes these
 // calls: one poll of the queue (a page that fails ends the read), two inventory calls, one call
@@ -26,9 +26,11 @@ import (
 // inside the lead. A poll whose three pages each answer just inside the limit adds 20 s more, and
 // still fits.
 //
-// The reaper acts on the VMs that its table decides about before it sends the extensions, and the
-// launcher creates its VMs one at a time. Each of those calls has this limit too, so their number,
-// and not only this limit, sets the length of a tick in which an API hangs.
+// The reaper and the launcher make a call for each VM that they act on. Those calls run
+// parallel.Limit at a time inside a budget of parallel.Rounds limits, and the first call that
+// finds an API not answering stops the calls that wait, so their number does not set the length of
+// a tick. The longest tick, in which every call takes its whole limit and answers, is 21 calls or
+// 210 s, and a tick in which both APIs hang is about 110 s (target design, section 4).
 //
 // 10 s is also long enough for the calls that answer: the Stacks API and Orchard answer in well
 // under a second, and the policy adds at most 1.5 s of waits.

@@ -91,6 +91,10 @@ type Request struct {
 	// that the limit follows the hardware and holds no slot empty.
 	MaxInFlight uint64
 
+	// Most is the most jobs that one decision admits, which is what the launcher can start in
+	// one tick. Zero means no limit. A job past it waits for the next tick.
+	Most int
+
 	// Truncated reports that the read of the queue stopped at the page cap. The decision passes
 	// it on, because the launcher forgets a notified job only after a whole listing.
 	Truncated bool
@@ -155,7 +159,7 @@ func Decide(request Request) Result {
 	running := uint64(len(request.Fleet.Owned)) + uint64(len(requested(request)))
 
 	for _, candidate := range candidates {
-		if running >= limit {
+		if running >= limit || (request.Most > 0 && len(result.Admit) >= request.Most) {
 			break
 		}
 

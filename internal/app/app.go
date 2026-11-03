@@ -122,6 +122,7 @@ func Build(options Options) (*controller.Controller, error) {
 		Queue:             settings.Buildkite.Queue,
 		ReservationExpiry: settings.Buildkite.ReservationExpiry,
 		TokenLifetime:     settings.Buildkite.JobTokenLifetime,
+		CallTimeout:       limit,
 		Environment:       environment,
 		Metrics:           recorder.Metrics,
 		Logger:            recorder.Logger,
@@ -149,6 +150,7 @@ func Build(options Options) (*controller.Controller, error) {
 		States:       observed,
 		Reservations: starter,
 		RenewBefore:  settings.Buildkite.ReservationRenewBefore,
+		CallTimeout:  limit,
 		Orchard:      machines,
 		Fleet:        fleet,
 		Profile:      starter.Profile,
@@ -257,6 +259,7 @@ func (a *admitter) admit(ctx context.Context) error {
 		Held:        a.starter.Held(held),
 		Eligible:    a.fleet.Eligible,
 		MaxInFlight: a.settings.MaxInFlight,
+		Most:        a.starter.PerTick(),
 		Truncated:   queue.Truncated,
 		Now:         a.now(),
 	})

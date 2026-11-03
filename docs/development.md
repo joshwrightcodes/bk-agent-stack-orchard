@@ -323,7 +323,8 @@ sequence it checks I-6.
 
 Beside the random sequences, the suite runs the outages of the target design, section 7.5, as
 scenarios on the same fakes (T-024). Buildkite, Orchard, or only the job states are not available.
-Buildkite or Orchard accepts calls and never answers. A worker stops reporting. Each scenario
+Buildkite or Orchard accepts calls and never answers, also while a burst of jobs arrives. A worker
+stops reporting. Each scenario
 also checks the request budget of the Stacks API in each second of the run. The client tests
 prove that the controller waits for `Retry-After` (T-040).
 

@@ -196,6 +196,18 @@ One goroutine runs the tick. Each tick does these steps in sequence:
 API calls in one step MAY run concurrently, with a concurrency limit. The steps MUST run in
 sequence. Because of this, Admission always sees the Reaper deletions of the same tick.
 
+The Reaper and the Launcher make one call, or a few, for each VM that they act on. These calls
+MUST run at most 8 at a time (`parallel.Limit`), and the calls of one step MUST end inside a
+budget of 3 call limits (`parallel.Rounds`, 30 s). Only the goroutine of the loop MUST change the
+state of a part, after every call of the step has ended. A call that fails because the API does
+not answer (a failure in transport, a 5xx status, 429, or the end of its time limit) MUST stop
+the calls of the step that have not started, because they would wait for the same API. A refusal
+of one call does not stop the others. The next tick decides again from what it observes. The
+Launcher MUST reserve at most the jobs that one step can start, which is 8 × 3 = 24
+(`parallel.PerStep`), so that it holds no reservation that the tick cannot use. The other jobs
+wait in the queue for the next tick. The Reaper MUST send its extensions before its other
+actions, so that a deletion that waits for Orchard does not hold back an extension.
+
 An accepted delete, or a 404 for a VM that is already gone, takes the VM out of the last Inventory
 answer. The VM stays out until the next refresh replaces the answer. Admission counts the room
 that the delete freed for this reason. If Orchard is slow, the next refresh can list the VM again.
@@ -214,13 +226,36 @@ is half of the default `stateFreshness`: a source that waits once and then answe
 
 Every call to Buildkite or to Orchard MUST have a time limit, which covers all of its tries and
 waits (§15). The limit is 10 s (`callTimeout`). A call that hangs holds every step after it in the
-tick, the extensions and the deletions of the Reaper included, so the limit MUST keep a tick in
-which both APIs hang inside the renewal lead of a reservation (`reservationRenewBefore`, 120 s).
-Before the extensions, a tick makes five calls that can hang: one poll of the queue (a page that
-fails ends the read), two Inventory calls, one JobStates call, and one call for the progress
-notices. At 10 s each, the extensions leave in 50 s and end in 60 s, which leaves room for the
-next tick to try again inside the lead. The Reaper and the Launcher also make one call for each VM
-that they act on, and each of these calls has the same limit.
+tick, the extensions of the Reaper included, so the limit MUST keep a tick in which both APIs
+hang inside the renewal lead of a reservation (`reservationRenewBefore`, 120 s). Before the
+extensions, a tick makes five calls that can hang: one poll of the queue (a page that fails ends
+the read), two Inventory calls, one JobStates call, and one call for the progress notices. At
+10 s each, the extensions leave in 50 s and end in 60 s, which leaves room for the next tick to
+try again inside the lead.
+
+The longest tick has every call take its whole limit and still answer. With the defaults it is
+210 s, which is 3.5 minutes:
+
+| Part of the tick | Calls of 10 s | Time |
+|---|---|---|
+| Refresh: 3 pages of the poll, 2 Inventory calls, 1 JobStates call | 6 | 60 s |
+| Progress notices, and the extensions of the Reaper | 2 | 20 s |
+| Actions of the Reaper (their budget), then its notices | 3 + 1 | 40 s |
+| Reservation and tokens, creates of the Launcher (their budget), "VM requested" | 2 + 3 + 1 | 60 s |
+| Skip notices, for at most 3000 unmatched jobs in requests of 1000 | 3 | 30 s |
+| Total | 21 | 210 s |
+
+A notice request carries 1000 lines, so one request holds the notices of a fleet at the target
+scale. A tick this long can let a reservation lapse between two extensions, and row 6 and
+Admission then start the job again.
+
+An API that does not answer gives a shorter tick, because the first call that does not answer
+stops its step, and a notice request that does not answer stops the notice requests after it. In
+the first tick in which both APIs hang, the calls before the extensions take 50 s and the
+extensions 10 s. The Reaper takes 30 s: one round of actions, in which an action can wait for
+the events of Orchard and then for a finish, and one notice request. The Launcher, which still
+has fresh data, takes 20 s: the reservation and one notice request. That is 110 s, so the
+extensions of two such ticks are at most 110 s apart, inside the renewal lead.
 
 The loop MUST take the time of a tick from the one clock of the controller (§15), and not from
 the ticker. A ticker gives the time that a beat was due. After a tick that took longer than the
@@ -514,7 +549,8 @@ Admission does these steps:
 6. **Admit.** For each candidate in sequence, find the first eligible worker with sufficient
    free `tart-vms`, `logical-cores`, and `memory-mib`. Subtract the resources. If no worker has
    sufficient resources, skip the candidate. A skipped candidate does not stop the next
-   candidates.
+   candidates. Stop after 24 admitted jobs (`parallel.PerStep`), which is the most that the
+   Launcher can start in one tick (§4). The other candidates wait for the next tick.
 
 Hypothetical placement is only for accounting. Orchard makes the real placement decision. The
 controller MUST NOT pin a VM to a worker. A second scheduler in the controller can disagree with
@@ -574,8 +610,14 @@ For the admitted jobs, the Launcher MUST do these steps:
 2. Send `POST job-acquisition-tokens` for the reserved jobs with
    `token_lifetime_seconds = jobTokenLifetime` (1800). Skip the jobs in `not_issued`. Their
    reservations expire.
-3. Send `POST /v1/vms` for each job, with the specification below.
-4. Send a stack notification for each job: "VM requested".
+3. Send `POST /v1/vms` for each job, with the specification below. The creates run at most 8 at
+   a time, inside a budget of 3 call limits, and a create that finds Orchard not answering stops
+   the creates that have not started (§4). The job of a create that did not start keeps its
+   reservation, which lapses, and Admission meets the job again. The creates reach Orchard in
+   any order, and Orchard places the VMs that wait in the order of their creation. With profiles
+   of different sizes on a fleet that is almost full, a VM can then wait where the accounting of
+   Admission gave it room. Row 10 ends such a wait, and the job returns to the queue.
+4. Send a stack notification for each job whose create Orchard accepted: "VM requested".
 
 ```json
 {
@@ -770,7 +812,7 @@ zero-width characters) and each line or paragraph separator, before it builds th
 message MUST hold at most a quarter of the budget (`statusBudget`) of the status message of the
 VM, cut between characters, so that the lines of the startup script keep their room. The controller
 MUST send all reservation extensions of one tick in
-one `batch-reserve` call.
+one `batch-reserve` call, before the other actions of the Reaper (§4).
 
 ### 7.3 Timeout consistency
 
@@ -812,7 +854,9 @@ At start-up, before the first Admission, the controller MUST do these steps:
 
 An API that accepts calls and does not answer is an outage of the same kind. Each call ends at
 its time limit (§4), so the loop continues: while Buildkite hangs, rows 1 and 2 still delete VMs,
-and while Orchard hangs, the Reaper still extends the reservations of the VMs that start.
+and while Orchard hangs, the Reaper still extends the reservations of the VMs that start. The
+first call of a step that does not answer stops the calls of the step that wait, so a burst of
+jobs, or of VMs to delete, costs one call limit and not one for each VM.
 
 ### 7.6 Pipeline guidance
 

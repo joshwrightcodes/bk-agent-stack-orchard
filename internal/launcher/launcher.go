@@ -9,7 +9,8 @@
 //
 // Every step can end for one job and continue for the rest. A job that another stack reserved, a
 // job that got no token, and a job whose machine failed to start each drop out, and the jobs
-// beside them go on.
+// beside them go on. An Orchard that does not answer is the exception: the creates that wait are
+// not sent, because each one would wait for the same Orchard for its whole time limit.
 package launcher
 
 import (
@@ -30,6 +31,8 @@ import (
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/match"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/parallel"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/retry"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/secret"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/vmspec"
@@ -77,6 +80,11 @@ type Options struct {
 	// TokenLifetime is how long a job acquisition token works.
 	TokenLifetime time.Duration
 
+	// CallTimeout is the time limit of one call to either API. The creates of one tick share a
+	// time budget of a few of these limits, and a tick reserves only the jobs that the budget can
+	// start.
+	CallTimeout time.Duration
+
 	// Environment reads the variables that carry the image credentials and the telemetry
 	// headers of a profile. A nil value gives os.Getenv through the caller.
 	Environment func(name string) string
@@ -97,6 +105,7 @@ type Launcher struct {
 	queue        string
 	expiry       time.Duration
 	lifetime     time.Duration
+	budget       time.Duration
 	environment  func(name string) string
 	metrics      *telemetry.Metrics
 	logger       *slog.Logger
@@ -157,6 +166,11 @@ func New(options Options) (*Launcher, error) {
 			"must both be more than zero"))
 	}
 
+	if options.CallTimeout <= 0 {
+		problems = append(problems, errors.New("the launcher needs the time limit of a call, "+
+			"which sets the time budget of its creates"))
+	}
+
 	if len(problems) > 0 {
 		return nil, errors.Join(problems...)
 	}
@@ -180,6 +194,7 @@ func New(options Options) (*Launcher, error) {
 		queue:        options.Queue,
 		expiry:       options.ReservationExpiry,
 		lifetime:     options.TokenLifetime,
+		budget:       parallel.Budget(options.CallTimeout),
 		environment:  environment,
 		metrics:      options.Metrics,
 		logger:       options.Logger,
@@ -227,6 +242,17 @@ func (l *Launcher) ReservedUntil(id job.ID) (time.Time, bool) {
 	return l.held.reservedUntil(id)
 }
 
+// PerTick gives the most jobs that one tick reserves and starts. Admission admits no more, and
+// Launch reserves no more.
+//
+// The creates of a tick run parallel.Limit at a time inside a budget of parallel.Rounds call
+// limits, so this many creates finish inside the budget when each one takes its whole limit. A
+// job past it would hold a reservation that the tick might not use, for five minutes, while
+// another stack could start it. It waits in the queue for the next tick instead.
+func (l *Launcher) PerTick() int {
+	return parallel.PerStep
+}
+
 // Launch carries out the decision of admission.
 func (l *Launcher) Launch(ctx context.Context, decision admission.Result,
 	fleet inventory.Snapshot,
@@ -240,18 +266,22 @@ func (l *Launcher) Launch(ctx context.Context, decision admission.Result,
 	// set of notified jobs drops the jobs that left the list.
 	defer l.skip(ctx, decision)
 
-	if len(decision.Admit) == 0 {
+	// Admission admits no more than PerTick, and this keeps the promise of PerTick for any
+	// caller.
+	admit := decision.Admit[:min(len(decision.Admit), l.PerTick())]
+
+	if len(admit) == 0 {
 		return nil
 	}
 
-	reserved, err := l.reserve(ctx, decision)
+	reserved, err := l.reserve(ctx, admit)
 	if err != nil {
 		return err
 	}
 
-	wanted := make([]admission.Candidate, 0, len(decision.Admit))
+	wanted := make([]admission.Candidate, 0, len(admit))
 
-	for _, candidate := range decision.Admit {
+	for _, candidate := range admit {
 		if reserved[candidate.Job.ID] {
 			wanted = append(wanted, candidate)
 		}
@@ -310,14 +340,14 @@ func (l *Launcher) Extend(ctx context.Context, ids []job.ID) error {
 	return nil
 }
 
-// reserve holds every admitted job of the decision, in one call.
-func (l *Launcher) reserve(ctx context.Context, decision admission.Result) (map[job.ID]bool, error) {
+// reserve holds every admitted job, in one call.
+func (l *Launcher) reserve(ctx context.Context, admit []admission.Candidate) (map[job.ID]bool, error) {
 	ctx, span := l.tracer.Start(ctx, "stacks.reserve")
 	defer span.End()
 
-	ids := make([]job.ID, 0, len(decision.Admit))
+	ids := make([]job.ID, 0, len(admit))
 
-	for _, candidate := range decision.Admit {
+	for _, candidate := range admit {
 		ids = append(ids, candidate.Job.ID)
 	}
 
@@ -345,7 +375,7 @@ func (l *Launcher) reserve(ctx context.Context, decision admission.Result) (map[
 
 	// The first phase of a job ends with its reservation. The later phases are what the progress
 	// of its machine shows, and they start from these times.
-	for _, candidate := range decision.Admit {
+	for _, candidate := range admit {
 		if !taken[candidate.Job.ID] {
 			continue
 		}
@@ -396,10 +426,15 @@ func (l *Launcher) skip(ctx context.Context, decision admission.Result) {
 		end := min(start+buildkite.NotificationsPerRequest, len(fresh))
 
 		// A batch that fails as a whole does not stop the later ones: a refusal that never
-		// changes would starve every job behind it.
+		// changes would starve every job behind it. A Buildkite that does not answer does stop
+		// them, because each one would wait for it for its whole time limit.
 		if err := l.tell(ctx, fresh[start:end]); err != nil {
 			failed++
 			first = cmp.Or(first, err)
+
+			if retry.Unavailable(err) {
+				break
+			}
 		}
 	}
 
@@ -539,39 +574,57 @@ func (l *Launcher) tokens(ctx context.Context, wanted []admission.Candidate) (ma
 }
 
 // create asks Orchard for the machine of each job that has a token.
+//
+// The creates run parallel.Limit at a time, inside the time budget of the step, so that a burst
+// of jobs costs the time of a few creates and not the sum of them (target design, section 4). A
+// create that finds Orchard not answering stops the creates that wait, because they would wait
+// for the same Orchard: their jobs keep their reservations, which lapse, and admission meets
+// them again. The outcomes change the memory of the launcher only on the goroutine of the loop,
+// after every create has ended.
 func (l *Launcher) create(ctx context.Context, wanted []admission.Candidate,
 	tokens map[job.ID]secret.String,
 ) {
-	var lines []buildkite.Notification
+	type order struct {
+		candidate admission.Candidate
+		token     secret.String
+	}
+
+	orders := make([]order, 0, len(wanted))
 
 	for _, candidate := range wanted {
-		token, has := tokens[candidate.Job.ID]
-		if !has {
-			continue
+		if token, has := tokens[candidate.Job.ID]; has {
+			orders = append(orders, order{candidate: candidate, token: token})
 		}
+	}
 
-		jobCtx, span := telemetry.StartJob(ctx, l.tracer, candidate.Job.ID, "orchard.vm.create")
+	step, cancel := context.WithTimeout(ctx, l.budget)
+	defer cancel()
 
-		if err := l.machine(jobCtx, candidate, token); err != nil {
-			span.RecordError(err)
-			l.logger.ErrorContext(jobCtx, "the controller could not start a machine",
-				telemetry.LogJob, string(candidate.Job.ID),
-				telemetry.LogProfile, candidate.Profile.Name, "error", err)
-			span.End()
+	outcomes := parallel.Each(step, parallel.Limit, orders, func(ctx context.Context, o order) error {
+		return l.start(ctx, o.candidate, o.token)
+	}, retry.Unavailable)
 
-			continue
+	var (
+		lines []buildkite.Notification
+		left  int
+	)
+
+	for i, outcome := range outcomes {
+		switch {
+		case !outcome.Done:
+			left++
+		case outcome.Value == nil:
+			id := orders[i].candidate.Job.ID
+
+			l.held.started(id, orders[i].candidate.Profile.Name, l.now())
+			lines = append(lines, buildkite.Notification{JobID: id, Detail: requested, At: l.now()})
 		}
+	}
 
-		l.held.started(candidate.Job.ID, candidate.Profile.Name, l.now())
-		lines = append(lines, buildkite.Notification{
-			JobID: candidate.Job.ID, Detail: requested, At: l.now(),
-		})
-
-		l.logger.InfoContext(jobCtx, "the controller asked for a machine",
-			telemetry.LogJob, string(candidate.Job.ID),
-			telemetry.LogProfile, candidate.Profile.Name,
-			telemetry.LogVM, vmspec.Name(l.controllerID, candidate.Job.ID))
-		span.End()
+	if left > 0 {
+		l.logger.WarnContext(ctx, "the controller asked for no machine for some reserved jobs, "+
+			"because Orchard did not answer or the step ran out of time, and their reservations "+
+			"lapse", "jobs", left)
 	}
 
 	if len(lines) == 0 {
@@ -584,6 +637,31 @@ func (l *Launcher) create(ctx context.Context, wanted []admission.Candidate,
 		l.logger.WarnContext(ctx, "the controller could not write to the job pages",
 			"error", err)
 	}
+}
+
+// start asks Orchard for the machine of one job, in a span of its own. It runs on a goroutine of
+// the step, so it records nothing in the memory of the launcher.
+func (l *Launcher) start(ctx context.Context, candidate admission.Candidate,
+	token secret.String,
+) error {
+	ctx, span := telemetry.StartJob(ctx, l.tracer, candidate.Job.ID, "orchard.vm.create")
+	defer span.End()
+
+	if err := l.machine(ctx, candidate, token); err != nil {
+		span.RecordError(err)
+		l.logger.ErrorContext(ctx, "the controller could not start a machine",
+			telemetry.LogJob, string(candidate.Job.ID),
+			telemetry.LogProfile, candidate.Profile.Name, "error", err)
+
+		return err
+	}
+
+	l.logger.InfoContext(ctx, "the controller asked for a machine",
+		telemetry.LogJob, string(candidate.Job.ID),
+		telemetry.LogProfile, candidate.Profile.Name,
+		telemetry.LogVM, vmspec.Name(l.controllerID, candidate.Job.ID))
+
+	return nil
 }
 
 // machine builds the specification of one job machine and asks Orchard for it.

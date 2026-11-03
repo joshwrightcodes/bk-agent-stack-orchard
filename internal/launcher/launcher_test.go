@@ -157,13 +157,17 @@ func (s *stacks) Notify(ctx context.Context, lines []buildkite.Notification) err
 	return s.notifyErr
 }
 
-// machines answers as Orchard.
+// machines answers as Orchard. The launcher asks for several machines at the same time.
 type machines struct {
+	mu      sync.Mutex
 	created []orchard.VM
 	err     error
 }
 
 func (m *machines) CreateVM(_ context.Context, spec orchard.VM) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.created = append(m.created, spec)
 
 	return m.err
@@ -238,6 +242,15 @@ func buildWithLog(t *testing.T, api *stacks, fleet launcher.Machines,
 ) *launcher.Launcher {
 	t.Helper()
 
+	return buildTimed(t, api, fleet, log, time.Second)
+}
+
+// buildTimed gives a launcher whose calls have the time limit that the test chose.
+func buildTimed(t *testing.T, api *stacks, fleet launcher.Machines, log *records,
+	limit time.Duration,
+) *launcher.Launcher {
+	t.Helper()
+
 	provider := sdkmetric.NewMeterProvider()
 	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
 
@@ -253,6 +266,7 @@ func buildWithLog(t *testing.T, api *stacks, fleet launcher.Machines,
 		Queue:             "macos-prod",
 		ReservationExpiry: 300 * time.Second,
 		TokenLifetime:     1800 * time.Second,
+		CallTimeout:       limit,
 		Metrics:           instruments,
 		Logger:            slog.New(log),
 		Now:               time.Now,
@@ -525,6 +539,7 @@ func TestAMachineThatOrchardRefusesDoesNotStopTheOthers(t *testing.T) {
 
 // refusing refuses one machine by name and accepts the rest.
 type refusing struct {
+	mu      sync.Mutex
 	refuse  string
 	created []orchard.VM
 }
@@ -533,6 +548,9 @@ func (r *refusing) CreateVM(_ context.Context, spec orchard.VM) error {
 	if spec.Name == r.refuse {
 		return errors.New("orchard refused the machine")
 	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	r.created = append(r.created, spec)
 
@@ -1179,6 +1197,24 @@ func TestTheSkipNoticesSplitAtTheRequestLimit(t *testing.T) {
 	}
 }
 
+// A batch that finds Buildkite not answering stops the batches behind it, because they would wait
+// for the same Buildkite, each for its whole time limit. Their jobs try again at the next tick.
+func TestABatchThatBuildkiteDoesNotAnswerStopsTheLaterBatches(t *testing.T) {
+	t.Parallel()
+
+	api := &stacks{failCall: map[int]error{0: context.DeadlineExceeded}}
+	started := build(t, api, &machines{})
+
+	if err := started.Launch(t.Context(), unmatchedJobs(1, 2*buildkite.NotificationsPerRequest+5),
+		inventory.Snapshot{}); err != nil {
+		t.Fatalf("Launch() = %v, want no error", err)
+	}
+
+	if len(api.notified) != 1 {
+		t.Errorf("buildkite saw %d calls, want the one that did not answer", len(api.notified))
+	}
+}
+
 // A batch that fails as a whole must not starve the batches behind it. The jobs of the later batch
 // get their lines and enter the set, and the jobs of the failed batch try again at the next tick.
 func TestAFailedBatchDoesNotStopTheLaterBatches(t *testing.T) {
@@ -1282,6 +1318,7 @@ func buildMeasured(t *testing.T, api *stacks, fleet launcher.Machines,
 		Queue:             "macos-prod",
 		ReservationExpiry: 300 * time.Second,
 		TokenLifetime:     1800 * time.Second,
+		CallTimeout:       time.Second,
 		Metrics:           instruments,
 		Logger:            slog.New(log),
 		Now:               time.Now,
@@ -1345,6 +1382,7 @@ func buildAt(t *testing.T, api *stacks, fleet launcher.Machines, clock *time.Tim
 		Queue:             "macos-prod",
 		ReservationExpiry: 300 * time.Second,
 		TokenLifetime:     1800 * time.Second,
+		CallTimeout:       time.Second,
 		Metrics:           instruments,
 		Logger:            slog.New(slog.DiscardHandler),
 		Now:               func() time.Time { return *clock },

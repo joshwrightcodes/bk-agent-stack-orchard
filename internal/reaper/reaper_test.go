@@ -105,6 +105,7 @@ func (h *held) Extend(_ context.Context, ids []job.ID) error {
 
 // fleet answers as Orchard: it holds the snapshot, and it records the deletions.
 type fleet struct {
+	mu        sync.Mutex
 	snapshot  inventory.Snapshot
 	read      bool
 	refuse    map[string]bool
@@ -120,12 +121,21 @@ func (f *fleet) Events(context.Context, string) ([]orchard.Event, error) {
 
 func (f *fleet) Latest() (inventory.Snapshot, bool) { return f.snapshot, f.read }
 
-func (f *fleet) Forget(name string) { f.forgot = append(f.forgot, name) }
+func (f *fleet) Forget(name string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 
+	f.forgot = append(f.forgot, name)
+}
+
+// DeleteVM records the deletion. The reaper deletes several machines at the same time.
 func (f *fleet) DeleteVM(_ context.Context, name string) error {
 	if f.refuse[name] {
 		return errors.New("orchard refused the deletion")
 	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
 
 	f.deleted = append(f.deleted, name)
 
@@ -210,6 +220,7 @@ func buildHolding(t *testing.T, api *observed, machines *fleet, log *decisions,
 		States:       api,
 		Reservations: reservations,
 		RenewBefore:  120 * time.Second,
+		CallTimeout:  time.Second,
 		Orchard:      machines,
 		Fleet:        machines,
 		Profiles:     []profile.Profile{{Name: "xcode-27"}},
@@ -389,6 +400,7 @@ func joined(t *testing.T, api *stacks, machines *fleet, c *clock) (*jobstates.St
 		States:       states,
 		Reservations: &held{},
 		RenewBefore:  120 * time.Second,
+		CallTimeout:  time.Second,
 		Orchard:      machines,
 		Fleet:        machines,
 		Profiles:     []profile.Profile{{Name: "xcode-27"}},

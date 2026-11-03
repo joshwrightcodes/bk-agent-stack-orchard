@@ -19,7 +19,9 @@ import (
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/jobstates"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/parallel"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/profile"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/retry"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
 )
 
@@ -81,6 +83,10 @@ type Options struct {
 	// RenewBefore is how long before its end a reservation is extended.
 	RenewBefore time.Duration
 
+	// CallTimeout is the time limit of one call to either API. The actions of one pass share a
+	// time budget of a few of these limits.
+	CallTimeout time.Duration
+
 	Metrics *telemetry.Metrics
 	Logger  *slog.Logger
 	Tracer  trace.Tracer
@@ -96,6 +102,7 @@ type Reaper struct {
 	states       States
 	reservations Reservations
 	renewBefore  time.Duration
+	budget       time.Duration
 	machines     Machines
 	fleet        Fleet
 	profile      func(job.ID) string
@@ -159,6 +166,11 @@ func New(options Options) (*Reaper, error) {
 			"than zero", options.RenewBefore))
 	}
 
+	if options.CallTimeout <= 0 {
+		problems = append(problems, errors.New("the reaper needs the time limit of a call, "+
+			"which sets the time budget of its actions"))
+	}
+
 	if options.Metrics == nil || options.Logger == nil {
 		problems = append(problems, errors.New("the reaper needs the instruments and a logger"))
 	}
@@ -189,6 +201,7 @@ func New(options Options) (*Reaper, error) {
 		states:       options.States,
 		reservations: options.Reservations,
 		renewBefore:  options.RenewBefore,
+		budget:       parallel.Budget(options.CallTimeout),
 		machines:     options.Orchard,
 		fleet:        options.Fleet,
 		profile:      name,
@@ -211,6 +224,12 @@ func New(options Options) (*Reaper, error) {
 // An action that fails is a log record and a machine that the next tick tries again: the decision
 // reads observed state, so it gives the same answer next time, and nothing here needs to remember
 // that it failed.
+//
+// The extensions go first, in one call, because they keep jobs with this stack, and an action
+// that waits for an API must not hold them back. The actions then run parallel.Limit at a time,
+// inside the time budget of the step (target design, section 4). An action that finds an API not
+// answering stops the actions that wait, because they would wait for the same API, and the next
+// tick decides again. The lines of the job pages go last, together.
 func (r *Reaper) Reap(ctx context.Context) error {
 	snapshot, read := r.fleet.Latest()
 	if !read {
@@ -223,21 +242,23 @@ func (r *Reaper) Reap(ctx context.Context) error {
 	var (
 		failures int
 		extend   []job.ID
-		lines    []buildkite.Notification
+		tasks    []task
 	)
 
 	for _, machine := range r.collect(snapshot) {
 		decision := Decide(machine, now, rules)
 
-		// The extensions of one pass go in one call after it.
-		if decision.Action == Extend {
+		switch decision.Action {
+		case Extend:
 			extend = append(extend, machine.Job)
-
-			continue
-		}
-
-		if err := r.carry(ctx, machine, decision, &lines); err != nil {
-			failures++
+		case Keep:
+			if decision.Row == 0 {
+				r.warn(ctx, machine)
+			}
+		case Delete, FinishAndDelete, NotifyAndDelete:
+			tasks = append(tasks, task{
+				machine: machine, decision: decision, ignored: r.ignored[machine.Job],
+			})
 		}
 	}
 
@@ -248,6 +269,36 @@ func (r *Reaper) Reap(ctx context.Context) error {
 			"that start", "jobs", len(extend), "error", err)
 	}
 
+	step, cancel := context.WithTimeout(ctx, r.budget)
+	outcomes := parallel.Each(step, parallel.Limit, tasks, r.carry, func(done result) bool {
+		return retry.Unavailable(done.err)
+	})
+	cancel()
+
+	var (
+		lines []buildkite.Notification
+		left  int
+	)
+
+	for i, outcome := range outcomes {
+		if !outcome.Done {
+			left++
+
+			continue
+		}
+
+		if outcome.Value.err != nil {
+			failures++
+		}
+
+		lines = r.settle(ctx, tasks[i], outcome.Value, lines)
+	}
+
+	if left > 0 {
+		r.logger.WarnContext(ctx, "the reaper stopped its pass early, because an API did not "+
+			"answer or the step ran out of time, and the next tick decides again", "machines", left)
+	}
+
 	r.write(ctx, lines)
 	r.forget(snapshot)
 
@@ -256,6 +307,29 @@ func (r *Reaper) Reap(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// task is one decision to carry out, as the goroutine of the loop prepared it.
+type task struct {
+	machine  Machine
+	decision Decision
+
+	// ignored is a job that Buildkite refused before: the action makes no call about it.
+	ignored bool
+}
+
+// result is what carrying out one task did. The goroutine of the loop applies it after every
+// action of the pass ended, so that the maps of the reaper keep one writer.
+type result struct {
+	// finished is a job that Buildkite ended, and terminal is a job that Buildkite refused to
+	// end because it ended already or never existed.
+	finished, terminal bool
+
+	// deleted is a machine whose deletion Orchard accepted.
+	deleted bool
+
+	// err is the failure that stopped the action.
+	err error
 }
 
 // collect gives every machine that the table reads: the orphans, and the machines of jobs.
@@ -312,22 +386,10 @@ func (r *Reaper) list(vm orchard.VM, at time.Time) time.Time {
 	return seen.at
 }
 
-// carry carries out one decision, and adds the lines of the job page of the machine to lines.
-func (r *Reaper) carry(ctx context.Context, machine Machine, decision Decision,
-	lines *[]buildkite.Notification,
-) error {
-	switch decision.Action {
-	case Keep:
-		if decision.Row == 0 {
-			r.warn(ctx, machine)
-		}
-
-		return nil
-	case Extend:
-		// Reap gathers the extensions of a pass into one call, and never passes one here.
-		return nil
-	case Delete, FinishAndDelete, NotifyAndDelete:
-	}
+// carry carries out one task, and gives what it did. It runs on a goroutine of the step, so it
+// makes the calls and writes the log, and it changes no state of the reaper.
+func (r *Reaper) carry(ctx context.Context, t task) result {
+	machine, decision := t.machine, t.decision
 
 	ctx, span := telemetry.StartJob(ctx, r.tracer, machine.Job, "reaper.decide",
 		trace.WithAttributes(
@@ -347,24 +409,30 @@ func (r *Reaper) carry(ctx context.Context, machine Machine, decision Decision,
 		telemetry.SpanReason, decision.Reason,
 	}
 
-	switch decision.Action {
-	case FinishAndDelete:
-		// A machine whose job did not finish stays, so that the next tick finishes the job before
-		// the machine goes. Without that, a failed job would wait for its lost-agent timeout.
-		if err := r.finish(ctx, machine, decision); err != nil {
+	var done result
+
+	// A machine whose job did not finish stays, so that the next tick finishes the job before the
+	// machine goes. Without that, a failed job would wait for its lost-agent timeout.
+	if decision.Action == FinishAndDelete && !t.ignored {
+		err := r.finish(ctx, machine, decision)
+
+		switch {
+		case err == nil:
+			done.finished = true
+		case errors.Is(err, buildkite.ErrTerminal):
+			// Buildkite refuses a finish of a job that already ended or that it does not know.
+			// A second finish after a restart is the common case. The job is done either way,
+			// and every further call would give the same refusal.
+			done.terminal = true
+		default:
 			span.RecordError(err)
 			r.logger.ErrorContext(ctx, "the reaper could not end a job",
 				append(fields, "error", err)...)
 
-			return err
+			done.err = err
+
+			return done
 		}
-	case NotifyAndDelete:
-		// Why the machine failed comes before its removal on the job page, and it goes whether
-		// the removal works or not: a line that does not arrive is worth less than the removal.
-		if !r.ignored[machine.Job] {
-			*lines = r.line(*lines, machine, Failed(machine.VM.StatusMessage))
-		}
-	case Keep, Extend, Delete:
 	}
 
 	if err := r.delete(ctx, machine); err != nil {
@@ -372,8 +440,47 @@ func (r *Reaper) carry(ctx context.Context, machine Machine, decision Decision,
 		r.logger.ErrorContext(ctx, "the reaper could not delete a machine",
 			append(fields, "error", err)...)
 
-		return err
+		done.err = err
+
+		return done
 	}
+
+	done.deleted = true
+
+	r.logger.InfoContext(ctx, "the reaper acted on a machine", append(fields,
+		telemetry.SpanDecision, string(decision.Action))...)
+
+	return done
+}
+
+// settle applies what one task did to the state of the reaper, and adds the lines of its job page
+// to lines. It runs on the goroutine of the loop.
+func (r *Reaper) settle(ctx context.Context, t task, done result,
+	lines []buildkite.Notification,
+) []buildkite.Notification {
+	machine, decision := t.machine, t.decision
+
+	if done.terminal {
+		r.ignored[machine.Job] = true
+	}
+
+	if done.finished {
+		r.metrics.Failed(ctx, decision.Reason)
+	}
+
+	// Why the machine failed comes before its removal on the job page, and it goes whether the
+	// removal worked or not: a line that does not arrive is worth less than the removal.
+	if decision.Action == NotifyAndDelete && !t.ignored {
+		lines = r.line(lines, machine, Failed(machine.VM.StatusMessage))
+	}
+
+	if !done.deleted {
+		return lines
+	}
+
+	// Admission runs after the reaper in the same tick, and must not count the room of a
+	// machine that Orchard no longer holds.
+	r.fleet.Forget(machine.VM.Name)
 
 	if decision.Ignore {
 		r.ignored[machine.Job] = true
@@ -381,48 +488,25 @@ func (r *Reaper) carry(ctx context.Context, machine Machine, decision Decision,
 
 	r.metrics.Deleted(ctx, decision.Reason)
 	r.deleted(ctx, machine)
-	r.logger.InfoContext(ctx, "the reaper acted on a machine", append(fields,
-		telemetry.SpanDecision, string(decision.Action))...)
 
 	// The last step on the job page. Buildkite may refuse a line for a job that ended, which
 	// changes nothing here.
-	*lines = r.line(*lines, machine, Deleted(decision.Reason))
-
-	return nil
+	return r.line(lines, machine, Deleted(decision.Reason))
 }
 
 // finish ends a job that no agent acquired.
 func (r *Reaper) finish(ctx context.Context, machine Machine, decision Decision) error {
-	if r.ignored[machine.Job] {
-		return nil
-	}
-
 	detail := message(machine, decision, r.script(ctx, machine, decision))
 
 	ctx, span := r.tracer.Start(ctx, "stacks.finish_job")
 	defer span.End()
 
 	err := r.stacks.Finish(ctx, machine.Job, failedExitStatus, detail)
-	if err != nil {
+	if err != nil && !errors.Is(err, buildkite.ErrTerminal) {
 		span.RecordError(err)
 	}
 
-	// Buildkite refuses a finish of a job that already ended or that it does not know. A second
-	// finish after a restart is the common case. The job is done either way, and every further
-	// call would give the same refusal.
-	if errors.Is(err, buildkite.ErrTerminal) {
-		r.ignored[machine.Job] = true
-
-		return nil
-	}
-
-	if err != nil {
-		return err
-	}
-
-	r.metrics.Failed(ctx, decision.Reason)
-
-	return nil
+	return err
 }
 
 // script gives the lines of the startup script for an acquire timeout and a failed machine, and
@@ -479,6 +563,12 @@ func (r *Reaper) write(ctx context.Context, lines []buildkite.Notification) {
 		default:
 			r.logger.WarnContext(ctx, "the reaper could not write to the job pages",
 				"lines", len(batch), "error", err)
+		}
+
+		// A Buildkite that does not answer would hold each later request for its whole time
+		// limit, so they wait for the next pass.
+		if retry.Unavailable(err) {
+			return
 		}
 	}
 }
@@ -561,11 +651,5 @@ func (r *Reaper) delete(ctx context.Context, machine Machine) error {
 	ctx, span := r.tracer.Start(ctx, "orchard.vm.delete")
 	defer span.End()
 
-	if err := r.machines.DeleteVM(ctx, machine.VM.Name); err != nil {
-		return err
-	}
-
-	r.fleet.Forget(machine.VM.Name)
-
-	return nil
+	return r.machines.DeleteVM(ctx, machine.VM.Name)
 }
