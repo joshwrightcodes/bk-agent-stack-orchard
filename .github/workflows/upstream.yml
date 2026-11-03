@@ -18,6 +18,11 @@ concurrency:
   group: upstream
   cancel-in-progress: false
 
+# Every install that mise starts after the action, through mise x or mise run, also uses mise.lock,
+# and fails on a tool or a checksum that the lock does not hold.
+env:
+  MISE_LOCKED: "1"
+
 jobs:
   watch:
     name: upstream releases
@@ -76,7 +81,7 @@ jobs:
           } > upstream-issue.md
 
           # The script finds the open issue with this exact title, and adds the link to the run.
-          ./scripts/report-failure.sh "Upstream releases moved" "$(cat upstream-issue.md)"
+          ./scripts/report-failure.sh --label upstream "Upstream releases moved" "$(cat upstream-issue.md)"
 
   # A failed run opens an issue, or comments on the one that is open: the check could not read an
   # upstream release, or the Orchard contract moved.

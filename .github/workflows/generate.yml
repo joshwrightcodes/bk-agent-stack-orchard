@@ -32,6 +32,11 @@ concurrency:
   group: generate-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Every install that mise starts after the action, through mise x or mise run, also uses mise.lock,
+# and fails on a tool or a checksum that the lock does not hold.
+env:
+  MISE_LOCKED: "1"
+
 jobs:
   generated-files:
     name: generated files are current

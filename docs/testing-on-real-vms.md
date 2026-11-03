@@ -72,11 +72,11 @@ when the job ends.
 reach the Internet and DNS. It must not reach the LAN, another VM, or a service of the Mac itself.
 Softnet alone lets a VM reach the Mac through the gateway of its network, and the hosts close this
 path with pf (`deploy/hosts`). `deploy/hosts/test/pf.sh` loads the same rules on the Mac from the
-template of the role. It needs `ansible` (from `mise install`) and sudo. The control of the test
-permits the router of the LAN, so the rules permit it too. While the rules are loaded, the Mac
-accepts connections only on the interface of its default route and on loopback. From any other
-interface, AirDrop and VPN tunnels included, it accepts only DNS and DHCP. The rules go when the
-Mac restarts, or with `pf.sh unload`:
+template of the role. It needs `ansible` and `jq` (from `mise install`), and sudo. The control of
+the test permits the router of the LAN, so the rules permit it too. While the rules are loaded, the
+Mac accepts connections only on the interface of its default route and on loopback. From any other
+interface, AirDrop and VPN tunnels included, it accepts only DNS and DHCP. The rules go when the Mac
+restarts, or with `pf.sh unload`:
 
 ```sh
 deploy/hosts/test/pf.sh load "$(route -n get default | awk '/gateway:/ {print $2}')/32"
