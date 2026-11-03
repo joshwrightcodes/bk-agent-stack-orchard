@@ -363,10 +363,11 @@ func (r *Reaper) collect(snapshot inventory.Snapshot) []Machine {
 
 	for _, owned := range snapshot.Owned {
 		machine := Machine{
-			VM:       owned.VM,
-			Job:      owned.Job,
-			ListedAt: r.list(owned.VM, snapshot.At),
-			Timeouts: Timeouts(r.profile(owned.Job), r.profiles, r.defaults),
+			VM:         owned.VM,
+			Job:        owned.Job,
+			SnapshotAt: snapshot.At,
+			ListedAt:   r.list(owned.VM, snapshot.At),
+			Timeouts:   Timeouts(r.profile(owned.Job), r.profiles, r.defaults),
 		}
 
 		// A reservation whose end the controller does not know is extended at once, which is

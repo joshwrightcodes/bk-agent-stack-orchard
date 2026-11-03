@@ -47,6 +47,10 @@ type orchardFake struct {
 	// scheduler stops too, and the machines on the workers run on.
 	down error
 
+	// readsFail is the answer of every list while it is set. The other calls and the scheduler
+	// work, as when the answers of Orchard no longer decode after a change of its API.
+	readsFail error
+
 	// deleteFails is the answer of every delete while it is set. The other calls work, so a
 	// machine that has to go stays in the listing.
 	deleteFails error
@@ -266,6 +270,10 @@ func (o *orchardFake) ListVMs(ctx context.Context) ([]orchard.VM, error) {
 		return nil, err
 	}
 
+	if o.readsFail != nil {
+		return nil, o.readsFail
+	}
+
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
@@ -305,6 +313,10 @@ func (o *orchardFake) DeleteVM(ctx context.Context, name string) error {
 func (o *orchardFake) ListWorkers(ctx context.Context) ([]orchard.Worker, error) {
 	if err := o.unavailable(ctx, "list workers"); err != nil {
 		return nil, err
+	}
+
+	if o.readsFail != nil {
+		return nil, o.readsFail
 	}
 
 	o.mu.Lock()

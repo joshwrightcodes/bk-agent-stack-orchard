@@ -26,8 +26,9 @@ var (
 
 const carried = job.ID("018f3b2c-1c4a-7e5b-9a3d-2f1e4c5b6a7d")
 
-// machine gives a machine created an hour ago that runs on a worker, whose job state the
-// controller asked for a second ago, in this tick, and Buildkite named. A case changes what it needs.
+// machine gives a machine created an hour ago that runs on a worker, as a snapshot of a second
+// ago shows it, whose job state the controller asked for a second ago, in this tick, and
+// Buildkite named. A case changes what it needs.
 func machine(state string, change ...func(*reaper.Machine)) reaper.Machine {
 	m := reaper.Machine{
 		VM: orchard.VM{
@@ -39,6 +40,7 @@ func machine(state string, change ...func(*reaper.Machine)) reaper.Machine {
 			Status:      orchard.StatusRunning,
 		},
 		Job:           carried,
+		SnapshotAt:    now.Add(-time.Second),
 		State:         state,
 		Named:         true,
 		Observed:      true,
@@ -78,6 +80,10 @@ func unplaced(m *reaper.Machine) { m.VM.Worker = ""; m.VM.ScheduledAt = time.Tim
 func unknown(answers int) func(*reaper.Machine) {
 	return func(m *reaper.Machine) { m.Named = false; m.Absent = answers }
 }
+
+// frozen is a machine from a snapshot older than the freshness limit, as during an outage of the
+// reads of Orchard.
+func frozen(m *reaper.Machine) { m.SnapshotAt = now.Add(-2 * freshness) }
 
 // earlier is a job state that the controller asked for before the last pass of the reaper.
 func earlier(m *reaper.Machine) { m.Current = false }
@@ -170,6 +176,9 @@ func TestTheDecisionTable(t *testing.T) {
 			machine("running", status(orchard.StatusFailed)), 7, reaper.NotifyAndDelete,
 			reaper.ReasonVMFailed,
 		},
+		"a failed machine of an acquired job waits for a fresh snapshot": {
+			machine("running", status(orchard.StatusFailed), frozen), 7, reaper.Keep, "",
+		},
 		"a machine of an acquired job that runs stays": {
 			machine("running"), 8, reaper.Keep, "",
 		},
@@ -188,10 +197,19 @@ func TestTheDecisionTable(t *testing.T) {
 			machine("reserved", status(orchard.StatusFailed), earlier), 9, reaper.Keep, "",
 		},
 
+		"a failed machine waits for a fresh snapshot before it fails the job": {
+			machine("reserved", status(orchard.StatusFailed), frozen), 9, reaper.Keep, "",
+		},
+
 		// Row 10.
 		"a machine that no worker took in time goes and the job waits again": {
 			machine("reserved", status(orchard.StatusPending), unplaced, created(3*time.Minute)),
 			10, reaper.Delete, reaper.ReasonUnplacedTimeout,
+		},
+		"an unplaced timeout on a stale snapshot extends the reservation instead": {
+			machine("reserved", status(orchard.StatusPending), unplaced, created(3*time.Minute),
+				frozen, reservedFor(time.Minute)),
+			13, reaper.Extend, "",
 		},
 		"a machine that waits for a worker exactly as long as the limit stays": {
 			machine("reserved", status(orchard.StatusPending), unplaced, created(2*time.Minute)),
@@ -208,6 +226,11 @@ func TestTheDecisionTable(t *testing.T) {
 				reservedFor(time.Minute)),
 			13, reaper.Extend, "",
 		},
+		"a boot timeout on a stale snapshot extends the reservation instead": {
+			machine("reserved", status(orchard.StatusPending), placed(16*time.Minute), frozen,
+				reservedFor(time.Minute)),
+			13, reaper.Extend, "",
+		},
 		"the boot limit counts from the placement and not from the creation": {
 			machine("reserved", status(orchard.StatusPending), created(20*time.Minute),
 				placed(time.Minute)),
@@ -221,6 +244,17 @@ func TestTheDecisionTable(t *testing.T) {
 		},
 		"an acquire timeout waits for a state of this tick": {
 			machine("reserved", started(6*time.Minute), earlier), 13, reaper.Keep, "",
+		},
+		"an acquire timeout on a stale snapshot extends the reservation instead": {
+			machine("reserved", started(6*time.Minute), frozen, reservedFor(time.Minute)),
+			13, reaper.Extend, "",
+		},
+		"the rows that need no phase act on a stale snapshot": {
+			machine("finished", frozen), 4, reaper.Delete, reaper.ReasonJobTerminal,
+		},
+		"the lifetime acts on a stale snapshot": {
+			machine("running", created(26*time.Hour), frozen), 2, reaper.Delete,
+			reaper.ReasonLifetime,
 		},
 		"a running machine inside the acquire limit stays": {
 			machine("reserved", started(4*time.Minute)), 13, reaper.Keep, "",

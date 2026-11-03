@@ -513,8 +513,10 @@ Admission MUST run only when all of these conditions are true:
   keeps only its first reservation, and a boot longer than `reservationExpiry` loses its job.
   With no owned VM, JobStates has nothing to ask, and its data is new at each refresh.
 
-A source whose calls fail keeps its last data. The Reaper continues, because its own rules (§7.2)
-decide what old data permits it to do.
+A source whose calls fail keeps its last data. The Reaper continues, and its own rules decide what
+old data permits it to do (§7.1, rule 3). Rows 1, 2, and 4 to 6 need no phase of a VM, and row 13
+extends the reservations of the VMs that start. Rows 7 and 9 to 12 act on the phase of a VM, so
+they wait for Inventory data that is newer than `stateFreshness`.
 
 Admission MUST measure the age of the data at the time of its decision, from the clock of the
 controller, and not at the start of the tick. The refresh and the Reaper run first and can take
@@ -779,7 +781,13 @@ above, and for `download` also `BKASO_AGENT_URL` and `BKASO_AGENT_SHA256`. When
    of a tick comes before its pass, so the state is a few seconds old at most, and a finish waits
    at most `jobStatesInterval` (5 s) for it. The Stacks API has no call that reads the state of
    one job (`GetJob` of `buildkite/stacksapi` v1.2.0 gives the environment and the command only,
-   read 2026-11-03), so the Reaper cannot read the state again just before the finish.
+   read 2026-11-03), so the Reaper cannot read the state again just before the finish. A row
+   that acts on the phase of a VM (rows 7 and 9 to 12) MUST use Inventory data that is newer than
+   `stateFreshness`, measured on the clock of the controller at the time of the pass, as the gate
+   of admission measures it (§6.3). A snapshot of any age keeps the phase that a VM had then, so
+   while the lists of Orchard fail, a VM that runs now can still look `pending`, and a job whose
+   agent is about to acquire it would fail. On older Inventory data, a failed VM waits with no
+   action, and row 13 applies to a `pending` or `running` VM.
 4. **Permanent errors are not proof.** If a finish returns 404 or 422, the job may have ended,
    Buildkite may not know it, or an agent may have acquired it after the state that the finish
    read (the real answer for an acquired job is `UNKNOWN`, O-6 of the test strategy). The
@@ -896,7 +904,7 @@ At start-up, before the first Admission, the controller MUST do these steps:
 
 | Outage | Behavior |
 |---|---|
-| The Orchard controller is not available | Inventory data becomes stale. Admission stops. The Reaper cannot delete VMs. VMs on the workers continue to run. Readiness fails. Liveness passes. |
+| The Orchard controller is not available | Inventory data becomes stale. Admission stops. Once the data is older than `stateFreshness`, the Reaper takes no action that reads the phase of a VM (rows 7 and 9 to 12), and it extends the reservations of the VMs that start (row 13). A job whose VM passes a timeout during the outage stays reserved until the data is fresh again, and its token still expires at its own lifetime (§6.4). The Reaper cannot delete VMs while Orchard does not answer, and it tries again at each tick. If only the lists fail, its deletes by rows 1, 2, and 4 to 6 still reach Orchard. VMs on the workers continue to run. Readiness fails. Liveness passes. |
 | The Buildkite API is not available, or applies a rate limit | The controller obeys `Retry-After`. JobStates data becomes stale. The controller does not reserve or finish jobs. The controller deletes VMs only for rows 1 and 2. |
 | A worker is offline | After the worker offline timeout (3 min), Orchard sets the VMs of the worker to `failed`. Rows 7 and 9 apply. `restart_policy: Never` prevents a new VM for the same job on a different worker. |
 | The get-states answer names none of the jobs | JobStates counts it as a failed call, and its data becomes stale (§7.1, rule 4). The result is the same as for a Buildkite outage of the get-states call only: admission stops while owned VMs exist, and the Reaper deletes VMs only by rows 1 and 2. |

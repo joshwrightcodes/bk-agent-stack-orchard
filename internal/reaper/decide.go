@@ -85,6 +85,12 @@ type Machine struct {
 	// Job is the job that the machine carries, and empty for an orphan.
 	Job job.ID
 
+	// SnapshotAt is when the controller took the snapshot that shows the machine, on its own
+	// clock. A snapshot of any age keeps the phase that the machine had then, and a row that acts
+	// on the phase needs a snapshot inside the freshness limit: while the reads of Orchard fail,
+	// a machine that runs now can still look pending.
+	SnapshotAt time.Time
+
 	// State is the Buildkite state of the job, when Observed and Named are true.
 	State string
 
@@ -122,7 +128,8 @@ type Machine struct {
 
 // Rules are the limits of the table that hold for every machine.
 type Rules struct {
-	// Freshness is how old a job state may be and still count.
+	// Freshness is how old a job state, or the snapshot of a machine whose phase a row reads, may
+	// be and still count.
 	Freshness time.Duration
 
 	// RenewBefore is how long before its end a reservation is extended.
@@ -199,9 +206,14 @@ func Decide(m Machine, now time.Time, rules Rules) Decision {
 	failed := m.VM.Status == orchard.StatusFailed
 
 	// Rows 7 and 8. An agent owns the job, so Buildkite decides its result. A machine that failed
-	// goes with a line on the job page; one that runs is doing its work.
+	// goes with a line on the job page; one that runs is doing its work. Row 7 acts on the phase
+	// of the machine, so it waits for a fresh snapshot, as rows 9 to 12 do.
 	if buildkite.Acquired(m.State) {
 		if failed {
+			if !phased(m, now, rules) {
+				return Decision{Row: 7, Action: Keep}
+			}
+
 			return Decision{Row: 7, Action: NotifyAndDelete, Reason: ReasonVMFailed}
 		}
 
@@ -219,9 +231,10 @@ func Decide(m Machine, now time.Time, rules Rules) Decision {
 // reserved reads rows 9 to 13, for a machine whose job is reserved.
 func reserved(m Machine, now time.Time, rules Rules, failed bool) Decision {
 	// Row 9. The machine failed before any agent acquired the job, so the job fails too, and the
-	// job page says why. Like every row that finishes a job, it waits for a state of this tick.
+	// job page says why. Like every row that finishes a job, it waits for a state of this tick,
+	// and like every row that acts on the phase, for a fresh snapshot.
 	if failed {
-		if !m.Current {
+		if !m.Current || !phased(m, now, rules) {
 			return Decision{Row: 9, Action: Keep}
 		}
 
@@ -230,10 +243,14 @@ func reserved(m Machine, now time.Time, rules Rules, failed bool) Decision {
 
 	pending := m.VM.Status == orchard.StatusPending
 
+	// Rows 10 to 12 read the phase of the machine. On a stale snapshot none of them applies, and
+	// row 13 holds the job of a machine that may still start.
+	fresh := phased(m, now, rules)
+
 	// Row 10. No worker took the machine in time, which means that the fleet is full. The machine
 	// goes and the reservation is left to lapse, so the job returns to the queue and admission
 	// starts it again when there is room. The job does not fail.
-	if pending && !m.VM.Placed() && older(now, m.VM.CreatedAt, m.Timeouts.Unplaced) {
+	if fresh && pending && !m.VM.Placed() && older(now, m.VM.CreatedAt, m.Timeouts.Unplaced) {
 		return Decision{Row: 10, Action: Delete, Reason: ReasonUnplacedTimeout}
 	}
 
@@ -241,7 +258,8 @@ func reserved(m Machine, now time.Time, rules Rules, failed bool) Decision {
 	// placement, because a machine that waited for a worker has not had its chance to boot yet.
 	// Rows 11 and 12 finish the job, so they wait for a state of this tick, and row 13 holds the
 	// job meanwhile.
-	if pending && m.VM.Placed() && older(now, m.VM.ScheduledAt, m.Timeouts.Boot) && m.Current {
+	if fresh && m.Current && pending && m.VM.Placed() &&
+		older(now, m.VM.ScheduledAt, m.Timeouts.Boot) {
 		return Decision{Row: 11, Action: FinishAndDelete, Reason: ReasonBootTimeout}
 	}
 
@@ -249,7 +267,7 @@ func reserved(m Machine, now time.Time, rules Rules, failed bool) Decision {
 
 	// Row 12. The machine runs and no agent acquired the job in time. The limit counts from the
 	// start of the machine process, which is when macOS begins to boot.
-	if running && older(now, m.VM.StartedAt, m.Timeouts.Acquire) && m.Current {
+	if fresh && m.Current && running && older(now, m.VM.StartedAt, m.Timeouts.Acquire) {
 		return Decision{Row: 12, Action: FinishAndDelete, Reason: ReasonAcquireTimeout}
 	}
 
@@ -265,6 +283,12 @@ func reserved(m Machine, now time.Time, rules Rules, failed bool) Decision {
 	}
 
 	return Decision{Action: Keep}
+}
+
+// phased reports a machine whose snapshot is inside the freshness limit, so that a row may act on
+// its phase. The age counts on the clock of the controller, as the gate of admission counts it.
+func phased(m Machine, now time.Time, rules Rules) bool {
+	return now.Sub(m.SnapshotAt) <= rules.Freshness
 }
 
 // older reports a time that lies more than a limit before now. A zero time has no age: treating it

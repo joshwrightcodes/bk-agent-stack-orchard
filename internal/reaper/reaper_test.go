@@ -125,7 +125,16 @@ func (f *fleet) Events(context.Context, string) ([]orchard.Event, error) {
 	return f.events, f.eventsErr
 }
 
-func (f *fleet) Latest() (inventory.Snapshot, bool) { return f.snapshot, f.read }
+// Latest gives the snapshot. A snapshot with no time is one that Orchard answered two seconds
+// ago, before the job states that observed gives.
+func (f *fleet) Latest() (inventory.Snapshot, bool) {
+	snapshot := f.snapshot
+	if snapshot.At.IsZero() {
+		snapshot.At = now.Add(-2 * time.Second)
+	}
+
+	return snapshot, f.read
+}
 
 func (f *fleet) Forget(name string) {
 	f.mu.Lock()
