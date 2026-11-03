@@ -127,6 +127,7 @@ func options(t *testing.T, r *recorder) controller.Options {
 		Queue:     queue{latest: stack.Queue{At: time.Now()}, read: true},
 		Interval:  time.Millisecond,
 		Freshness: time.Minute,
+		Now:       time.Now,
 		Metrics:   instruments,
 		Logger:    slog.New(slog.DiscardHandler),
 	}
@@ -238,12 +239,16 @@ func TestAnUnreadQueueStopsAdmission(t *testing.T) {
 }
 
 // A source whose calls fail keeps its last answer, and the fleet and the queue move on without it.
-// A job started on that answer can take a slot that is gone, so an old answer stops admission. The
-// reaper still runs, because its own rules decide what an old answer allows it.
+// A job started on that answer can take a slot that is gone, so an old answer stops admission. Old
+// job states stop it too: the reaper cannot extend a reservation on them, so a machine started
+// then keeps only its first reservation. The reaper still runs, because its own rules decide what
+// an old answer allows it.
 func TestAnOldAnswerStopsAdmissionAndNotTheReaper(t *testing.T) {
 	t.Parallel()
 
-	for _, stale := range []telemetry.Source{telemetry.SourceScheduledJobs, telemetry.SourceInventory} {
+	for _, stale := range []telemetry.Source{
+		telemetry.SourceScheduledJobs, telemetry.SourceInventory, telemetry.SourceJobStates,
+	} {
 		for name, at := range map[string]time.Time{
 			"older than the limit": time.Now().Add(-2 * time.Minute),
 			"never answered":       {},
@@ -293,14 +298,23 @@ func TestAdmissionWaitsForTheFirstJobStates(t *testing.T) {
 	}
 }
 
-// The job states gate only the first admission. Once they have answered, an old answer stops the
-// reaper by its own rules, and admission rests on the queue and the fleet alone (section 6.3).
-func TestAnOldAnswerOfTheJobStatesDoesNotStopAdmission(t *testing.T) {
+// Run times each tick with the clock of the controller, and not with the beat of its ticker. A
+// ticker gives the time that a beat was due, so after a long tick that time is in the past, and the
+// freshness gate then measures an old answer against an old time and admits on it. Here the clock
+// of the controller stands at a moment long before the ticker, and the answers are fresh at that
+// moment, so only a tick on that clock admits.
+func TestRunTimesATickWithTheClockOfTheController(t *testing.T) {
 	t.Parallel()
 
 	r := &recorder{}
 	settings := options(t, r)
-	settings.Sources[2].(*source).at = time.Now().Add(-time.Hour)
+	moment := time.Date(2020, 1, 1, 9, 0, 0, 0, time.UTC)
+
+	for _, s := range settings.Sources {
+		s.(*source).at = moment
+	}
+
+	settings.Now = func() time.Time { return moment }
 	settings.Admit = func(context.Context) error { r.add("admit"); return nil }
 
 	runOnce(t, settings, func() bool { return slices.Contains(r.seen(), "admit") })
@@ -385,6 +399,7 @@ func TestNewRefusesAnIncompleteLoop(t *testing.T) {
 		"no logger":      func(o *controller.Options) { o.Logger = nil },
 		"no interval":    func(o *controller.Options) { o.Interval = 0 },
 		"no freshness":   func(o *controller.Options) { o.Freshness = 0 },
+		"no clock":       func(o *controller.Options) { o.Now = nil },
 		"admission without the inventory": func(o *controller.Options) {
 			o.Admit = func(context.Context) error { return nil }
 			o.Sources = o.Sources[:1]

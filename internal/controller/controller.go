@@ -22,6 +22,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/retry"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/stack"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
 )
@@ -58,9 +59,15 @@ type Queue interface {
 }
 
 // admissionRests are the sources that a decision to start a job rests on (target design, section
-// 6.3). An old answer of either one can start a job for a slot that is gone, or for a job that
-// another agent took.
-var admissionRests = []telemetry.Source{telemetry.SourceScheduledJobs, telemetry.SourceInventory}
+// 6.3). An old answer of the queue or of the fleet can start a job for a slot that is gone, or for
+// a job that another agent took. Old job states mean that the reaper extends no reservation, so a
+// machine started then keeps only its first one, and a boot longer than that loses its job.
+//
+// The job states bind only while the fleet holds machines of this controller. With none, the
+// source has nothing to ask, and it answers at each refresh without a call.
+var admissionRests = []telemetry.Source{
+	telemetry.SourceScheduledJobs, telemetry.SourceInventory, telemetry.SourceJobStates,
+}
 
 // admissionFollows is the source that must have answered once before the first admission (target
 // design, section 7.4). After a restart the machines of the last process still run, and a reaper
@@ -104,6 +111,9 @@ type Options struct {
 	// admission, and not the reaper.
 	Freshness time.Duration
 
+	// Now is the clock that times each tick. internal/app gives every part the same one.
+	Now func() time.Time
+
 	// Metrics, Logger, and Tracer record what the loop did. A nil Tracer records no span.
 	Metrics *telemetry.Metrics
 	Logger  *slog.Logger
@@ -120,6 +130,7 @@ type Controller struct {
 	admit     func(ctx context.Context) error
 	interval  time.Duration
 	freshness time.Duration
+	now       func() time.Time
 	metrics   *telemetry.Metrics
 	logger    *slog.Logger
 	tracer    trace.Tracer
@@ -127,6 +138,11 @@ type Controller struct {
 	// refreshed holds the tick at which each source was last read. Only the goroutine of the
 	// loop reads and writes it.
 	refreshed map[telemetry.Source]time.Time
+
+	// paused holds, for each source whose last read failed with a wait that the server named,
+	// how long after that read the source waits. Only the goroutine of the loop reads and writes
+	// it.
+	paused map[telemetry.Source]time.Duration
 }
 
 // New builds the loop.
@@ -159,10 +175,14 @@ func New(options Options) (*Controller, error) {
 			"than zero", options.Freshness))
 	}
 
+	if options.Now == nil {
+		problems = append(problems, errors.New("the controller needs a clock"))
+	}
+
 	// Without a source, the gate of admission has nothing to measure, and a wiring that left one
 	// out would start jobs on an answer of any age.
 	if options.Admit != nil {
-		for _, rest := range append(slices.Clone(admissionRests), admissionFollows) {
+		for _, rest := range admissionRests {
 			if !slices.ContainsFunc(options.Sources, func(s Source) bool { return s.Source() == rest }) {
 				problems = append(problems, fmt.Errorf("admission rests on the source %s, and the "+
 					"loop does not have it", rest))
@@ -188,10 +208,12 @@ func New(options Options) (*Controller, error) {
 		admit:     options.Admit,
 		interval:  options.Interval,
 		freshness: options.Freshness,
+		now:       options.Now,
 		metrics:   options.Metrics,
 		logger:    options.Logger,
 		tracer:    tracer,
 		refreshed: map[telemetry.Source]time.Time{},
+		paused:    map[telemetry.Source]time.Duration{},
 	}, nil
 }
 
@@ -220,8 +242,11 @@ func (c *Controller) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return c.withdraw(ctx)
-		case at := <-ticker.C:
-			c.Tick(ctx, at)
+		case <-ticker.C:
+			// The value of the ticker is the time that the beat was due. After a tick that took
+			// longer than the interval, that time is in the past, and the freshness gate would
+			// measure an old answer against it. The clock gives the time of the work.
+			c.Tick(ctx, c.now())
 		}
 	}
 }
@@ -244,9 +269,10 @@ func (c *Controller) withdraw(ctx context.Context) error {
 
 // Tick runs the steps of one tick, in order. At is the time of the tick.
 //
-// Run calls it at each beat of its ticker. The component suite calls it directly, with the time of
-// its own clock, so that it runs the loop one tick at a time without a ticker or a sleep. One
-// goroutine at a time may call it, and never while Run runs.
+// Run calls it at each beat of its ticker, with the time of the clock of the controller. The
+// component suite calls it directly, with the time of its own clock, so that it runs the loop one
+// tick at a time without a ticker or a sleep. One goroutine at a time may call it, and never while
+// Run runs.
 func (c *Controller) Tick(ctx context.Context, at time.Time) {
 	// The observation comes last, so that it reports the fleet as this tick left it and not as
 	// this tick found it.
@@ -278,7 +304,13 @@ func (c *Controller) refresh(ctx context.Context, at time.Time) {
 		c.refreshed[source.Source()] = at
 
 		c.run(ctx, step[source.Source()], func(ctx context.Context) error {
-			return source.Refresh(ctx)
+			err := source.Refresh(ctx)
+
+			// A server that named a wait in Retry-After gets it here, as a time before which
+			// the source is not due, and not as a sleep inside the tick (internal/retry).
+			c.paused[source.Source()] = retry.Pause(err)
+
+			return err
 		})
 	}
 }
@@ -290,13 +322,19 @@ func (c *Controller) refresh(ctx context.Context, at time.Time) {
 // it in the same tick, so a comparison of answers skips every other tick when the two intervals
 // are equal. Ticks arrive one tick interval apart, so half of that interval is room for the jitter
 // of the ticker, and it can never let a source be read a whole tick early.
+//
+// A source whose last read failed with a wait that the server named is not due before that wait
+// ends, measured from the tick of that read. The wait has no room for jitter, because the server
+// asked for it.
 func (c *Controller) due(source Source, at time.Time) bool {
 	last, read := c.refreshed[source.Source()]
 	if !read {
 		return true
 	}
 
-	return at.Sub(last) >= source.Interval()-c.interval/2
+	since := at.Sub(last)
+
+	return since >= source.Interval()-c.interval/2 && since >= c.paused[source.Source()]
 }
 
 // run carries out one step, and records what it cost. A step that fails is a log record and a

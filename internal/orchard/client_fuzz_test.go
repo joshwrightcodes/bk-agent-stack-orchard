@@ -3,6 +3,7 @@
 package orchard_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/retry"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/secret"
 )
 
@@ -64,8 +66,10 @@ func FuzzTheClientSurvivesAnyResponseBody(f *testing.F) {
 		URL:            httpServer.URL,
 		ServiceAccount: "bk-agent-stack-orchard",
 		Token:          secret.String("orchard-token"),
-		Attempts:       2,
-		RetryWait:      time.Nanosecond,
+		Retry: retry.Policy{
+			Attempts: 2,
+			Sleep:    func(context.Context, time.Duration) error { return nil },
+		},
 	})
 	if err != nil {
 		f.Fatalf("New() = %v", err)

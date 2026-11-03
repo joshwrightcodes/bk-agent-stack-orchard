@@ -48,6 +48,11 @@ type Options struct {
 	// Environment reads the variables that a profile names, such as the image credentials. A nil
 	// value reads none.
 	Environment func(string) string
+
+	// CallTimeout is the time limit of each call to either API. Zero gives the limit of the
+	// design. The component suite gives a short one, so that a fake that never answers costs it
+	// little real time.
+	CallTimeout time.Duration
 }
 
 // Build gives the control loop.
@@ -67,13 +72,19 @@ func Build(options Options) (*controller.Controller, error) {
 		environment = func(string) string { return "" }
 	}
 
-	// Each call to either API is counted when it fails, here and nowhere else.
+	limit := options.CallTimeout
+	if limit <= 0 {
+		limit = callTimeout
+	}
+
+	// Each call to either API has a time limit, and is counted when it fails, here and nowhere
+	// else. The count wraps the limit, so that a call that the limit ends counts as a timeout.
 	stacks := countedStacks{
-		next:    options.Stacks,
+		next:    boundedStacks{next: options.Stacks, limit: limit},
 		counter: counter{metrics: recorder.Metrics, component: telemetry.ComponentBuildkite},
 	}
 	machines := countedOrchard{
-		next:    options.Orchard,
+		next:    boundedOrchard{next: options.Orchard, limit: limit},
 		counter: counter{metrics: recorder.Metrics, component: telemetry.ComponentOrchard},
 	}
 
@@ -197,6 +208,7 @@ func Build(options Options) (*controller.Controller, error) {
 		Admit:     decisions.admit,
 		Interval:  settings.Buildkite.PollInterval,
 		Freshness: settings.StateFreshness,
+		Now:       now,
 		Metrics:   recorder.Metrics,
 		Logger:    recorder.Logger,
 		Tracer:    recorder.Tracer,

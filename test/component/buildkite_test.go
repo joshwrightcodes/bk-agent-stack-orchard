@@ -53,6 +53,13 @@ type stacksFake struct {
 	// down is the answer of every call while Buildkite is not available.
 	down error
 
+	// failing holds the answer of one endpoint that fails while the others answer.
+	failing map[string]error
+
+	// hangs makes every call wait for the end of its context, as an API that accepts a call and
+	// never answers does.
+	hangs bool
+
 	// calls holds each call, with the endpoint and the time of the suite, for the request
 	// budget. finished holds each job that a finish call ended, and lines each line of a job page.
 	calls    []call
@@ -71,6 +78,7 @@ func newStacks(now func() time.Time, violations *[]string) *stacksFake {
 		now:        now,
 		jobs:       map[job.ID]*work{},
 		reported:   map[job.ID]string{},
+		failing:    map[string]error{},
 		violations: violations,
 	}
 }
@@ -118,20 +126,29 @@ type call struct {
 	at       time.Time
 }
 
-// called records a request, and gives the answer of an API that is not available.
-func (s *stacksFake) called(endpoint string) error {
+// called records a request, and gives the answer of an API that is not available, or waits for
+// the end of the call when the API hangs.
+func (s *stacksFake) called(ctx context.Context, endpoint string) error {
 	s.calls = append(s.calls, call{endpoint: endpoint, at: s.now()})
+
+	if s.hangs {
+		return hang(ctx, s.violations, endpoint)
+	}
+
+	if err := s.failing[endpoint]; err != nil {
+		return err
+	}
 
 	return s.down
 }
 
-func (s *stacksFake) Register(context.Context) error   { return s.called("register") }
-func (s *stacksFake) Deregister(context.Context) error { return s.called("deregister") }
+func (s *stacksFake) Register(ctx context.Context) error   { return s.called(ctx, "register") }
+func (s *stacksFake) Deregister(ctx context.Context) error { return s.called(ctx, "deregister") }
 
 // ScheduledJobs gives one page of the scheduled jobs, in the order of their arrival. The cursor is
 // the number of jobs that earlier pages gave, and an empty cursor starts at the first job.
-func (s *stacksFake) ScheduledJobs(_ context.Context, cursor string, size int) (buildkite.Page, error) {
-	if err := s.called("list"); err != nil {
+func (s *stacksFake) ScheduledJobs(ctx context.Context, cursor string, size int) (buildkite.Page, error) {
+	if err := s.called(ctx, "list"); err != nil {
 		return buildkite.Page{}, err
 	}
 
@@ -177,10 +194,10 @@ func (s *stacksFake) ScheduledJobs(_ context.Context, cursor string, size int) (
 }
 
 // Reserve holds a scheduled job, and extends the reservation of a reserved one.
-func (s *stacksFake) Reserve(_ context.Context, ids []job.ID, expiry time.Duration) (
+func (s *stacksFake) Reserve(ctx context.Context, ids []job.ID, expiry time.Duration) (
 	buildkite.Reservation, error,
 ) {
-	if err := s.called("reserve"); err != nil {
+	if err := s.called(ctx, "reserve"); err != nil {
 		return buildkite.Reservation{}, err
 	}
 
@@ -204,10 +221,10 @@ func (s *stacksFake) Reserve(_ context.Context, ids []job.ID, expiry time.Durati
 	return answer, nil
 }
 
-func (s *stacksFake) Tokens(_ context.Context, ids []job.ID, lifetime time.Duration) (
+func (s *stacksFake) Tokens(ctx context.Context, ids []job.ID, lifetime time.Duration) (
 	buildkite.Tokens, error,
 ) {
-	if err := s.called("tokens"); err != nil {
+	if err := s.called(ctx, "tokens"); err != nil {
 		return buildkite.Tokens{}, err
 	}
 
@@ -226,8 +243,8 @@ func (s *stacksFake) Tokens(_ context.Context, ids []job.ID, lifetime time.Durat
 	return answer, nil
 }
 
-func (s *stacksFake) States(_ context.Context, ids []job.ID) (map[job.ID]string, error) {
-	if err := s.called("states"); err != nil {
+func (s *stacksFake) States(ctx context.Context, ids []job.ID) (map[job.ID]string, error) {
+	if err := s.called(ctx, "states"); err != nil {
 		return nil, err
 	}
 
@@ -246,8 +263,8 @@ func (s *stacksFake) States(_ context.Context, ids []job.ID) (map[job.ID]string,
 }
 
 // Finish ends a job that no agent took. Buildkite refuses it for any other job.
-func (s *stacksFake) Finish(_ context.Context, id job.ID, _ int, _ string) error {
-	if err := s.called("finish"); err != nil {
+func (s *stacksFake) Finish(ctx context.Context, id job.ID, _ int, _ string) error {
+	if err := s.called(ctx, "finish"); err != nil {
 		return err
 	}
 
@@ -269,8 +286,8 @@ func (s *stacksFake) Finish(_ context.Context, id job.ID, _ int, _ string) error
 	return nil
 }
 
-func (s *stacksFake) Notify(_ context.Context, lines []buildkite.Notification) error {
-	if err := s.called("notify"); err != nil {
+func (s *stacksFake) Notify(ctx context.Context, lines []buildkite.Notification) error {
+	if err := s.called(ctx, "notify"); err != nil {
 		return err
 	}
 

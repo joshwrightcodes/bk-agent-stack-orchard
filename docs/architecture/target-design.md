@@ -190,8 +190,8 @@ One goroutine runs the tick. Each tick does these steps in sequence:
 
 1. If the interval is complete, refresh Inventory and JobStates.
 2. Run the Reaper on each owned VM.
-3. If the stack is not paused, and the Inventory data and Poller data are fresh, run Admission.
-   Then run the Launcher.
+3. If the stack is not paused, and the Inventory, Poller, and JobStates data are fresh (§6.3),
+   run Admission. Then run the Launcher.
 
 API calls in one step MAY run concurrently, with a concurrency limit. The steps MUST run in
 sequence. Because of this, Admission always sees the Reaper deletions of the same tick.
@@ -205,6 +205,27 @@ ticks, not between the answers of the source. An answer arrives after its tick, 
 for a source that waits for the ones before it in the same tick, so a comparison of answers reads
 a source whose interval equals the tick interval at only every other tick. A source that failed
 MUST wait for its interval like one that answered.
+
+If the read of a source failed with a wait that the server named in `Retry-After`, the loop MUST
+NOT read that source again before the wait ends, measured from the tick of the failed read. The
+loop MUST NOT sleep inside the tick for the wait, so the other steps continue. The wait MUST have
+a maximum of 30 s (`MaxPause`), so that a wrong value cannot stop a source for long. This maximum
+is half of the default `stateFreshness`: a source that waits once and then answers stays fresh.
+
+Every call to Buildkite or to Orchard MUST have a time limit, which covers all of its tries and
+waits (§15). The limit is 10 s (`callTimeout`). A call that hangs holds every step after it in the
+tick, the extensions and the deletions of the Reaper included, so the limit MUST keep a tick in
+which both APIs hang inside the renewal lead of a reservation (`reservationRenewBefore`, 120 s).
+Before the extensions, a tick makes five calls that can hang: one poll of the queue (a page that
+fails ends the read), two Inventory calls, one JobStates call, and one call for the progress
+notices. At 10 s each, the extensions leave in 50 s and end in 60 s, which leaves room for the
+next tick to try again inside the lead. The Reaper and the Launcher also make one call for each VM
+that they act on, and each of these calls has the same limit.
+
+The loop MUST take the time of a tick from the one clock of the controller (§15), and not from
+the ticker. A ticker gives the time that a beat was due. After a tick that took longer than the
+interval, that time is in the past, and the freshness gate of admission (§6.3) would measure an
+old answer against an old time.
 
 With 100 VMs, the controller makes approximately three API calls each second in a normal tick. A
 tick that lists a long queue makes up to 3 list requests (one for each page of 1000 jobs), and each
@@ -283,10 +304,9 @@ For each unmatched job that has no entry in the notified set, the controller MUS
 The controller writes these notices after it reserves and starts the admitted jobs of the same
 tick, so that a slow notification call cannot delay an admitted job. It sends at most 1000 lines
 in one call (`NotificationsPerRequest`, §3). Each call has its own time limit of 10 s
-(`notifyTimeout`), so that a call that retries cannot hold the loop for more than 10 s. The
-Buildkite client and the Orchard client each have a limit of 30 s for a whole call for the same
-reason. The Buildkite client also limits the body of an answer to 16 MiB, and a longer body fails
-the call.
+(`notifyTimeout`), so that a call that retries cannot hold the loop for more than 10 s. Every call
+to either API has the same limit (§4). The Buildkite client also limits the body of an answer to
+16 MiB, and a longer body fails the call.
 
 The controller keeps the identifiers of the jobs that it notified in a set in memory, so that it
 writes the notice for a job once while the job stays listed and the process runs. The set has
@@ -435,6 +455,10 @@ Admission MUST run only when all of these conditions are true:
 * The queue is not `dispatch_paused`.
 * The Inventory data is newer than `stateFreshness` (60 s).
 * The scheduled-jobs list is newer than `stateFreshness`.
+* If the Inventory data holds an owned VM, the JobStates data is newer than `stateFreshness`.
+  The Reaper extends no reservation on older job states (§7.1, rule 3). A VM that starts then
+  keeps only its first reservation, and a boot longer than `reservationExpiry` loses its job.
+  With no owned VM, JobStates has nothing to ask, and its data is new at each refresh.
 
 A source whose calls fail keeps its last data. The Reaper continues, because its own rules (§7.2)
 decide what old data permits it to do.
@@ -651,9 +675,12 @@ above, and for `download` also `BKASO_AGENT_URL` and `BKASO_AGENT_SHA256`. When
    then trust it too soon.
 3. **Fresh data or no action.** If the job state of a VM is older than `stateFreshness` (60 s),
    the Reaper MUST do only the orphan action and the maximum-lifetime action.
-4. **Permanent errors are terminal.** If finish, get-states, or delete returns 404 or 422, the
-   controller MUST mark the job as ignored in memory. The controller MUST NOT send the call
-   again in a loop.
+4. **Permanent errors are terminal.** If finish or delete returns 404 or 422, the controller
+   MUST mark the job as ignored in memory. The controller MUST NOT send the call again in a
+   loop. The get-states call asks about many jobs at once, so a 404 or 422 on it is a failure
+   of the call and not an answer about one job. The controller MUST count it in
+   `cicd.system.errors` (§10.1). A job that the get-states answer does not name is unknown to
+   Buildkite (row 5).
 5. **Fail a job only before an agent acquires it.** After an agent acquires a job, the Buildkite
    lost-agent procedure controls the job result. The controller MUST NOT finish that job. The
    controller MUST only delete the VM.
@@ -740,6 +767,10 @@ At start-up, before the first Admission, the controller MUST do these steps:
 | The Buildkite API is not available, or applies a rate limit | The controller obeys `Retry-After`. JobStates data becomes stale. The controller does not reserve or finish jobs. The controller deletes VMs only for rows 1 and 2. |
 | A worker is offline | After the worker offline timeout (3 min), Orchard sets the VMs of the worker to `failed`. Rows 7 and 9 apply. `restart_policy: Never` prevents a new VM for the same job on a different worker. |
 | The queue is `dispatch_paused` | Admission stops. The controller does not write new notifications for unmatched jobs. The Reaper continues for existing VMs. |
+
+An API that accepts calls and does not answer is an outage of the same kind. Each call ends at
+its time limit (§4), so the loop continues: while Buildkite hangs, rows 1 and 2 still delete VMs,
+and while Orchard hangs, the Reaper still extends the reservations of the VMs that start.
 
 ### 7.6 Pipeline guidance
 
@@ -1278,10 +1309,28 @@ These rules apply:
   read the events of a VM.
 * The client MUST define its own types for the fields of §6.4, and it MUST ignore the fields that
   the design does not use.
-* The client MUST obey the same retry rules as the Buildkite client, and it MUST use `otelhttp`.
+* The client MUST use the retry policy of the Buildkite client (below), and it MUST use
+  `otelhttp`.
 
 The minimum Orchard version of §9.2 applies to the server that the fleet runs, not to a Go
 dependency.
+
+**Retry policy.** Both clients MUST use one retry policy, in `internal/retry`. The `stacksapi`
+library MUST try each request once (`stacksapi.WithNoRetry`). The library alone tries a request
+five times, and it waits for any `Retry-After` value with no maximum. The control loop runs on one
+goroutine, so a call that waits holds the whole loop (§4). These rules apply:
+
+* A client MUST try a call again only after a failure in transport, a 5xx status, or 429.
+* A call MUST have at most 3 tries. The wait before a try is a random share of a ceiling (full
+  jitter), so that callers that failed together do not try again together. The ceiling is 0.5 s
+  after the first try, and it doubles after each try, up to 2 s.
+* If the server names a wait in `Retry-After`, as a whole number of seconds, the wait is that
+  value. If the value is more than 2 s, the call MUST end at once, and the error MUST carry the
+  value, so that the caller waits and not the call. A source of the loop then waits for the
+  value, up to 30 s, before it reads again (§4).
+* The context of the call ends a wait, so the deadline of the call bounds the tries and the waits.
+
+The next tick is the real retry of a call that fails.
 
 **Wire types.** `tools/orchardgen` writes the wire types from the Orchard resource types of the
 pinned commit, and `go generate ./internal/orchard/` runs it (ADR-0015). The directive MUST carry

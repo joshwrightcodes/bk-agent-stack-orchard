@@ -15,6 +15,7 @@ import (
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/profile"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/retry"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/vmspec"
 )
 
@@ -199,7 +200,7 @@ func orchardClient(t *testing.T) *orchard.Client {
 		URL:            orchardURL,
 		ServiceAccount: "bk-agent-stack-orchard",
 		Token:          "integration",
-		Attempts:       1,
+		Retry:          retry.Policy{Attempts: 1},
 	})
 	if err != nil {
 		t.Fatalf("creating the client: %v", err)

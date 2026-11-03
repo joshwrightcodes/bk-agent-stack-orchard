@@ -3,16 +3,20 @@
 package component_test
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/health"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/retry"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/vmspec"
 )
 
@@ -23,6 +27,31 @@ var (
 	errUnavailable = errors.New("answered 503 Service Unavailable")
 	errLostAnswer  = errors.New("the connection closed before Orchard answered")
 )
+
+// callTimeout is the time limit of each call in the suite. The fakes answer at once, so only a
+// fake that hangs waits for it, in real time.
+const callTimeout = 5 * time.Millisecond
+
+// hangLimit is how long a fake that hangs waits for the end of a call. A call that no limit
+// bounds would hold the suite for ever, so the fake gives up after this real time and records a
+// violation.
+const hangLimit = 2 * time.Second
+
+// hang is a call to an API that accepts it and never answers: it ends only when its context ends.
+func hang(ctx context.Context, violations *[]string, endpoint string) error {
+	timer := time.NewTimer(hangLimit)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		*violations = append(*violations, fmt.Sprintf("a call of %s waited %s, so no time "+
+			"limit bounds it", endpoint, hangLimit))
+
+		return errUnavailable
+	}
+}
 
 // scenario is a world of the component suite that a test drives step by step.
 type scenario struct {
@@ -204,6 +233,90 @@ func TestABuildkiteOutageDeletesOnlyByRowsOneAndTwo(t *testing.T) {
 	s.budget()
 }
 
+// Only the job states fail, and the queue, the reservations, and Orchard still answer. The reaper
+// cannot extend a reservation on old job states, so a machine started now would keep only its
+// first reservation, and a boot longer than that loses its job. Admission therefore stops while
+// the fleet holds machines and their job states are old, and it starts again once they answer.
+func TestAJobStatesOutageStopsAdmission(t *testing.T) {
+	s := newScenario(t)
+
+	running := s.arrive()
+	s.run(5)
+	s.acquire(running)
+	s.run(10)
+
+	s.stacks.failing["states"] = errUnavailable
+
+	// The last answer of the job states ages past the freshness limit.
+	s.run(70)
+
+	late := s.arrive()
+	s.run(30)
+
+	if state := s.stacks.jobs[late].state; state != stateScheduled {
+		t.Errorf("the job that arrived while the job states failed is %s, want it scheduled", state)
+	}
+
+	if _, exists := s.machine(late); exists {
+		t.Error("the job that arrived while the job states failed has a machine, want none")
+	}
+
+	delete(s.stacks.failing, "states")
+	s.run(30)
+
+	if vm, exists := s.machine(late); !exists || vm.Status != orchard.StatusRunning {
+		t.Error("the job that arrived while the job states failed has no running machine after it")
+	}
+
+	s.budget()
+}
+
+// Buildkite applies a rate limit and names a wait of 20 s. The poll and the job states wait for it
+// before they ask again, although their own intervals are 1 s and 5 s, and they ask again once
+// the wait ends. The tick does not sleep for the wait.
+func TestARateLimitWithRetryAfterPausesTheBuildkiteSources(t *testing.T) {
+	s := newScenario(t)
+
+	waiting := s.arrive()
+	s.run(15)
+
+	limited := retry.Again(
+		fmt.Errorf("%w: answered 429 Too Many Requests", buildkite.ErrRateLimited), 20*time.Second)
+	s.stacks.down = limited
+	start := s.now
+
+	s.run(19)
+
+	asked := map[string]int{}
+
+	for _, c := range s.stacks.calls {
+		if c.at.After(start) {
+			asked[c.endpoint]++
+		}
+	}
+
+	for _, endpoint := range []string{"list", "states"} {
+		if asked[endpoint] != 1 {
+			t.Errorf("the controller asked %s %d times inside the wait that Buildkite named, "+
+				"want once", endpoint, asked[endpoint])
+		}
+	}
+
+	s.stacks.down = nil
+	s.run(10)
+
+	if !s.ready() {
+		t.Errorf("the controller is not ready after the wait: %v", s.checks.Unready())
+	}
+
+	if _, exists := s.machine(waiting); !exists || s.stacks.jobs[waiting].state != stateReserved {
+		t.Errorf("the reserved job is %s with a machine %t, want it reserved and on its machine",
+			s.stacks.jobs[waiting].state, exists)
+	}
+
+	s.budget()
+}
+
 // The Orchard controller is not available. The inventory ages, admission stops, the reaper cannot
 // delete, and the machines on the workers run on. Once Orchard answers, the controller catches up.
 func TestAnOrchardOutageStopsAdmissionAndDeletion(t *testing.T) {
@@ -248,6 +361,89 @@ func TestAnOrchardOutageStopsAdmissionAndDeletion(t *testing.T) {
 	}
 
 	s.budget()
+}
+
+// Buildkite accepts each call and never answers, which is worse for the loop than an error: each
+// call holds the one goroutine of the loop until its time limit. The loop still runs its ticks,
+// and rows 1 and 2, whose rules need no job state, delete their machines while every call to
+// Buildkite hangs.
+func TestAHungBuildkiteStillDeletesByRowsOneAndTwo(t *testing.T) {
+	s := newScenario(t)
+
+	waiting := s.arrive()
+	s.run(15)
+
+	orphan := "bk-" + controllerID + "-not-a-job"
+	ancient := vmspec.Name(controllerID, s.nextJob())
+
+	for name, created := range map[string]time.Time{
+		orphan: s.now, ancient: s.now.Add(-26 * time.Hour),
+	} {
+		s.orchard.vms[name] = &orchard.VM{Name: name, Status: orchard.StatusPending, CreatedAt: created}
+	}
+
+	s.stacks.hangs = true
+	finished := len(s.stacks.finished)
+
+	s.run(5)
+
+	for name := range map[string]bool{orphan: true, ancient: true} {
+		if _, exists := s.orchard.vms[name]; exists {
+			t.Errorf("the machine %s remains, want rows 1 and 2 to delete it while Buildkite hangs",
+				name)
+		}
+	}
+
+	if _, exists := s.machine(waiting); !exists {
+		t.Error("the machine of the reserved job is gone, want no deletion on a job state that " +
+			"the controller could not read")
+	}
+
+	if len(s.stacks.finished) != finished {
+		t.Errorf("the controller finished %v while Buildkite hung, want nothing", s.stacks.finished)
+	}
+
+	s.stacks.hangs = false
+	s.run(10)
+
+	if _, exists := s.machine(waiting); !exists || s.stacks.jobs[waiting].state != stateReserved {
+		t.Errorf("the reserved job is %s with a machine %t, want it reserved and on its machine",
+			s.stacks.jobs[waiting].state, exists)
+	}
+}
+
+// Orchard accepts each call and never answers. The reaper still reads the job states and extends
+// the reservation of a machine that boots, so the job stays with this stack while Orchard hangs.
+func TestAHungOrchardStillExtendsTheReservations(t *testing.T) {
+	s := newScenario(t)
+
+	booting := s.arrive()
+	s.run(10)
+
+	first := s.stacks.jobs[booting].reservedUntil
+	if first.IsZero() {
+		t.Fatal("the job has no reservation before Orchard hangs")
+	}
+
+	s.orchard.hangs = true
+
+	// Past the moment that the reservation needs its renewal, and inside the acquire timeout,
+	// after which the reaper would end the job.
+	renewal := first.Add(-s.settings.Buildkite.ReservationRenewBefore)
+	s.run(int(renewal.Sub(s.now).Seconds()) + 20)
+
+	w := s.stacks.jobs[booting]
+	if w.state != stateReserved || !w.reservedUntil.After(first) {
+		t.Errorf("the job is %s until %s, want it reserved past %s", w.state,
+			w.reservedUntil.Format(time.TimeOnly), first.Format(time.TimeOnly))
+	}
+
+	s.orchard.hangs = false
+	s.run(10)
+
+	if vm, exists := s.machine(booting); !exists || vm.Status != orchard.StatusRunning {
+		t.Error("the job has no running machine after Orchard answers again")
+	}
 }
 
 // A worker stops reporting. After the offline timeout, Orchard fails its machines. The machine of

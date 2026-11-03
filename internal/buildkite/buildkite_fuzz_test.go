@@ -123,10 +123,9 @@ func (a *answers) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 // bounded by the size of the answer. The limit of the body is a separate test with a body over it,
 // because a fuzzer cannot reach 16 MiB.
 //
-// The library retries each answer that it cannot decode, with a wait of seconds between the five
-// attempts, so the calls share a short deadline, the fuzzer gives only bodies that are JSON, and
-// the statuses leave out the ones that the library retries. A body that is not JSON is the test of
-// a cut answer below.
+// The statuses leave out the ones that the client tries again, so that no try waits, and the calls
+// share a short deadline for the case that one does. The fuzzer gives only bodies that are JSON. A
+// body that is not JSON is the test of a cut answer below.
 func FuzzTheClientSurvivesAnyResponseBody(f *testing.F) {
 	const job1 = `"018f3b2c-1c4a-7e5b-9a3d-2f1e4c5b6a7d"`
 
@@ -211,9 +210,9 @@ func FuzzTheClientSurvivesAnyResponseBody(f *testing.F) {
 	})
 }
 
-// A body that is cut or is not JSON gives an error and never a value or a panic. The library
-// retries such an answer with waits between the attempts, so the calls have a short deadline: the
-// check is that the call ends with an error, and the deadline keeps the test quick.
+// A body that is cut or is not JSON gives an error and never a value or a panic. The check is that
+// the call ends with an error. Each call has a short deadline, which keeps the test quick if a try
+// waits.
 func TestACutAnswerGivesAnErrorForEachCall(t *testing.T) {
 	t.Parallel()
 
@@ -246,7 +245,7 @@ func TestACutAnswerGivesAnErrorForEachCall(t *testing.T) {
 
 			ids := []job.ID{first}
 
-			// Each call has its own deadline, because a call that retries uses all of its own.
+			// Each call has its own deadline, because a call that waits uses all of its own.
 			call := func(name string, run func(ctx context.Context) error) {
 				ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 				defer cancel()
