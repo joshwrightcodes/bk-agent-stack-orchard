@@ -1,7 +1,10 @@
-// The project pins its dependencies and its actions, and the upstream watch reports only the
-// tools that the documents name. Renovate keeps the rest current: the Go modules, the images of
-// the Orchard deployment, and the actions. The tools in mise.toml, the Helm chart, and the host
-// roles stay out, because a document states each of their versions (upstream.yml).
+// The project pins its dependencies and its actions, and Renovate gives each pin an update signal:
+// the Go modules, the tools in mise.toml and their lock, the images, the actions, and the pins in
+// scripts and host roles that the custom managers below find. The upstream watch (upstream.yml)
+// reports the pins that a document of the design names, and the pins of images/build.sh: Orchard,
+// Tart, the Buildkite agent, the guest agent, Homebrew, and the macOS base of the job VMs. Each of
+// those also carries a SHA-256 that Renovate cannot compute, so Renovate leaves Orchard to it. The
+// Helm chart has no dependency to update.
 //
 // Its commit messages use the conventional types of CONTRIBUTING.md, so the commit gate accepts
 // them.
@@ -10,9 +13,21 @@
   extends: ["config:recommended"],
 
   enabledManagers: ["gomod", "dockerfile", "kubernetes", "github-actions", "custom.regex", "mise"],
+  // config:recommended skips every directory named test. The smoke deployment in test/smoke runs
+  // a pinned image in CI, so this list keeps the other paths of that preset and scans test/.
+  ignorePaths: [
+    "**/node_modules/**",
+    "**/bower_components/**",
+    "**/vendor/**",
+    "**/examples/**",
+    "**/__tests__/**",
+    "**/tests/**",
+    "**/__fixtures__/**",
+  ],
   kubernetes: {
-    // The image of the bootstrap Job of Orchard. No other manifest pins an image.
-    managerFilePatterns: ["/^deploy/orchard/bootstrap-job\\.yaml$/"],
+    // The Kubernetes manifests that pin an image by its tag and its digest: the bootstrap Job of
+    // Orchard, and the OpenTelemetry Collector of the smoke deployment.
+    managerFilePatterns: ["/^deploy/orchard/bootstrap-job\\.yaml$/", "/^test/smoke/.+\\.yaml$/"],
   },
 
   customManagers: [
@@ -24,6 +39,35 @@
         "(?:base_image|defaultBaseImage): (?<depName>[^:@\\s]+):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})",
       ],
       datasourceTemplate: "docker",
+    },
+    {
+      // The Structurizr image of the C4 check and the C4 render, pinned by its tag and its digest.
+      // Both scripts carry the same line, so one pull request updates both.
+      customType: "regex",
+      managerFilePatterns: ["/^scripts/check-c4\\.sh$/", "/^docs/architecture/render-c4-md\\.sh$/"],
+      matchStrings: [
+        'structurizr_image="(?<depName>[^:@"]+):(?<currentValue>[^@"]+)@(?<currentDigest>sha256:[a-f0-9]{64})"',
+      ],
+      datasourceTemplate: "docker",
+    },
+    {
+      // ansible-lint runs with the ansible-core of the playbook. The mise manager updates the
+      // version of the pypi:ansible-core tool, and this finds the same version in the "with" list
+      // of ansible-lint, so that both move together (the ansible group below).
+      customType: "regex",
+      managerFilePatterns: ["/^mise\\.toml$/"],
+      matchStrings: ['"ansible-core==(?<currentValue>[^"]+)"'],
+      depNameTemplate: "ansible-core",
+      datasourceTemplate: "pypi",
+    },
+    {
+      // Softnet, which the Mac hosts install next to Tart and Orchard. The role pins its version and
+      // the SHA-256 of its release archive.
+      customType: "regex",
+      managerFilePatterns: ["/^deploy/hosts/roles/orchard_worker/defaults/main\\.yml$/"],
+      matchStrings: ['orchard_worker_softnet_version: "(?<currentValue>[^"]+)"'],
+      depNameTemplate: "cirruslabs/softnet",
+      datasourceTemplate: "github-releases",
     },
   ],
 
@@ -45,6 +89,17 @@
   semanticCommitScope: "deps",
 
   postUpdateOptions: ["gomodTidy"],
+
+  // mise.lock pins the files of each tool, and .mise/locks pins the PyPI dependencies of
+  // ansible-core and ansible-lint, which mise.toml does not name. The weekly maintenance runs
+  // mise lock --bump, which takes the newest dependencies that each pinned tool version allows,
+  // and records their hashes. An update of one tool also runs mise lock, so its pull request
+  // carries the new lock.
+  lockFileMaintenance: {
+    enabled: true,
+    schedule: ["* 6-9 * * 1"],
+    semanticCommitType: "build",
+  },
 
   packageRules: [
     {
@@ -79,44 +134,98 @@
       groupName: "images",
     },
     {
+      // The "# syntax" line of a Dockerfile names the BuildKit frontend that runs the build. A
+      // digest pins it, as the base images are pinned.
+      matchManagers: ["dockerfile"],
+      matchDepTypes: ["syntax"],
+      pinDigests: true,
+    },
+    {
+      // The smoke deployment builds the fake Stacks API with ko into the local registry of kind.
+      // No registry holds that image, so there is nothing to update.
+      matchManagers: ["kubernetes"],
+      matchPackageNames: ["ko.local/**"],
+      enabled: false,
+    },
+    {
       // The base image is in the released image, so a new digest is a fix and a patch release.
       matchManagers: ["custom.regex"],
+      matchFileNames: [".goreleaser.yaml", ".ko.yaml"],
       semanticCommitType: "fix",
       groupName: "release base image",
     },
     {
-      // Of the tools in mise.toml, only Go: a patch release of Go fixes the standard library in
-      // the binary. A new minor version changes the Go version that the design states, so a
-      // person decides it. The other tools follow their documents (upstream.yml).
-      matchManagers: ["mise"],
-      enabled: false,
+      // Structurizr runs in the c4 model check. A new release can change the rendered views, and
+      // the check then shows the difference in c4.md on the same pull request.
+      matchManagers: ["custom.regex"],
+      matchDepNames: ["structurizr/structurizr"],
+      semanticCommitType: "build",
     },
     {
+      // Renovate cannot compute the SHA-256 of a release archive, so a person asks for the update
+      // from the Dependency Dashboard and adds the SHA-256 that the release publishes.
+      matchManagers: ["custom.regex"],
+      matchDepNames: ["cirruslabs/softnet"],
+      semanticCommitType: "build",
+      dependencyDashboardApproval: true,
+    },
+    {
+      // Each tool in mise.toml builds, checks, signs or makes the SBOMs of the release, so each one
+      // gets the security fixes of its patch and minor releases. The update also refreshes
+      // mise.lock.
+      matchManagers: ["mise"],
+      semanticCommitType: "build",
+    },
+    {
+      // A major release can change what a gate checks or how the release is signed, so a person
+      // asks for it from the Dependency Dashboard.
+      matchManagers: ["mise"],
+      matchUpdateTypes: ["major"],
+      dependencyDashboardApproval: true,
+    },
+    {
+      // A patch release of Go fixes the standard library in the binary, so it is a fix and a patch
+      // release. A new minor version changes the Go version that the design states, so a person
+      // asks for it from the Dependency Dashboard.
       matchManagers: ["mise"],
       matchDepNames: ["go"],
-      enabled: true,
       semanticCommitType: "fix",
     },
     {
       matchManagers: ["mise"],
       matchDepNames: ["go"],
       matchUpdateTypes: ["minor", "major"],
+      dependencyDashboardApproval: true,
+    },
+    {
+      // A new minor version of Python changes the interpreter of the Ansible environments and of
+      // the check scripts, so a person asks for it from the Dependency Dashboard.
+      matchManagers: ["mise"],
+      matchDepNames: ["python"],
+      matchUpdateTypes: ["minor", "major"],
+      dependencyDashboardApproval: true,
+    },
+    {
+      // The target design names the minimum Orchard version, and scripts/check-deps.py keeps
+      // mise.toml and the host role at it. Each platform in mise.toml also carries the SHA-256 of
+      // its archive. The upstream watch reports a new release, and a person moves all of them.
+      matchManagers: ["mise"],
+      matchDepNames: ["github:openai/orchard"],
       enabled: false,
     },
     {
-      // golangci-lint reads the export data of the Go that compiles the code, and an older
-      // golangci-lint cannot read the format of a newer Go: 2.13.2 failed on Go 1.27.3. It
-      // follows Go, so its patch and minor releases arrive too.
-      matchManagers: ["mise"],
-      matchDepNames: ["golangci-lint"],
-      enabled: true,
+      // ansible-lint MUST run with the ansible-core of the playbook, so the two pins of
+      // ansible-core in mise.toml, and ansible-lint, move in one pull request.
+      matchDepNames: ["pypi:ansible-core", "pypi:ansible-lint", "ansible-core"],
       semanticCommitType: "build",
+      groupName: "ansible",
     },
     {
-      matchManagers: ["mise"],
-      matchDepNames: ["golangci-lint"],
+      // The ansible-core pin in the "with" list waits for the same approval as the tool.
+      matchManagers: ["custom.regex"],
+      matchDepNames: ["ansible-core"],
       matchUpdateTypes: ["major"],
-      enabled: false,
+      dependencyDashboardApproval: true,
     },
     {
       matchManagers: ["github-actions"],
