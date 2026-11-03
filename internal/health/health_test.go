@@ -48,10 +48,16 @@ func fresh(ages ...time.Duration) []*source {
 type probed struct {
 	checks *health.Checks
 	log    *bytes.Buffer
+
+	// beat is when the loop last finished a tick. A test moves it.
+	beat *time.Time
 }
 
 // window is the readiness window of most tests, which the configuration gives as stateFreshness.
 const window = 30 * time.Second
+
+// stall is how long the loop of a test may go without a finished tick while liveness passes.
+const stall = 15 * time.Minute
 
 func build(t *testing.T, sources []*source, unauthorized *bool) probed {
 	t.Helper()
@@ -68,11 +74,14 @@ func buildWithin(t *testing.T, within time.Duration, sources []*source, unauthor
 	}
 
 	log := &bytes.Buffer{}
+	beat := now
 
 	checks, err := health.New(health.Options{
 		Sources:      given,
 		Window:       within,
 		Unauthorized: func() bool { return *unauthorized },
+		Heartbeat:    func() time.Time { return beat },
+		Stall:        stall,
 		Now:          func() time.Time { return now },
 		Logger:       slog.New(slog.NewTextHandler(log, nil)),
 	})
@@ -80,7 +89,7 @@ func buildWithin(t *testing.T, within time.Duration, sources []*source, unauthor
 		t.Fatalf("New() = %v, want the checks", err)
 	}
 
-	return probed{checks: checks, log: log}
+	return probed{checks: checks, log: log, beat: &beat}
 }
 
 // status gives what a probe of one service reads after an update.
@@ -241,13 +250,76 @@ func TestTheLogRecordsAChangeOfReadinessOnce(t *testing.T) {
 	}
 }
 
+// A loop that stops in the middle of a tick, for example on a wait without an end, does nothing
+// and cures nothing by itself. A restart cures it, so liveness fails.
+func TestLivenessFailsWhenTheLoopStopsTicking(t *testing.T) {
+	t.Parallel()
+
+	refused := false
+	p := build(t, fresh(), &refused)
+
+	*p.beat = now.Add(-stall - time.Second)
+
+	if got := p.status(t, health.ServiceLiveness); got != notServing {
+		t.Errorf("liveness is %s, want NOT_SERVING after a tick of more than %s", got, stall)
+	}
+
+	if log := p.log.String(); !strings.Contains(log, "tick") || !strings.Contains(log, "15m1s") {
+		t.Errorf("the log reads %q, want the tick and its age", log)
+	}
+}
+
+// The bound includes its end, and a loop that ticks again is alive again, with one record for
+// each change.
+func TestLivenessFollowsTheHeartbeatOfTheLoop(t *testing.T) {
+	t.Parallel()
+
+	refused := false
+	p := build(t, fresh(), &refused)
+
+	*p.beat = now.Add(-stall)
+	if got := p.status(t, health.ServiceLiveness); got != serving {
+		t.Fatalf("liveness is %s, want SERVING at the bound", got)
+	}
+
+	*p.beat = now.Add(-time.Hour)
+	p.status(t, health.ServiceLiveness)
+	p.status(t, health.ServiceLiveness)
+
+	*p.beat = now
+	if got := p.status(t, health.ServiceLiveness); got != serving {
+		t.Errorf("liveness is %s, want SERVING when the loop ticks again", got)
+	}
+
+	if log := p.log.String(); strings.Count(log, "has not finished a tick") != 1 ||
+		strings.Count(log, "finishes its ticks again") != 1 {
+		t.Errorf("the log reads %q, want one record for each change of liveness", log)
+	}
+}
+
+// The loop registers its stack before its first tick. That call has a timeout of its own, so the
+// process is alive until the first tick.
+func TestLivenessPassesBeforeTheFirstTick(t *testing.T) {
+	t.Parallel()
+
+	refused := false
+	p := build(t, fresh(), &refused)
+
+	*p.beat = time.Time{}
+
+	if got := p.status(t, health.ServiceLiveness); got != serving {
+		t.Errorf("liveness is %s, want SERVING before the first tick", got)
+	}
+}
+
 func TestNewRefusesIncompleteChecks(t *testing.T) {
 	t.Parallel()
 
 	_, err := health.New(health.Options{})
 	if err == nil || !strings.Contains(err.Error(), "clock") ||
 		!strings.Contains(err.Error(), "window") || !strings.Contains(err.Error(), "token") ||
-		!strings.Contains(err.Error(), "logger") {
+		!strings.Contains(err.Error(), "logger") || !strings.Contains(err.Error(), "heartbeat") ||
+		!strings.Contains(err.Error(), "stall") {
 		t.Errorf("New() with nothing = %v, want an error that names each missing part", err)
 	}
 }
@@ -262,6 +334,8 @@ func TestNewRefusesAWindowThatIsNotPositive(t *testing.T) {
 			Sources:      []health.Source{&source{kind: telemetry.SourceInventory}},
 			Window:       within,
 			Unauthorized: func() bool { return false },
+			Heartbeat:    func() time.Time { return now },
+			Stall:        stall,
 			Now:          func() time.Time { return now },
 			Logger:       slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
 		})

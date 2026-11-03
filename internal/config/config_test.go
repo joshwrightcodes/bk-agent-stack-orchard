@@ -115,6 +115,12 @@ func TestLoadAppliesTheDefaults(t *testing.T) {
 		t.Errorf("StartupTransport = %q, want the guest agent by default",
 			cfg.Profiles[0].StartupTransport)
 	}
+
+	// The probes have no authentication, so a controller on a host serves them to itself only.
+	// The Helm chart sets an address that the kubelet reaches.
+	if cfg.HealthAddress != "127.0.0.1:8080" {
+		t.Errorf("HealthAddress = %q, want the loopback address 127.0.0.1:8080", cfg.HealthAddress)
+	}
 }
 
 // A key that the controller does not know is a mistake, and a secret in the file is a defect.

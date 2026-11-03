@@ -85,9 +85,11 @@ Type: duration. Default: `1m`.
 
 ### `healthAddress`
 
-The address of the gRPC health service, with the services liveness and readiness.
+The address of the gRPC health service, with the services liveness and readiness. The service has no
+authentication, so the default is a loopback address. On Kubernetes, set an address that the kubelet
+reaches, such as :8080, as the Helm chart does.
 
-Type: string. Default: `:8080`.
+Type: string. Default: `127.0.0.1:8080`.
 
 ### `defaults`
 

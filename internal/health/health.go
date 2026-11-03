@@ -3,8 +3,11 @@
 // Package health answers the liveness and the readiness probes of the platform that runs the
 // controller, through the gRPC health checking protocol (grpc.health.v1).
 //
-// Liveness says that the process serves. A failed liveness probe restarts the process, which
-// cures nothing that a slow API causes, so liveness does not depend on either API. Readiness says
+// Liveness says that the process serves and that its loop finishes its ticks. A failed liveness
+// probe restarts the process, which cures nothing that a slow API causes, so liveness does not
+// depend on either API. It fails only when the loop has not finished a tick for much longer than
+// any tick takes, because a loop that waits without an end does nothing, and a restart cures
+// that. Readiness says
 // that the controller acts on the world as it is: every source answered inside the readiness
 // window, and Buildkite accepts the agent token. A controller that is not ready still runs its
 // loop.
@@ -49,6 +52,15 @@ type Options struct {
 	// Unauthorized reports an agent token that Buildkite refused.
 	Unauthorized func() bool
 
+	// Heartbeat gives when the loop last finished a tick, and the zero time before its first
+	// tick.
+	Heartbeat func() time.Time
+
+	// Stall is how long the loop may go without a finished tick while the process is alive. It
+	// MUST be much longer than the slowest tick, because a slow API makes ticks slow, and a
+	// restart does not cure a slow API. It MUST be positive.
+	Stall time.Duration
+
 	// Window is how old the last answer of a source may be while the controller is ready. The
 	// controller gives its stateFreshness, which the configuration requires to be longer than
 	// the interval of each source. It MUST be positive.
@@ -66,9 +78,15 @@ type Checks struct {
 	sources      []Source
 	unauthorized func() bool
 	window       time.Duration
+	heartbeat    func() time.Time
+	stall        time.Duration
 	now          func() time.Time
 	logger       *slog.Logger
 	server       *grpchealth.Server
+
+	// stalled is the liveness of the last update. Only the goroutine that updates the checks
+	// reads and writes it.
+	stalled bool
 
 	// kinds are the kinds of reason of the last update. A record follows a change of kind and not
 	// of text, because the age in a reason changes at each update. Only the goroutine that updates
@@ -94,6 +112,14 @@ func New(options Options) (*Checks, error) {
 		problems = append(problems, errors.New("the readiness check needs a window above zero"))
 	}
 
+	if options.Heartbeat == nil {
+		problems = append(problems, errors.New("the liveness check needs the heartbeat of the loop"))
+	}
+
+	if options.Stall <= 0 {
+		problems = append(problems, errors.New("the liveness check needs a stall bound above zero"))
+	}
+
 	if options.Now == nil {
 		problems = append(problems, errors.New("the readiness check needs a clock"))
 	}
@@ -115,6 +141,8 @@ func New(options Options) (*Checks, error) {
 		sources:      options.Sources,
 		unauthorized: options.Unauthorized,
 		window:       options.Window,
+		heartbeat:    options.Heartbeat,
+		stall:        options.Stall,
 		now:          options.Now,
 		logger:       options.Logger,
 		server:       server,
@@ -146,9 +174,11 @@ func (c *Checks) Run(ctx context.Context, every time.Duration) {
 	}
 }
 
-// Update decides readiness now, gives it to the health service, and writes a record when it
-// changed.
+// Update decides liveness and readiness now, gives them to the health service, and writes a
+// record when one changed.
 func (c *Checks) Update(ctx context.Context) {
+	c.updateLiveness(ctx)
+
 	found := c.problems()
 
 	status := healthpb.HealthCheckResponse_SERVING
@@ -180,6 +210,38 @@ func (c *Checks) Update(ctx context.Context) {
 	}
 
 	c.logger.WarnContext(ctx, "the controller is not ready", "reasons", reasons)
+}
+
+// updateLiveness fails liveness while the loop has not finished a tick inside the stall bound.
+// Before the first tick the process is alive: the loop then registers its stack, a call that has
+// a timeout of its own.
+func (c *Checks) updateLiveness(ctx context.Context) {
+	beat := c.heartbeat()
+	age := c.now().Sub(beat)
+	stalled := !beat.IsZero() && age > c.stall
+
+	status := healthpb.HealthCheckResponse_SERVING
+	if stalled {
+		status = healthpb.HealthCheckResponse_NOT_SERVING
+	}
+
+	c.server.SetServingStatus(ServiceLiveness, status)
+
+	if stalled == c.stalled {
+		return
+	}
+
+	c.stalled = stalled
+
+	if stalled {
+		c.logger.ErrorContext(ctx, "the loop has not finished a tick inside the stall bound, so "+
+			"liveness fails and the platform restarts the process",
+			"age", age.Round(time.Second).String(), "bound", c.stall.String())
+
+		return
+	}
+
+	c.logger.InfoContext(ctx, "the loop finishes its ticks again, so liveness passes")
 }
 
 // Unready gives each reason that the controller is not ready, and nothing when it is.

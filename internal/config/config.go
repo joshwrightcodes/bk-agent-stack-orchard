@@ -151,7 +151,9 @@ type Config struct {
 	// and reports that it is not ready.
 	StateFreshness time.Duration `yaml:"stateFreshness,omitempty"`
 
-	// The address of the gRPC health service, with the services liveness and readiness.
+	// The address of the gRPC health service, with the services liveness and readiness. The
+	// service has no authentication, so the default is a loopback address. On Kubernetes, set an
+	// address that the kubelet reaches, such as :8080, as the Helm chart does.
 	HealthAddress string `yaml:"healthAddress,omitempty"`
 
 	// The values that a profile takes when it sets none of its own.
@@ -214,7 +216,7 @@ func defaults() *Config {
 			WorkerOfflineTimeout: 3 * time.Minute,
 		},
 		StateFreshness: 60 * time.Second,
-		HealthAddress:  ":8080",
+		HealthAddress:  "127.0.0.1:8080",
 		Defaults: Defaults{
 			Timeouts: profile.Timeouts{
 				Unplaced:      2 * time.Minute,

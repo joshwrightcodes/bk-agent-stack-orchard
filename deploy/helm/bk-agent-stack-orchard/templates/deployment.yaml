@@ -87,8 +87,9 @@ spec:
               containerPort: {{ $port }}
               protocol: TCP
           # The gRPC health service of the controller. Liveness depends on neither API, because a
-          # restart cures nothing that an API causes. Readiness fails while a source is older than
-          # stateFreshness or Buildkite refused the token, and the log of the pod says why.
+          # restart cures nothing that an API causes. It fails only when the loop has not finished
+          # a tick for 15 minutes. Readiness fails while a source is older than stateFreshness or
+          # Buildkite refused the token, and the log of the pod says why.
           livenessProbe:
             grpc:
               port: {{ $port }}

@@ -4,12 +4,20 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"log/slog"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	grpchealth "google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
 func TestVersionPrintsTheVersionAndTheCommit(t *testing.T) {
@@ -171,5 +179,94 @@ func TestTheClientsOfTheControllerCarryATimeout(t *testing.T) {
 
 	if httpTimeout != 30*time.Second {
 		t.Errorf("httpTimeout = %s, want 30s", httpTimeout)
+	}
+}
+
+// stoppedListener is a listener that fails at once, as a listener whose socket the system closed.
+type stoppedListener struct{ net.Listener }
+
+func (stoppedListener) Accept() (net.Conn, error) { return nil, errors.New("the socket is gone") }
+
+// A probe server that stops on its own leaves a controller that looks dead to the platform, so
+// the log must say why.
+func TestAProbeServerThatFailsIsLogged(t *testing.T) {
+	var log bytes.Buffer
+
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen() = %v", err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+
+	serveProbes(t.Context(), newProbeServer(), stoppedListener{listener},
+		slog.New(slog.NewTextHandler(&log, nil)))
+
+	if !strings.Contains(log.String(), "the socket is gone") {
+		t.Errorf("the log reads %q, want the failure of the probe server", log.String())
+	}
+}
+
+// The stop of the process stops the probe server, which is no failure.
+func TestAProbeServerThatIsStoppedLogsNothing(t *testing.T) {
+	var log bytes.Buffer
+
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen() = %v", err)
+	}
+
+	server := newProbeServer()
+	server.Stop()
+
+	serveProbes(t.Context(), server, listener, slog.New(slog.NewTextHandler(&log, nil)))
+
+	if log.Len() != 0 {
+		t.Errorf("the log reads %q, want nothing for a server that was stopped", log.String())
+	}
+}
+
+// Each Watch of the health service is a stream without an end. The probe server limits the
+// streams of one connection, so that one client cannot fill the memory of the pod with them.
+func TestTheProbeServerLimitsTheStreamsOfAConnection(t *testing.T) {
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen() = %v", err)
+	}
+
+	server := newProbeServer()
+	healthpb.RegisterHealthServer(server, grpchealth.NewServer())
+
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(server.Stop)
+
+	conn, err := grpc.NewClient(listener.Addr().String(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("NewClient() = %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	client := healthpb.NewHealthClient(conn)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+
+	for i := range probeStreams {
+		watch, err := client.Watch(ctx, &healthpb.HealthCheckRequest{})
+		if err != nil {
+			t.Fatalf("Watch() %d = %v, want a stream", i, err)
+		}
+
+		if _, err := watch.Recv(); err != nil {
+			t.Fatalf("Recv() of the stream %d = %v, want a status", i, err)
+		}
+	}
+
+	short, stop := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer stop()
+
+	if _, err := client.Check(short, &healthpb.HealthCheckRequest{}); err == nil {
+		t.Errorf("a call beyond %d open streams = nil, want it to wait for a free stream",
+			probeStreams)
 	}
 }

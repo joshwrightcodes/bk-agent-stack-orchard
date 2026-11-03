@@ -9,9 +9,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -22,6 +24,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/grpc"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/keepalive"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/app"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
@@ -188,6 +191,8 @@ func serve(ctx context.Context, path, origin string, out io.Writer) error {
 		Sources:      sources,
 		Unauthorized: stacks.Unauthorized,
 		Window:       settings.StateFreshness,
+		Heartbeat:    loop.LastTick,
+		Stall:        livenessStall,
 		Now:          now,
 		Logger:       recorder.Logger,
 	})
@@ -195,7 +200,7 @@ func serve(ctx context.Context, path, origin string, out io.Writer) error {
 		return err
 	}
 
-	stopProbes, err := probe(ctx, settings.HealthAddress, checks)
+	stopProbes, err := probe(ctx, settings.HealthAddress, checks, recorder.Logger)
 	if err != nil {
 		return err
 	}
@@ -204,19 +209,57 @@ func serve(ctx context.Context, path, origin string, out io.Writer) error {
 	return loop.Run(ctx)
 }
 
+// livenessStall is how long the loop may go without a finished tick before liveness fails and the
+// platform restarts the process. Each call to an API has a timeout of 30 s, and a tick in an
+// outage of an API makes many calls, so the bound is many times the slowest tick that an outage
+// gives. A restart cures a loop that waits without an end, and not an outage.
+const livenessStall = 15 * time.Minute
+
+// probeStreams is the most streams that one connection to the probe server may hold. A probe of
+// the kubelet is one call on a new connection, and each Watch is a stream without an end, so a
+// low limit costs a probe nothing and stops one client from holding many streams.
+const probeStreams = 16
+
+// newProbeServer gives the gRPC server of the probes. Its limits protect a pod with a small
+// memory limit from a client that holds streams or connections open, or that pings without end.
+func newProbeServer() *grpc.Server {
+	return grpc.NewServer(
+		grpc.MaxConcurrentStreams(probeStreams),
+		// A health request names one service, so a large message is never a probe.
+		grpc.MaxRecvMsgSize(4096),
+		// A client may ping once a minute, and only while it has a stream. The server closes a
+		// connection that a client pings more often.
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{MinTime: time.Minute}),
+		// A connection with no stream for 5 minutes closes.
+		grpc.KeepaliveParams(keepalive.ServerParameters{MaxConnectionIdle: 5 * time.Minute}),
+	)
+}
+
+// serveProbes serves the probes until the server stops. A server that stops for another reason
+// leaves a controller whose probes nobody can reach, so the log says why.
+func serveProbes(ctx context.Context, server *grpc.Server, listener net.Listener,
+	logger *slog.Logger,
+) {
+	if err := server.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
+		logger.ErrorContext(ctx, "the probe server stopped, so the platform cannot probe the "+
+			"controller", "error", err.Error())
+	}
+}
+
 // probe serves the gRPC health service of the probes, and keeps it current, until the returned
 // function stops both. A port that another process holds fails the start, because a controller
 // whose probes nobody can reach looks dead to the platform, which then restarts it for ever.
-func probe(ctx context.Context, address string, checks *health.Checks) (func(), error) {
+func probe(ctx context.Context, address string, checks *health.Checks, logger *slog.Logger,
+) (func(), error) {
 	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", address)
 	if err != nil {
 		return nil, fmt.Errorf("serving the probes on %s: %w", address, err)
 	}
 
-	server := grpc.NewServer()
+	server := newProbeServer()
 	healthpb.RegisterHealthServer(server, checks.Server())
 
-	go func() { _ = server.Serve(listener) }()
+	go serveProbes(ctx, server, listener, logger)
 
 	updates, stop := context.WithCancel(ctx)
 	done := make(chan struct{})
