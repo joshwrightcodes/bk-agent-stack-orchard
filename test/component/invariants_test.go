@@ -458,8 +458,7 @@ func subtract(room, taken map[string]uint64) {
 //
 // I-9: the machine of a job that an agent took, and that has not ended, goes only by row 2 (it
 // outlived the longest lifetime) or by row 7 (it failed). Any other deletion takes the agent from
-// a running build. Without a skew, the fake gives a machine the time of the suite as its creation
-// time, so the age since the creation is never less than the age that the controller measures.
+// a running build. The check reads the creation time that Orchard gives, as row 2 does.
 func (f *fleet) deleting(vm orchard.VM) {
 	id, owned := vmspec.OwnedJob(vm.Name, controllerID)
 	if !owned {
@@ -802,9 +801,9 @@ func loadSettings(t *testing.T, maxInFlight uint64, profileLines string) (*confi
 }
 
 // loadProfiles loads the configuration of the suite with the profiles that the caller gives, as
-// the lines of the profiles list, and with each top-level line of extra.
-func loadProfiles(t *testing.T, maxInFlight uint64, profiles string, extra ...string) (
-	*config.Config, map[string]string, error,
+// the lines of the profiles list.
+func loadProfiles(t *testing.T, maxInFlight uint64, profiles string) (*config.Config,
+	map[string]string, error,
 ) {
 	t.Helper()
 
@@ -815,8 +814,8 @@ buildkite:
 orchard:
   url: https://orchard.internal:6120
   serviceAccount: bk-agent-stack-orchard
-%sprofiles:
-%s`, controllerID, maxInFlight, strings.Join(extra, ""), profiles)
+profiles:
+%s`, controllerID, maxInFlight, profiles)
 
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {

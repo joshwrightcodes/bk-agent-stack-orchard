@@ -327,6 +327,30 @@ func TestWithoutStatesOnlyTheLifetimeActs(t *testing.T) {
 	}
 }
 
+// A new process, as after a restart, first lists a machine that Orchard created more than a
+// lifetime ago. The lifetime counts from that creation, so the first pass deletes the machine
+// although its job runs.
+func TestAFreshProcessEndsAMachineThatOutlivedItsLifetime(t *testing.T) {
+	t.Parallel()
+
+	api := &observed{states: map[job.ID]string{running: "running", ancient: "running"}}
+	machines := &fleet{read: true}
+	r := build(t, api, machines, &decisions{})
+
+	machines.snapshot = inventory.Snapshot{
+		Owned: []inventory.Owned{owned(running, time.Hour), owned(ancient, 26*time.Hour)},
+	}
+
+	if err := r.Reap(t.Context()); err != nil {
+		t.Fatalf("Reap() = %v, want no error", err)
+	}
+
+	if len(machines.deleted) != 1 || machines.deleted[0] != "bk-macos-prod-"+string(ancient) {
+		t.Errorf("orchard deleted %v, want only the machine that outlived its lifetime",
+			machines.deleted)
+	}
+}
+
 // A job that Buildkite does not name is unknown to it, and its machine goes (row 5). A job that
 // the controller has not asked about is a different thing, and the test above keeps its machine.
 func TestAJobThatBuildkiteDoesNotNameLosesItsMachine(t *testing.T) {

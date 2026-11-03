@@ -70,33 +70,9 @@ func newScenario(t *testing.T) *scenario {
 	return &scenario{fleet: f, t: t, checks: f.readiness(t)}
 }
 
-// lifetime is the longest life of a machine in the scenarios that test row 2. The controller
-// counts it from its own first sighting of a machine, so a scenario must run for this long.
-const lifetime = 4 * time.Minute
-
-// newScenarioLiving builds a world whose machines live for lifetime at most.
-func newScenarioLiving(t *testing.T) *scenario {
-	t.Helper()
-
-	loaded, environment, err := loadProfiles(t, 0, `  - name: xcode-27
-    match: {xcode: "27"}
-    image: ghcr.io/cirruslabs/macos-golden-gate-vanilla:27.0
-    cpu: 8
-    memoryMiB: 28672
-    diskSizeGB: 150
-`, fmt.Sprintf("defaults:\n  timeouts:\n    maxVMLifetime: %s\n", lifetime))
-	if err != nil {
-		t.Fatalf("loading the configuration: %v", err)
-	}
-
-	f := newFleetOf(t, t, quiet(t), loaded, environment, nil)
-
-	return &scenario{fleet: f, t: t, checks: f.readiness(t)}
-}
-
-// adopt adds a job that an agent runs, on a machine that this process did not start, as after a
-// restart, and gives the name of the machine. No row but row 2 deletes such a machine while its
-// job runs.
+// adopt adds a job that an agent runs, on a machine that Orchard created 26 h ago and that this
+// process did not start, as after a restart, and gives the name of the machine. The default
+// lifetime is 25 h, and no row but row 2 deletes such a machine while its job runs.
 func (s *scenario) adopt() string {
 	id := s.nextJob()
 	s.stacks.jobs[id] = &work{
@@ -104,7 +80,9 @@ func (s *scenario) adopt() string {
 	}
 
 	name := vmspec.Name(controllerID, id)
-	s.orchard.vms[name] = &orchard.VM{Name: name, Status: orchard.StatusPending, CreatedAt: s.now}
+	s.orchard.vms[name] = &orchard.VM{
+		Name: name, Status: orchard.StatusPending, CreatedAt: s.now.Add(-26 * time.Hour),
+	}
 
 	return name
 }
@@ -204,11 +182,7 @@ func (s *scenario) budget() {
 // machine only by rows 1 and 2, whose rules need no job state. A job that ends while Buildkite is
 // not available keeps its machine, because the controller cannot know that it ended.
 func TestABuildkiteOutageDeletesOnlyByRowsOneAndTwo(t *testing.T) {
-	s := newScenarioLiving(t)
-
-	// A machine whose job runs, which reaches its lifetime during the outage (row 2).
-	ancient := s.adopt()
-	s.run(60)
+	s := newScenario(t)
 
 	ended, waiting := s.arrive(), s.arrive()
 	s.run(5)
@@ -219,9 +193,11 @@ func TestABuildkiteOutageDeletesOnlyByRowsOneAndTwo(t *testing.T) {
 		t.Fatalf("the controller is not ready before the outage: %v", s.checks.Unready())
 	}
 
-	// A machine with the prefix of this controller and no job (row 1).
+	// A machine with the prefix of this controller and no job (row 1), and a machine whose job
+	// runs and that outlived the longest life of a machine (row 2).
 	orphan := "bk-" + controllerID + "-not-a-job"
 	s.orchard.vms[orphan] = &orchard.VM{Name: orphan, Status: orchard.StatusPending, CreatedAt: s.now}
+	ancient := s.adopt()
 
 	s.stacks.down = errUnavailable
 	s.stacks.jobs[ended].state = stateFinished
@@ -453,17 +429,14 @@ func TestAnOrchardReadOutageFinishesNoJobOnTheOldPhase(t *testing.T) {
 // and rows 1 and 2, whose rules need no job state, delete their machines while every call to
 // Buildkite hangs.
 func TestAHungBuildkiteStillDeletesByRowsOneAndTwo(t *testing.T) {
-	s := newScenarioLiving(t)
-
-	// A machine whose job runs, a few seconds before the end of its lifetime (row 2).
-	ancient := s.adopt()
-	s.run(int((lifetime - 15*time.Second).Seconds()))
+	s := newScenario(t)
 
 	waiting := s.arrive()
 	s.run(15)
 
 	orphan := "bk-" + controllerID + "-not-a-job"
 	s.orchard.vms[orphan] = &orchard.VM{Name: orphan, Status: orchard.StatusPending, CreatedAt: s.now}
+	ancient := s.adopt()
 
 	s.stacks.hangs = true
 	finished := len(s.stacks.finished)

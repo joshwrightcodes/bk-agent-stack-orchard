@@ -117,12 +117,16 @@ type Machine struct {
 	// ListedAt is when a snapshot of the controller first listed the machine, PlacedAt when one
 	// first showed it on a worker, and RunningAt when one first showed it running, each the zero
 	// time while no snapshot has. They are on the clock of the controller, as ObservedAt and now
-	// are, so every age of the table compares two times of one clock. The times that Orchard
-	// gives a machine are on the clock of Orchard, and an Orchard clock that runs behind would
-	// make a new machine look old enough to end at once.
+	// are, so the timeouts of rows 10 to 12 compare two times of one clock. The times that
+	// Orchard gives a machine are on the clock of Orchard, and an Orchard clock that runs behind
+	// by more than a few minutes would make a new machine look old enough to end at once.
 	//
 	// Each time is no earlier than the event that it marks, so an age errs short and a timeout
 	// errs long. After a restart, the first snapshot of the new process sets all three.
+	//
+	// The lifetime of row 2 counts from the creation time that Orchard gives instead, so that a
+	// restart does not start it again. The lifetime is hours long, and a skew of minutes between
+	// the two clocks changes it by minutes.
 	ListedAt  time.Time
 	PlacedAt  time.Time
 	RunningAt time.Time
@@ -173,7 +177,15 @@ func Decide(m Machine, now time.Time, rules Rules) Decision {
 	// Row 2. A machine that outlives every other limit goes, whatever its job says. The row comes
 	// before the freshness rule on purpose: it reads only the machine, so a controller that
 	// cannot reach Buildkite still removes a machine that nothing else will.
-	if older(now, m.ListedAt, m.Timeouts.MaxVMLifetime) {
+	//
+	// The age counts from the creation time that Orchard gives, which survives a restart of the
+	// controller. A machine without one counts from the first listing of this process.
+	born := m.VM.CreatedAt
+	if born.IsZero() {
+		born = m.ListedAt
+	}
+
+	if older(now, born, m.Timeouts.MaxVMLifetime) {
 		return Decision{Row: 2, Action: Delete, Reason: ReasonLifetime}
 	}
 

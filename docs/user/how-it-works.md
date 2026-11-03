@@ -78,9 +78,13 @@ Each phase of a start has a time limit, which a profile can change:
 | macOS boot and agent start | `acquire`, 5 min | The job fails with the last lines of the startup script. |
 | The whole life of a VM | `maxVMLifetime`, 25 h | The VM is deleted, whatever the job does. |
 
-The controller measures each limit on its own clock, from the moment that it first sees the VM in
-that phase. After a restart, each limit starts again, so a VM can wait longer than its limit, but
-never less.
+The controller measures each start limit on its own clock, from the moment that it first sees the
+VM in that phase. After a restart, each start limit starts again, so a VM can wait longer than its
+limit, but never less.
+
+The `maxVMLifetime` counts from the time that Orchard created the VM. A restart of the controller
+does not start it again. A difference between the clocks of Orchard and the controller moves the
+end of the lifetime by that difference. A difference of a few minutes is small against 25 h.
 
 A VM that fails before its agent takes the job fails the job with the reason from Orchard and the
 last lines of the startup script. After the agent takes the job, Buildkite decides the result of

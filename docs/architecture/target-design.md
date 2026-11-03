@@ -84,7 +84,7 @@ The design depends on these facts. Each fact was verified against source code or
 | A stack notification needs no reservation, and the job does not have to be in a particular state. Only a job that finished more than 300 s ago cannot get one. A job can have at most 100 notifications. A request can carry at most 1000 notifications. When some lines fail, the response has `errors` entries with 0-based `indexes`, and the valid notifications are still created. The limit is 200 requests per second for each stack. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The controller sends a skip notice for a job that it does not hold. It sends at most 1000 lines in one call (`NotificationsPerRequest`), and it reads the refused indexes of a partial answer. A notice for each job is written once while the job stays listed (§5), so that the 100-line limit of one job stays far away. |
 | The `detail` of a finish request has a maximum of 4 KB. The documentation does not state the unit. `exit_status` defaults to -1. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The controller counts the 4 KB in bytes, which is never more than a count in characters, and it shortens the detail to the budget before it finishes a job (§6). |
 | The finish request has no `signal_reason` field, so the controller cannot set it. The Buildkite platform generates a `signal_reason` of `stack_error` for such a job. Pipeline authors use `signal_reason: stack_error` with `limit: 0` in their automatic retry rules. Whether the platform generates `stack_error` for every job that the controller finishes is `UNKNOWN` (owner: the maintainers; trigger: the first runs of T-100 to T-105). | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01); `buildkite/stacksapi` v1.2.0 `finish.go` | The controller finishes a failed job with exit status -1 and a detail (§7.6). |
-| `maxVMLifetime` is 25 h by default. The Reaper deletes a VM that this process has listed for longer than this, for any job state (row 2 of §7.2, §7.1 rule 1). A job that still runs at 25 h loses its VM and its agent. After the agent acquired the job, the Buildkite lost-agent procedure controls the result, and the controller does not finish the job (§7.1, rule 5). The job result that Buildkite gives in this case is `UNKNOWN` (owner: the maintainers; trigger: the first end-to-end run of a job that outlives `maxVMLifetime`). | Derived from `internal/reaper/decide.go` and §7.2, §7.1 (checked 2026-11-01) | A pipeline step with a run time near 25 h MUST set a lower job timeout. The default of 25 h is the safety limit in SC-06, not a job limit. |
+| `maxVMLifetime` is 25 h by default. The Reaper deletes a VM whose `createdAt` is older than this, for any job state (row 2 of §7.2, §7.1 rule 1). A restart of the controller does not extend this limit. A job that still runs at 25 h loses its VM and its agent. After the agent acquired the job, the Buildkite lost-agent procedure controls the result, and the controller does not finish the job (§7.1, rule 5). The job result that Buildkite gives in this case is `UNKNOWN` (owner: the maintainers; trigger: the first end-to-end run of a job that outlives `maxVMLifetime`). | Derived from `internal/reaper/decide.go` and §7.2, §7.1 (checked 2026-11-01) | A pipeline step with a run time near 25 h MUST set a lower job timeout. The default of 25 h is the safety limit in SC-06, not a job limit. |
 | `buildkite-agent start --acquire-job` exits with code 27 if the job is already taken, cancelled, or complete (HTTP 422). | `buildkite/agent` v4.0.3 release notes (2026-09-10); `core/client.go` | The rule "the job is terminal, delete the VM" covers this case. |
 | Buildkite agent v4 is the stable line (v4.0.0 on 2026-09-01; v4.9.0 on 2026-10-30, checked 2026-11-01). v4.7.0 is a security release: it rejects compromised eMudhra certificate chains (CVE-2026-111943). v4 exits immediately when a flag is not defined. v4 keeps `--acquire-job`, `BUILDKITE_AGENT_ACQUIRE_JOB`, and `BUILDKITE_OPENTELEMETRY_TRACING`, and it adds `BUILDKITE_OPENTELEMETRY_METRICS`. v4 removes the OpenTracing and Datadog backends. | `buildkite/agent` releases and `clicommand/agent_start.go` at v4.0.4 (2026-09-19) | The image MUST contain agent v4.7.0 or later (§5). The startup script uses only v4 flags. |
 | Orchard `startup_script.transport` accepts `ssh` (the default) and `tart-guest-agent`. The guest-agent transport operates only on the Tart runtime, and the worker connects through the VM control socket. For both transports, the worker builds the same script: `set -e`, one `export` line for each `env` entry, then `script_content`. | Orchard `pkg/resource/v1/v1.go` and `internal/worker/vmmanager/base` at tag 0.57.0 | §6.4 uses the guest-agent transport. VM specifications need no SSH credentials. |
@@ -780,29 +780,41 @@ above, and for `download` also `BKASO_AGENT_URL` and `BKASO_AGENT_SHA256`. When
 ### 7.1 Principles
 
 1. **Observed state only.** Decisions MUST use Inventory data and JobStates data. Decisions
-   MUST NOT use counters. A timeout MUST measure its age on the clock of the controller, from the
-   first Inventory answer of this process that listed the VM (rows 2 and 10), that showed the VM
-   on a worker (row 11), or that showed the VM `running` (row 12). It MUST NOT compare a time of
-   Orchard, such as `createdAt`, `scheduled_at`, or `started_at`, with the clock of the
-   controller: an Orchard clock that runs behind by more than a timeout would end each VM at its
-   first sighting, and one that runs ahead would hide each timeout. Each start is no earlier than
-   the event that it marks, so an age errs short and a timeout errs long. After a restart, the
-   first answer of the new process starts each age again. A restart can therefore extend a
-   timeout by up to the age that the VM had in that phase when the new process first listed it:
-   the time that the controller was down, and the part of the timeout that the process before it
-   had counted. For row 2 the extension can be up to 25 h. This is the conservative direction: a
-   VM that stays longer costs a slot, and a job that the controller ends early costs a build.
+   MUST NOT use counters. The start timeouts of rows 10 to 12 MUST measure their age on the clock
+   of the controller, from the first Inventory answer of this process that listed the VM (row
+   10), that showed the VM on a worker (row 11), or that showed the VM `running` (row 12). They
+   MUST NOT compare a time of Orchard, such as `createdAt`, `scheduled_at`, or `started_at`, with
+   the clock of the controller. These timeouts last minutes. An Orchard clock that runs behind by
+   more than a timeout would end each VM at its first sighting, and one that runs ahead would hide
+   each timeout. Each start is no earlier than the event that it marks, so an age errs short and a
+   timeout errs long. After a restart, the first answer of the new process starts each of these
+   ages again. A restart can therefore extend a start timeout by up to the age that the VM had in
+   that phase when the new process first listed it: the time that the controller was down, and
+   the part of the timeout that the process before it had counted. This is the conservative
+   direction: a VM that stays longer costs a slot, and a job that the controller ends early costs
+   a build.
+
+   The lifetime of row 2 MUST count from the `createdAt` of the VM. The Reaper compares this
+   Orchard time with the clock of the controller. The lifetime is an absolute limit, so a restart
+   MUST NOT start it again. If a restart started it again, each restart could extend the life of
+   a VM by up to a whole lifetime (25 h by default), and repeated restarts could keep a VM
+   forever. A clock skew between Orchard and the controller moves the end of the lifetime by the
+   skew. An Orchard clock that runs behind ends a VM early, and one that runs ahead keeps it
+   longer. A skew of minutes is small against a lifetime of hours, so the design accepts it. A VM
+   that has no `createdAt` MUST count its lifetime from the first Inventory answer of this process
+   that listed it.
 2. **Causally fresh job state.** The Reaper MUST use a job state for a VM only if the controller
    observed the state after the first Inventory answer that listed the VM. If the state is older,
    the Reaper MUST wait for the next JobStates refresh. Both times MUST be on the clock of the
    controller. The VM `createdAt` is on the clock of Orchard, and an Orchard clock that runs
-   behind would make an older state look newer than the VM. A VM with the same name and another
-   `createdAt` is a new VM, such as the second VM of a job, and the first answer that lists it
-   counts for it. After a restart, the first answer of the new process counts. JobStates reads
-   after the Inventory in each tick, so this adds no wait. The observation time of a state MUST
-   be the time that JobStates sent the request, which is the earliest moment that the answer can
-   describe. A time taken from the answer makes a state look newer than it is, and this rule and
-   the next one would then trust it too soon.
+   behind would make an older state look newer than the VM. Row 2 accepts a skew of minutes
+   against a lifetime of hours (rule 1), but here a skew of seconds already gives a wrong answer.
+   A VM with the same name and another `createdAt` is a new VM, such as the second VM of a job,
+   and the first answer that lists it counts for it. After a restart, the first answer of the new
+   process counts. JobStates reads after the Inventory in each tick, so this adds no wait. The
+   observation time of a state MUST be the time that JobStates sent the request, which is the
+   earliest moment that the answer can describe. A time taken from the answer makes a state look
+   newer than it is, and this rule and the next one would then trust it too soon.
 3. **Fresh data or no action.** If the job state of a VM is older than `stateFreshness` (60 s),
    the Reaper MUST do only the orphan action and the maximum-lifetime action. A row that finishes
    a job (rows 9, 11, and 12) MUST use only a job state that JobStates asked for in the same
@@ -848,7 +860,7 @@ The Reaper MUST examine each owned VM at each tick. The first row that matches a
 | # | VM (Orchard) | Job (Buildkite) | Action | `reason` |
 |---|---|---|---|---|
 | 1 | The name has the owned prefix and does not end in a valid UUID | — | Delete the VM. | `orphan` |
-| 2 | The age since the first listing (§7.1, rule 1) is more than `maxVMLifetime` (25 h) | Any | Delete the VM. | `lifetime` |
+| 2 | The age since `createdAt` is more than `maxVMLifetime` (25 h). A VM without `createdAt` counts from the first listing (§7.1, rule 1) | Any | Delete the VM. | `lifetime` |
 | 3 | Any | Not causally fresh, or stale | No action. | — |
 | 4 | Any | Terminal: `finished`, `canceled`, `expired`, `timed_out`, `skipped`, `broken` | Delete the VM. | `job_terminal` |
 | 5 | Any | Unknown to Buildkite: two get-states answers in a row leave it out (rule 4) | Delete the VM. Ignore the job. After one such answer, no action. | `job_unknown` |
