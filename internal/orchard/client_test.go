@@ -600,3 +600,22 @@ func TestTheClientKeepsTheConnectionAfterAnAnswerThatItDoesNotRead(t *testing.T)
 type roundTrip func(*http.Request) (*http.Response, error)
 
 func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// A credential that Orchard refuses and a rate limit each have their own error, so that the count
+// of failed calls names them, and an operator can tell a revoked token from a server error.
+func TestARefusedCredentialAndARateLimitHaveTheirOwnErrors(t *testing.T) {
+	for status, want := range map[int]error{
+		http.StatusUnauthorized:    orchard.ErrUnauthorized,
+		http.StatusForbidden:       orchard.ErrUnauthorized,
+		http.StatusTooManyRequests: orchard.ErrRateLimited,
+	} {
+		client, _ := server(t, func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(status)
+		})
+
+		_, err := client.ListVMs(context.Background())
+		if !errors.Is(err, want) {
+			t.Errorf("ListVMs() with %d = %v, want %v", status, err, want)
+		}
+	}
+}

@@ -1287,7 +1287,7 @@ The name that an operator queries has the full prefix.
 | UpDownCounter | `cicd.worker.count` (`{worker}`) | `cicd.worker.state` = `busy`/`offline` |
 | Histogram | `bkaso.job.phase.duration` (`s`) | `bkaso.profile`, `bkaso.job.phase` = `scheduled_to_reserved`/`reserved_to_placed`/`placed_to_running`/`running_to_accepted`/`finished_to_deleted`/`total` |
 | Counter | `bkaso.vm.deletions` (`{vm}`) | `bkaso.vm.delete.reason` (§7.2) |
-| Counter | `cicd.system.errors` (`{error}`) | `cicd.system.component` = `buildkite`/`orchard`, `error.type` |
+| Counter | `cicd.system.errors` (`{error}`) | `cicd.system.component` = `buildkite`/`orchard`, `bkaso.operation`, `error.type` |
 | Histogram | `bkaso.tick.duration` (`s`) | `bkaso.tick.step` |
 | Gauge | `bkaso.vm.leftover` (`{vm}`) | — |
 | Gauge | `bkaso.source.staleness` (`s`) | `bkaso.source` = `scheduled_jobs`/`job_states`/`inventory` |
@@ -1321,9 +1321,13 @@ These rules come from the conventions and MUST hold:
   `http.client.request.duration` with the attributes of the conventions, and a second instrument
   for the same measurement would disagree with it. A rate limit and a status that the controller
   cannot use are `cicd.system.errors`. The controller counts each call to either API that fails,
-  in one place in front of each API, with `error.type` = `unauthorized`, `rate_limited`,
-  `timeout`, or `_OTHER`. An answer about one job, such as a job that ended or a VM that exists,
-  is not an error of the system.
+  in one place in front of each API, with `error.type` = `unauthorized` (401 from Buildkite, 401
+  or 403 from Orchard), `rate_limited` (429), `timeout`, or `_OTHER`, and with the call in
+  `bkaso.operation`: `register`, `deregister`, `scheduled_jobs`, `reserve`, `tokens`, `states`,
+  `finish`, and `notify` for Buildkite, and `create_vm`, `list_vms`, `delete_vm`, `list_workers`,
+  and `events` for Orchard. A call counts once, after its last try. The tries inside a call show
+  only in `http.client.request.duration`. An answer about one job, such as a job that ended or a VM
+  that exists, is not an error of the system.
 * **`bkaso.source.staleness` is an age and not a time.** The readiness alert reads a number that
   needs no clock of its own, and the value cannot disagree with the clock of the backend. The age
   is computed when the collector reads it, so it keeps rising while the loop is stuck. A source

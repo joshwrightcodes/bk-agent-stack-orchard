@@ -35,6 +35,7 @@ const (
 	attributeStep         = prefix + "tick.step"
 	attributeSource       = prefix + "source"
 	attributeAdmission    = prefix + "admission.reason"
+	attributeOperation    = prefix + "operation"
 )
 
 // The attributes of the job.match span: the profile that carries the job, or none. A job that no
@@ -130,6 +131,32 @@ type Component string
 const (
 	ComponentBuildkite Component = "buildkite"
 	ComponentOrchard   Component = "orchard"
+)
+
+// Operation names one call of the API of Buildkite or of Orchard. It is the value of
+// bk_agent_stack_orchard.operation on cicd.system.errors, so that a failure of one call, such as
+// the create of a machine, is not lost among the failures of the others.
+type Operation string
+
+// The calls of the Stacks API of Buildkite.
+const (
+	OperationRegister      Operation = "register"
+	OperationDeregister    Operation = "deregister"
+	OperationScheduledJobs Operation = "scheduled_jobs"
+	OperationReserve       Operation = "reserve"
+	OperationTokens        Operation = "tokens"
+	OperationStates        Operation = "states"
+	OperationFinish        Operation = "finish"
+	OperationNotify        Operation = "notify"
+)
+
+// The calls of the Orchard API.
+const (
+	OperationCreateVM    Operation = "create_vm"
+	OperationListVMs     Operation = "list_vms"
+	OperationDeleteVM    Operation = "delete_vm"
+	OperationListWorkers Operation = "list_workers"
+	OperationEvents      Operation = "events"
 )
 
 // Source is one supply of observed state, whose age decides whether the controller may act.
@@ -683,11 +710,15 @@ func (m *Metrics) Deleted(ctx context.Context, reason string) {
 		metric.WithAttributes(attribute.String(attributeDeleteReason, reason)))
 }
 
-// SystemError counts one failure of Buildkite or of Orchard, such as a rate limit or a status
-// that the controller cannot use.
-func (m *Metrics) SystemError(ctx context.Context, component Component, cause string) {
+// SystemError counts one call to Buildkite or to Orchard that failed, such as a rate limit or a
+// status that the controller cannot use, with the call. A retry inside a call is not a failure of
+// its own: only the last try of a call that failed counts.
+func (m *Metrics) SystemError(ctx context.Context, component Component, operation Operation,
+	cause string,
+) {
 	m.errors.Add(ctx, 1, metric.WithAttributes(
 		semconv.CICDSystemComponent(string(component)),
+		attribute.String(attributeOperation, string(operation)),
 		semconv.ErrorTypeKey.String(cause),
 	))
 }

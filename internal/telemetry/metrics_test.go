@@ -60,7 +60,8 @@ func recordAll(t *testing.T) []metricdata.Metrics {
 	instruments.QueueTruncated(ctx)
 	instruments.Failed(ctx, "no_profile")
 	instruments.Deleted(ctx, "job_ended")
-	instruments.SystemError(ctx, telemetry.ComponentBuildkite, "rate_limited")
+	instruments.SystemError(ctx, telemetry.ComponentBuildkite, telemetry.OperationReserve,
+		"rate_limited")
 	instruments.JobPhase(ctx, "xcode-27", telemetry.PhaseTotal, 4*time.Minute)
 	instruments.Tick(ctx, "reap", 300*time.Millisecond)
 
@@ -176,7 +177,11 @@ var design = []struct {
 		[]string{"bk_agent_stack_orchard.vm.delete.reason"},
 		true,
 	},
-	{"cicd.system.errors", "{error}", []string{"cicd.system.component", "error.type"}, true},
+	{
+		"cicd.system.errors", "{error}",
+		[]string{"bk_agent_stack_orchard.operation", "cicd.system.component", "error.type"},
+		true,
+	},
 	{
 		"bk_agent_stack_orchard.tick.duration", "s",
 		[]string{"bk_agent_stack_orchard.tick.step"},

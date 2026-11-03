@@ -37,7 +37,7 @@ small.
 | `cicd.worker.count` | up-down counter, `{worker}` | `cicd.worker.state` (`busy`, `offline`) | Job VMs, by the status that Orchard gives them: `busy` while the VM runs, and `offline` when it failed. A VM carries one job, so no VM is `available` |
 | `bk_agent_stack_orchard.job.phase.duration` | histogram, `s` | `bk_agent_stack_orchard.profile`, `bk_agent_stack_orchard.job.phase` | How long each phase of a start took (below) |
 | `bk_agent_stack_orchard.vm.deletions` | counter, `{vm}` | `bk_agent_stack_orchard.vm.delete.reason` | VMs that the controller deleted, by reason (below) |
-| `cicd.system.errors` | counter, `{error}` | `cicd.system.component` (`buildkite`, `orchard`), `error.type` (`unauthorized`, `rate_limited`, `timeout`, `_OTHER`) | Calls to Buildkite or Orchard that failed |
+| `cicd.system.errors` | counter, `{error}` | `cicd.system.component` (`buildkite`, `orchard`), `bk_agent_stack_orchard.operation` (below), `error.type` (`unauthorized`, `rate_limited`, `timeout`, `_OTHER`) | Calls to Buildkite or Orchard that failed |
 | `bk_agent_stack_orchard.tick.duration` | histogram, `s` | `bk_agent_stack_orchard.tick.step` | How long each step of the loop took |
 | `bk_agent_stack_orchard.vm.leftover` | gauge, `{vm}` | | VMs whose job ended, and that are not deleted yet |
 | `bk_agent_stack_orchard.source.staleness` | gauge, `s` | `bk_agent_stack_orchard.source` (`scheduled_jobs`, `job_states`, `inventory`) | How old the last answer of each source is. A source that has not answered since the start is as old as the process |
@@ -56,6 +56,19 @@ finished tick, and the platform then restarts the process.
 An alert that compares a value does not fire on a series that does not exist. For each alert on
 the controller, also alert when its series is absent for the `service.instance.id` of the
 controller, which covers a process that does not start or that crashes in a loop.
+
+`cicd.system.errors` counts a call once, after its last try. The client tries a call again after
+a failure in transport, a 5xx status, or 429, inside the time limit of the call, and those tries
+show only in `http.client.request.duration` with `http.response.status_code`. `error.type` is
+`unauthorized` for a credential that the system refused (401 from Buildkite, and 401 or 403 from
+Orchard), `rate_limited` for 429, `timeout` for a call that reached its time limit, and `_OTHER`
+for each other failure. An answer about one job, such as a job that ended or a VM that exists, is
+not a failure of the system. The calls of `bk_agent_stack_orchard.operation`:
+
+| Component | Operations |
+|---|---|
+| `buildkite` | `register`, `deregister`, `scheduled_jobs`, `reserve`, `tokens`, `states`, `finish`, `notify` |
+| `orchard` | `create_vm`, `list_vms`, `delete_vm`, `list_workers`, `events` |
 
 The two gauges of the waiting jobs read the last read of the queue at each tick, also while
 admission is stopped. A read that did not list the whole queue (`queue.truncated`) does not count

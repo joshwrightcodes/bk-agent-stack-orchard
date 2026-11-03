@@ -263,7 +263,10 @@ func TestAFailedCallIsCountedAsAnErrorOfItsSystem(t *testing.T) {
 				component, _ := point.Attributes.Value("cicd.system.component")
 				kind, _ := point.Attributes.Value("error.type")
 
-				if component.AsString() == "orchard" && kind.AsString() == "_OTHER" && point.Value == 1 {
+				operation, _ := point.Attributes.Value("bk_agent_stack_orchard.operation")
+
+				if component.AsString() == "orchard" && kind.AsString() == "_OTHER" &&
+					operation.AsString() == "list_vms" && point.Value == 1 {
 					return
 				}
 			}
