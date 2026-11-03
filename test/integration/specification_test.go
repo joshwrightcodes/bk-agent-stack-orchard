@@ -37,7 +37,7 @@ func TestOrchardKeepsEveryFieldOfTheSpecification(t *testing.T) {
 		MemoryMiB:    8192,
 		DiskSizeGB:   150,
 		WorkerLabels: map[string]string{"pool": "release"},
-		SoftnetAllow: []string{"10.20.0.0/16"},
+		SoftnetAllow: []string{"192.168.128.0/17"},
 		OTel:         profile.OTel{Enabled: true, Endpoint: "https://otel.example:4318"},
 	}
 

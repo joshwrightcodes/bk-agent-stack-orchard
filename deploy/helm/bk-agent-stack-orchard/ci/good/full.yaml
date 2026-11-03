@@ -41,7 +41,7 @@ config:
       memoryMiB: 28672
       diskSizeGB: 150
       workerLabels: {pool: a}
-      softnetAllow: ["10.20.30.40/32", "192.168.0.0/16"]
+      softnetAllow: ["10.20.30.40/32", "192.168.128.0/17"]
       timeouts: {boot: "0", acquire: 4m}
       otel: {enabled: true, headersEnv: VM_OTEL_HEADERS}
     - name: ssh-profile

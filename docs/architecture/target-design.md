@@ -371,7 +371,10 @@ notifications for unmatched jobs.
   Mac host to the build, and `@peers` opens the other VMs, and §9.1 closes both. The CIDRs go
   unchanged into the VM specification and into the pf rules of the hosts, so the controller does
   not correct an entry, and an error names the profile and the entry. The /16 bound is a project
-  choice, and the project does not test a bare address.
+  choice, and the project does not test a bare address. The controller also refuses a CIDR wider
+  than /29 that overlaps the ranges from which Softnet picks the network of each VM (§9.1),
+  because such a CIDR holds an address of the host. A CIDR outside them, such as one in
+  `192.168.100.0`–`192.168.255.255`, can be up to /16.
 * When `profile.otel.enabled` is true, `profile.otel.endpoint` uses `https`. Plain HTTP is
   acceptable only on a loopback address (§10.4).
 * For each profile, `unplaced + boot + acquire ≤ jobTokenLifetime` (§7.3).
@@ -380,7 +383,10 @@ If a profile `image` has no digest, the controller MUST write a warning. The con
 starts.
 
 If a profile has `softnetAllow` entries, the controller MUST write a warning at start that names
-the profile and says that every pipeline on the queue gets the allow (§9.1).
+the profile and says that every pipeline on the queue gets the allow (§9.1). If an entry holds an
+address that Softnet can give the host as the gateway of a VM, the controller MUST also write a
+warning that names the address, because the pf rules of the hosts refuse a connection to that
+address on a port on which the host listens (§9.1).
 
 The fleet operator MUST set `diskSizeGB` to at least the disk size of the profile image. The pilot
 image has a 104 GB disk, and other Xcode images up to 140 GB (SC-07). Tart refuses a disk that is

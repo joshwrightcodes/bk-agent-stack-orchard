@@ -62,7 +62,8 @@
     },
     {
       // Softnet, which the Mac hosts install next to Tart and Orchard. The role pins its version and
-      // the SHA-256 of its release archive.
+      // the SHA-256 of its release archive. A test of the controller fails on a new version until a
+      // person checks the ranges from which it picks the networks of the VMs.
       customType: "regex",
       managerFilePatterns: ["/^deploy/hosts/roles/orchard_worker/defaults/main\\.yml$/"],
       matchStrings: ['orchard_worker_softnet_version: "(?<currentValue>[^"]+)"'],

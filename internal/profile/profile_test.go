@@ -252,12 +252,78 @@ func TestValidateRefusesARangeWiderThanSlash16(t *testing.T) {
 		}
 	}
 
-	accepted := []string{"10.20.0.0/16", "10.20.30.0/24", "10.20.30.40/32"}
+	accepted := []string{"100.64.0.0/16", "192.168.100.0/24", "10.20.30.40/32"}
 	p := valid()
 	p.SoftnetAllow = accepted
 
 	if err := p.Validate(); err != nil {
 		t.Errorf("Validate() with softnetAllow %v = %v, want no error", accepted, err)
+	}
+}
+
+// Softnet picks the /29 network of each VM from 10.0.0.0/8, 172.16.0.0/12, and 192.168.0.0 to
+// 192.168.99.255, and the host takes the first address of that network as the gateway of the VM.
+// A range wider than /29 inside those ranges holds the gateway of some VM, so the controller
+// refuses it.
+func TestValidateRefusesAWideRangeInsideTheSoftnetNetworks(t *testing.T) {
+	for _, entry := range []string{
+		"192.168.0.0/16", "10.20.0.0/16", "172.16.0.0/24", "172.31.255.0/24", "192.168.99.0/24",
+		"192.168.96.0/20", "10.20.30.32/28",
+	} {
+		p := valid()
+		p.SoftnetAllow = []string{entry}
+
+		err := p.Validate()
+		if err == nil || !strings.Contains(err.Error(), "Softnet") || !strings.Contains(err.Error(), "/29") {
+			t.Errorf("Validate() with softnetAllow %q = %v, want an error that names the Softnet "+
+				"networks and the /29 limit", entry, err)
+		}
+	}
+
+	// A range outside those ranges, and a /29 or narrower range inside them, can be permitted.
+	accepted := []string{
+		"192.168.100.0/24", "192.168.128.0/17", "172.32.0.0/16", "100.64.0.0/16",
+		"10.20.30.40/29", "10.20.30.44/30", "10.20.30.40/32",
+	}
+	p := valid()
+	p.SoftnetAllow = accepted
+
+	if err := p.Validate(); err != nil {
+		t.Errorf("Validate() with softnetAllow %v = %v, want no error", accepted, err)
+	}
+}
+
+// A narrow range that holds the address that Softnet gives the host on the network of a VM is
+// permitted, because a mirror can have that address, but the controller warns: the pf rules of the
+// hosts cannot tell that address apart from the host.
+func TestValidateWarnsAboutAnAllowThatHoldsAGatewayOfSoftnet(t *testing.T) {
+	for entry, gateway := range map[string]string{
+		"10.20.30.41/32":    "10.20.30.41",
+		"10.20.30.40/29":    "10.20.30.41",
+		"10.20.30.40/31":    "10.20.30.41",
+		"172.16.5.0/30":     "172.16.5.1",
+		"192.168.99.249/32": "192.168.99.249",
+	} {
+		p := valid()
+		p.SoftnetAllow = []string{entry}
+
+		warnings := p.Warnings()
+		if len(warnings) != 2 || !strings.Contains(warnings[1], gateway) ||
+			!strings.Contains(warnings[1], "gateway") || !strings.Contains(warnings[1], p.Name) {
+			t.Errorf("Warnings() with softnetAllow %q = %v, want a second warning that names %s "+
+				"as a gateway", entry, warnings, gateway)
+		}
+	}
+
+	// No gateway: the address is not the first of its /29, or it is outside the Softnet ranges.
+	for _, entry := range []string{"10.20.30.40/32", "10.20.30.42/31", "10.20.30.44/30", "192.168.100.1/32"} {
+		p := valid()
+		p.SoftnetAllow = []string{entry}
+
+		if warnings := p.Warnings(); len(warnings) != 1 {
+			t.Errorf("Warnings() with softnetAllow %q = %v, want only the warning about every pipeline",
+				entry, warnings)
+		}
 	}
 }
 

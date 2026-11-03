@@ -120,8 +120,10 @@ type Profile struct {
 	WorkerLabels map[string]string `yaml:"workerLabels,omitempty"`
 
 	// IPv4 ranges in private networks that the VMs can reach, such as a mirror or an artifact
-	// store. Each one is a range with a prefix length from /16 to /32. Every pipeline on the queue
-	// can reach them, so the controller warns at start.
+	// store. Each one is a range with a prefix length from /16 to /32. In 10.0.0.0/8,
+	// 172.16.0.0/12, and 192.168.0.0 to 192.168.99.255, where the VM networks are, the prefix
+	// length is from /29 to /32. Every pipeline on the queue can reach them, so the controller
+	// warns at start.
 	SoftnetAllow []string `yaml:"softnetAllow,omitempty"`
 
 	// How the Orchard worker runs the startup script of a VM: tart-guest-agent, or ssh with
@@ -231,11 +233,55 @@ func (p Profile) validateVMVariables() []error {
 // profile, so a wide range would open a whole private network.
 const widestAllow = 16
 
+// softnetPools are the ranges from which Softnet picks the network of each virtual machine: a /29
+// at random, which does not overlap a network of an interface of the host. The host takes the
+// first address of that network, which is the gateway of the virtual machine. These are the ranges
+// of Softnet 0.24.1 (lib/subnet_finder/mod.rs), and a test checks that the hosts install that
+// version and give the pf rules the same ranges.
+var softnetPools = []netip.Prefix{
+	netip.MustParsePrefix("10.0.0.0/8"),
+	netip.MustParsePrefix("172.16.0.0/12"),
+	netip.MustParsePrefix("192.168.0.0/18"),
+	netip.MustParsePrefix("192.168.64.0/19"),
+	netip.MustParsePrefix("192.168.96.0/22"),
+}
+
+// softnetNetworkBits is the prefix length of the network that Softnet gives each virtual machine.
+const softnetNetworkBits = 29
+
+// insideSoftnetPools reports whether a range shares an address with the ranges of Softnet.
+func insideSoftnetPools(prefix netip.Prefix) bool {
+	for _, pool := range softnetPools {
+		if pool.Overlaps(prefix) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// softnetGateway gives the address in a /29 or narrower range that Softnet can give the host as
+// the gateway of a virtual machine, if the range holds one.
+func softnetGateway(prefix netip.Prefix) (netip.Addr, bool) {
+	if !prefix.Addr().Is4() || prefix.Bits() < softnetNetworkBits {
+		return netip.Addr{}, false
+	}
+
+	gateway := netip.PrefixFrom(prefix.Addr(), softnetNetworkBits).Masked().Addr().Next()
+
+	return gateway, prefix.Contains(gateway) && insideSoftnetPools(netip.PrefixFrom(gateway, 32))
+}
+
 // validateSoftnetAllow keeps each softnetAllow entry to one narrow IPv4 range that is written in
 // full. Softnet reads each entry as an IPv4 CIDR, so an IPv6 prefix cannot work. A bare address, a
 // prefix with host bits set, a default route, and a duplicate are refused, because each of them
 // hides what the profile opens. The Softnet targets @host and @peers are refused on purpose: the
 // first opens the Mac host to the build, and the second opens the other virtual machines.
+//
+// A range wider than /29 inside the ranges of Softnet is refused too. It holds the gateway of the
+// network of some virtual machine, which is an address of the host, and the pf rules of the hosts
+// block the host by its addresses. A /29 or narrower range holds one gateway at most, and a mirror
+// can have that address, so Warnings reports it, and the pf rules guard it.
 func (p Profile) validateSoftnetAllow() []error {
 	var problems []error
 
@@ -267,6 +313,12 @@ func (p Profile) validateSoftnetAllow() []error {
 		case prefix.Bits() < widestAllow:
 			problems = append(problems, fmt.Errorf(
 				"softnetAllow entry %q is too wide: the widest range is /%d", entry, widestAllow))
+		case prefix.Bits() < softnetNetworkBits && insideSoftnetPools(prefix):
+			problems = append(problems, fmt.Errorf(
+				"softnetAllow entry %q overlaps the ranges from which Softnet picks the /%d network "+
+					"of each VM (%s), and the host takes an address in each of those networks, so "+
+					"write ranges of /%d or narrower there, or a range outside them",
+				entry, softnetNetworkBits, poolList(), softnetNetworkBits))
 		case seen[prefix]:
 			problems = append(problems, fmt.Errorf("softnetAllow lists %s twice", prefix))
 		default:
@@ -275,6 +327,16 @@ func (p Profile) validateSoftnetAllow() []error {
 	}
 
 	return problems
+}
+
+// poolList writes the ranges of Softnet for a message.
+func poolList() string {
+	pools := make([]string, len(softnetPools))
+	for i, pool := range softnetPools {
+		pools[i] = pool.String()
+	}
+
+	return strings.Join(pools, ", ")
 }
 
 // validateMatch keeps the match map to literal tags. A rule that is not a literal cannot select
@@ -349,6 +411,21 @@ func (p Profile) Warnings() []string {
 			"profile %q: softnetAllow %v opens those addresses for every pipeline on the queue, "+
 				"because the pipeline author selects the profile with the agent tags, so a "+
 				"separate trust level needs a separate queue", p.Name, p.SoftnetAllow))
+	}
+
+	for _, entry := range p.SoftnetAllow {
+		prefix, err := netip.ParsePrefix(entry)
+		if err != nil {
+			continue
+		}
+
+		if gateway, ok := softnetGateway(prefix); ok {
+			warnings = append(warnings, fmt.Sprintf(
+				"profile %q: softnetAllow entry %s holds %s, which Softnet can give the host as the "+
+					"gateway of a VM, so the pf rules of the hosts refuse a connection to %s on a port "+
+					"on which the host listens, such as SSH",
+				p.Name, entry, gateway, gateway))
+		}
 	}
 
 	return warnings
