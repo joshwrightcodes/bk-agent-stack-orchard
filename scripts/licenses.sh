@@ -17,12 +17,12 @@ readonly PROG="licenses"
 
 say() { printf '%s: %s\n' "$PROG" "$*"; }
 die() {
-  printf '%s: %s\n' "$PROG" "$*" >&2
-  exit 1
+	printf '%s: %s\n' "$PROG" "$*" >&2
+	exit 1
 }
 usage() {
-  sed -n 's/^# Usage: /usage: /p' "${BASH_SOURCE[0]}" >&2
-  exit 2
+	sed -n 's/^# Usage: /usage: /p' "${BASH_SOURCE[0]}" >&2
+	exit 2
 }
 
 [[ $# -eq 0 ]] || usage
@@ -38,7 +38,7 @@ kodata="cmd/bk-agent-stack-orchard/kodata/licenses"
 # The warnings about assembly files are not errors: go-licenses cannot read the dependencies of
 # non-Go code, and that code (xxhash, x/sys) has no other module.
 go-licenses save ./cmd/bk-agent-stack-orchard --save_path "$out" --force \
-  --ignore github.com/joshwrightcodes/bk-agent-stack-orchard
+	--ignore github.com/joshwrightcodes/bk-agent-stack-orchard
 
 mkdir -p "$out/go-standard-library"
 cp "$(go env GOROOT)/LICENSE" "$out/go-standard-library/LICENSE"

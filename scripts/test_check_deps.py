@@ -11,7 +11,8 @@ import pathlib
 import unittest
 
 SPEC = importlib.util.spec_from_file_location(
-    "check_deps", pathlib.Path(__file__).with_name("check-deps.py"))
+    "check_deps", pathlib.Path(__file__).with_name("check-deps.py")
+)
 check_deps = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(check_deps)
 

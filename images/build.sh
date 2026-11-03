@@ -262,7 +262,10 @@ vm_ssh() {
 }
 
 ip="$(tart ip --wait 120 "$VM")"
-for _ in $(seq 1 90); do nc -z -G 2 "$ip" 22 2>/dev/null && break; sleep 2; done
+for _ in $(seq 1 90); do
+	nc -z -G 2 "$ip" 22 2>/dev/null && break
+	sleep 2
+done
 
 say "installing the Tart guest agent $GUEST_AGENT_VERSION"
 curl -fsSL -o "$work/guest-agent.tar.gz" \
@@ -433,7 +436,8 @@ answers || die "the guest agent of $VM does not answer after a restart"
 
 # The check looks at the VM as a job does: with the PATH of the guest agent, and the environment
 # hook on top.
-check=$(tart exec -i "$VM" /bin/bash -s <<'SCRIPT'
+check=$(
+	tart exec -i "$VM" /bin/bash -s <<'SCRIPT'
 list() { ls "$@" 2>/dev/null | sort | tr '\n' ' ' | sed 's/ $//'; }
 printf 'user=%s\n' "$(whoami)"
 printf 'agent=%s %s\n' "$(command -v buildkite-agent)" "$(buildkite-agent --version | sed -n 1p)"

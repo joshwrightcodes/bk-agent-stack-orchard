@@ -36,17 +36,17 @@ PORT=6120
 
 say() { printf '%s: %s\n' "$PROG" "$*"; }
 die() {
-  printf '%s: FAIL: %s\n' "$PROG" "$*" >&2
-  exit 1
+	printf '%s: FAIL: %s\n' "$PROG" "$*" >&2
+	exit 1
 }
 usage() {
-  sed -n 's/^# Usage: /usage: /p' "${BASH_SOURCE[0]}" >&2
-  exit 2
+	sed -n 's/^# Usage: /usage: /p' "${BASH_SOURCE[0]}" >&2
+	exit 2
 }
 
 [[ $# -eq 0 ]] || usage
 for tool in tart orchard ansible-playbook jq openssl; do
-  command -v "$tool" >/dev/null || die "$tool is not on the PATH: run mise run hosts-test"
+	command -v "$tool" >/dev/null || die "$tool is not on the PATH: run mise run hosts-test"
 done
 
 WORK="$(mktemp -d)"
@@ -55,12 +55,12 @@ WORKER_TOKEN="$(openssl rand -hex 24)"
 controller=""
 
 clean_up() {
-  [[ -n "$controller" ]] && kill "$controller" 2>/dev/null
-  if [[ "${KEEP:-}" != "1" && -d "$TART_DIR/vms/$VM" ]]; then
-    tart stop "$VM" >/dev/null 2>&1 || true
-    tart delete "$VM" >/dev/null 2>&1 || true
-  fi
-  rm -rf "$WORK"
+	[[ -n "$controller" ]] && kill "$controller" 2>/dev/null
+	if [[ "${KEEP:-}" != "1" && -d "$TART_DIR/vms/$VM" ]]; then
+		tart stop "$VM" >/dev/null 2>&1 || true
+		tart delete "$VM" >/dev/null 2>&1 || true
+	fi
+	rm -rf "$WORK"
 }
 trap clean_up EXIT
 
@@ -69,30 +69,30 @@ guest() { tart exec -i "$VM" /bin/bash -s; }
 # bounded <seconds> <command...>: the command, stopped after that time. A tart exec can wait
 # without end while the guest starts or stops.
 bounded() {
-  local seconds=$1
-  shift
-  "$@" &
-  local pid=$!
-  (sleep "$seconds" && kill "$pid" 2>/dev/null) &
-  local watch=$!
-  local status=0
-  wait "$pid" 2>/dev/null || status=$?
-  { kill "$watch" && wait "$watch"; } 2>/dev/null || true
-  return "$status"
+	local seconds=$1
+	shift
+	"$@" &
+	local pid=$!
+	(sleep "$seconds" && kill "$pid" 2>/dev/null) &
+	local watch=$!
+	local status=0
+	wait "$pid" 2>/dev/null || status=$?
+	{ kill "$watch" && wait "$watch"; } 2>/dev/null || true
+	return "$status"
 }
 
 # api <method> <path> [<body>]: the answer of the controller, as the bootstrap admin. The token
 # goes to curl on its standard input, and the body through a file, so neither is in a process
 # listing.
 api() {
-  local data=()
-  if [[ $# -ge 3 ]]; then
-    printf '%s' "$3" >"$WORK/body.json"
-    data=(--data "@$WORK/body.json")
-  fi
-  printf 'user = "bootstrap-admin:%s"\n' "$ADMIN_TOKEN" |
-    curl -fsS -K - --cacert "$WORK/ca.crt" -X "$1" -H 'Content-Type: application/json' \
-      ${data[@]+"${data[@]}"} "https://127.0.0.1:$PORT$2"
+	local data=()
+	if [[ $# -ge 3 ]]; then
+		printf '%s' "$3" >"$WORK/body.json"
+		data=(--data "@$WORK/body.json")
+	fi
+	printf 'user = "bootstrap-admin:%s"\n' "$ADMIN_TOKEN" |
+		curl -fsS -K - --cacert "$WORK/ca.crt" -X "$1" -H 'Content-Type: application/json' \
+			${data[@]+"${data[@]}"} "https://127.0.0.1:$PORT$2"
 }
 
 # The state of the worker of the VM in the list of workers of the controller: "seen" when it
@@ -120,37 +120,40 @@ first((. // [])[] | select(.name == $name)) // null
 # wait_for_worker <epoch>: waits up to four minutes for the worker of the VM to report to the
 # controller after that moment. A worker with the wrong labels fails at once.
 wait_for_worker() {
-  local since=$1 workers state="the controller did not answer"
-  for _ in $(seq 1 120); do
-    if workers="$(api GET /v1/workers 2>&1)"; then
-      state="$(jq -r --arg name "$VM" --argjson since "$since" "$WORKER_STATE" <<<"$workers" 2>&1)" ||
-        state="jq cannot read the list of workers of the controller: $state"
-    else
-      state="the controller did not answer: $workers"
-    fi
-    case "$state" in
-    seen) return 0 ;;
-    labels*) die "the worker registered with the labels ${state#labels }, without pool=test" ;;
-    time*) die "the controller gives the worker the last_seen ${state#time }, which is not an RFC 3339 time" ;;
-    esac
-    sleep 2
-  done
-  case "$state" in
-  absent) die "the worker $VM did not register with the controller inside four minutes" ;;
-  old*) die "the worker $VM last reported at ${state#old }, before this step began, and not again inside four minutes" ;;
-  *) die "the worker $VM did not report inside four minutes: $state" ;;
-  esac
+	local since=$1 workers state="the controller did not answer"
+	for _ in $(seq 1 120); do
+		if workers="$(api GET /v1/workers 2>&1)"; then
+			state="$(jq -r --arg name "$VM" --argjson since "$since" "$WORKER_STATE" <<<"$workers" 2>&1)" ||
+				state="jq cannot read the list of workers of the controller: $state"
+		else
+			state="the controller did not answer: $workers"
+		fi
+		case "$state" in
+		seen) return 0 ;;
+		labels*) die "the worker registered with the labels ${state#labels }, without pool=test" ;;
+		time*) die "the controller gives the worker the last_seen ${state#time }, which is not an RFC 3339 time" ;;
+		esac
+		sleep 2
+	done
+	case "$state" in
+	absent) die "the worker $VM did not register with the controller inside four minutes" ;;
+	old*) die "the worker $VM last reported at ${state#old }, before this step began, and not again inside four minutes" ;;
+	*) die "the worker $VM did not report inside four minutes: $state" ;;
+	esac
 }
 
 say "starting $VM from the base image"
 if [[ -d "$TART_DIR/vms/$VM" ]]; then
-  tart stop "$VM" >/dev/null 2>&1 || true
-  tart delete "$VM"
+	tart stop "$VM" >/dev/null 2>&1 || true
+	tart delete "$VM"
 fi
 tart clone "$BASE" "$VM"
 tart run --no-graphics "$VM" >"$WORK/vm.log" 2>&1 &
 ip=$(tart ip --wait 120 "$VM")
-for _ in $(seq 1 60); do bounded 8 tart exec "$VM" true >/dev/null 2>&1 && break; sleep 2; done
+for _ in $(seq 1 60); do
+	bounded 8 tart exec "$VM" true >/dev/null 2>&1 && break
+	sleep 2
+done
 # This Mac is the gateway of the network of the VMs.
 gateway="${ip%.*}.1"
 
@@ -160,25 +163,28 @@ subjectAltName = IP:$gateway, IP:127.0.0.1, DNS:localhost
 extendedKeyUsage = serverAuth
 EOF
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=hosts-test CA" \
-  -keyout "$WORK/ca.key" -out "$WORK/ca.crt" 2>/dev/null
+	-keyout "$WORK/ca.key" -out "$WORK/ca.crt" 2>/dev/null
 openssl req -newkey rsa:2048 -nodes -subj "/CN=orchard" \
-  -keyout "$WORK/tls.key" -out "$WORK/tls.csr" 2>/dev/null
+	-keyout "$WORK/tls.key" -out "$WORK/tls.csr" 2>/dev/null
 openssl x509 -req -in "$WORK/tls.csr" -CA "$WORK/ca.crt" -CAkey "$WORK/ca.key" -CAcreateserial \
-  -days 1 -extfile "$WORK/leaf.ext" -out "$WORK/tls.crt" 2>/dev/null
+	-days 1 -extfile "$WORK/leaf.ext" -out "$WORK/tls.crt" 2>/dev/null
 
 say "starting the Orchard controller on port $PORT"
 ORCHARD_BOOTSTRAP_ADMIN_TOKEN="$ADMIN_TOKEN" orchard controller run --data-dir "$WORK/data" \
-  --listen ":$PORT" --controller-cert "$WORK/tls.crt" --controller-key "$WORK/tls.key" \
-  >"$WORK/controller.log" 2>&1 &
+	--listen ":$PORT" --controller-cert "$WORK/tls.crt" --controller-key "$WORK/tls.key" \
+	>"$WORK/controller.log" 2>&1 &
 controller=$!
-for _ in $(seq 1 30); do api GET /v1/workers >/dev/null 2>&1 && break; sleep 1; done
+for _ in $(seq 1 30); do
+	api GET /v1/workers >/dev/null 2>&1 && break
+	sleep 1
+done
 api POST /v1/service-accounts "$(jq -nc --arg name "worker-$VM" --arg token "$WORKER_TOKEN" \
-  '{name: $name, token: $token, roles: ["compute:read", "compute:write"]}')" >/dev/null
+	'{name: $name, token: $token, roles: ["compute:read", "compute:write"]}')" >/dev/null
 
 # The pf rules of the hosts, loaded on this Mac for the Softnet test, block the VM from this Mac,
 # and so from the controller of this test.
 bounded 10 tart exec "$VM" /usr/bin/nc -z -G 5 "$gateway" "$PORT" >/dev/null 2>&1 ||
-  die "the VM cannot reach the controller at $gateway:$PORT; if the pf rules of the hosts are
+	die "the VM cannot reach the controller at $gateway:$PORT; if the pf rules of the hosts are
 loaded on this Mac, remove them first: deploy/hosts/test/pf.sh unload"
 
 say "giving Ansible a key for admin"
@@ -208,8 +214,8 @@ workers:
     orchard_worker_require_hypervisor: false
 EOF
 playbook() {
-  ANSIBLE_CONFIG="$HOSTS/ansible.cfg" ansible-playbook -i "$WORK/inventory.yml" "$HOSTS/site.yml" \
-    | tee "$WORK/playbook.log"
+	ANSIBLE_CONFIG="$HOSTS/ansible.cfg" ansible-playbook -i "$WORK/inventory.yml" "$HOSTS/site.yml" |
+		tee "$WORK/playbook.log"
 }
 
 say "running the playbook"
@@ -219,7 +225,8 @@ wait_for_worker "$started"
 say "the worker registered with the labels pool=test"
 
 say "checking the host"
-check=$(guest <<'EOF'
+check=$(
+	guest <<'EOF'
 echo "token_in_ps=$(ps axww -o command | grep -c '[o]rchard-bootstrap-token' || true)"
 echo "token_mode=$(sudo stat -f '%Su %Mp%Lp' /usr/local/etc/orchard-worker/bootstrap-token)"
 echo "softnet=$(stat -f '%Su %Mp%Lp' /usr/local/bin/softnet)"
@@ -247,7 +254,7 @@ grep -q "worker_user=.*admin" <<<"$check" || die "no worker process runs as admi
 say "running the playbook again, which must change nothing"
 playbook
 grep -Eq "^$VM +: ok=[0-9]+ +changed=0 +unreachable=0 +failed=0" "$WORK/playbook.log" ||
-  die "the second run changed the host"
+	die "the second run changed the host"
 
 say "restarting the host"
 booted=$(tart exec "$VM" /usr/sbin/sysctl -n kern.boottime)
@@ -258,12 +265,12 @@ bounded 10 tart exec "$VM" /bin/sh -c 'sudo /sbin/shutdown -r now' >/dev/null 2>
 # sees it stop, so the boot time, not a pause of the guest agent, proves the restart.
 restarted=""
 for _ in $(seq 1 150); do
-  now=$(bounded 8 tart exec "$VM" /usr/sbin/sysctl -n kern.boottime 2>/dev/null || true)
-  if [[ -n "$now" && "$now" != "$booted" ]]; then
-    restarted=$(date +%s)
-    break
-  fi
-  sleep 2
+	now=$(bounded 8 tart exec "$VM" /usr/sbin/sysctl -n kern.boottime 2>/dev/null || true)
+	if [[ -n "$now" && "$now" != "$booted" ]]; then
+		restarted=$(date +%s)
+		break
+	fi
+	sleep 2
 done
 [[ -n "$restarted" ]] || die "the host did not restart: its boot time did not change in 5 minutes"
 # The worker reports after its own start, which follows the boot of the host.
@@ -272,7 +279,8 @@ say "the host restarted, and the worker registered again"
 
 # launchd loads the pf rules at each start, and the pfctl job of macOS loads /etc/pf.conf, so the
 # rules must survive a restart whatever the order of the two jobs.
-after=$(guest <<'EOF'
+after=$(
+	guest <<'EOF'
 echo "pf_block=$(sudo /sbin/pfctl -a com.apple/400.bkaso-vm-isolation -s rules 2>/dev/null | grep -c 'block drop in quick')"
 echo "pf_enabled=$(sudo /sbin/pfctl -s info 2>/dev/null | grep -c 'Status: Enabled')"
 EOF
@@ -292,16 +300,17 @@ sudo /sbin/pfctl -a com.apple/400.bkaso-vm-isolation -F rules >/dev/null 2>&1
 EOF
 restored=""
 for _ in $(seq 1 30); do
-  sleep 2
-  state=$(guest <<'EOF'
+	sleep 2
+	state=$(
+		guest <<'EOF'
 echo "pf_block=$(sudo /sbin/pfctl -a com.apple/400.bkaso-vm-isolation -s rules 2>/dev/null | grep -c 'block drop in quick')"
 echo "pf_enabled=$(sudo /sbin/pfctl -s info 2>/dev/null | grep -c 'Status: Enabled')"
 EOF
-  )
-  if grep -Eqx "pf_block=[1-9][0-9]*" <<<"$state" && grep -qx "pf_enabled=1" <<<"$state"; then
-    restored=1
-    break
-  fi
+	)
+	if grep -Eqx "pf_block=[1-9][0-9]*" <<<"$state" && grep -qx "pf_enabled=1" <<<"$state"; then
+		restored=1
+		break
+	fi
 done
 [[ -n "$restored" ]] || die "the launchd job did not enable pf and load the rules again within 60 seconds"
 now=$(guest <<<'grep -c "pf is not enabled" /var/log/bkaso-vm-isolation.log || true')

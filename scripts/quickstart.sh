@@ -71,18 +71,51 @@ EOF
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
-	--queue) QUEUE="${2:-}"; shift 2 ;;
-	--image) IMAGE="${2:-}"; shift 2 ;;
-	--cpu) CPU="${2:-}"; shift 2 ;;
-	--memory) MEMORY="${2:-}"; shift 2 ;;
-	--disk) DISK="${2:-}"; shift 2 ;;
-	--match) MATCH+=("${2:-}"); shift 2 ;;
-	--orchard-url) ORCHARD_URL="${2:-}"; shift 2 ;;
-	--service-account) SERVICE_ACCOUNT="${2:-}"; shift 2 ;;
-	--version) VERSION="${2:-}"; shift 2 ;;
-	--from-source) FROM_SOURCE=1; shift ;;
+	--queue)
+		QUEUE="${2:-}"
+		shift 2
+		;;
+	--image)
+		IMAGE="${2:-}"
+		shift 2
+		;;
+	--cpu)
+		CPU="${2:-}"
+		shift 2
+		;;
+	--memory)
+		MEMORY="${2:-}"
+		shift 2
+		;;
+	--disk)
+		DISK="${2:-}"
+		shift 2
+		;;
+	--match)
+		MATCH+=("${2:-}")
+		shift 2
+		;;
+	--orchard-url)
+		ORCHARD_URL="${2:-}"
+		shift 2
+		;;
+	--service-account)
+		SERVICE_ACCOUNT="${2:-}"
+		shift 2
+		;;
+	--version)
+		VERSION="${2:-}"
+		shift 2
+		;;
+	--from-source)
+		FROM_SOURCE=1
+		shift
+		;;
 	-h | --help) usage 0 ;;
-	*) printf 'quickstart: unknown option %s\n\n' "$1" >&2; usage 2 ;;
+	*)
+		printf 'quickstart: unknown option %s\n\n' "$1" >&2
+		usage 2
+		;;
 	esac
 done
 

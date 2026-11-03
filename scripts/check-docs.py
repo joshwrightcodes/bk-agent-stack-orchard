@@ -51,8 +51,16 @@ def markdown_files() -> list[pathlib.Path]:
     files = sorted(ROOT.glob("docs/**/*.md"))
     for pattern in ("images/**/*.md", "deploy/**/*.md", "internal/**/README.md"):
         files += sorted(ROOT.glob(pattern))
-    files += [ROOT / name for name in ("README.md", "CONTRIBUTING.md", "SECURITY.md",
-                                       "CODE_OF_CONDUCT.md", ".github/pull_request_template.md")]
+    files += [
+        ROOT / name
+        for name in (
+            "README.md",
+            "CONTRIBUTING.md",
+            "SECURITY.md",
+            "CODE_OF_CONDUCT.md",
+            ".github/pull_request_template.md",
+        )
+    ]
     return sorted({f for f in files if f.exists()})
 
 
@@ -86,10 +94,21 @@ def defined_identifiers() -> dict[str, set[str]]:
 # glossary.
 FAMILIES = {
     "PR": 3,
-    "BD": 2, "SC": 2, "QA": 2, "DR": 2, "SE": 2, "OP": 2, "CO": 2,
+    "BD": 2,
+    "SC": 2,
+    "QA": 2,
+    "DR": 2,
+    "SE": 2,
+    "OP": 2,
+    "CO": 2,
     "QS": 1,
-    "T": 3, "R": 2, "I": 1, "E": 1, "O": 1,
-    "W": 2, "D": 1,
+    "T": 3,
+    "R": 2,
+    "I": 1,
+    "E": 1,
+    "O": 1,
+    "W": 2,
+    "D": 1,
     "ADR": 4,
 }
 
@@ -168,9 +187,9 @@ DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 
 def sentence_around(text: str, match: re.Match) -> str:
     """Return the sentence that holds the match, across line breaks."""
-    ends = [m.end() for m in re.finditer(r"[.!?](?=\s)|\n\n", text[:match.start()])]
+    ends = [m.end() for m in re.finditer(r"[.!?](?=\s)|\n\n", text[: match.start()])]
     start = ends[-1] if ends else 0
-    after = re.search(r"[.!?](?=\s)|\n\n", text[match.end():])
+    after = re.search(r"[.!?](?=\s)|\n\n", text[match.end() :])
     stop = match.end() + after.end() if after else len(text)
     return text[start:stop]
 
@@ -228,8 +247,11 @@ def check_glossary_families() -> None:
         if prefix not in listed:
             fail(GLOSSARY, None, f"the table of identifier families does not list {want}")
         elif len(listed[prefix]) != width:
-            fail(GLOSSARY, None,
-                 f"the table of identifier families lists {prefix}-{listed[prefix]}, want {want}")
+            fail(
+                GLOSSARY,
+                None,
+                f"the table of identifier families lists {prefix}-{listed[prefix]}, want {want}",
+            )
 
 
 def main() -> int:
