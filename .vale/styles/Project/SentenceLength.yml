@@ -1,0 +1,7 @@
+# The writing guide asks for short sentences. A long one is a warning, so that a reviewer decides.
+extends: occurrence
+message: "This sentence has more than 40 words: split it."
+level: warning
+scope: sentence
+max: 40
+token: '\b(\w+)\b'

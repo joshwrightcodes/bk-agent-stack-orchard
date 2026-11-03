@@ -1,0 +1,11 @@
+# An operator cannot resolve an identifier of the design documents, such as ADR-0012 or T-100.
+# Describe the behaviour, or link to the document.
+extends: existence
+message: "'%s' is an identifier of the design documents, which operator guides do not cite."
+level: error
+ignorecase: false
+nonword: true
+tokens:
+  - '\bADR-\d{4}\b'
+  - '\b(?:PR|T|W|R|O|D|QA|QS|SC|CO|SE|OP|DR|BD)-\d{1,3}\b'
+  - '\bI-\d\b'
