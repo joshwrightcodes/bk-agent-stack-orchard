@@ -29,7 +29,7 @@ small.
 | `bk_agent_stack_orchard.job.waiting.count` | up-down counter, `{job}` | `bk_agent_stack_orchard.profile` | Matched jobs that wait for a VM |
 | `bk_agent_stack_orchard.job.waiting.oldest.age` | gauge, `s` | `bk_agent_stack_orchard.profile` | How long the oldest waiting job has waited |
 | `bk_agent_stack_orchard.job.skipped` | counter, `{job}` | | Jobs that match no profile, and that the controller leaves for another runner |
-| `bk_agent_stack_orchard.queue.truncated` | counter, `{read}` | | Reads of the queue that stopped at the page limit, so that some jobs were not seen |
+| `bk_agent_stack_orchard.queue.truncated` | counter, `{read}` | | Reads of the queue that did not list it whole, so that jobs behind the head of the queue wait for a later read |
 | `bk_agent_stack_orchard.job.failed` | counter, `{job}` | `error.type` | Jobs that the controller failed, such as after a timeout |
 | `bk_agent_stack_orchard.slot.count` | up-down counter, `{slot}` | `bk_agent_stack_orchard.pool`, `bk_agent_stack_orchard.slot.state` (`total`, `used`, `free`) | VM slots of the Mac hosts |
 | `bk_agent_stack_orchard.vm.count` | up-down counter, `{vm}` | `bk_agent_stack_orchard.profile`, `bk_agent_stack_orchard.vm.phase` (`unplaced`, `booting`, `running`, `failed`) | VMs of this controller, by phase |
@@ -114,3 +114,4 @@ The controller does not ship rules for a backend. These conditions are a good st
 | VMs remain | `bk_agent_stack_orchard.vm.leftover` is more than 0 in two exports in a row, at the default interval of 60 s. Ignore it while Buildkite is down. |
 | Orphans exist | `bk_agent_stack_orchard.vm.deletions` with the reason `orphan` is more than 0. |
 | The fleet is full | `bk_agent_stack_orchard.slot.count` with the state `free` is 0 for 30 min. |
+| The queue is longer than one read | `bk_agent_stack_orchard.queue.truncated` goes up for 10 min. See [Troubleshooting](troubleshooting.md#a-job-stays-scheduled). |
