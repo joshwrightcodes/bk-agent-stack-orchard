@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -501,5 +502,265 @@ func TestThePollerIsTheScheduledJobsSource(t *testing.T) {
 	// out of the staleness metric.
 	if !poller.At().IsZero() {
 		t.Errorf("At() = %s before the first poll, want the zero time", poller.At())
+	}
+}
+
+// pagesOf builds a queue of the pages that the caller gives. The cursor of page n is "page-n", and
+// the first page has the empty cursor.
+func pagesOf(pages ...[]buildkite.ScheduledJob) map[string]buildkite.Page {
+	queue := make(map[string]buildkite.Page, len(pages))
+
+	for index, jobs := range pages {
+		page := buildkite.Page{Jobs: jobs}
+		if index+1 < len(pages) {
+			page.NextCursor = fmt.Sprintf("page-%d", index+2)
+		}
+
+		queue[cursorOf(index+1)] = page
+	}
+
+	return queue
+}
+
+// cursorOf gives the cursor of page n of pagesOf.
+func cursorOf(page int) string {
+	if page == 1 {
+		return ""
+	}
+
+	return fmt.Sprintf("page-%d", page)
+}
+
+// flood gives a page of jobs that no profile carries, which stay in the list. Each page has its
+// own jobs, so that the identifiers do not repeat between pages.
+func flood(page int) []buildkite.ScheduledJob {
+	return []buildkite.ScheduledJob{{
+		ID:       job.ID(fmt.Sprintf("018f3b2c-1c4a-7e5b-9a3d-%012x", page)),
+		Rules:    []string{"queue=macos", "flood=yes"},
+		Pipeline: "flood",
+	}}
+}
+
+// has reports whether the last answer holds the job.
+func has(poller *stack.Poller, id job.ID) bool {
+	queue, _ := poller.Latest()
+
+	return slices.ContainsFunc(queue.Jobs, func(scheduled buildkite.ScheduledJob) bool {
+		return scheduled.ID == id
+	})
+}
+
+// Jobs that never leave the list, more than the pages of one read, must not hide the jobs behind
+// them for ever: a pipeline author could then stop the fleet with one upload. The poll finds a
+// job behind a flood of any length in a number of reads that grows with the flood, and each read
+// makes the same fixed number of calls.
+func TestAFloodAtTheHeadDoesNotHideTheJobsBehindIt(t *testing.T) {
+	t.Parallel()
+
+	const flooded = 40
+
+	legit := job.ID("018f3b2c-1c4a-7e5b-9a3d-ffffffffffff")
+
+	var pages [][]buildkite.ScheduledJob
+	for page := range flooded {
+		pages = append(pages, flood(page+1))
+	}
+
+	pages = append(pages, []buildkite.ScheduledJob{{ID: legit}})
+
+	api := &fake{pages: pagesOf(pages...)}
+
+	poller, _ := stack.NewPoller(stack.PollerOptions{Stacks: api, Interval: time.Second, Now: time.Now})
+
+	// The head takes HeadPages pages, and each read sweeps one more page. The job is on page
+	// flooded+1, so the sweep reaches it at the read flooded+1-HeadPages.
+	reads := flooded + 1 - stack.HeadPages
+
+	for read := 1; read <= reads; read++ {
+		before := api.polls
+
+		if err := poller.Refresh(t.Context()); err != nil {
+			t.Fatalf("read %d: Refresh() = %v, want no error", read, err)
+		}
+
+		if calls := api.polls - before; calls > stack.MaxPages {
+			t.Fatalf("read %d made %d calls, want at most %d whatever the length of the queue",
+				read, calls, stack.MaxPages)
+		}
+
+		if has(poller, legit) {
+			if read != reads {
+				t.Errorf("the job behind the flood arrived at read %d, want read %d", read, reads)
+			}
+
+			return
+		}
+	}
+
+	t.Errorf("the job behind %d pages of jobs that stay in the list is hidden after %d reads, "+
+		"want the sweep to reach it", flooded, reads)
+}
+
+// The sweep moves one page at each read, and it starts again after the head when it reaches the
+// end of the list. A read that skips pages between the head and the sweep is not a whole listing,
+// also when it reaches the last page.
+func TestTheSweepMovesOnePageAtEachReadAndStartsAgainAtTheEnd(t *testing.T) {
+	t.Parallel()
+
+	api := &fake{pages: pagesOf(flood(1), flood(2), flood(3), flood(4), flood(5))}
+
+	poller, _ := stack.NewPoller(stack.PollerOptions{Stacks: api, Interval: time.Second, Now: time.Now})
+
+	steps := []struct {
+		cursors   []string
+		truncated bool
+	}{
+		{[]string{"", "page-2", "page-3"}, true},
+		{[]string{"", "page-2", "page-4"}, true},
+		{[]string{"", "page-2", "page-5"}, true},
+		{[]string{"", "page-2", "page-3"}, true},
+	}
+
+	for number, step := range steps {
+		api.cursors = nil
+
+		if err := poller.Refresh(t.Context()); err != nil {
+			t.Fatalf("read %d: Refresh() = %v, want no error", number+1, err)
+		}
+
+		if !slices.Equal(api.cursors, step.cursors) {
+			t.Errorf("read %d asked for the cursors %q, want %q", number+1, api.cursors, step.cursors)
+		}
+
+		if queue, _ := poller.Latest(); queue.Truncated != step.truncated {
+			t.Errorf("read %d: Truncated = %t, want %t", number+1, queue.Truncated, step.truncated)
+		}
+	}
+}
+
+// A read whose pages follow one another from the head to the last page is a whole listing, and
+// the launcher may then forget the jobs that left the list.
+func TestAReadOfThePagesInSequenceToTheEndIsWhole(t *testing.T) {
+	t.Parallel()
+
+	api := &fake{pages: pagesOf(flood(1), flood(2), flood(3))}
+
+	poller, _ := stack.NewPoller(stack.PollerOptions{Stacks: api, Interval: time.Second, Now: time.Now})
+
+	if err := poller.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh() = %v, want no error", err)
+	}
+
+	queue, _ := poller.Latest()
+	if queue.Truncated || len(queue.Jobs) != 3 {
+		t.Errorf("the answer holds %d jobs and Truncated = %t, want 3 jobs and a whole listing",
+			len(queue.Jobs), queue.Truncated)
+	}
+}
+
+// A sweep page that fails ends the read, as every page does. The next read starts the sweep
+// again after the head, because a cursor that Buildkite refused once may never work again.
+func TestAFailedSweepStartsAgainAfterTheHead(t *testing.T) {
+	t.Parallel()
+
+	api := &fake{pages: pagesOf(flood(1), flood(2), flood(3), flood(4), flood(5))}
+
+	poller, _ := stack.NewPoller(stack.PollerOptions{Stacks: api, Interval: time.Second, Now: time.Now})
+
+	if err := poller.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh() = %v, want no error", err)
+	}
+
+	before, _ := poller.Latest()
+
+	api.pageErrs = map[string]error{"page-4": errors.New("the cursor is not valid")}
+
+	if err := poller.Refresh(t.Context()); err == nil {
+		t.Fatal("Refresh() = nil, want the error of the sweep page")
+	}
+
+	if after, _ := poller.Latest(); !slices.Equal(ids(after), ids(before)) {
+		t.Errorf("the answer is %v after a failed sweep, want the answer before it %v",
+			ids(after), ids(before))
+	}
+
+	api.cursors = nil
+
+	if err := poller.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh() = %v, want no error", err)
+	}
+
+	if want := []string{"", "page-2", "page-3"}; !slices.Equal(api.cursors, want) {
+		t.Errorf("the read after a failed sweep asked for %q, want %q", api.cursors, want)
+	}
+}
+
+// A queue that the head reads to its end ends the sweep, so that the sweep of a later flood
+// starts after the head and not at a cursor of an old list.
+func TestAShortQueueEndsTheSweep(t *testing.T) {
+	t.Parallel()
+
+	long := pagesOf(flood(1), flood(2), flood(3), flood(4), flood(5))
+	api := &fake{pages: long}
+
+	poller, _ := stack.NewPoller(stack.PollerOptions{Stacks: api, Interval: time.Second, Now: time.Now})
+
+	if err := poller.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh() = %v, want no error", err)
+	}
+
+	api.pages = pagesOf(flood(1), flood(2))
+
+	if err := poller.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh() = %v, want no error", err)
+	}
+
+	api.pages = long
+	api.cursors = nil
+
+	if err := poller.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh() = %v, want no error", err)
+	}
+
+	if want := []string{"", "page-2", "page-3"}; !slices.Equal(api.cursors, want) {
+		t.Errorf("the read of a new flood asked for %q, want %q", api.cursors, want)
+	}
+}
+
+// ids gives the identifiers of the jobs of an answer, in order.
+func ids(queue stack.Queue) []job.ID {
+	got := make([]job.ID, 0, len(queue.Jobs))
+	for _, scheduled := range queue.Jobs {
+		got = append(got, scheduled.ID)
+	}
+
+	return got
+}
+
+// The warning of a cut read names the pipeline that holds the most jobs of the read, so that an
+// operator can find the source of a flood without a second tool.
+func TestTheWarningOfACutReadNamesThePipelineWithTheMostJobs(t *testing.T) {
+	t.Parallel()
+
+	var logged bytes.Buffer
+
+	api := &fake{pages: pagesOf(flood(1), flood(2),
+		[]buildkite.ScheduledJob{{ID: job.ID("018f3b2c-1c4a-7e5b-9a3d-ffffffffffff"), Pipeline: "app"}},
+		flood(4))}
+
+	poller, _ := stack.NewPoller(stack.PollerOptions{
+		Stacks:   api,
+		Interval: time.Second,
+		Logger:   slog.New(slog.NewTextHandler(&logged, nil)),
+		Now:      time.Now,
+	})
+
+	if err := poller.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh() = %v, want no error", err)
+	}
+
+	if !strings.Contains(logged.String(), "pipeline=flood") ||
+		!strings.Contains(logged.String(), "pipelineJobs=2") {
+		t.Errorf("the warning is %q, want the pipeline flood with its 2 jobs", logged.String())
 	}
 }

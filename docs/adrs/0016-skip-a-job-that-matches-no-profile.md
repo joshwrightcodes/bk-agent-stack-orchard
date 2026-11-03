@@ -102,9 +102,9 @@ Bad:
 * A misconfigured profile no longer gives a fast failure. The pipeline author sees a notification
   on the job page, and the job waits.
 * A job can wait until Buildkite times it out, or until a person cancels it.
-* Jobs that never leave the list now feed the residual page limit of §6.3 of the target design.
-  More than 3 pages of 1000 skipped jobs hide the jobs behind them, and the counter
-  `bkaso.queue.truncated` is the sign.
+* Jobs that never leave the list fill the head of the list that the controller reads (§6.3 of
+  the target design). More than 3 pages of 1000 skipped jobs make the jobs behind them wait for
+  later reads, and the counter `bkaso.queue.truncated` is the sign.
 * After a restart, the controller can write a second notification for a job.
 
 ## Confirmation

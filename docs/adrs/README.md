@@ -90,3 +90,4 @@ date. The content of an accepted ADR does not change: a new ADR supersedes it.
 | [ADR-0015](0015-generate-only-the-orchard-fields-the-controller-uses.md) | Generate only the Orchard fields that the controller uses | proposed |
 | [ADR-0016](0016-skip-a-job-that-matches-no-profile.md) | Skip a job that matches no profile | proposed |
 | [ADR-0017](0017-download-the-agent-when-the-vm-starts.md) | Download the agent when the VM starts | proposed |
+| [ADR-0019](0019-sweep-the-queue-behind-a-long-head.md) | Sweep the queue behind a long head | proposed |
