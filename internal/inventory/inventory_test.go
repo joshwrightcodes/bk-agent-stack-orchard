@@ -456,3 +456,51 @@ func TestTheGaugeCountsOwnedVMsWhoseJobIsTerminal(t *testing.T) {
 		t.Errorf("the gauge counts %d machines, want 1: only the job that ended", observation.Leftover)
 	}
 }
+
+// A controller whose identifier extends the identifier of this one shares the prefix of its
+// machines. Those machines are not orphans of this controller, and this controller never
+// deletes them.
+func TestTheMachinesOfAControllerWithALongerIdentifierAreNotOrphans(t *testing.T) {
+	longer := []string{
+		"bk-" + controller + "-prod-" + first,
+		"bk-" + controller + "-1a2b3c4d-" + first,
+	}
+	orphan := "bk-" + controller + "-" + first + "-extra"
+	of := &fleet{vms: []orchard.VM{{Name: longer[0]}, {Name: longer[1]}, {Name: orphan}}}
+	held := build(t, of)
+
+	if err := held.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh() = %v, want nil", err)
+	}
+
+	snapshot, _ := held.Latest()
+	if len(snapshot.Orphans) != 1 || snapshot.Orphans[0].Name != orphan {
+		t.Errorf("Orphans = %+v, want only %q", snapshot.Orphans, orphan)
+	}
+
+	if len(snapshot.Owned) != 0 {
+		t.Errorf("Owned = %+v, want none", snapshot.Owned)
+	}
+}
+
+// The other direction: a controller with the shorter identifier does not own, and does not
+// orphan, the machines of this one.
+func TestTheMachinesOfAControllerWithAShorterIdentifierAreNotOrphans(t *testing.T) {
+	of := &fleet{vms: []orchard.VM{{Name: "bk-macos-" + first}}}
+	held, err := inventory.New(inventory.Options{
+		Orchard: of, ControllerID: "macos-prod-2", Interval: time.Second,
+		OfflineTimeout: time.Minute, Now: func() time.Time { return now },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := held.Refresh(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, _ := held.Latest()
+	if len(snapshot.Orphans) != 0 || len(snapshot.Owned) != 0 {
+		t.Errorf("Orphans = %+v, Owned = %+v, want none", snapshot.Orphans, snapshot.Owned)
+	}
+}

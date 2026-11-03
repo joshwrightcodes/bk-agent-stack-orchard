@@ -27,6 +27,10 @@ func FuzzOwnedJobClaimsOnlyTheMachinesOfThisController(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, name, controllerID string) {
 		id, owned := vmspec.OwnedJob(name, controllerID)
+		if owned && vmspec.IsOrphan(name, controllerID) {
+			t.Fatalf("%q is both owned and an orphan of %q", name, controllerID)
+		}
+
 		if !owned {
 			return
 		}
@@ -65,6 +69,11 @@ func FuzzOwnedJobTellsControllersApart(f *testing.F) {
 		}
 
 		if other != owner {
+			if vmspec.IsOrphan(name, other) {
+				t.Fatalf("IsOrphan(%q, %q) took the machine of the controller %q", name, other,
+					owner)
+			}
+
 			if got, owned := vmspec.OwnedJob(name, other); owned {
 				t.Fatalf("OwnedJob(%q, %q) claimed job %q of the controller %q", name, other, got,
 					owner)

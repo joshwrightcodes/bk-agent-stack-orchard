@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"math"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -50,8 +49,10 @@ type Snapshot struct {
 	// Owned are the machines of this controller, with the job of each one.
 	Owned []Owned
 
-	// Orphans are machines whose name has the prefix of this controller and no job identifier.
-	// Nothing else will remove them, so the reaper deletes them.
+	// Orphans are machines whose name has the prefix of this controller and does not end in a
+	// job identifier. A machine that ends in one belongs to the controller that its name
+	// names, even when that identifier extends this one. Nothing else will remove an orphan, so
+	// the reaper deletes it.
 	Orphans []orchard.VM
 
 	// At is when Orchard answered.
@@ -213,21 +214,13 @@ func (i *Inventory) Refresh(ctx context.Context) error {
 	}
 
 	snapshot := Snapshot{Workers: workers, VMs: vms, At: i.now()}
-	prefix := vmspec.Prefix(i.controllerID)
 
 	for _, vm := range vms {
-		if !strings.HasPrefix(vm.Name, prefix) {
-			continue
-		}
-
-		id, owned := vmspec.OwnedJob(vm.Name, i.controllerID)
-		if !owned {
+		if id, owned := vmspec.OwnedJob(vm.Name, i.controllerID); owned {
+			snapshot.Owned = append(snapshot.Owned, Owned{VM: vm, Job: id})
+		} else if vmspec.IsOrphan(vm.Name, i.controllerID) {
 			snapshot.Orphans = append(snapshot.Orphans, vm)
-
-			continue
 		}
-
-		snapshot.Owned = append(snapshot.Owned, Owned{VM: vm, Job: id})
 	}
 
 	i.mu.Lock()
