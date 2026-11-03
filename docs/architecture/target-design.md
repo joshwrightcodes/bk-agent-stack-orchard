@@ -510,6 +510,10 @@ Admission MUST run only when all of these conditions are true:
 A source whose calls fail keeps its last data. The Reaper continues, because its own rules (§7.2)
 decide what old data permits it to do.
 
+Admission MUST measure the age of the data at the time of its decision, from the clock of the
+controller, and not at the start of the tick. The refresh and the Reaper run first and can take
+long. Data whose refresh failed in the same tick becomes older while they run.
+
 Admission does these steps:
 
 1. **Candidates.** Select the matched scheduled jobs that have no owned VM with the same name,

@@ -320,6 +320,70 @@ func TestRunTimesATickWithTheClockOfTheController(t *testing.T) {
 	runOnce(t, settings, func() bool { return slices.Contains(r.seen(), "admit") })
 }
 
+// clock is a time that a test moves by hand. Run reads it from the goroutine of the loop while
+// the test reads it from its own, so it locks.
+type clock struct {
+	mu sync.Mutex
+	at time.Time
+}
+
+func (c *clock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.at
+}
+
+func (c *clock) advance(by time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.at = c.at.Add(by)
+}
+
+// The freshness gate measures the answers at the time of the decision, and not at the start of
+// the tick. The refresh and the reaper come first and can take long: a source that failed its
+// refresh keeps its last answer, and when the reaper then waits on its calls, that answer can be
+// older than the limit when admission decides. Here the answers are fresh at the start of the
+// tick, and the reap step moves the clock past the limit.
+func TestAdmissionMeasuresTheAnswersAtTheTimeOfTheDecision(t *testing.T) {
+	t.Parallel()
+
+	r := &recorder{}
+	settings := options(t, r)
+	moment := time.Date(2020, 1, 1, 9, 0, 0, 0, time.UTC)
+	wall := &clock{at: moment}
+
+	for _, s := range settings.Sources {
+		s.(*source).at = moment
+	}
+
+	settings.Now = wall.now
+	settings.Reap = func(context.Context) error {
+		r.add("reap")
+		wall.advance(settings.Freshness + time.Second)
+
+		return nil
+	}
+	settings.Admit = func(context.Context) error { r.add("admit"); return nil }
+
+	loop, err := controller.New(settings)
+	if err != nil {
+		t.Fatalf("New() = %v, want the loop", err)
+	}
+
+	loop.Tick(t.Context(), moment)
+
+	if !slices.Contains(r.seen(), "reap") {
+		t.Fatalf("the tick did %v, want it to reap", r.seen())
+	}
+
+	if slices.Contains(r.seen(), "admit") {
+		t.Errorf("the tick admitted a job on answers older than the limit at the decision: %v",
+			r.seen())
+	}
+}
+
 // Almost every failure here is one call to one API, and the next tick reads the world again. A
 // loop that stopped would need an operator for something that fixes itself.
 func TestAStepThatFailsDoesNotStopTheLoop(t *testing.T) {

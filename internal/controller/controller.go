@@ -297,7 +297,9 @@ func (c *Controller) withdraw(ctx context.Context) error {
 	return nil
 }
 
-// Tick runs the steps of one tick, in order. At is the time of the tick.
+// Tick runs the steps of one tick, in order. At is the time of the tick, which decides the
+// sources that are due. The gate of admission reads the clock of the controller again, because
+// the steps before it take time.
 //
 // Run calls it at each beat of its ticker, with the time of the clock of the controller. The
 // component suite calls it directly, with the time of its own clock, so that it runs the loop one
@@ -312,7 +314,10 @@ func (c *Controller) Tick(ctx context.Context, at time.Time) {
 
 	c.run(ctx, "reap", c.reap)
 
-	if reason, ok := c.mayAdmit(at); !ok {
+	// The gate measures the answers at the time of the decision, and not at the time of the
+	// tick: the refresh and the reaper can take long, and a source whose refresh failed keeps an
+	// answer that ages while they run.
+	if reason, ok := c.mayAdmit(c.now()); !ok {
 		c.logger.DebugContext(ctx, "the controller admitted no job", "reason", reason)
 
 		return
@@ -411,7 +416,8 @@ func (c *Controller) observe() {
 	c.metrics.Observe(observation)
 }
 
-// mayAdmit reports whether the tick at may start jobs, and why not when it may not.
+// mayAdmit reports whether the controller may start jobs at the time at, and why not when it may
+// not.
 //
 // The controller starts no job while it has not read the queue, because an empty queue and an
 // unread queue look the same, and because a paused queue is an instruction from an operator. It
