@@ -73,16 +73,25 @@ reach the Internet and DNS. It must not reach the LAN, another VM, or a service 
 Softnet alone lets a VM reach the Mac through the gateway of its network, and the hosts close this
 path with pf (`deploy/hosts`). `deploy/hosts/test/pf.sh` loads the same rules on the Mac from the
 template of the role. It needs `ansible` and `jq` (from `mise install`), and sudo. The control of
-the test permits the router of the LAN, so the rules permit it too. While the rules are loaded, the
-Mac accepts connections only on the interface of its default route and on loopback. From any other
-interface, AirDrop and VPN tunnels included, it accepts only DNS and DHCP. The rules go when the Mac
-restarts, or with `pf.sh unload`:
+the test permits the router of the LAN, so the rules permit it too.
+
+Softnet gives each VM a network from a few private ranges, and the gateway of that network is the
+Mac. With `--pools`, the rules also permit those ranges, as a profile with a wide `softnetAllow`
+would. The gateway of each VM of the test is then inside `softnetAllow`, and the test checks that
+the VM still cannot reach a service of the Mac through it. The test reads the copy of the rules
+that `pf.sh` keeps, and it fails when the rules do not permit the gateway.
+
+While the rules are loaded, the Mac accepts connections only on the interface of its default route
+and on loopback. From any other interface, AirDrop and VPN tunnels included, it accepts only DNS and
+DHCP. The rules go when the Mac restarts, or with `pf.sh unload`:
 
 ```sh
-deploy/hosts/test/pf.sh load "$(route -n get default | awk '/gateway:/ {print $2}')/32"
+deploy/hosts/test/pf.sh load --pools "$(route -n get default | awk '/gateway:/ {print $2}')/32"
 BKASO_TART_IMAGE=bkaso-agent mise run softnet-test
 deploy/hosts/test/pf.sh unload
 ```
 
 `mise run hosts-test` needs the opposite: its test VM reaches an Orchard controller on the Mac,
-which the rules block, so remove them before it.
+which the rules block, so remove them before it. Besides the playbook, it disables pf and removes
+the rules in its VM, and checks that the launchd job of the hosts restores them within a minute. It
+also checks that only the worker user can run Softnet.
