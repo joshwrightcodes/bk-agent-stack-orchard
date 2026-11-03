@@ -1,18 +1,19 @@
 # The checks of the name and the token of each host run first, on the control node, before any
 # task reaches a host. A host without its own name and token would get HTTP 401 at run time, after
-# the playbook succeeded. The messages name hosts and never a token.
+# the playbook succeeded. The messages name hosts and never a token. The play changes one host at a
+# time (serial in site.yml), so the check reads every host of the play, not only those of the batch.
 - name: Find the hosts that have no worker name, or share a name or a token
   run_once: true
   no_log: true
   ansible.builtin.set_fact:
     orchard_worker_problems: >-
-      {% for h in ansible_play_hosts %}
+      {% for h in ansible_play_hosts_all %}
       {% set n = hostvars[h].orchard_worker_name | default('') %}
       {% set t = hostvars[h].orchard_worker_token | default('') %}
       {% if n == '' %}
       {{ h }} has no orchard_worker_name. Set it for each host.
       {% endif %}
-      {% for h2 in ansible_play_hosts if h2 > h %}
+      {% for h2 in ansible_play_hosts_all if h2 > h %}
       {% if n != '' and n == (hostvars[h2].orchard_worker_name | default('')) %}
       {{ h }} and {{ h2 }} have the same orchard_worker_name.
       {% endif %}

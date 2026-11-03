@@ -38,6 +38,33 @@ orchard_worker_config_file: ""
 orchard_worker_registry_username: ""
 orchard_worker_registry_password: ""
 
+# A change that restarts the worker (a new version of Orchard, Tart, or Softnet, a new token,
+# labels, or controller URL) deletes every VM on the host, so the play drains the host first
+# (tasks/drain.yml): it pauses the worker in Orchard, and waits until no VM of the worker is pending
+# or running. A run that restarts nothing drains nothing. false changes the host without the API of
+# Orchard: no drain, no wait for the worker to report, and no removal of cached images. A restart
+# then deletes the VMs on the host, so use false only when the controller cannot answer.
+orchard_worker_drain: true
+# The drain time limit, in seconds. A VM placed just before the pause can take the boot and acquire
+# timeouts of its profile (15 and 5 minutes by default), and its job then runs. The design expects
+# the longest job to take 60 minutes, so 90 minutes covers such a job with 10 minutes to spare. When
+# a VM still runs at the limit, the play resumes the worker, changes nothing that restarts it, and
+# goes on with the next host. Raise the limit for longer jobs. The longest that a VM can live is
+# maxVMLifetime (25 hours by default), which is too long to hold a play.
+orchard_worker_drain_timeout: 5400
+# How often the play counts the VMs of the worker during the drain, in seconds.
+orchard_worker_drain_poll: 30
+# true pauses the worker, waits until it runs no VM, and leaves it paused, with no change that
+# restarts it. The next run without it makes the change and resumes the worker. Use it before the
+# token of the host changes in Orchard, and before the removal of a host.
+orchard_worker_drain_only: false
+# How long the worker has to report to the controller after the play starts it, in seconds. The
+# worker writes its record each 15 seconds.
+orchard_worker_register_timeout: 300
+# Remove each cached image that no profile of the host names and no VM of the worker uses
+# (tasks/prune.yml).
+orchard_worker_prune_images: true
+
 # The job VMs run macOS 27.2, and a macOS guest needs a host of the same version or later
 # (CO-07). The owner decided on 2026-11-01 that the hosts run macOS 27.2.
 orchard_worker_macos_minimum: "27.2"

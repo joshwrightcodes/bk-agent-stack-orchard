@@ -1,0 +1,68 @@
+# Finds out, before any change, whether this run restarts the worker. The worker stops and deletes
+# every VM on the host when it stops (Worker.Close, internal/worker/worker.go, Orchard 0.58.0), so
+# drain.yml empties the host first. A run that restarts nothing drains nothing.
+- name: Make the directory of the token
+  ansible.builtin.file:
+    path: "{{ orchard_worker_etc }}"
+    state: directory
+    owner: root
+    group: wheel
+    mode: "0700"
+  become: true
+
+# The calls of the play to the API of Orchard trust only this certificate, as the worker does.
+- name: Write the CA certificate of the controller
+  ansible.builtin.copy:
+    dest: "{{ orchard_worker_ca_file }}"
+    content: "{{ orchard_worker_ca_cert }}"
+    owner: root
+    group: wheel
+    mode: "0644"
+  become: true
+
+- name: Find the changes that restart the worker
+  ansible.builtin.include_tasks:
+    file: worker.yml
+    apply:
+      check_mode: true
+
+- name: Look for the launchd job
+  ansible.builtin.command: launchctl print system/{{ orchard_worker_label_name }}
+  register: orchard_worker_loaded
+  changed_when: false
+  failed_when: false
+  become: true
+
+# drain.yml writes the mark when it pauses the worker, and service.yml removes it when it resumes
+# the worker. A mark at the start of a run means that a run before this one paused the worker and
+# stopped before the end, perhaps after it changed a file and before it restarted the worker. This
+# run therefore restarts the worker, and it resumes the worker when the mark says so.
+- name: Look for the mark of a drain that did not finish
+  ansible.builtin.stat:
+    path: "{{ orchard_worker_drain_mark }}"
+    get_checksum: false
+  register: orchard_worker_mark
+  become: true
+
+- name: Read the mark of the drain
+  ansible.builtin.slurp:
+    src: "{{ orchard_worker_drain_mark }}"
+  register: orchard_worker_mark_content
+  when: orchard_worker_mark.stat.exists
+  become: true
+
+- name: Name the changes that restart the worker
+  ansible.builtin.set_fact:
+    orchard_worker_changes: "{{ orchard_worker_changed | dict2items | selectattr('value.changed') | map(attribute='key') | list }}"
+  vars:
+    orchard_worker_changed:
+      orchard: "{{ orchard_worker_orchard_link }}"
+      tart: "{{ orchard_worker_tart_command }}"
+      softnet: "{{ orchard_worker_softnet_file }}"
+      token: "{{ orchard_worker_token_file }}"
+      launchd job: "{{ orchard_worker_plist_file }}"
+
+- name: Decide whether the run restarts the worker
+  ansible.builtin.set_fact:
+    orchard_worker_restart: "{{ orchard_worker_loaded.rc == 0 and (orchard_worker_mark.stat.exists or orchard_worker_changes | length > 0) }}"
+    orchard_worker_mark_says_resume: "{{ orchard_worker_mark.stat.exists and (orchard_worker_mark_content.content | b64decode | trim) == 'resume' }}"

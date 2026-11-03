@@ -1,0 +1,39 @@
+# Removes each image from the cache of Tart that no profile of the host names and no VM of the
+# worker uses, so that old images do not fill the disk of the host. A 1 TB host holds only a few
+# Xcode images. The profiles come from the configuration of the controller (select.yml), so an image
+# goes once no profile of the host names it. It never removes a local VM, only cached images.
+#
+# A VM is a clone of its image, so a running VM does not need the cached image. A VM that Orchard
+# placed on the worker can still pull or clone its image, so the play keeps the image of each VM
+# that the controller lists for the worker, a failed VM included. The list needs the API, so the
+# play prunes nothing when orchard_worker_drain is false.
+- name: Remove the cached images that no profile and no VM uses
+  when:
+    - orchard_worker_prune_images | bool
+    - orchard_worker_drain | bool
+  become: true
+  module_defaults:
+    ansible.builtin.uri: "{{ orchard_worker_api }}"
+  block:
+    - name: List the images in the cache of Tart
+      ansible.builtin.command: tart list --source oci --format json
+      register: orchard_worker_cache
+      changed_when: false
+      become: true
+      become_user: "{{ orchard_worker_user }}"
+
+    - name: List the VMs of the worker
+      ansible.builtin.uri:
+        url: "{{ orchard_worker_vms_url }}"
+      register: orchard_worker_vms_now
+      no_log: true
+
+    - name: Remove the images
+      ansible.builtin.command:
+        argv: [tart, delete, "{{ item }}"]
+      loop: "{{ orchard_worker_cache.stdout | from_json | map(attribute='Name') | tart_prunable(orchard_worker_keep) }}"
+      changed_when: true
+      become: true
+      become_user: "{{ orchard_worker_user }}"
+      vars:
+        orchard_worker_keep: "{{ orchard_worker_images + (orchard_worker_vms_now.json | orchard_vm_images(orchard_worker_name)) }}"

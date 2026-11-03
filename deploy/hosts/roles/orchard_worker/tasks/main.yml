@@ -13,11 +13,26 @@
 - name: Keep the VMs away from the host
   ansible.builtin.import_tasks: isolation.yml
 
-- name: Run the worker
-  ansible.builtin.import_tasks: service.yml
+- name: Find the changes that restart the worker
+  ansible.builtin.import_tasks: plan.yml
+
+- name: Drain the worker before a restart
+  ansible.builtin.import_tasks: drain.yml
+
+- name: Change the files that the worker reads
+  ansible.builtin.include_tasks: worker.yml
+
+- name: Check the commands
+  ansible.builtin.import_tasks: commands.yml
 
 - name: Check that only root can change what root runs
   ansible.builtin.import_tasks: ownership.yml
 
+- name: Run the worker
+  ansible.builtin.import_tasks: service.yml
+
 - name: Pull the images of the profiles
   ansible.builtin.import_tasks: images.yml
+
+- name: Remove the images that no profile uses
+  ansible.builtin.import_tasks: prune.yml

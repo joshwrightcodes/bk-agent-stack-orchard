@@ -227,3 +227,61 @@
       ansible.builtin.file:
         path: "{{ job_dir.path }}"
         state: absent
+
+# Checks the filters of the drain and of the removal of cached images, with no host and no
+# controller.
+- name: The VMs that hold a drain, and the images that a host removes
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    no_vms: []
+    vms:
+      - {name: running, worker: mac-01, status: running, image: registry.test/a@sha256:1}
+      - {name: pending, worker: mac-01, status: pending, image: registry.test/b@sha256:2}
+      - {name: failed, worker: mac-01, status: failed, image: registry.test/c@sha256:3}
+      - {name: elsewhere, worker: mac-02, status: running, image: registry.test/d@sha256:4}
+      - {name: unplaced, status: pending, image: registry.test/e@sha256:5}
+  tasks:
+    - name: Check that a pending or running VM of the worker holds the drain, and a failed one does not
+      ansible.builtin.assert:
+        that:
+          - vms | orchard_active_vms('mac-01') == ['pending', 'running']
+          - vms | orchard_active_vms('mac-03') == []
+          - no_vms | orchard_active_vms('mac-01') == []
+
+    - name: Check that the play keeps the image of each VM of the worker, a failed one included
+      ansible.builtin.assert:
+        that: vms | orchard_vm_images('mac-01') == ['registry.test/a@sha256:1', 'registry.test/b@sha256:2', 'registry.test/c@sha256:3']
+
+    - name: Check the cached images that a host removes
+      ansible.builtin.assert:
+        that: cached | tart_prunable(keep) == removed
+      vars:
+        keep:
+          - registry.test/general@sha256:1111
+          - registry.test/tagged:27
+          - registry.test/plain
+          - localhost:5000/ported:1
+        cached:
+          # Kept: a profile names it.
+          - registry.test/general@sha256:1111
+          # Removed: an old digest of a repository that a profile names by another digest.
+          - registry.test/general@sha256:0000
+          # Kept: a tag can link to the kept digest, and its removal would remove that digest.
+          - registry.test/general:latest
+          # Kept: a profile names the tag, and the digest can be its target.
+          - registry.test/tagged:27
+          - registry.test/tagged@sha256:cccc
+          # Kept: a name with no tag or digest is the tag latest.
+          - registry.test/plain:latest
+          # Kept: the registry has a port, and the digest can be the target of the kept tag.
+          - localhost:5000/ported:1
+          - localhost:5000/ported@sha256:dddd
+          # Removed: no profile names the repository.
+          - registry.test/old@sha256:9999
+          - registry.test/old:27
+        removed:
+          - registry.test/general@sha256:0000
+          - registry.test/old:27
+          - registry.test/old@sha256:9999

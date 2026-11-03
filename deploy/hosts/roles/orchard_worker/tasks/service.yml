@@ -1,45 +1,91 @@
-# launchd gives the token to the worker on its standard input, so the token is in no plist, no
-# argument list, and no process listing.
-- name: Make the directory of the token
-  ansible.builtin.file:
-    path: "{{ orchard_worker_etc }}"
-    state: directory
-    owner: root
-    group: wheel
-    mode: "0700"
-  become: true
-
-- name: Write the bootstrap token
-  ansible.builtin.copy:
-    dest: "{{ orchard_worker_etc }}/bootstrap-token"
-    content: "{{ orchard_worker_bootstrap_token }}"
-    owner: root
-    group: wheel
-    mode: "0600"
-  become: true
-  no_log: true
-  notify: Restart the worker
-
-- name: Write the launchd job
-  ansible.builtin.template:
-    src: orchard-worker.plist.j2
-    dest: "{{ orchard_worker_plist }}"
-    owner: root
-    group: wheel
-    mode: "0644"
-    validate: plutil -lint %s
-  become: true
-  notify: Restart the worker
-
-- name: Look for the launchd job
-  ansible.builtin.command: launchctl print system/{{ orchard_worker_label_name }}
-  register: orchard_worker_loaded
-  changed_when: false
-  failed_when: false
-  become: true
-
-- name: Start the launchd job
-  ansible.builtin.command: launchctl bootstrap system {{ orchard_worker_plist }}
-  when: orchard_worker_loaded.rc != 0
+# Starts the worker, or restarts it after a change of worker.yml. launchd reads a job definition
+# only when it loads the job, so a restart unloads the job and loads it again. The play then waits
+# until the worker reports to the controller, so that a change that breaks the worker stops the
+# play on this host, before it reaches the next one. Last, it resumes a worker that drain.yml
+# paused.
+#
+# bootout returns before the job is gone, and a bootstrap before then fails. The worker stops and
+# deletes each VM when it stops, which is why drain.yml empties the host first.
+- name: Stop the worker
+  ansible.builtin.shell: |
+    launchctl bootout system/{{ orchard_worker_label_name }} 2>/dev/null
+    for _ in $(seq 1 60); do
+      launchctl print system/{{ orchard_worker_label_name }} >/dev/null 2>&1 || exit 0
+      sleep 1
+    done
+    echo "launchd still has the job {{ orchard_worker_label_name }} after 60 seconds" >&2
+    exit 1
+  when: orchard_worker_restart | bool
   changed_when: true
+  become: true
+
+- name: Start the worker, and wait for it to report
+  when: orchard_worker_loaded.rc != 0 or orchard_worker_restart | bool
+  become: true
+  module_defaults:
+    ansible.builtin.uri: "{{ orchard_worker_api }}"
+  block:
+    # The old worker is gone, so a later change of last_seen comes from the new worker, which
+    # writes its record when it registers and each 15 seconds after that. The worker starts also
+    # when this read fails, so that the host is not left without a worker.
+    - name: Read the worker record before the start
+      ansible.builtin.uri:
+        url: "{{ orchard_worker_controller_url }}/v1/workers/{{ orchard_worker_name }}"
+        status_code: [200, 404]
+      register: orchard_worker_before
+      failed_when: false
+      when: orchard_worker_drain | bool
+      no_log: true
+
+    - name: Start the launchd job
+      ansible.builtin.command: launchctl bootstrap system {{ orchard_worker_plist }}
+      changed_when: true
+
+    - name: Wait for the worker to report
+      when: orchard_worker_drain | bool
+      block:
+        - name: Wait for the worker to report to the controller
+          ansible.builtin.uri:
+            url: "{{ orchard_worker_controller_url }}/v1/workers/{{ orchard_worker_name }}"
+            status_code: [200, 404]
+          register: orchard_worker_after
+          until: >-
+            orchard_worker_after.status == 200 and
+            orchard_worker_after.json.last_seen | default('') != orchard_worker_before.json.last_seen | default('')
+          retries: "{{ (orchard_worker_register_timeout | int) // 5 }}"
+          delay: 5
+          no_log: true
+
+      rescue:
+        - name: Stop, because the worker did not report
+          ansible.builtin.fail:
+            msg: >-
+              The worker {{ orchard_worker_name }} did not report to {{ orchard_worker_controller_url }}
+              within {{ orchard_worker_register_timeout }} s of its start. Read
+              /var/log/orchard-worker.log and /var/log/orchard-worker.stdout.log on the host.
+              {{ orchard_worker_paused_note if orchard_worker_drained | default(false) | bool else '' }}
+          vars:
+            orchard_worker_paused_note: >-
+              The worker stays paused. Fix the cause, or roll back the change, then run the play
+              for this host again: it restarts and resumes the worker.
+
+- name: Resume the worker
+  ansible.builtin.uri:
+    url: "{{ orchard_worker_controller_url }}/v1/workers/{{ orchard_worker_name }}"
+    method: PUT
+    body: {name: "{{ orchard_worker_name }}", scheduling_paused: false}
+  when:
+    - orchard_worker_drained | default(false) | bool
+    - orchard_worker_resume | bool
+  changed_when: true
+  become: true
+  module_defaults:
+    ansible.builtin.uri: "{{ orchard_worker_api }}"
+  no_log: true
+
+- name: Remove the mark of the drain
+  ansible.builtin.file:
+    path: "{{ orchard_worker_drain_mark }}"
+    state: absent
+  when: orchard_worker_drained | default(false) | bool
   become: true
