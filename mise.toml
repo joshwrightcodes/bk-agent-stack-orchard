@@ -99,7 +99,6 @@ description = "Fail when a generated file is behind the version that the documen
 # git add -N first: a generated file that nobody added is invisible to git diff, so a new one
 # would pass this check without it. The intent to add covers only the generated files, which
 # are the paths that the diff then reads. It does not stage anything else of the tree.
-# The generator reads only public data and sends no token, so the gate needs no GITHUB_TOKEN.
 run = [
   "go generate ./...",
   "git add -N -- ':(glob)**/*_gen.go'",
@@ -269,8 +268,6 @@ depends = ["check-docs", "check-commits", "check-c4", "check-deps", "check-deplo
 # origin/main.
 # check-generate rewrites the generated files, and the other checks compile them, so ci runs
 # check-generate alone and first, and then runs the other checks in parallel (ci-checks).
-# No step of ci needs a GitHub token. Do not give it the token of your gh login: every tool,
-# module, and test that ci runs inherits the environment, and could read it.
 # The jobs that need Docker (check-c4, orchard-image, smoke, snapshot) run in ci-docker, which
 # skips them with a message when Docker is absent.
 [tasks.ci]

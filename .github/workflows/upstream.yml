@@ -38,7 +38,6 @@ jobs:
       # moves in the version that the documents pin.
       - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
 
-      # No token: the generator reads only public data, and this job's token can write issues.
       - name: orchard contract
         run: mise run check-generate
 

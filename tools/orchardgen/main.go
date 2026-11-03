@@ -11,8 +11,7 @@
 // What it writes: the field names, the JSON tags, and a type for each field, and only for the
 // fields on the allow list of the `wanted` variable, which are the fields that the controller
 // uses. It writes no logic of Orchard, and it reads the source of the pinned version over the
-// network without keeping a copy in this repository. It reads only public data, so it needs no
-// token and sends none. The file that it writes carries a header
+// network without keeping a copy in this repository. The file that it writes carries a header
 // that names the source, the version, the commit, the licence, and the copyright notice.
 //
 // A field whose type this generator cannot express becomes json.RawMessage, because the
@@ -156,8 +155,7 @@ func short(ref string) string {
 // pins. A tag that moved is a supply-chain change, and it stops the generator here instead of
 // changing the generated file without a word.
 //
-// It reads the list of references that git reads before a clone, not the GitHub API. The list
-// is public and needs no token, and the API limits an anonymous caller to sixty calls each hour.
+// It reads the list of references that git reads before a clone.
 func verifyRef(version, ref string) error {
 	url := fmt.Sprintf("https://github.com/%s.git/info/refs?service=git-upload-pack", upstreamRepo)
 
@@ -369,9 +367,7 @@ func expression(e ast.Expr) string {
 	return b.String()
 }
 
-// fetch reads one file of the upstream source at a commit. The raw file server gives a file of a
-// public repository to anyone, so this needs no token and does not count against the limit of the
-// GitHub API.
+// fetch reads one file of the upstream source at a commit, from the raw file server.
 func fetch(path, ref string) (string, error) {
 	url := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s", upstreamRepo, ref, path)
 
@@ -383,9 +379,7 @@ func fetch(path, ref string) (string, error) {
 	return string(body), nil
 }
 
-// get reads one public document. It sends no credentials, even when the environment holds a
-// token: everything that it reads is public, and a token that this tool never reads cannot leak
-// through it.
+// get reads one public document.
 func get(url string) ([]byte, error) {
 	request, err := http.NewRequest(http.MethodGet, url, nil) //nolint:noctx // a short tool run
 	if err != nil {
