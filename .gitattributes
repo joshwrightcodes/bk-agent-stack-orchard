@@ -1,0 +1,4 @@
+# GitHub Linguist reads the Brewfile as Ruby. Code scanning then reports Ruby as a language of the
+# repository that CodeQL does not analyse. The Brewfile lists the development tools of a Mac; it is
+# not project code, so Linguist does not count it.
+Brewfile linguist-detectable=false
