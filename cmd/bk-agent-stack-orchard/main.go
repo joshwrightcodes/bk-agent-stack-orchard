@@ -130,6 +130,8 @@ func serve(ctx context.Context, path, origin string, out, problems io.Writer) er
 		recorder.Logger.WarnContext(ctx, warning)
 	}
 
+	now := time.Now //nolint:forbidigo // the binary runs on the clock of the machine
+
 	// The calls of this controller become spans and metrics of the HTTP conventions, which is
 	// where an operator looks first when a call is slow or fails.
 	client := newHTTPClient(nil)
@@ -141,6 +143,7 @@ func serve(ctx context.Context, path, origin string, out, problems io.Writer) er
 		Queue:      settings.Buildkite.Queue,
 		Logger:     recorder.Logger,
 		HTTPClient: client,
+		Now:        now,
 	})
 	if err != nil {
 		return err
@@ -158,12 +161,11 @@ func serve(ctx context.Context, path, origin string, out, problems io.Writer) er
 		ServiceAccount: settings.Orchard.ServiceAccount,
 		Token:          settings.Orchard.Token,
 		HTTPClient:     newHTTPClient(toOrchard),
+		Now:            now,
 	})
 	if err != nil {
 		return err
 	}
-
-	now := time.Now //nolint:forbidigo // the binary runs on the clock of the machine
 
 	loop, err := app.Build(app.Options{
 		Config:      settings,

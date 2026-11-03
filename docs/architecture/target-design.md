@@ -1388,10 +1388,12 @@ goroutine, so a call that waits holds the whole loop (§4). These rules apply:
 * A call MUST have at most 3 tries. The wait before a try is a random share of a ceiling (full
   jitter), so that callers that failed together do not try again together. The ceiling is 0.5 s
   after the first try, and it doubles after each try, up to 2 s.
-* If the server names a wait in `Retry-After`, as a whole number of seconds, the wait is that
-  value. If the value is more than 2 s, the call MUST end at once, and the error MUST carry the
-  value, so that the caller waits and not the call. A source of the loop then waits for the
-  value, up to 30 s, before it reads again (§4).
+* If the server names a wait in `Retry-After`, the wait is that value. A client MUST read both
+  forms of the value (RFC 9110, section 10.2.3): a whole number of seconds, and a date, which
+  names the wait from the time on the clock of the controller to that date. A date that has
+  passed names no wait. If the value is more than 2 s, the call MUST end at once, and the error
+  MUST carry the value, so that the caller waits and not the call. A source of the loop then
+  waits for the value, up to 30 s, before it reads again (§4).
 * The context of the call ends a wait, so the deadline of the call bounds the tries and the waits.
 
 The next tick is the real retry of a call that fails.

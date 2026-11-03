@@ -84,6 +84,9 @@ type Options struct {
 	// Retry says how the client tries a call again after an error that can pass. The zero value
 	// is retry.Default, the policy of the Buildkite client too.
 	Retry retry.Policy
+
+	// Now is the clock that reads a Retry-After date. A nil value gives the clock of the machine.
+	Now func() time.Time
 }
 
 // Client calls the Orchard API for one controller.
@@ -93,6 +96,7 @@ type Client struct {
 	token          secret.String
 	http           *http.Client
 	retry          retry.Policy
+	now            func() time.Time
 }
 
 // New checks the options and gives a client.
@@ -119,6 +123,11 @@ func New(options Options) (*Client, error) {
 		token:          options.Token,
 		http:           options.HTTPClient,
 		retry:          options.Retry,
+		now:            options.Now,
+	}
+
+	if client.now == nil {
+		client.now = time.Now //nolint:forbidigo // the default of a nil clock
 	}
 
 	if client.http == nil {
@@ -220,7 +229,7 @@ func (c *Client) attempt(ctx context.Context, method, path string, body []byte, 
 		_ = response.Body.Close()
 	}()
 
-	if err := statusError(response); err != nil {
+	if err := c.statusError(response); err != nil {
 		return err
 	}
 
@@ -269,7 +278,7 @@ func (c *Client) request(ctx context.Context, method, path string, body *bytes.R
 
 // statusError turns a status into the error that a caller decides about. The message of Orchard
 // travels with it, and the token never does.
-func statusError(response *http.Response) error {
+func (c *Client) statusError(response *http.Response) error {
 	switch {
 	case response.StatusCode < http.StatusBadRequest:
 		return nil
@@ -286,7 +295,7 @@ func statusError(response *http.Response) error {
 	// names a wait gets it.
 	if response.StatusCode >= http.StatusInternalServerError ||
 		response.StatusCode == http.StatusTooManyRequests {
-		return retry.Again(err, retry.ParseAfter(response.Header.Get("Retry-After")))
+		return retry.Again(err, retry.ParseAfter(response.Header.Get("Retry-After"), c.now()))
 	}
 
 	return err

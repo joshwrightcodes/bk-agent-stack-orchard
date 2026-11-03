@@ -267,17 +267,40 @@ func TestPauseGivesTheNamedWaitUpToTheCap(t *testing.T) {
 func TestParseAfterReadsSeconds(t *testing.T) {
 	t.Parallel()
 
+	now := time.Date(2015, 10, 21, 7, 28, 0, 0, time.UTC)
+
 	for header, want := range map[string]time.Duration{
-		"120":                           2 * time.Minute,
-		"0":                             0,
-		"":                              0,
-		"-1":                            0,
-		"1.5":                           0,
-		"soon":                          0,
-		"Wed, 21 Oct 2015 07:28:00 GMT": 0,
-		"99999999999999999999":          0,
+		"120":                  2 * time.Minute,
+		"0":                    0,
+		"":                     0,
+		"-1":                   0,
+		"1.5":                  0,
+		"soon":                 0,
+		"99999999999999999999": 0,
 	} {
-		if got := retry.ParseAfter(header); got != want {
+		if got := retry.ParseAfter(header, now); got != want {
+			t.Errorf("ParseAfter(%q) = %s, want %s", header, got, want)
+		}
+	}
+}
+
+// A server can name the wait as a date (RFC 9110, section 10.2.3). The wait is the time from now,
+// on the clock of the controller, to that date, in each of the three date forms that a recipient
+// must read. A date that has passed names no wait.
+func TestParseAfterReadsADate(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2015, 10, 21, 7, 28, 0, 0, time.UTC)
+
+	for header, want := range map[string]time.Duration{
+		"Wed, 21 Oct 2015 07:28:30 GMT":     30 * time.Second,
+		"Wednesday, 21-Oct-15 07:29:00 GMT": time.Minute,
+		"Wed Oct 21 07:28:05 2015":          5 * time.Second,
+		"Wed, 21 Oct 2015 07:28:00 GMT":     0,
+		"Wed, 21 Oct 2015 07:27:00 GMT":     0,
+		"21 Oct 2015":                       0,
+	} {
+		if got := retry.ParseAfter(header, now); got != want {
 			t.Errorf("ParseAfter(%q) = %s, want %s", header, got, want)
 		}
 	}

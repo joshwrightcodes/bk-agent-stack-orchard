@@ -117,6 +117,9 @@ type Options struct {
 	// Retry says how the client tries a call again. The zero value is retry.Default, the policy
 	// of the Orchard client too.
 	Retry retry.Policy
+
+	// Now is the clock that reads a Retry-After date. A nil value gives the clock of the machine.
+	Now func() time.Time
 }
 
 // Client calls the Stacks API for one stack and one queue.
@@ -125,6 +128,7 @@ type Client struct {
 	retry    retry.Policy
 	stackKey string
 	queue    string
+	now      func() time.Time
 
 	// unauthorized stays set after a 401, because the token comes from the environment at
 	// start-up and no call can replace it. The readiness check reads it.
@@ -173,8 +177,13 @@ func New(options Options) (*Client, error) {
 		return nil, fmt.Errorf("building the Buildkite client: %w", err)
 	}
 
+	now := options.Now
+	if now == nil {
+		now = time.Now //nolint:forbidigo // the default of a nil clock
+	}
+
 	return &Client{
-		api: api, retry: options.Retry, stackKey: options.StackKey, queue: options.Queue,
+		api: api, retry: options.Retry, stackKey: options.StackKey, queue: options.Queue, now: now,
 	}, nil
 }
 
@@ -182,21 +191,21 @@ func New(options Options) (*Client, error) {
 // stacksapi.WithNoRetry, so that the policy alone decides the tries and the waits.
 func (c *Client) try(ctx context.Context, request func(context.Context) error) error {
 	return c.retry.Do(ctx, func(ctx context.Context) error {
-		return again(request(ctx))
+		return c.again(request(ctx))
 	})
 }
 
 // again marks an answer of the library that another try can pass: a failure in transport, or a
 // status that the library itself would retry (a 5xx status or 429), with the wait that Buildkite
 // named. A refusal, and an answer that does not decode, cannot pass.
-func again(err error) error {
+func (c *Client) again(err error) error {
 	var answer *stacksapi.ErrorResponse
 	if errors.As(err, &answer) {
 		if answer.Response == nil || !answer.IsRetryableStatus() {
 			return err
 		}
 
-		return retry.Again(err, retry.ParseAfter(answer.Response.Header.Get("Retry-After")))
+		return retry.Again(err, retry.ParseAfter(answer.Response.Header.Get("Retry-After"), c.now()))
 	}
 
 	var transport *url.Error

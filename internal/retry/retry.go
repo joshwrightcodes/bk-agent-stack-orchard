@@ -22,6 +22,7 @@ import (
 	"context"
 	"errors"
 	"math/rand/v2"
+	"net/http"
 	"strconv"
 	"time"
 )
@@ -194,15 +195,27 @@ func Pause(err error) time.Duration {
 	return min(after, MaxPause)
 }
 
-// ParseAfter reads the value of a Retry-After header as a whole number of seconds. The Buildkite
-// library reads only that form, and the two clients read the same. A value that is not a whole
-// number of seconds, such as a date, gives zero, and the backoff applies.
-func ParseAfter(header string) time.Duration {
+// ParseAfter reads the value of a Retry-After header, and gives the wait that it names. Now is the
+// time on the clock of the controller.
+//
+// The value is a whole number of seconds, or a date (RFC 9110, section 10.2.3). A date names the
+// wait from now to that date, and a recipient must read each of the three forms of a date that
+// section 5.6.7 lists. A date that has passed, and a value of neither form, give zero, and the
+// backoff applies.
+//
+// A date compares the clock of the server with the clock of the controller, so a difference
+// between the two clocks changes the wait. MaxPause limits the effect of a wrong clock, as it
+// limits the effect of a wrong number.
+func ParseAfter(header string, now time.Time) time.Duration {
 	// 32 bits of seconds is more than a century, which still fits a time.Duration.
-	seconds, err := strconv.ParseUint(header, 10, 32)
-	if err != nil {
+	if seconds, err := strconv.ParseUint(header, 10, 32); err == nil {
+		return time.Duration(seconds) * time.Second
+	}
+
+	date, err := http.ParseTime(header)
+	if err != nil || !date.After(now) {
 		return 0
 	}
 
-	return time.Duration(seconds) * time.Second
+	return date.Sub(now)
 }

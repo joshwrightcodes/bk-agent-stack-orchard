@@ -50,6 +50,7 @@ func serverWaits(t *testing.T, handler http.HandlerFunc) (*orchard.Client, *http
 		URL:            s.URL,
 		ServiceAccount: "bk-agent-stack-orchard",
 		Token:          secret.String("orchard-token"),
+		Now:            func() time.Time { return clientTime },
 		Retry: retry.Policy{
 			Random: func() float64 { return 0.5 },
 			Sleep: func(_ context.Context, d time.Duration) error {
@@ -337,6 +338,33 @@ func TestTheClientObeysRetryAfter(t *testing.T) {
 
 	if !slices.Equal(*waits, []time.Duration{time.Second}) {
 		t.Errorf("the client waited %v, want the 1s that Orchard named", *waits)
+	}
+}
+
+// clientTime is the time on the clock of a client of serverWaits.
+var clientTime = time.Date(2026, 11, 3, 9, 0, 0, 0, time.UTC)
+
+// Orchard can name the wait as a date. The client reads it on its own clock.
+func TestTheClientObeysARetryAfterDate(t *testing.T) {
+	var calls int
+
+	client, _, waits := serverWaits(t, func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		if calls == 1 {
+			w.Header().Set("Retry-After", clientTime.Add(time.Second).Format(http.TimeFormat))
+			w.WriteHeader(http.StatusServiceUnavailable)
+
+			return
+		}
+		writeJSON(t, w, []orchard.Worker{})
+	})
+
+	if _, err := client.ListWorkers(context.Background()); err != nil {
+		t.Fatalf("ListWorkers() = %v, want the second try to succeed", err)
+	}
+
+	if !slices.Equal(*waits, []time.Duration{time.Second}) {
+		t.Errorf("the client waited %v, want the 1s to the date that Orchard named", *waits)
 	}
 }
 
