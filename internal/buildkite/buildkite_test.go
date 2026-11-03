@@ -584,6 +584,7 @@ func startWaits(t *testing.T, transport http.RoundTripper) (*buildkite.Client, *
 		StackKey:   fake.StackKey,
 		Queue:      "macos-prod",
 		HTTPClient: &http.Client{Transport: transport},
+		Now:        func() time.Time { return clientTime },
 		Retry: retry.Policy{
 			Random: func() float64 { return 0.5 },
 			Sleep: func(_ context.Context, d time.Duration) error {
@@ -650,6 +651,48 @@ func TestALongRetryAfterEndsTheCallAndKeepsTheWait(t *testing.T) {
 
 	if after, asked := retry.After(err); !asked || after != time.Minute {
 		t.Errorf("After(%v) = %s, %t, want the minute that Buildkite named", err, after, asked)
+	}
+}
+
+// clientTime is the time on the clock of a client of startWaits.
+var clientTime = time.Date(2026, 11, 3, 9, 0, 0, 0, time.UTC)
+
+// Buildkite can name the wait as a date. The client reads it on its own clock: a short wait is
+// waited for inside the call, and a long one ends the call and stays with the error.
+func TestARetryAfterDateIsReadOnTheClockOfTheClient(t *testing.T) {
+	for name, test := range map[string]struct {
+		after time.Duration
+		waits []time.Duration
+		calls int
+	}{
+		"short": {
+			after: time.Second, waits: []time.Duration{time.Second, time.Second},
+			calls: retry.Default.Attempts,
+		},
+		"long": {after: time.Minute, calls: 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			client, fake, waits := startWaits(t, nil)
+
+			fake.ScheduledJobsStatusCode = http.StatusTooManyRequests
+			fake.ScheduledJobsError = "slow down"
+			fake.Headers = http.Header{"Retry-After": []string{
+				clientTime.Add(test.after).Format(http.TimeFormat),
+			}}
+
+			_, err := client.ScheduledJobs(t.Context(), "", 0)
+
+			if calls := len(fake.ScheduledJobsCalls); calls != test.calls ||
+				!slices.Equal(*waits, test.waits) {
+				t.Errorf("the server saw %d calls and the client waited %v, want %d calls and %v",
+					calls, *waits, test.calls, test.waits)
+			}
+
+			if after, asked := retry.After(err); !asked || after != test.after {
+				t.Errorf("After(%v) = %s, %t, want the %s that Buildkite named", err, after, asked,
+					test.after)
+			}
+		})
 	}
 }
 

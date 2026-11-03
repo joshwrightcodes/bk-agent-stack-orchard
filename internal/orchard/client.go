@@ -84,6 +84,9 @@ type Options struct {
 	// Retry says how the client tries a call again after an error that can pass. The zero value
 	// is retry.Default, the policy of the Buildkite client too.
 	Retry retry.Policy
+
+	// Now is the clock that reads a Retry-After date. A nil value gives the clock of the machine.
+	Now func() time.Time
 }
 
 // Client calls the Orchard API for one controller.
@@ -93,6 +96,7 @@ type Client struct {
 	token          secret.String
 	http           *http.Client
 	retry          retry.Policy
+	now            func() time.Time
 }
 
 // New checks the options and gives a client.
@@ -119,6 +123,11 @@ func New(options Options) (*Client, error) {
 		token:          options.Token,
 		http:           options.HTTPClient,
 		retry:          options.Retry,
+		now:            options.Now,
+	}
+
+	if client.now == nil {
+		client.now = time.Now //nolint:forbidigo // the default of a nil clock
 	}
 
 	if client.http == nil {
@@ -215,9 +224,12 @@ func (c *Client) attempt(ctx context.Context, method, path string, body []byte, 
 	if err != nil {
 		return retry.Again(err, 0)
 	}
-	defer func() { _ = response.Body.Close() }()
+	defer func() {
+		drain(response.Body)
+		_ = response.Body.Close()
+	}()
 
-	if err := statusError(response); err != nil {
+	if err := c.statusError(response); err != nil {
 		return err
 	}
 
@@ -266,7 +278,7 @@ func (c *Client) request(ctx context.Context, method, path string, body *bytes.R
 
 // statusError turns a status into the error that a caller decides about. The message of Orchard
 // travels with it, and the token never does.
-func statusError(response *http.Response) error {
+func (c *Client) statusError(response *http.Response) error {
 	switch {
 	case response.StatusCode < http.StatusBadRequest:
 		return nil
@@ -283,7 +295,7 @@ func statusError(response *http.Response) error {
 	// names a wait gets it.
 	if response.StatusCode >= http.StatusInternalServerError ||
 		response.StatusCode == http.StatusTooManyRequests {
-		return retry.Again(err, retry.ParseAfter(response.Header.Get("Retry-After")))
+		return retry.Again(err, retry.ParseAfter(response.Header.Get("Retry-After"), c.now()))
 	}
 
 	return err
@@ -309,6 +321,18 @@ const (
 	maxResponseBytes = 16 << 20 // 16 MiB
 	maxErrorBytes    = 64 << 10 // 64 KiB, for an error, where only a message matters
 )
+
+// drain reads what is left of a body, up to the limit of an error body.
+//
+// HTTP/1.1 keeps a connection for the next call only after the body of the answer was read to its
+// end. A create, a delete, a conflict, and a machine that is gone all answer with a body that the
+// client does not need, and without this read each of them would close its connection, so that
+// the next call opens a new one, with a new TLS handshake. The limit keeps a long body from
+// holding the call: a body longer than that closes its connection, which costs less than reading
+// it.
+func drain(body io.Reader) {
+	_, _ = io.Copy(io.Discard, io.LimitReader(body, maxErrorBytes))
+}
 
 // readLimited reads a whole body, and fails when the body is longer than the limit.
 func readLimited(body io.Reader, limit int64) ([]byte, error) {

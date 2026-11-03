@@ -151,7 +151,7 @@ func (m *memory) heldBeyond(fleet inventory.Snapshot, now time.Time) map[job.ID]
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	held := map[job.ID]string{}
+	beyond := map[job.ID]string{}
 
 	for id, entry := range m.jobs {
 		if owned[id] {
@@ -159,9 +159,9 @@ func (m *memory) heldBeyond(fleet inventory.Snapshot, now time.Time) map[job.ID]
 		}
 
 		if entry.name != "" || entry.until.After(now) {
-			held[id] = entry.name
+			beyond[id] = entry.name
 		}
 	}
 
-	return held
+	return beyond
 }

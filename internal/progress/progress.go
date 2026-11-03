@@ -27,6 +27,7 @@ import (
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/jobstates"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/launcher"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/retry"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
 )
 
@@ -141,16 +142,28 @@ func (t *Tracker) Observe(ctx context.Context) error {
 		}
 	}
 
-	if len(lines) == 0 {
-		return nil
-	}
-
-	if err := t.stacks.Notify(ctx, lines); err != nil {
-		t.logger.WarnContext(ctx, "the controller could not write the steps of its machines",
-			"error", err)
-	}
+	t.write(ctx, lines)
 
 	return nil
+}
+
+// write sends the lines of one tick, in as few requests as the limit of a request permits. A
+// Buildkite that does not answer would hold each later request for its whole time limit, so the
+// rest of the lines of the tick are dropped, as a line that fails is.
+func (t *Tracker) write(ctx context.Context, lines []buildkite.Notification) {
+	for start := 0; start < len(lines); start += buildkite.NotificationsPerRequest {
+		batch := lines[start:min(start+buildkite.NotificationsPerRequest, len(lines))]
+
+		err := t.stacks.Notify(ctx, batch)
+		if err != nil {
+			t.logger.WarnContext(ctx, "the controller could not write the steps of its machines",
+				"lines", len(batch), "error", err)
+		}
+
+		if retry.Unavailable(err) {
+			return
+		}
+	}
 }
 
 // step reports the steps that one machine took since the last tick, and gives the lines for its

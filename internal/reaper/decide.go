@@ -96,6 +96,10 @@ type Machine struct {
 	// ObservedAt is when the controller asked for the state.
 	ObservedAt time.Time
 
+	// ListedAt is when a snapshot of the controller first listed the machine. It is on the clock
+	// of the controller, as ObservedAt is, so the two compare without the clock of Orchard.
+	ListedAt time.Time
+
 	// ReservedUntil is when the reservation of the job ends, and the zero time when the
 	// controller does not know, which is every job after a restart.
 	ReservedUntil time.Time
@@ -148,7 +152,12 @@ func Decide(m Machine, now time.Time, rules Rules) Decision {
 	// Row 3. A job state that the controller did not read, that it asked for before the machine
 	// existed, or that it asked for too long ago, decides nothing. The next refresh gives a better
 	// one, and every row below reads the state.
-	if !m.Observed || m.ObservedAt.Before(m.VM.CreatedAt) || now.Sub(m.ObservedAt) > rules.Freshness {
+	//
+	// The machine exists by the time that a snapshot lists it, so a state asked for after that is
+	// a state of the job with this machine. Both times are on the clock of the controller. The
+	// creation time of the machine is on the clock of Orchard, and a clock of Orchard that runs
+	// behind would make an older state look newer than the machine.
+	if !m.Observed || m.ObservedAt.Before(m.ListedAt) || now.Sub(m.ObservedAt) > rules.Freshness {
 		return Decision{Row: 3, Action: Keep}
 	}
 

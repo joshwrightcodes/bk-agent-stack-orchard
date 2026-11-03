@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
@@ -44,7 +45,12 @@ func (w *work) terminal() bool {
 
 // stacksFake is Buildkite for one stack and one queue, on the clock of the suite. It answers as
 // the API documents, and it records each call that breaks an invariant.
+//
+// The controller calls it from several goroutines at once, so each call holds mu while it reads or
+// changes the state. The knobs (paused, down, failing, hangs) change only between ticks.
 type stacksFake struct {
+	mu sync.Mutex
+
 	now    func() time.Time
 	jobs   map[job.ID]*work
 	order  []job.ID
@@ -117,7 +123,7 @@ func (s *stacksFake) lapse() {
 }
 
 func (s *stacksFake) violate(format string, args ...any) {
-	*s.violations = append(*s.violations, fmt.Sprintf(format, args...))
+	record(s.violations, fmt.Sprintf(format, args...))
 }
 
 // call is one request of the controller.
@@ -129,7 +135,9 @@ type call struct {
 // called records a request, and gives the answer of an API that is not available, or waits for
 // the end of the call when the API hangs.
 func (s *stacksFake) called(ctx context.Context, endpoint string) error {
+	s.mu.Lock()
 	s.calls = append(s.calls, call{endpoint: endpoint, at: s.now()})
+	s.mu.Unlock()
 
 	if s.hangs {
 		return hang(ctx, s.violations, endpoint)
@@ -151,6 +159,9 @@ func (s *stacksFake) ScheduledJobs(ctx context.Context, cursor string, size int)
 	if err := s.called(ctx, "list"); err != nil {
 		return buildkite.Page{}, err
 	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	s.lapse()
 
@@ -201,6 +212,9 @@ func (s *stacksFake) Reserve(ctx context.Context, ids []job.ID, expiry time.Dura
 		return buildkite.Reservation{}, err
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.lapse()
 
 	var answer buildkite.Reservation
@@ -228,6 +242,9 @@ func (s *stacksFake) Tokens(ctx context.Context, ids []job.ID, lifetime time.Dur
 		return buildkite.Tokens{}, err
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	var answer buildkite.Tokens
 
 	for _, id := range ids {
@@ -248,6 +265,9 @@ func (s *stacksFake) States(ctx context.Context, ids []job.ID) (map[job.ID]strin
 		return nil, err
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.lapse()
 
 	states := map[job.ID]string{}
@@ -267,6 +287,9 @@ func (s *stacksFake) Finish(ctx context.Context, id job.ID, _ int, _ string) err
 	if err := s.called(ctx, "finish"); err != nil {
 		return err
 	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	s.lapse()
 
@@ -290,6 +313,9 @@ func (s *stacksFake) Notify(ctx context.Context, lines []buildkite.Notification)
 	if err := s.called(ctx, "notify"); err != nil {
 		return err
 	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	s.lines = append(s.lines, lines...)
 

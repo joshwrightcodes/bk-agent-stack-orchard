@@ -16,6 +16,7 @@ import (
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/health"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/parallel"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/retry"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/vmspec"
 )
@@ -46,8 +47,8 @@ func hang(ctx context.Context, violations *[]string, endpoint string) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-timer.C:
-		*violations = append(*violations, fmt.Sprintf("a call of %s waited %s, so no time "+
-			"limit bounds it", endpoint, hangLimit))
+		record(violations, fmt.Sprintf("a call of %s waited %s, so no time limit bounds it",
+			endpoint, hangLimit))
 
 		return errUnavailable
 	}
@@ -446,6 +447,102 @@ func TestAHungOrchardStillExtendsTheReservations(t *testing.T) {
 	if vm, exists := s.machine(booting); !exists || vm.Status != orchard.StatusRunning {
 		t.Error("the job has no running machine after Orchard answers again")
 	}
+}
+
+// Orchard accepts each call and never answers while a burst of jobs arrives, more than one tick
+// can start. The tick ends inside a few time limits of a call, and not one limit for each job: the
+// launcher reserves only the jobs that one step can start, and it stops its creates at the first
+// that hangs. The deletion of a machine whose job ended hangs too, and the reaper of each later
+// tick still extends the reservation of a machine that boots. Once Orchard answers, every job of
+// the burst gets its machine.
+func TestAHungOrchardDuringABurstEndsTheTickInsideItsBudget(t *testing.T) {
+	loaded, environment, err := loadSettings(t, 0, "")
+	if err != nil {
+		t.Fatalf("loading the configuration: %v", err)
+	}
+
+	// Room for 60 machines, so that admission has room for the whole burst.
+	wide := hostShape{slots: 20, cores: 160, memoryMiB: 20 * 28672}
+	f := newFleetOf(t, t, quiet(t), loaded, environment, []hostShape{wide, wide, wide})
+	s := &scenario{fleet: f, t: t, checks: f.readiness(t)}
+
+	booting, ended := s.arrive(), s.arrive()
+	s.run(10)
+	s.acquire(ended)
+
+	first := s.stacks.jobs[booting].reservedUntil
+	if _, exists := s.machine(booting); !exists || first.IsZero() {
+		t.Fatal("the booting job has no machine or no reservation before Orchard hangs")
+	}
+
+	s.orchard.hangs = true
+	s.stacks.jobs[ended].state = stateFinished
+
+	burst := make([]job.ID, 0, 2*parallel.PerStep)
+	for range cap(burst) {
+		burst = append(burst, s.arrive())
+	}
+
+	creates := s.orchard.asked["create"]
+	began := time.Now()
+	s.run(1)
+
+	// The calls that can hang in this tick: two inventory calls, the deletions of the reaper,
+	// and the creates of the launcher, each step inside its budget of parallel.Rounds limits.
+	// That is about a third of the bound below. A tick that sent the creates one at a time
+	// would take at least one limit for each job of the burst, so the bound leaves room for a
+	// slow test machine and still fails that tick. The counts below are the main check.
+	if took, most := time.Since(began), time.Duration(cap(burst))*callTimeout; took > most {
+		t.Errorf("the tick of the burst took %s, want it inside %s", took, most)
+	}
+
+	reserved := 0
+
+	for _, id := range burst {
+		if s.stacks.jobs[id].state == stateReserved {
+			reserved++
+		}
+	}
+
+	if reserved != parallel.PerStep {
+		t.Errorf("the controller reserved %d jobs of the burst, want the %d that one step can "+
+			"start", reserved, parallel.PerStep)
+	}
+
+	if asked := s.orchard.asked["create"] - creates; asked == 0 || asked > parallel.Limit {
+		t.Errorf("orchard saw %d creates, want at most the %d that ran when the first hung",
+			asked, parallel.Limit)
+	}
+
+	// Past the moment that the reservation of the booting job needs its renewal.
+	renewal := first.Add(-s.settings.Buildkite.ReservationRenewBefore)
+	s.run(int(renewal.Sub(s.now).Seconds()) + 20)
+
+	if w := s.stacks.jobs[booting]; w.state != stateReserved || !w.reservedUntil.After(first) {
+		t.Errorf("the booting job is %s until %s, want it reserved past %s", w.state,
+			w.reservedUntil.Format(time.TimeOnly), first.Format(time.TimeOnly))
+	}
+
+	if _, exists := s.machine(ended); !exists {
+		t.Error("the machine of the job that ended is gone while Orchard hangs")
+	}
+
+	// Orchard answers again. The reservations that the creates never used lapse, and admission
+	// starts those jobs again.
+	s.orchard.hangs = false
+	s.run(int(s.settings.Buildkite.ReservationExpiry.Seconds()) + 30)
+
+	if _, exists := s.machine(ended); exists {
+		t.Error("the machine of the job that ended remains after Orchard answers again")
+	}
+
+	for _, id := range burst {
+		if vm, exists := s.machine(id); !exists || vm.Status != orchard.StatusRunning {
+			t.Errorf("the job %s of the burst has no running machine after Orchard answers", id)
+		}
+	}
+
+	s.budget()
 }
 
 // A worker stops reporting. After the offline timeout, Orchard fails its machines. The machine of

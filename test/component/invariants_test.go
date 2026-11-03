@@ -11,6 +11,7 @@
 package component_test
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"flag"
@@ -21,6 +22,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -340,8 +342,15 @@ func (f *fleet) created(spec orchard.VM) {
 
 // roomFor reports whether Orchard can place a new machine beside the machines that it holds. It
 // places the machines that wait, oldest first, on the first worker with room, as Orchard does,
-// and then it places the new one. It does its own sums and not orchard.Fits, because the
-// function under test must not mark its own work.
+// with the new one among them. It does its own sums and not orchard.Fits, because the function
+// under test must not mark its own work.
+//
+// The launcher sends the creates of one tick at the same time, so they reach Orchard in any order.
+// The machines of one tick share their creation time, and the fake places them, as its scheduler
+// does, in the order of their names, which is the order of admission. The new machine goes in its
+// place in that order, and it and every machine of the same tick must fit. A machine of an earlier
+// tick that fits nowhere holds no room, and the machines after it still go to a worker with room
+// (target design, section 6.3, step 5).
 //
 // A failed machine takes no room, because Orchard frees its resources. A worker that is not
 // online, or that is paused, takes no machine.
@@ -356,11 +365,11 @@ func (f *fleet) roomFor(spec orchard.VM) bool {
 		free[h.worker.Name] = maps.Clone(h.worker.Resources)
 	}
 
-	var waiting []*orchard.VM
+	// The fake gives a new machine the time of the suite as its creation time.
+	spec.CreatedAt = f.now
+	waiting := []orchard.VM{spec}
 
-	for _, name := range slices.Sorted(maps.Keys(f.orchard.vms)) {
-		vm := f.orchard.vms[name]
-
+	for _, vm := range f.orchard.vms {
 		switch {
 		case vm.Status == orchard.StatusFailed:
 		case vm.Worker != "":
@@ -370,19 +379,21 @@ func (f *fleet) roomFor(spec orchard.VM) bool {
 				subtract(room, vm.Resources)
 			}
 		default:
-			waiting = append(waiting, vm)
+			waiting = append(waiting, *vm)
 		}
 	}
 
-	slices.SortStableFunc(waiting, func(a, b *orchard.VM) int { return a.CreatedAt.Compare(b.CreatedAt) })
+	slices.SortFunc(waiting, func(a, b orchard.VM) int {
+		return cmp.Or(a.CreatedAt.Compare(b.CreatedAt), strings.Compare(a.Name, b.Name))
+	})
 
-	// A machine that waits and fits nowhere holds no room, and the machines after it still go to
-	// a worker with room (target design, section 6.3, step 5).
 	for _, vm := range waiting {
-		f.place(free, *vm)
+		if !f.place(free, vm) && vm.CreatedAt.Equal(spec.CreatedAt) {
+			return false
+		}
 	}
 
-	return f.place(free, spec)
+	return true
 }
 
 // place takes the room of a machine on the first worker that has it, and reports whether one had.
@@ -419,7 +430,19 @@ func subtract(room, taken map[string]uint64) {
 }
 
 func (f *fleet) violate(format string, args ...any) {
-	f.violations = append(f.violations, fmt.Sprintf(format, args...))
+	record(&f.violations, fmt.Sprintf(format, args...))
+}
+
+// recording guards the list of violations. The controller calls the fakes from several goroutines
+// at once, and each fake can record a violation.
+var recording sync.Mutex
+
+// record adds a violation to the list.
+func record(violations *[]string, violation string) {
+	recording.Lock()
+	defer recording.Unlock()
+
+	*violations = append(*violations, violation)
 }
 
 // Check runs after every action, and fails the sequence at the first violation.

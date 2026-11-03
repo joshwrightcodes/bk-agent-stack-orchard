@@ -157,13 +157,17 @@ func (s *stacks) Notify(ctx context.Context, lines []buildkite.Notification) err
 	return s.notifyErr
 }
 
-// machines answers as Orchard.
+// machines answers as Orchard. The launcher asks for several machines at the same time.
 type machines struct {
+	mu      sync.Mutex
 	created []orchard.VM
 	err     error
 }
 
 func (m *machines) CreateVM(_ context.Context, spec orchard.VM) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.created = append(m.created, spec)
 
 	return m.err
@@ -238,6 +242,15 @@ func buildWithLog(t *testing.T, api *stacks, fleet launcher.Machines,
 ) *launcher.Launcher {
 	t.Helper()
 
+	return buildTimed(t, api, fleet, log, time.Second)
+}
+
+// buildTimed gives a launcher whose calls have the time limit that the test chose.
+func buildTimed(t *testing.T, api *stacks, fleet launcher.Machines, log *records,
+	limit time.Duration,
+) *launcher.Launcher {
+	t.Helper()
+
 	provider := sdkmetric.NewMeterProvider()
 	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
 
@@ -253,6 +266,7 @@ func buildWithLog(t *testing.T, api *stacks, fleet launcher.Machines,
 		Queue:             "macos-prod",
 		ReservationExpiry: 300 * time.Second,
 		TokenLifetime:     1800 * time.Second,
+		CallTimeout:       limit,
 		Metrics:           instruments,
 		Logger:            slog.New(log),
 		Now:               time.Now,
@@ -369,9 +383,8 @@ func TestAMixedBatchReservesOnlyTheAdmittedJobs(t *testing.T) {
 	decision := admission.Result{
 		Admit: candidates(first),
 		Unmatched: []admission.Unmatched{{
-			Job:     buildkite.ScheduledJob{ID: second},
-			Reason:  "no profile has these tags",
-			Summary: "no profile carries this job",
+			Job:      buildkite.ScheduledJob{ID: second},
+			Mismatch: errors.New("no profile carries this job"),
 		}},
 	}
 
@@ -526,6 +539,7 @@ func TestAMachineThatOrchardRefusesDoesNotStopTheOthers(t *testing.T) {
 
 // refusing refuses one machine by name and accepts the rest.
 type refusing struct {
+	mu      sync.Mutex
 	refuse  string
 	created []orchard.VM
 }
@@ -534,6 +548,9 @@ func (r *refusing) CreateVM(_ context.Context, spec orchard.VM) error {
 	if spec.Name == r.refuse {
 		return errors.New("orchard refused the machine")
 	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	r.created = append(r.created, spec)
 
@@ -747,9 +764,8 @@ func TestAnUnmatchedJobIsLeftAlone(t *testing.T) {
 	}
 
 	decision := admission.Result{Unmatched: []admission.Unmatched{{
-		Job:     buildkite.ScheduledJob{ID: second, Rules: rules},
-		Reason:  err.Error(),
-		Summary: mismatch.Summary(),
+		Job:      buildkite.ScheduledJob{ID: second, Rules: rules},
+		Mismatch: err,
 	}}}
 
 	for tick := range 2 {
@@ -795,6 +811,51 @@ func TestAnUnmatchedJobIsLeftAlone(t *testing.T) {
 	full := log.infoWith(string(second))
 	if len(full) != 1 || !strings.Contains(full[0], pilot.Name) {
 		t.Errorf("the log has %q for the job, want one line that names the profiles", full)
+	}
+}
+
+// formatted is a reason for a skip that counts how often a part writes it out.
+type formatted struct{ count *int }
+
+func (f formatted) Error() string {
+	*f.count++
+
+	return "no profile carries this job"
+}
+
+// A job that stays in the queue meets admission at each tick. The texts of its skip cost
+// allocations, and the queue can hold thousands of such jobs, so the launcher writes them out only
+// for a job that has no line yet.
+func TestTheTextOfASkipIsWrittenOnlyForAJobWithoutALine(t *testing.T) {
+	t.Parallel()
+
+	api, fleet := &stacks{}, &machines{}
+	started := build(t, api, fleet)
+
+	var count int
+
+	decision := admission.Result{Unmatched: []admission.Unmatched{{
+		Job: buildkite.ScheduledJob{ID: second}, Mismatch: formatted{count: &count},
+	}}}
+
+	if err := started.Launch(t.Context(), decision, inventory.Snapshot{}); err != nil {
+		t.Fatalf("Launch() = %v, want no error", err)
+	}
+
+	first := count
+	if first == 0 {
+		t.Fatal("the launcher wrote no text for a job without a line")
+	}
+
+	for tick := range 3 {
+		if err := started.Launch(t.Context(), decision, inventory.Snapshot{}); err != nil {
+			t.Fatalf("Launch() at tick %d = %v, want no error", tick, err)
+		}
+	}
+
+	if count != first {
+		t.Errorf("the launcher wrote the text %d times more for a job that has its line, want "+
+			"none", count-first)
 	}
 }
 
@@ -862,8 +923,7 @@ func unmatchedJobs(from, n int) admission.Result {
 	for i := from; i < from+n; i++ {
 		id := job.ID(fmt.Sprintf("018f3b2c-1c4a-7e5b-9a3d-%012x", i))
 		result.Unmatched = append(result.Unmatched, admission.Unmatched{
-			Job: buildkite.ScheduledJob{ID: id}, Reason: "no profile has these tags",
-			Summary: "no profile carries this job",
+			Job: buildkite.ScheduledJob{ID: id}, Mismatch: errors.New("no profile carries this job"),
 		})
 	}
 
@@ -1137,6 +1197,24 @@ func TestTheSkipNoticesSplitAtTheRequestLimit(t *testing.T) {
 	}
 }
 
+// A batch that finds Buildkite not answering stops the batches behind it, because they would wait
+// for the same Buildkite, each for its whole time limit. Their jobs try again at the next tick.
+func TestABatchThatBuildkiteDoesNotAnswerStopsTheLaterBatches(t *testing.T) {
+	t.Parallel()
+
+	api := &stacks{failCall: map[int]error{0: context.DeadlineExceeded}}
+	started := build(t, api, &machines{})
+
+	if err := started.Launch(t.Context(), unmatchedJobs(1, 2*buildkite.NotificationsPerRequest+5),
+		inventory.Snapshot{}); err != nil {
+		t.Fatalf("Launch() = %v, want no error", err)
+	}
+
+	if len(api.notified) != 1 {
+		t.Errorf("buildkite saw %d calls, want the one that did not answer", len(api.notified))
+	}
+}
+
 // A batch that fails as a whole must not starve the batches behind it. The jobs of the later batch
 // get their lines and enter the set, and the jobs of the failed batch try again at the next tick.
 func TestAFailedBatchDoesNotStopTheLaterBatches(t *testing.T) {
@@ -1240,6 +1318,7 @@ func buildMeasured(t *testing.T, api *stacks, fleet launcher.Machines,
 		Queue:             "macos-prod",
 		ReservationExpiry: 300 * time.Second,
 		TokenLifetime:     1800 * time.Second,
+		CallTimeout:       time.Second,
 		Metrics:           instruments,
 		Logger:            slog.New(log),
 		Now:               time.Now,
@@ -1303,6 +1382,7 @@ func buildAt(t *testing.T, api *stacks, fleet launcher.Machines, clock *time.Tim
 		Queue:             "macos-prod",
 		ReservationExpiry: 300 * time.Second,
 		TokenLifetime:     1800 * time.Second,
+		CallTimeout:       time.Second,
 		Metrics:           instruments,
 		Logger:            slog.New(slog.DiscardHandler),
 		Now:               func() time.Time { return *clock },

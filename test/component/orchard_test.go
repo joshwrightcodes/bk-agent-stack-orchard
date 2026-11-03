@@ -8,6 +8,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
@@ -23,7 +24,13 @@ type host struct {
 // orchardFake is the Orchard controller and its scheduler, on the clock of the suite. It places
 // machines as the scheduler of the pinned version does: oldest first, on the first worker that
 // is online, not paused, carries the labels of the machine, and has room for it.
+//
+// The controller calls it from several goroutines at once, so each call holds mu while it reads or
+// changes the state. The knobs (down, deleteFails, answerLost, conflictNext, hangs) change only
+// between ticks, and a call that hangs holds no lock while it waits.
 type orchardFake struct {
+	mu sync.Mutex
+
 	now     func() time.Time
 	offline time.Duration
 	hosts   []*host
@@ -53,12 +60,22 @@ type orchardFake struct {
 	// down.
 	hangs bool
 
+	// asked counts the calls of each endpoint, the calls that hang or fail included.
+	asked map[string]int
+
 	violations *[]string
 }
 
 // unavailable gives the answer of an Orchard that is down, or waits for the end of the call when
 // it hangs.
 func (o *orchardFake) unavailable(ctx context.Context, endpoint string) error {
+	o.mu.Lock()
+	if o.asked == nil {
+		o.asked = map[string]int{}
+	}
+	o.asked[endpoint]++
+	o.mu.Unlock()
+
 	if o.hangs {
 		return hang(ctx, o.violations, endpoint)
 	}
@@ -200,6 +217,9 @@ func (o *orchardFake) CreateVM(ctx context.Context, spec orchard.VM) error {
 		return err
 	}
 
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
 	if _, exists := o.vms[spec.Name]; exists {
 		return orchard.ErrAlreadyExists
 	}
@@ -233,6 +253,9 @@ func (o *orchardFake) ListVMs(ctx context.Context) ([]orchard.VM, error) {
 		return nil, err
 	}
 
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
 	names := slices.Sorted(maps.Keys(o.vms))
 
 	vms := make([]orchard.VM, 0, len(names))
@@ -250,6 +273,9 @@ func (o *orchardFake) DeleteVM(ctx context.Context, name string) error {
 		return err
 	}
 
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
 	if o.deleteFails != nil {
 		return o.deleteFails
 	}
@@ -264,6 +290,9 @@ func (o *orchardFake) ListWorkers(ctx context.Context) ([]orchard.Worker, error)
 		return nil, err
 	}
 
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
 	workers := make([]orchard.Worker, 0, len(o.hosts))
 	for _, h := range o.hosts {
 		workers = append(workers, h.worker)
@@ -276,6 +305,9 @@ func (o *orchardFake) Events(ctx context.Context, name string) ([]orchard.Event,
 	if err := o.unavailable(ctx, "events"); err != nil {
 		return nil, err
 	}
+
+	o.mu.Lock()
+	defer o.mu.Unlock()
 
 	if _, exists := o.vms[name]; !exists {
 		return nil, orchard.ErrNotFound

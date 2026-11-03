@@ -87,6 +87,7 @@ func newLagWorld(t *testing.T) *lagWorld {
 		States:       &observed{states: map[job.ID]string{ended: "finished"}},
 		Reservations: &held{},
 		RenewBefore:  120 * time.Second,
+		CallTimeout:  time.Second,
 		Orchard:      w.machines,
 		Fleet:        w.machines,
 		Profile:      func(job.ID) string { return "xcode-27" },
