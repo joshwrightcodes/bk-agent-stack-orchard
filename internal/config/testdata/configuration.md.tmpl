@@ -45,7 +45,7 @@ A duration is a number and a unit, such as `5s`, `2m`, or `25h`. A key with no d
 | `BK_AGENT_STACK_ORCHARD_CONFIG` | The path of the file. The default is `/etc/bk-agent-stack-orchard/config.yaml`. The `-config` flag takes precedence. |
 | `{{ .EnvBuildkiteAgentToken }}` | The cluster agent token of the queue. Required. |
 | `{{ .EnvOrchardToken }}` | The token of the Orchard service account. Required. |
-| `{{ .EnvOrchardCACert }}` | The PEM of the certificate of Orchard, or of its certificate authority, when it is private. |
+| `{{ .EnvOrchardCACert }}` | The PEM of the certificate of Orchard, or of its certificate authority, when it is private. The calls to Orchard then trust this PEM only, and not the authorities of the system. |
 | `VM_*` | The variables that a profile names, such as `vmCredentials.passwordEnv` and `otel.headersEnv`. Only a variable that starts with `VM_` can go into a VM. |
 | `OTEL_*` | The standard OpenTelemetry settings of the telemetry of the controller. |
 

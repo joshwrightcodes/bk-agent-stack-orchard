@@ -147,7 +147,7 @@ is required.
 | `BK_AGENT_STACK_ORCHARD_CONFIG` | The path of the file. The default is `/etc/bk-agent-stack-orchard/config.yaml`. The `-config` flag takes precedence. |
 | `BK_AGENT_STACK_ORCHARD_BUILDKITE_AGENT_TOKEN` | The cluster agent token of the queue. Required. |
 | `BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN` | The token of the Orchard service account. Required. |
-| `BK_AGENT_STACK_ORCHARD_ORCHARD_CA_CERT` | The PEM of the certificate of Orchard, or of its certificate authority, when it is private. |
+| `BK_AGENT_STACK_ORCHARD_ORCHARD_CA_CERT` | The PEM of the certificate of Orchard, or of its certificate authority, when it is private. The calls to Orchard then trust this PEM only, and not the authorities of the system. |
 | `VM_*` | The variables that a profile names, such as `vmCredentials.passwordEnv` and `otel.headersEnv`. Only a variable that starts with `VM_` can go into a VM. |
 | `OTEL_*` | The standard OpenTelemetry settings of the telemetry of the controller. |
 
