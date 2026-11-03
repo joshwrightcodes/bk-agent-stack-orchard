@@ -8,11 +8,18 @@
     <key>ProgramArguments</key>
     <array>
       <string>/bin/sh</string>
-      <string>-c</string>
-      <string>/sbin/pfctl -E; /sbin/pfctl -a {{ orchard_worker_pf_anchor | quote | e }} -f {{ orchard_worker_pf_rules | quote | e }}</string>
+      <string>{{ orchard_worker_pf_script | e }}</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
+    <!-- The addresses of the host change when the network changes, and "self" in the rules
+         holds those of the last load. The interval also catches a pf that something disabled. -->
+    <key>WatchPaths</key>
+    <array>
+      <string>/Library/Preferences/SystemConfiguration</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>30</integer>
     <key>StandardOutPath</key>
     <string>/var/log/bkaso-vm-isolation.log</string>
     <key>StandardErrorPath</key>

@@ -184,3 +184,46 @@
       ansible.builtin.file:
         path: "{{ rules_file.path }}"
         state: absent
+
+    # The launchd job and its script, which keep the rules in force on a host.
+    - name: Make a directory for the launchd job
+      ansible.builtin.tempfile:
+        state: directory
+      register: job_dir
+
+    - name: Write the script and the launchd job of the pf rules
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../roles/orchard_worker/templates/{{ item }}.j2"
+        dest: "{{ job_dir.path }}/{{ item }}"
+        mode: "0644"
+      loop: [vm-isolation.sh, vm-isolation.plist]
+
+    - name: Check the syntax of the script
+      ansible.builtin.command: /bin/sh -n {{ job_dir.path }}/vm-isolation.sh
+      changed_when: false
+
+    - name: Look for plutil
+      ansible.builtin.stat:
+        path: /usr/bin/plutil
+      register: plutil
+
+    - name: Check the launchd job
+      ansible.builtin.command: /usr/bin/plutil -lint {{ job_dir.path }}/vm-isolation.plist
+      when: plutil.stat.exists
+      changed_when: false
+
+    - name: Read the launchd job
+      ansible.builtin.set_fact:
+        pf_job: "{{ lookup('ansible.builtin.file', job_dir.path + '/vm-isolation.plist') }}"
+
+    - name: Check that launchd runs the script on a change of the network and every 30 seconds
+      ansible.builtin.assert:
+        that:
+          - pf_job is search('<string>' + orchard_worker_pf_script + '</string>')
+          - pf_job is search('<key>WatchPaths</key>\s*<array>\s*<string>/Library/Preferences/SystemConfiguration</string>')
+          - pf_job is search('<key>StartInterval</key>\s*<integer>30</integer>')
+
+    - name: Remove the launchd job of the test
+      ansible.builtin.file:
+        path: "{{ job_dir.path }}"
+        state: absent

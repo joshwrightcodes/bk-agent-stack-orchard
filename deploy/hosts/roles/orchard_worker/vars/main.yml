@@ -27,6 +27,7 @@ orchard_worker_bootstrap_token: >-
 orchard_worker_plist: "/Library/LaunchDaemons/{{ orchard_worker_label_name }}.plist"
 orchard_worker_pf_rules: /etc/pf.anchors/{{ orchard_worker_pf_label }}
 orchard_worker_pf_plist: "/Library/LaunchDaemons/{{ orchard_worker_pf_label }}.plist"
+orchard_worker_pf_script: "{{ orchard_worker_prefix }}/vm-isolation.sh"
 
 # The ranges from which Softnet picks the /29 network of each VM, whose first address is the
 # host (Softnet 0.24.1, lib/subnet_finder/mod.rs). They change only with Softnet, so a test of the

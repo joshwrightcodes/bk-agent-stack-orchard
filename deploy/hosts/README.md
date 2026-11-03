@@ -30,8 +30,12 @@ This directory makes each Mac host an Orchard worker (target design, section 11)
    the host permits that range (`softnetAllow`). An address that Softnet can give the host stays
    closed inside a permitted range too, as the comments of the template explain. By default, the
    admin interfaces (`orchard_worker_admin_interfaces`) are the interface of the default route. A
-   launchd job loads the rules into the anchor `com.apple/400.bkaso-vm-isolation` and enables pf
-   at each start of the host. For this reason, `/etc/pf.conf` stays as macOS ships it.
+   launchd job loads the rules into the anchor `com.apple/400.bkaso-vm-isolation` and enables pf.
+   It runs at each start of the host, when the network changes, and every 30 seconds, so the rules
+   follow the addresses of the host, and pf stays enabled. For this reason, `/etc/pf.conf` stays
+   as macOS ships it. The job writes to `/var/log/bkaso-vm-isolation.log` only when it enables pf,
+   loads rules that were missing, or fails. Outside a start of the host, such a line means that
+   the VMs could reach the host until then.
 5. It runs `orchard worker run` from launchd, as root, and the worker drops to the worker user.
    This is the Orchard workaround for the Local Network permission of macOS.
 6. It pulls the image of each profile that the host can take.

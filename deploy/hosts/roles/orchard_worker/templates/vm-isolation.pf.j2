@@ -16,7 +16,8 @@
 # 1. From anything but the admin interfaces, the host is reachable only for DHCP and DNS.
 # 2. "self" blocks the addresses that the host has when the rules load. "($admin_if)" blocks the
 #    addresses that each admin interface has now, because pf follows the addresses of a named
-#    interface.
+#    interface. The launchd job loads the rules again when the network changes and every 30
+#    seconds (vm-isolation.sh.j2), so "self" follows the other interfaces too.
 # 3. Every gateway that Softnet can give the host is inside <bkaso_softnet_pools>, and the last
 #    rule blocks the private ranges. Only a softnetAllow entry opens a part of them, and
 #    <bkaso_softnet_host_guard> holds the gateways inside those entries. A mirror can have such an
