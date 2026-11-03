@@ -6,6 +6,12 @@ name: ci
 #
 # Each mise-action step pins the same mise as release.yml. The action checks the binary against
 # the signed checksums of the mise release, and Renovate moves every pin together.
+#
+# On a pull request, a job runs only when the pull request changes one of its inputs (the changes
+# job). Lint and test always runs, because its tests also read documents and scripts. A push to
+# main runs every job, so that main keeps a full result, the caches, and the code-scanning
+# baseline. The ci result job is the one required check of this workflow: it fails when a job
+# failed or was cancelled, and passes when each job passed or had no input to check.
 
 on:
   pull_request:
@@ -36,6 +42,71 @@ env:
     || github.event.pull_request.head.repo.full_name == github.repository }}
 
 jobs:
+  changes:
+    name: changed inputs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      # On a pull request, the filter reads the changed files from the API, without a checkout.
+      pull-requests: read
+    outputs:
+      go: ${{ steps.filter.outputs.go }}
+      scripts: ${{ steps.filter.outputs.scripts }}
+      deploy: ${{ steps.filter.outputs.deploy }}
+      smoke: ${{ steps.filter.outputs.smoke }}
+      release: ${{ steps.filter.outputs.release }}
+    steps:
+      # A push to main skips the filter, and each job then runs.
+      - id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          # Each filter holds the inputs of its job. A change to the toolchain or to this workflow
+          # runs every job.
+          filters: |
+            toolchain: &toolchain
+              - .github/workflows/ci.yml
+              - mise.toml
+              - mise.lock
+              - .mise/**
+            go: &go
+              - *toolchain
+              - "**/*.go"
+              - "**/testdata/**"
+              - go.mod
+              - go.sum
+            scripts:
+              - *toolchain
+              - "**/*.sh"
+              - "**/*.py"
+              - images/files/environment
+              - .github/**
+              - ruff.toml
+            deploy:
+              - *toolchain
+              - deploy/**
+              - images/**
+              - test/smoke/**
+              - scripts/check-hook.sh
+            smoke:
+              - *go
+              - deploy/helm/**
+              - deploy/orchard/**
+              - test/smoke/**
+              - scripts/smoke.sh
+              - .ko.yaml
+            release:
+              - *go
+              - .goreleaser.yaml
+              - .ko.yaml
+              - scripts/licenses.sh
+              - scripts/check-image.sh
+              - LICENSE*
+              - LICENSES/**
+              - NOTICE
+              - README*
+
   go:
     name: lint and test
     runs-on: ubuntu-latest
@@ -124,6 +195,8 @@ jobs:
 
   scripts:
     name: lint scripts
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.scripts == 'true'
     # shellcheck and shfmt for the shell scripts, ruff for the Python scripts, and actionlint and
     # zizmor for the workflows (mise run lint-scripts).
     runs-on: ubuntu-latest
@@ -171,6 +244,8 @@ jobs:
 
   vulnerabilities:
     name: known vulnerabilities
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.go == 'true'
     # govulncheck fails only on a vulnerability that the code can call. A vulnerable module that
     # the code does not reach is a report, not a failure.
     runs-on: ubuntu-latest
@@ -224,6 +299,8 @@ jobs:
 
   deploy:
     name: deploy manifests
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -242,6 +319,8 @@ jobs:
 
   smoke:
     name: smoke deployment
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.smoke == 'true'
     # The chart and the Orchard base on kind: the controller becomes ready through its gRPC
     # readiness probe, and the collector receives its metrics and spans (W-21).
     runs-on: ubuntu-latest
@@ -281,6 +360,8 @@ jobs:
 
   integration:
     name: integration tests
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.go == 'true'
     # macOS on arm64, and nothing else. Orchard places a machine only on a worker of the same
     # architecture and runtime. The machine of each test is arm64 and runs on Tart, which is
     # right for a fleet of Apple silicon. A synthetic worker takes its architecture from the host
@@ -334,6 +415,8 @@ jobs:
 
   release:
     name: snapshot release
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -370,3 +453,19 @@ jobs:
             ${{ steps.go-cache.outputs.modules }}
             ${{ steps.go-cache.outputs.build }}
           key: go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+
+  result:
+    name: ci result
+    # The one required check of this workflow. A job that the filter skipped passes, and so does a
+    # job that a failed job before it skipped, so the check reads the result of each job instead.
+    if: always()
+    needs: [changes, go, scripts, vulnerabilities, deploy, smoke, integration, release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<<"$NEEDS"
+          jq -e 'all(.[]; .result == "success" or .result == "skipped")' <<<"$NEEDS" >/dev/null

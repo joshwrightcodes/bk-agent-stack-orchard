@@ -68,6 +68,29 @@ binary links. Fix it in this order:
    that equals the file of the root.
 4. Run `go test ./internal/repocheck` and `mise run check-deps`.
 
+## The CI jobs of a pull request
+
+On a pull request, a job of `ci.yml` runs only when the pull request changes one of its inputs.
+The `changed inputs` job reads the changed files, and the filters in `ci.yml` list the inputs of
+each job:
+
+| CI job | Runs when the pull request changes |
+|---|---|
+| `lint and test` | anything, because its tests also read documents and scripts |
+| `lint scripts` | a shell or Python script, a workflow, or `ruff.toml` |
+| `known vulnerabilities`, `integration tests` | Go code, `go.mod`, `go.sum`, or `testdata` |
+| `deploy manifests` | `deploy/`, `images/`, or `test/smoke/` |
+| `smoke deployment` | Go code, the chart, the Orchard base, or `test/smoke/` |
+| `snapshot release` | Go code, the GoReleaser or ko configuration, or the licence files |
+
+A change to `mise.toml`, `mise.lock`, `.mise/`, or `ci.yml` runs every job. A push to `main`
+runs every job, so that `main` keeps a full result, the Go caches, and the code-scanning baseline.
+
+The required check of `ci.yml` is `ci result`. It fails when a job failed or was cancelled, and
+passes when each job passed or had no input to check. When you add a job to `ci.yml`, add it to
+the `needs` list of `ci result`, or its failure does not block a merge. When a job reads a new
+kind of file, add the path to the filter of the job.
+
 ## Code scanning and coverage
 
 CI sends the findings of each linter to GitHub code scanning, with the CodeQL findings. To see
@@ -84,7 +107,8 @@ Each tool has its own category:
 
 CI uploads the findings on a push to `main`, and on a pull request from a branch of this
 repository. The token of a pull request from a fork cannot write to code scanning, so that run
-does not upload. The upload does not change the result of a job. The gates (`lint`, `vuln`, and
+does not upload. A job that the pull request does not need does not run, so it does not
+upload either. The upload does not change the result of a job. The gates (`lint`, `vuln`, and
 `lint-scripts`) fail on a finding. ShellCheck has no SARIF output, and `mise` has no converter
 with a published checksum, so the ShellCheck findings for the shell scripts are only in the log
 of `lint scripts`. To write the same reports locally, set `SARIF_DIR`, for example
@@ -292,7 +316,7 @@ mise run smoke
 KEEP=1 mise run smoke   # keep the cluster to look at it
 ```
 
-CI runs it on each pull request. It needs Docker.
+CI runs it on a pull request that changes its inputs, and on each push to `main`. It needs Docker.
 
 ## The component suite
 
