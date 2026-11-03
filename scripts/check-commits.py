@@ -52,15 +52,23 @@ def commits(base: str) -> list[tuple[str, str, str, str]]:
     # --no-merges: a pull request event checks out refs/pull/N/merge, so the range contains a
     # merge commit that GitHub wrote. The rules apply to the commits that a person wrote.
     # --end-of-options: a base that starts with "-" is a revision, never an option of git.
-    revs = subprocess.run(["git", "rev-list", "--no-merges", "--end-of-options", f"{base}..HEAD"],
-                          capture_output=True, text=True, check=True).stdout.split()
+    revs = subprocess.run(
+        ["git", "rev-list", "--no-merges", "--end-of-options", f"{base}..HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
     out = []
     for rev in revs:
         # One call: the author name, the author email, and the message, split on the unit
         # separator, which a name or an email cannot hold. The message is last and can hold
         # anything else.
-        raw = subprocess.run(["git", "log", "-1", f"--format=%an{FIELD}%ae{FIELD}%B", rev],
-                             capture_output=True, text=True, check=True).stdout
+        raw = subprocess.run(
+            ["git", "log", "-1", f"--format=%an{FIELD}%ae{FIELD}%B", rev],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
         author, email, message = raw.split(FIELD, 2)
         out.append((rev[:8], message.rstrip("\n"), author, email.strip()))
     return out
@@ -130,7 +138,9 @@ def check(rev: str, message: str, author: str = "", subject_limit: int = 0) -> l
         if author in BOTS:
             break
         if len(line) > MAX_BODY and "http" not in line and not line.startswith("    "):
-            problems.append(f"body line {number} is {len(line)} characters, the limit is {MAX_BODY}")
+            problems.append(
+                f"body line {number} is {len(line)} characters, the limit is {MAX_BODY}"
+            )
 
     if BREAKING_FOOTER.search(trailer_block(message)) and match and not match.group("breaking"):
         problems.append("a BREAKING CHANGE footer needs '!' before the colon in the subject")
@@ -140,10 +150,15 @@ def check(rev: str, message: str, author: str = "", subject_limit: int = 0) -> l
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="check-commits", description="Check commit messages against Conventional Commits.")
+        prog="check-commits", description="Check commit messages against Conventional Commits."
+    )
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("base", nargs="?", default="origin/main",
-                      help="check the commits in <base>..HEAD (default: origin/main)")
+    mode.add_argument(
+        "base",
+        nargs="?",
+        default="origin/main",
+        help="check the commits in <base>..HEAD (default: origin/main)",
+    )
     mode.add_argument("--title", help="check a pull request title instead of commits")
     # argparse exits 2 on a usage error, such as --title with no value.
     arguments = parser.parse_args(argv)
@@ -170,11 +185,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"check-commits: no commit in {base}..HEAD")
         return 0
 
-    problems = [p for rev, message, author, email in found
-                for p in check(rev, message, author) + check_signoff(rev, message, email)]
+    problems = [
+        p
+        for rev, message, author, email in found
+        for p in check(rev, message, author) + check_signoff(rev, message, email)
+    ]
     if problems:
-        print(f"check-commits: {len(problems)} problem(s) in {len(found)} commit(s)\n",
-              file=sys.stderr)
+        print(
+            f"check-commits: {len(problems)} problem(s) in {len(found)} commit(s)\n",
+            file=sys.stderr,
+        )
         for problem in problems:
             print(f"  {problem}", file=sys.stderr)
         return 1

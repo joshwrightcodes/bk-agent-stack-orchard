@@ -55,12 +55,14 @@ UNCHECKED_EXIT = 3
 
 # ghcr.io answers a HEAD of a manifest only for a media type that the request accepts. The tag
 # that the images follow can be an index or a single manifest, in the OCI or the Docker format.
-MANIFEST_TYPES = ", ".join((
-    "application/vnd.oci.image.index.v1+json",
-    "application/vnd.oci.image.manifest.v1+json",
-    "application/vnd.docker.distribution.manifest.list.v2+json",
-    "application/vnd.docker.distribution.manifest.v2+json",
-))
+MANIFEST_TYPES = ", ".join(
+    (
+        "application/vnd.oci.image.index.v1+json",
+        "application/vnd.oci.image.manifest.v1+json",
+        "application/vnd.docker.distribution.manifest.list.v2+json",
+        "application/vnd.docker.distribution.manifest.v2+json",
+    )
+)
 
 
 class LookupFailed(Exception):
@@ -119,8 +121,10 @@ def ghcr_digest(image: str, tag: str) -> str:
     token_url = f"https://ghcr.io/token?scope=repository:{image}:pull&service=ghcr.io"
     token = get_json(token_url)["token"]
     request = urllib.request.Request(
-        f"https://ghcr.io/v2/{image}/manifests/{tag}", method="HEAD",
-        headers={"Authorization": f"Bearer {token}", "Accept": MANIFEST_TYPES})
+        f"https://ghcr.io/v2/{image}/manifests/{tag}",
+        method="HEAD",
+        headers={"Authorization": f"Bearer {token}", "Accept": MANIFEST_TYPES},
+    )
     with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
         digest = response.headers.get("Docker-Content-Digest")
     if not digest:
@@ -175,12 +179,14 @@ def digest_row(name: str, pinned: str, current: str, problem: str) -> Row:
 
 
 def collect() -> list[Row]:
-    orchard_min = stated(DESIGN, r"minimum Orchard version MUST be ([0-9.]+)",
-                         "a minimum Orchard version")
+    orchard_min = stated(
+        DESIGN, r"minimum Orchard version MUST be ([0-9.]+)", "a minimum Orchard version"
+    )
     tart_version = stated(HOSTS, r'(?m)^orchard_worker_tart_version: "([0-9.]+)"', "a Tart version")
     agent_version = stated(BASELINE, r"v(\d+\.\d+\.\d+) current", "a Buildkite agent version")
-    stacks_version = stated(DESIGN, r"`github.com/buildkite/stacksapi` v([0-9.]+)",
-                            "a stacksapi version")
+    stacks_version = stated(
+        DESIGN, r"`github.com/buildkite/stacksapi` v([0-9.]+)", "a stacksapi version"
+    )
 
     rows: list[Row] = []
     for name, repo, expected in (
@@ -202,15 +208,19 @@ def collect() -> list[Row]:
     # The base of the job VM images, pinned by digest in images/build.sh. A new digest of the tag
     # that it follows is a new macOS release to build and test against.
     image, tag = "cirruslabs/macos-golden-gate-vanilla", "latest"
-    pinned = stated(IMAGE_BUILD, rf'(?m)^BASE="ghcr.io/{re.escape(image)}@(sha256:[0-9a-f]{{64}})"',
-                    "the base of the images")
-    rows.append(digest_row(f"{image.split('/')[1]}:{tag}", pinned, *lookup(ghcr_digest, image, tag)))
+    pinned = stated(
+        IMAGE_BUILD,
+        rf'(?m)^BASE="ghcr.io/{re.escape(image)}@(sha256:[0-9a-f]{{64}})"',
+        "the base of the images",
+    )
+    rows.append(
+        digest_row(f"{image.split('/')[1]}:{tag}", pinned, *lookup(ghcr_digest, image, tag))
+    )
     return rows
 
 
 def table(rows: list[Row]) -> str:
-    lines = ["| Dependency | The documents state | Upstream now | Moved |",
-             "|---|---|---|---|"]
+    lines = ["| Dependency | The documents state | Upstream now | Moved |", "|---|---|---|---|"]
     lines += [f"| {row.name} | {row.expected} | {row.current} | {row.status} |" for row in rows]
     return "\n".join(lines)
 

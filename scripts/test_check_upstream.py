@@ -17,7 +17,8 @@ import urllib.error
 from unittest import mock
 
 SPEC = importlib.util.spec_from_file_location(
-    "check_upstream", pathlib.Path(__file__).with_name("check-upstream.py"))
+    "check_upstream", pathlib.Path(__file__).with_name("check-upstream.py")
+)
 check_upstream = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(check_upstream)
 
@@ -61,8 +62,10 @@ class LookupTest(unittest.TestCase):
         }
         for words, fault in faults.items():
             with self.subTest(words=words):
+
                 def fetch(fault=fault):
                     raise fault
+
                 current, problem = check_upstream.lookup(fetch)
                 self.assertEqual(current, "unknown")
                 self.assertIn(words, problem)
@@ -90,10 +93,12 @@ class RowTest(unittest.TestCase):
         pinned = "sha256:" + "a" * 64
         self.assertEqual(check_upstream.digest_row("base", pinned, pinned, "").status, "no")
         self.assertEqual(
-            check_upstream.digest_row("base", pinned, "sha256:" + "b" * 64, "").status, "yes")
+            check_upstream.digest_row("base", pinned, "sha256:" + "b" * 64, "").status, "yes"
+        )
         self.assertEqual(
             check_upstream.digest_row("base", pinned, "unknown", "HTTP 406").status,
-            "could not check")
+            "could not check",
+        )
 
 
 class ReportTest(unittest.TestCase):
@@ -101,8 +106,11 @@ class ReportTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             step_output = pathlib.Path(directory, "output")
             out, err = io.StringIO(), io.StringIO()
-            with mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(step_output)}), \
-                    contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            with (
+                mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(step_output)}),
+                contextlib.redirect_stdout(out),
+                contextlib.redirect_stderr(err),
+            ):
                 code = check_upstream.report(rows)
             return code, out.getvalue(), err.getvalue(), step_output.read_text(encoding="utf-8")
 
@@ -113,8 +121,10 @@ class ReportTest(unittest.TestCase):
         self.assertEqual(outputs, "moved=false\nunchecked=false\n")
 
     def test_a_failed_lookup_is_loud_and_exits_3(self) -> None:
-        rows = [check_upstream.Row("Tart", "1", "1", False),
-                check_upstream.Row("Orchard", "1", "unknown", False, "HTTP 403 from x")]
+        rows = [
+            check_upstream.Row("Tart", "1", "1", False),
+            check_upstream.Row("Orchard", "1", "unknown", False, "HTTP 403 from x"),
+        ]
         code, out, err, outputs = self.run_report(rows)
         self.assertEqual(code, check_upstream.UNCHECKED_EXIT)
         self.assertNotIn("the documents agree", out)
@@ -123,8 +133,10 @@ class ReportTest(unittest.TestCase):
         self.assertEqual(outputs, "moved=false\nunchecked=true\n")
 
     def test_a_move_is_still_reported_beside_a_failed_lookup(self) -> None:
-        rows = [check_upstream.Row("Tart", "1", "2", True),
-                check_upstream.Row("Orchard", "1", "unknown", False, "timed out")]
+        rows = [
+            check_upstream.Row("Tart", "1", "2", True),
+            check_upstream.Row("Orchard", "1", "unknown", False, "timed out"),
+        ]
         code, out, _, outputs = self.run_report(rows)
         self.assertEqual(code, check_upstream.UNCHECKED_EXIT)
         self.assertIn("1 dependency change(s)", out)
@@ -134,11 +146,13 @@ class ReportTest(unittest.TestCase):
         def down(*_args):
             raise urllib.error.URLError("no network")
 
-        with mock.patch.object(check_upstream, "get_json", down), \
-                mock.patch.object(check_upstream.urllib.request, "urlopen", down), \
-                mock.patch.dict(os.environ, {}, clear=False), \
-                contextlib.redirect_stdout(io.StringIO()) as out, \
-                contextlib.redirect_stderr(io.StringIO()):
+        with (
+            mock.patch.object(check_upstream, "get_json", down),
+            mock.patch.object(check_upstream.urllib.request, "urlopen", down),
+            mock.patch.dict(os.environ, {}, clear=False),
+            contextlib.redirect_stdout(io.StringIO()) as out,
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
             os.environ.pop("GITHUB_OUTPUT", None)
             code = check_upstream.main([])
         self.assertEqual(code, check_upstream.UNCHECKED_EXIT)

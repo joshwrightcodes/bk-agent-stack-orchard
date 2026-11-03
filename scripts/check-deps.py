@@ -34,8 +34,10 @@ errors: list[str] = []
 def stated_orchard_version() -> str:
     match = re.search(r"minimum Orchard version MUST be ([0-9.]+)", DESIGN.read_text())
     if not match:
-        print("check-deps: the target design no longer states a minimum Orchard version",
-              file=sys.stderr)
+        print(
+            "check-deps: the target design no longer states a minimum Orchard version",
+            file=sys.stderr,
+        )
         raise SystemExit(2)
     return match.group(1)
 
@@ -51,8 +53,9 @@ def check_orchard_tool() -> None:
 
     text = MISE.read_text(encoding="utf-8")
 
-    table = re.search(r'^\[tools\."github:openai/orchard"\]\s*\nversion\s*=\s*"([^"]+)"',
-                      text, re.M)
+    table = re.search(
+        r'^\[tools\."github:openai/orchard"\]\s*\nversion\s*=\s*"([^"]+)"', text, re.M
+    )
     if not table:
         errors.append("mise.toml pins no Orchard, and the skeleton journey needs one")
         return
@@ -64,8 +67,11 @@ def check_orchard_tool() -> None:
             f"must run the Orchard that the fleet runs"
         )
 
-    platforms = re.findall(r'^([a-z0-9-]+)\s*=\s*\{([^}]*)\}', text.split(
-        '[tools."github:openai/orchard".platforms]', 1)[-1], re.M)
+    platforms = re.findall(
+        r"^([a-z0-9-]+)\s*=\s*\{([^}]*)\}",
+        text.split('[tools."github:openai/orchard".platforms]', 1)[-1],
+        re.M,
+    )
     if not platforms:
         errors.append("mise.toml names no platform for Orchard, so no install is verified")
 
@@ -85,9 +91,10 @@ def check_orchard_image() -> None:
     image = ORCHARD_IMAGE.read_text(encoding="utf-8")
     mise = MISE.read_text(encoding="utf-8")
 
-    version = re.search(r'^ARG ORCHARD_VERSION=(\S+)$', image, re.M)
-    pinned = re.search(r'^\[tools\."github:openai/orchard"\]\s*\nversion\s*=\s*"([^"]+)"',
-                       mise, re.M)
+    version = re.search(r"^ARG ORCHARD_VERSION=(\S+)$", image, re.M)
+    pinned = re.search(
+        r'^\[tools\."github:openai/orchard"\]\s*\nversion\s*=\s*"([^"]+)"', mise, re.M
+    )
     if not version or not pinned or version.group(1) != pinned.group(1):
         errors.append(
             f"{ORCHARD_IMAGE.relative_to(ROOT)} builds Orchard "
@@ -96,9 +103,10 @@ def check_orchard_image() -> None:
         )
 
     for arch, platform in (("AMD64", "linux-x64"), ("ARM64", "linux-arm64")):
-        in_image = re.search(rf'^ARG ORCHARD_SHA256_{arch}=([0-9a-f]{{64}})$', image, re.M)
-        in_mise = re.search(rf'^{platform}\s*=\s*\{{[^}}]*checksum\s*=\s*"sha256:([0-9a-f]{{64}})"',
-                            mise, re.M)
+        in_image = re.search(rf"^ARG ORCHARD_SHA256_{arch}=([0-9a-f]{{64}})$", image, re.M)
+        in_mise = re.search(
+            rf'^{platform}\s*=\s*\{{[^}}]*checksum\s*=\s*"sha256:([0-9a-f]{{64}})"', mise, re.M
+        )
         if not in_image or not in_mise or in_image.group(1) != in_mise.group(1):
             errors.append(
                 f"{ORCHARD_IMAGE.relative_to(ROOT)} checks the {platform} archive against a "
@@ -115,8 +123,9 @@ def check_orchard_hosts() -> None:
     mise = MISE.read_text(encoding="utf-8")
 
     version = re.search(r'^orchard_worker_orchard_version: "([^"]+)"$', hosts, re.M)
-    pinned = re.search(r'^\[tools\."github:openai/orchard"\]\s*\nversion\s*=\s*"([^"]+)"',
-                       mise, re.M)
+    pinned = re.search(
+        r'^\[tools\."github:openai/orchard"\]\s*\nversion\s*=\s*"([^"]+)"', mise, re.M
+    )
     if not version or not pinned or version.group(1) != pinned.group(1):
         errors.append(
             f"{HOSTS.relative_to(ROOT)} installs Orchard "
@@ -125,8 +134,9 @@ def check_orchard_hosts() -> None:
         )
 
     in_hosts = re.search(r'^orchard_worker_orchard_sha256: "([0-9a-f]{64})"$', hosts, re.M)
-    in_mise = re.search(r'^macos-arm64\s*=\s*\{[^}]*checksum\s*=\s*"sha256:([0-9a-f]{64})"',
-                        mise, re.M)
+    in_mise = re.search(
+        r'^macos-arm64\s*=\s*\{[^}]*checksum\s*=\s*"sha256:([0-9a-f]{64})"', mise, re.M
+    )
     if not in_hosts or not in_mise or in_hosts.group(1) != in_mise.group(1):
         errors.append(
             f"{HOSTS.relative_to(ROOT)} checks the macos-arm64 archive against a SHA-256 that is "
@@ -139,10 +149,15 @@ def check_tart_hosts() -> None:
     if not HOSTS.exists():
         return
 
-    minimum = re.search(r"^\*\*Tart version\.\*\* The minimum Tart version on a worker MUST be "
-                        r"([0-9.]+) ", DESIGN.read_text(encoding="utf-8"), re.M)
-    installed = re.search(r'^orchard_worker_tart_version: "([0-9.]+)"$',
-                          HOSTS.read_text(encoding="utf-8"), re.M)
+    minimum = re.search(
+        r"^\*\*Tart version\.\*\* The minimum Tart version on a worker MUST be "
+        r"([0-9.]+) ",
+        DESIGN.read_text(encoding="utf-8"),
+        re.M,
+    )
+    installed = re.search(
+        r'^orchard_worker_tart_version: "([0-9.]+)"$', HOSTS.read_text(encoding="utf-8"), re.M
+    )
     if not minimum or not installed:
         errors.append("the design states no minimum Tart version, or deploy/hosts pins none")
         return
@@ -160,11 +175,15 @@ def check_tart_hosts() -> None:
 def copy_errors(name: str, original: str, copy: str | None) -> list[str]:
     """Rule 5: a chart file equals the file of the root."""
     if copy is None:
-        return [f"deploy/helm/bk-agent-stack-orchard/{name} is missing, so helm package omits "
-                f"the licence notice"]
+        return [
+            f"deploy/helm/bk-agent-stack-orchard/{name} is missing, so helm package omits "
+            f"the licence notice"
+        ]
     if copy != original:
-        return [f"deploy/helm/bk-agent-stack-orchard/{name} differs from {name} of the root. "
-                f"Copy the root file"]
+        return [
+            f"deploy/helm/bk-agent-stack-orchard/{name} differs from {name} of the root. "
+            f"Copy the root file"
+        ]
     return []
 
 
@@ -172,9 +191,13 @@ def check_chart_copies() -> None:
     if CHART.exists():
         for name in ("LICENSE", "NOTICE"):
             copy = CHART / name
-            errors.extend(copy_errors(
-                name, (ROOT / name).read_text(encoding="utf-8"),
-                copy.read_text(encoding="utf-8") if copy.exists() else None))
+            errors.extend(
+                copy_errors(
+                    name,
+                    (ROOT / name).read_text(encoding="utf-8"),
+                    copy.read_text(encoding="utf-8") if copy.exists() else None,
+                )
+            )
 
 
 def main() -> int:

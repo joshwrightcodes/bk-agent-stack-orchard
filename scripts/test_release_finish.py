@@ -31,7 +31,11 @@ def publish(tag: str) -> list[str]:
         env = {**os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "RECORD": str(record)}
         subprocess.run(
             ["bash", "-c", f'source "{SCRIPT}"; publish_release repos/o/r 42 {tag}'],
-            env=env, check=True, capture_output=True, text=True)
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
         return record.read_text().split("\n")[:-1]
 
 
@@ -63,7 +67,7 @@ class PublishTest(unittest.TestCase):
 # state has two versions of the assets and the notes: the first until the event that "switch"
 # names, then the second. "relist" is the second list of the assets, which the script makes just
 # before the publish. "patch" is the publish itself. --jq goes through the jq of the system.
-GH_STUB = r'''
+GH_STUB = r"""
 import json, pathlib, re, subprocess, sys
 
 state_file = pathlib.Path(sys.argv[0]).with_name("state.json")
@@ -102,7 +106,7 @@ if out is not None:
         sys.stdout.write(text)
     else:
         print(text)
-'''
+"""
 
 FILES = {
     "dist/x_linux_amd64.tar.gz": "archive",
@@ -117,17 +121,22 @@ NOTES = {"name": "v0.1.0", "body": "## Features\n\n* a feature"}
 
 
 def draft_assets(
-    changes: dict[str, str] | None = None, first_id: int = 1,
+    changes: dict[str, str] | None = None,
+    first_id: int = 1,
 ) -> list[dict[str, object]]:
     contents = {pathlib.PurePath(p).name: c for p, c in FILES.items()}
     contents.update(changes or {})
-    return [{"id": first_id + i, "name": n, "content": contents[n]}
-            for i, n in enumerate(sorted(contents))]
+    return [
+        {"id": first_id + i, "name": n, "content": contents[n]}
+        for i, n in enumerate(sorted(contents))
+    ]
 
 
 class FinishTest(unittest.TestCase):
     def finish(
-        self, assets: list[list[dict[str, object]]], notes: list[dict[str, str]] | None = None,
+        self,
+        assets: list[list[dict[str, object]]],
+        notes: list[dict[str, str]] | None = None,
         switch: str = "none",
     ) -> tuple[subprocess.CompletedProcess[str], list[list[str]]]:
         """Run the script against the stub, and return the result and the calls of gh."""
@@ -145,14 +154,27 @@ class FinishTest(unittest.TestCase):
             stub.chmod(0o755)
             record = pathlib.Path(tmp, "record")
             record.write_text("")
-            (bin_dir / "state.json").write_text(json.dumps({
-                "record": str(record), "version": 0, "lists": 0, "published": False,
-                "switch": switch, "assets": assets, "notes": notes or [NOTES, NOTES],
-            }))
-            env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
-                   "GITHUB_REPOSITORY": "o/r"}
-            result = subprocess.run(["bash", str(SCRIPT), "v0.1.0"], cwd=root, env=env,
-                                    capture_output=True, text=True)
+            (bin_dir / "state.json").write_text(
+                json.dumps(
+                    {
+                        "record": str(record),
+                        "version": 0,
+                        "lists": 0,
+                        "published": False,
+                        "switch": switch,
+                        "assets": assets,
+                        "notes": notes or [NOTES, NOTES],
+                    }
+                )
+            )
+            env = {
+                **os.environ,
+                "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                "GITHUB_REPOSITORY": "o/r",
+            }
+            result = subprocess.run(
+                ["bash", str(SCRIPT), "v0.1.0"], cwd=root, env=env, capture_output=True, text=True
+            )
             calls = [json.loads(line) for line in record.read_text().splitlines()]
             return result, calls
 
@@ -196,8 +218,9 @@ class FinishTest(unittest.TestCase):
 
     def test_notes_changed_just_before_the_publish_fail_the_run(self) -> None:
         other = {**NOTES, "body": "changed"}
-        result, calls = self.finish([draft_assets(), draft_assets()], notes=[NOTES, other],
-                                    switch="patch")
+        result, calls = self.finish(
+            [draft_assets(), draft_assets()], notes=[NOTES, other], switch="patch"
+        )
         self.assertTrue(self.published(calls))
         self.assertEqual(result.returncode, 1)
         self.assertIn("notes of v0.1.0 changed", result.stderr)
