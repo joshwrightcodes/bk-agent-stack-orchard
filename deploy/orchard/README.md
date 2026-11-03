@@ -75,7 +75,8 @@ images:
 patches:
   # The namespace of the controller of this project, and the CIDRs of the Mac hosts. The base holds
   # the placeholders bk-agent-stack-orchard and 192.0.2.0/24 (RFC 5737), so the base admits no real
-  # host. test/smoke/orchard shows the patch of the namespace.
+  # host. test/smoke/orchard shows the patch of the namespace. The last operation limits the OTLP
+  # egress to the collector: the base admits any peer on 4317.
   - target: {kind: NetworkPolicy, name: orchard}
     patch: |
       - op: replace
@@ -84,6 +85,12 @@ patches:
       - op: replace
         path: /spec/ingress/0/from/2/ipBlock/cidr
         value: <CIDR of the Mac hosts>
+      - op: add
+        path: /spec/egress/1/to
+        value:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: <namespace of the collector>
 configMapGenerator:
   - name: orchard-telemetry
     behavior: replace
@@ -112,7 +119,7 @@ balancer public in an overlay.
   of the internal load balancer.
 - `networkpolicy.yaml`: the Orchard pod accepts TCP 6120 from the controller of this project (by
   namespace and pod label), from the bootstrap Job, and from the CIDRs of the Mac hosts, and from
-  nothing else. See "The NetworkPolicy".
+  nothing else. It sends DNS and OTLP (TCP 4317) only. See "The NetworkPolicy".
 - `../orchard-overlays/first-start`: a kustomize component that gives the Orchard container
   `ORCHARD_BOOTSTRAP_ADMIN_TOKEN` for the first start. See "First start and after the first
   bootstrap".
@@ -142,6 +149,14 @@ for the probes (checked 2026-11-02,
 `https://kubernetes.io/docs/concepts/services-networking/network-policies/`). A CNI plugin can
 differ. The first smoke run on kindnet is the check: if Orchard never becomes ready, add an
 ingress rule for the node CIDR. Do not remove the policy.
+
+The policy limits the egress of Orchard to DNS and to TCP 4317, the port of OTLP over gRPC. The
+Orchard controller dials nothing else. The workers dial the controller and keep the connection
+open, and the controller answers on that connection, also for port forwarding and exec (the
+controller code of Orchard 0.58.0 has no dialer, checked 2026-11-03). The base admits any peer on
+4317, because the address of the collector differs for each fleet. The overlay example limits it
+to the namespace of the collector. If your collector listens on another port, or outside the
+cluster, change the port or give an `ipBlock` peer in the overlay.
 
 ## Reach the API as an operator
 
