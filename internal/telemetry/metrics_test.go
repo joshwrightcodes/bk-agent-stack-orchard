@@ -4,6 +4,7 @@ package telemetry_test
 
 import (
 	"context"
+	"maps"
 	"reflect"
 	"regexp"
 	"slices"
@@ -29,6 +30,8 @@ func observation() telemetry.Observation {
 		Workers:       map[telemetry.WorkerState]int64{telemetry.WorkerBusy: 2},
 		Leftover:      1,
 		Synced:        map[telemetry.Source]time.Time{telemetry.SourceInventory: time.Now()},
+		Heartbeat:     time.Now(),
+		Registered:    true,
 	}
 }
 
@@ -185,6 +188,8 @@ var design = []struct {
 		[]string{"bk_agent_stack_orchard.source"},
 		false,
 	},
+	{"bk_agent_stack_orchard.loop.heartbeat.age", "s", nil, false},
+	{"bk_agent_stack_orchard.stack.registered", "1", nil, false},
 }
 
 func TestTheInstrumentsAreTheOnesOfTheDesign(t *testing.T) {
@@ -305,9 +310,10 @@ func TestNothingOfTheInstrumentsAcceptsAJob(t *testing.T) {
 	}
 }
 
-// A series that leaves the observation must stop. A profile that no longer exists would
-// otherwise report its last count for ever, and the fleet would look busier than it is.
-func TestASeriesStopsWhenItLeavesTheObservation(t *testing.T) {
+// A series that leaves the observation reports 0, and does not stop. A series that stops keeps
+// its last value in many backends for minutes, so a count that fell to zero would look like the
+// last count it had, and an alert on it would not clear.
+func TestASeriesThatLeavesTheObservationReportsZero(t *testing.T) {
 	t.Parallel()
 
 	reader := metric.NewManualReader()
@@ -321,22 +327,117 @@ func TestASeriesStopsWhenItLeavesTheObservation(t *testing.T) {
 	}
 
 	instruments.Observe(telemetry.Observation{Waiting: map[string]int64{"xcode-27": 4}})
+	collect(t, reader)
+
 	instruments.Observe(telemetry.Observation{Waiting: map[string]int64{"xcode-26": 1}})
+
+	got := sumsOf(t, collect(t, reader), "bk_agent_stack_orchard.job.waiting.count",
+		"bk_agent_stack_orchard.profile")
+	if want := map[string]int64{"xcode-26": 1, "xcode-27": 0}; !maps.Equal(got, want) {
+		t.Errorf("the waiting jobs are %v, want %v", got, want)
+	}
+}
+
+// collect reads the instruments once.
+func collect(t *testing.T, reader *metric.ManualReader) []metricdata.Metrics {
+	t.Helper()
 
 	var collected metricdata.ResourceMetrics
 	if err := reader.Collect(t.Context(), &collected); err != nil {
 		t.Fatalf("Collect() = %v, want the metrics", err)
 	}
 
-	sets := points(t, collected.ScopeMetrics[0].Metrics[0])
-	if len(sets) != 1 {
-		t.Fatalf("the instrument holds %d series, want only the one of the last observation",
-			len(sets))
+	if len(collected.ScopeMetrics) != 1 {
+		t.Fatalf("the reader holds %d scopes, want 1", len(collected.ScopeMetrics))
 	}
 
-	value, _ := sets[0].Value("bk_agent_stack_orchard.profile")
-	if value.AsString() != "xcode-26" {
-		t.Errorf("the series is for the profile %q, want xcode-26", value.AsString())
+	return collected.ScopeMetrics[0].Metrics
+}
+
+// sumsOf gives the value of each series of an integer instrument, by the value of one attribute.
+func sumsOf(t *testing.T, recorded []metricdata.Metrics, name, key string) map[string]int64 {
+	t.Helper()
+
+	values := map[string]int64{}
+
+	for _, one := range recorded {
+		if one.Name != name {
+			continue
+		}
+
+		var points []metricdata.DataPoint[int64]
+
+		switch data := one.Data.(type) {
+		case metricdata.Sum[int64]:
+			points = data.DataPoints
+		case metricdata.Gauge[int64]:
+			points = data.DataPoints
+		default:
+			t.Fatalf("%s holds %T, want integers", name, data)
+		}
+
+		for _, point := range points {
+			value, _ := point.Attributes.Value(attribute.Key(key))
+			values[value.String()] = point.Value
+		}
+	}
+
+	return values
+}
+
+// gaugeOf gives the values of a gauge of floats.
+func gaugeOf(t *testing.T, recorded []metricdata.Metrics, name string) []float64 {
+	t.Helper()
+
+	var values []float64
+
+	for _, one := range recorded {
+		if one.Name != name {
+			continue
+		}
+
+		data, ok := one.Data.(metricdata.Gauge[float64])
+		if !ok {
+			t.Fatalf("%s holds %T, want a gauge of floats", name, one.Data)
+		}
+
+		for _, point := range data.DataPoints {
+			values = append(values, point.Value)
+		}
+	}
+
+	return values
+}
+
+// The age of the last tick is real time at the read, as the age of a source is, so it keeps
+// rising while the loop is stuck and no new observation arrives.
+func TestTheHeartbeatAgeIsTheAgeAtTheRead(t *testing.T) {
+	t.Parallel()
+
+	reader := metric.NewManualReader()
+	provider := metric.NewMeterProvider(metric.WithReader(reader))
+
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+
+	instruments, err := telemetry.NewMetrics(provider.Meter("test"))
+	if err != nil {
+		t.Fatalf("NewMetrics() = %v, want the instruments", err)
+	}
+
+	instruments.Observe(telemetry.Observation{
+		Heartbeat: time.Now().Add(-time.Minute), Registered: true,
+	})
+
+	recorded := collect(t, reader)
+
+	ages := gaugeOf(t, recorded, "bk_agent_stack_orchard.loop.heartbeat.age")
+	if len(ages) != 1 || ages[0] < 60 || ages[0] > 120 {
+		t.Errorf("the heartbeat age is %v, want one value of about 60 s", ages)
+	}
+
+	registered := sumsOf(t, recorded, "bk_agent_stack_orchard.stack.registered", "")
+	if registered[""] != 1 {
+		t.Errorf("the registration reads %v, want 1", registered)
 	}
 }
 

@@ -6,8 +6,10 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -558,5 +560,109 @@ func TestTheLeftoverGaugeCountsOnlyAMachineThatTheReaperCouldNotDelete(t *testin
 
 	if got := leftover(t, false); got != 0 {
 		t.Errorf("the gauge holds %d after Orchard accepted the deletion, want 0", got)
+	}
+}
+
+// measure builds the loop over the two APIs, runs one tick, and gives what the instruments then
+// hold.
+func measure(t *testing.T, api buildkite.Stacks, machines orchard.API) []metricdata.Metrics {
+	t.Helper()
+
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+
+	instruments, err := telemetry.NewMetrics(provider.Meter("test"))
+	if err != nil {
+		t.Fatalf("NewMetrics() = %v, want the instruments", err)
+	}
+
+	loop, err := app.Build(app.Options{
+		Config: settings(t),
+		Telemetry: &telemetry.Telemetry{
+			Metrics: instruments, Logger: slog.New(slog.DiscardHandler),
+			Tracer: tracenoop.NewTracerProvider().Tracer(""),
+		},
+		Stacks:  api,
+		Orchard: machines,
+		Now:     func() time.Time { return clock },
+	})
+	if err != nil {
+		t.Fatalf("Build() = %v, want the loop", err)
+	}
+
+	loop.Tick(t.Context(), clock)
+
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(t.Context(), &collected); err != nil {
+		t.Fatalf("Collect() = %v, want the metrics", err)
+	}
+
+	var all []metricdata.Metrics
+	for _, scope := range collected.ScopeMetrics {
+		all = append(all, scope.Metrics...)
+	}
+
+	return all
+}
+
+// levels gives the value of each series of an integer instrument, by its attributes.
+func levels(recorded []metricdata.Metrics, name string) map[string]int64 {
+	values := map[string]int64{}
+
+	for _, one := range recorded {
+		if one.Name != name {
+			continue
+		}
+
+		var points []metricdata.DataPoint[int64]
+
+		switch data := one.Data.(type) {
+		case metricdata.Sum[int64]:
+			points = data.DataPoints
+		case metricdata.Gauge[int64]:
+			points = data.DataPoints
+		}
+
+		for _, point := range points {
+			var key []string
+			for _, pair := range point.Attributes.ToSlice() {
+				key = append(key, pair.Value.String())
+			}
+
+			values[strings.Join(key, ",")] = point.Value
+		}
+	}
+
+	return values
+}
+
+// unread is a Buildkite whose queue does not answer, so the controller has read no job.
+type unread struct{ stacks }
+
+func (unread) ScheduledJobs(context.Context, string, int) (buildkite.Page, error) {
+	return buildkite.Page{}, errors.New("buildkite answered 503")
+}
+
+// An alert that compares a value never fires on a series that does not exist. Each profile of the
+// configuration therefore has its series from the first tick, with 0 where nothing is counted.
+func TestEachProfileHasItsSeriesFromTheFirstTick(t *testing.T) {
+	recorded := measure(t, unread{}, &fleet{})
+
+	if got := levels(recorded, "bk_agent_stack_orchard.job.waiting.count"); !maps.Equal(got,
+		map[string]int64{"xcode-27": 0}) {
+		t.Errorf("job.waiting.count holds %v, want 0 for the profile", got)
+	}
+
+	want := map[string]int64{
+		"xcode-27,unplaced": 0, "xcode-27,booting": 0, "xcode-27,running": 0, "xcode-27,failed": 0,
+	}
+	if got := levels(recorded, "bk_agent_stack_orchard.vm.count"); !maps.Equal(got, want) {
+		t.Errorf("vm.count holds %v, want %v", got, want)
+	}
+
+	if got := levels(recorded, "cicd.worker.count"); !maps.Equal(got,
+		map[string]int64{"busy": 0, "offline": 0}) {
+		t.Errorf("cicd.worker.count holds %v, want 0 for busy and offline", got)
 	}
 }

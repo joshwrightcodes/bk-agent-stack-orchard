@@ -352,6 +352,13 @@ func (a *admitter) observe() telemetry.Observation {
 		held.Leftover(&observation, a.ended)
 	}
 
+	profiles := make([]string, 0, len(a.settings.Profiles))
+	for _, p := range a.settings.Profiles {
+		profiles = append(profiles, p.Name)
+	}
+
+	observation.Expect(profiles)
+
 	return observation
 }
 

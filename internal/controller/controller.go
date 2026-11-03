@@ -182,6 +182,14 @@ type Controller struct {
 	// heartbeat is the last time that the loop made progress: when Run started its loop, and
 	// then when each tick ended. The liveness check reads it from another goroutine.
 	heartbeat atomic.Pointer[time.Time]
+
+	// started is when the loop was built. The age of a source that has not answered, and of a
+	// loop that has not started, counts from it.
+	started time.Time
+
+	// registered reports a stack that Buildkite holds. Only the goroutine of the loop reads and
+	// writes it.
+	registered bool
 }
 
 // New builds the loop.
@@ -260,6 +268,7 @@ func New(options Options) (*Controller, error) {
 		tracer:    tracer,
 		refreshed: map[telemetry.Source]time.Time{},
 		paused:    map[telemetry.Source]time.Duration{},
+		started:   options.Now(),
 	}, nil
 }
 
@@ -274,9 +283,16 @@ func (c *Controller) Sources() []Source {
 // A tick that fails does not stop the loop, because almost every failure here is one call to one
 // API, and the next tick reads the world again. The loop stops only when the context ends.
 func (c *Controller) Run(ctx context.Context) error {
+	// The series of the loop exist from the start, so that an alert that compares a value sees
+	// a process that cannot register, and not a series that is absent.
+	c.observe()
+
 	if err := c.register(ctx); err != nil {
 		return err
 	}
+
+	c.registered = true
+	c.observe()
 
 	c.logger.InfoContext(ctx, "the controller registered its stack and starts its loop",
 		"interval", c.interval.String())
@@ -366,6 +382,9 @@ func (c *Controller) withdraw(ctx context.Context) error {
 		return err
 	}
 
+	c.registered = false
+	c.observe()
+
 	c.logger.InfoContext(ctx, "the controller withdrew its stack and stopped")
 
 	return nil
@@ -381,9 +400,10 @@ func (c *Controller) withdraw(ctx context.Context) error {
 // Run runs.
 func (c *Controller) Tick(ctx context.Context, at time.Time) {
 	// The observation comes last, so that it reports the fleet as this tick left it and not as
-	// this tick found it. The beat comes after it, because a tick ends there.
-	defer c.beat()
+	// this tick found it, and the heartbeat of the end of this tick. The deferred calls run in
+	// the opposite order: the beat, then the observation.
 	defer c.observe()
+	defer c.beat()
 
 	c.refresh(ctx, at)
 
@@ -480,13 +500,23 @@ func (c *Controller) observe() {
 
 	synced := make(map[telemetry.Source]time.Time, len(c.sources))
 
+	// A source that has not answered is as old as the process, so its age rises from the start
+	// like the age of a source that stopped answering.
 	for _, source := range c.sources {
+		synced[source.Source()] = c.started
+
 		if at := source.At(); !at.IsZero() {
 			synced[source.Source()] = at
 		}
 	}
 
 	observation.Synced = synced
+	observation.Registered = c.registered
+
+	observation.Heartbeat = c.Heartbeat()
+	if observation.Heartbeat.IsZero() {
+		observation.Heartbeat = c.started
+	}
 
 	c.metrics.Observe(observation)
 }

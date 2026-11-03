@@ -13,6 +13,7 @@ import (
 	"time"
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/controller"
@@ -731,5 +732,130 @@ func TestTheHeartbeatIsTheEndOfTheLastTick(t *testing.T) {
 	if got, want := loop.Heartbeat(), moment.Add(5*time.Minute); !got.Equal(want) {
 		t.Errorf("Heartbeat() after a tick of 5 minutes = %s, want %s, when the tick ended", got,
 			want)
+	}
+}
+
+// measured gives the options of a loop whose instruments a test reads.
+func measured(t *testing.T, r *recorder) (controller.Options, *sdkmetric.ManualReader) {
+	t.Helper()
+
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+
+	instruments, err := telemetry.NewMetrics(provider.Meter("test"))
+	if err != nil {
+		t.Fatalf("NewMetrics() = %v, want the instruments", err)
+	}
+
+	settings := options(t, r)
+	settings.Metrics = instruments
+
+	return settings, reader
+}
+
+// series gives the names of the instruments that hold a value, and the value of each series of
+// stack.registered.
+func series(t *testing.T, reader *sdkmetric.ManualReader) (map[string]int, []int64) {
+	t.Helper()
+
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(t.Context(), &collected); err != nil {
+		t.Fatalf("Collect() = %v, want the metrics", err)
+	}
+
+	names := map[string]int{}
+
+	var registered []int64
+
+	for _, scope := range collected.ScopeMetrics {
+		for _, one := range scope.Metrics {
+			switch data := one.Data.(type) {
+			case metricdata.Gauge[float64]:
+				names[one.Name] += len(data.DataPoints)
+			case metricdata.Gauge[int64]:
+				names[one.Name] += len(data.DataPoints)
+
+				if one.Name == "bk_agent_stack_orchard.stack.registered" {
+					for _, point := range data.DataPoints {
+						registered = append(registered, point.Value)
+					}
+				}
+			case metricdata.Sum[int64]:
+				names[one.Name] += len(data.DataPoints)
+			}
+		}
+	}
+
+	return names, registered
+}
+
+// An alert that compares a value never fires on a series that does not exist. The series of the
+// loop therefore exist from the start, also while Buildkite does not answer the registration: the
+// age of each source that has not answered counts from the start, and the registration reads 0.
+func TestTheSeriesOfTheLoopExistWhileTheStackRegisters(t *testing.T) {
+	t.Parallel()
+
+	r := &recorder{}
+	settings, reader := measured(t, r)
+	settings.Sources = []controller.Source{
+		&source{recorder: r, kind: telemetry.SourceScheduledJobs, interval: time.Hour},
+		&source{recorder: r, kind: telemetry.SourceInventory, interval: time.Hour},
+		&source{recorder: r, kind: telemetry.SourceJobStates, interval: time.Hour},
+	}
+	settings.Stack = &registrar{recorder: r, registerErrs: []error{
+		retry.Again(errors.New("connection refused"), 0),
+	}}
+
+	waiting, release := make(chan struct{}), make(chan struct{})
+	settings.Sleep = func(context.Context, time.Duration) error {
+		close(waiting)
+		<-release
+
+		return nil
+	}
+	settings.Reap = func(context.Context) error { r.add("reap"); return nil }
+
+	loop, err := controller.New(settings)
+	if err != nil {
+		t.Fatalf("New() = %v, want the loop", err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	finished := make(chan error, 1)
+
+	go func() { finished <- loop.Run(ctx) }()
+
+	<-waiting
+
+	names, registered := series(t, reader)
+
+	if names["bk_agent_stack_orchard.source.staleness"] != 3 {
+		t.Errorf("source.staleness has %d series while the stack registers, want one for each "+
+			"source", names["bk_agent_stack_orchard.source.staleness"])
+	}
+
+	if names["bk_agent_stack_orchard.loop.heartbeat.age"] != 1 {
+		t.Error("loop.heartbeat.age has no series while the stack registers, want one")
+	}
+
+	if !slices.Equal(registered, []int64{0}) {
+		t.Errorf("stack.registered reads %v while the stack registers, want [0]", registered)
+	}
+
+	close(release)
+
+	for !slices.Contains(r.seen(), "reap") {
+		time.Sleep(time.Millisecond)
+	}
+
+	if _, registered := series(t, reader); !slices.Equal(registered, []int64{1}) {
+		t.Errorf("stack.registered reads %v after the registration, want [1]", registered)
+	}
+
+	cancel()
+
+	if err := <-finished; err != nil {
+		t.Fatalf("Run() = %v, want no error", err)
 	}
 }

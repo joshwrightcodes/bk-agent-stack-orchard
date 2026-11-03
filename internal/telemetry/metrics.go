@@ -5,6 +5,7 @@ package telemetry
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -97,11 +98,12 @@ const (
 // the virtual machine and not the Mac host that carries it.
 type WorkerState string
 
-// The states of a worker, which are the values that the conventions name.
+// The states of a worker that this controller reports, which are values that the conventions
+// name. A machine of this controller carries one job, so it is never available: it is busy while
+// it runs, and offline when it failed.
 const (
-	WorkerAvailable WorkerState = "available"
-	WorkerBusy      WorkerState = "busy"
-	WorkerOffline   WorkerState = "offline"
+	WorkerBusy    WorkerState = "busy"
+	WorkerOffline WorkerState = "offline"
 )
 
 // JobPhase is one part of the way from a scheduled job to a running agent.
@@ -156,8 +158,9 @@ type VM struct {
 // The counts of the fleet are levels and not events, so the conventions make them up-down
 // counters, and a level that a controller computes from observed state belongs in a callback.
 // The controller therefore gives the whole observation at each tick, and the callback reports
-// it. A series that leaves an observation stops, which a value that a caller sets one at a time
-// could not do: a profile that no longer exists would report its last count for ever.
+// it. A series that the callback reported once and that leaves an observation reports 0: a series
+// that stops keeps its last value in many backends for minutes, so a count that fell to zero
+// would look like the count that it had before.
 type Observation struct {
 	// Waiting is the jobs of each profile that wait for a machine.
 	Waiting map[string]int64
@@ -182,7 +185,47 @@ type Observation struct {
 
 	// Synced is when each source last answered. The callback reports the age of that answer,
 	// and not the time itself, so that the alert reads a number that needs no clock of its own.
+	// A source that has not answered since the start holds the start of the process.
 	Synced map[Source]time.Time
+
+	// Heartbeat is when the loop last made progress, and the start of the process before the
+	// loop starts. The callback reports its age, as it does for Synced.
+	Heartbeat time.Time
+
+	// Registered reports a stack that Buildkite accepted. It is false while the controller
+	// registers, which it tries again while Buildkite does not answer, and after it withdrew.
+	Registered bool
+}
+
+// Expect adds a zero for each series that the profiles and the closed sets of values give, where
+// the observation has no value. An alert that compares a value never fires on a series that does
+// not exist, so these series exist from the first observation, and not from the first job.
+//
+// A pool is known only from the workers of the fleet, so its series start with the first read of
+// the inventory.
+func (o *Observation) Expect(profiles []string) {
+	if o.Waiting == nil {
+		o.Waiting = map[string]int64{}
+	}
+
+	if o.VMs == nil {
+		o.VMs = map[VM]int64{}
+	}
+
+	if o.Workers == nil {
+		o.Workers = map[WorkerState]int64{}
+	}
+
+	for _, profile := range profiles {
+		o.Waiting[profile] += 0
+
+		for _, phase := range []VMPhase{VMUnplaced, VMBooting, VMRunning, VMFailed} {
+			o.VMs[VM{Profile: profile, Phase: phase}] += 0
+		}
+	}
+
+	o.Workers[WorkerBusy] += 0
+	o.Workers[WorkerOffline] += 0
 }
 
 // Metrics holds the instruments of the target design, section 10.1.
@@ -200,6 +243,8 @@ type Metrics struct {
 	workers     metric.Int64ObservableUpDownCounter
 	leftover    metric.Int64ObservableGauge
 	staleness   metric.Float64ObservableGauge
+	heartbeat   metric.Float64ObservableGauge
+	registered  metric.Int64ObservableGauge
 	skipped     metric.Int64Counter
 	truncated   metric.Int64Counter
 	failed      metric.Int64Counter
@@ -207,15 +252,20 @@ type Metrics struct {
 	errors      metric.Int64Counter
 	jobPhase    metric.Float64Histogram
 	tick        metric.Float64Histogram
-	registered  metric.Registration
+	callback    metric.Registration
 	mu          sync.RWMutex
 	observation Observation
+
+	// reported holds each series that the callback reported, so that a series that leaves the
+	// observation reports 0. The attributes of a series are bounded by the configuration and the
+	// fleet, so the set stays small. Only the callback reads and writes it.
+	reported map[metric.Observable]map[attribute.Distinct]attribute.Set
 }
 
 // NewMetrics builds the instruments on a meter and registers the callback that reports the
 // levels of the fleet.
 func NewMetrics(meter metric.Meter) (*Metrics, error) {
-	m := &Metrics{}
+	m := &Metrics{reported: map[metric.Observable]map[attribute.Distinct]attribute.Set{}}
 
 	if err := m.observable(meter); err != nil {
 		return nil, err
@@ -225,13 +275,14 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 		return nil, err
 	}
 
-	registered, err := meter.RegisterCallback(m.report,
-		m.waiting, m.oldest, m.slots, m.vms, m.workers, m.leftover, m.staleness)
+	callback, err := meter.RegisterCallback(m.report,
+		m.waiting, m.oldest, m.slots, m.vms, m.workers, m.leftover, m.staleness, m.heartbeat,
+		m.registered)
 	if err != nil {
 		return nil, fmt.Errorf("registering the callback of the fleet levels: %w", err)
 	}
 
-	m.registered = registered
+	m.callback = callback
 
 	return m, nil
 }
@@ -285,10 +336,26 @@ func (m *Metrics) observable(meter metric.Meter) error {
 
 	m.staleness, err = meter.Float64ObservableGauge(prefix+"source.staleness",
 		metric.WithUnit("s"),
-		metric.WithDescription("Age of the last answer of a source of observed state. The "+
-			"readiness alert reads it."))
+		metric.WithDescription("Age of the last answer of a source of observed state, or the "+
+			"age of the process while the source has not answered."))
 	if err != nil {
 		return fmt.Errorf("building the instrument of the source age: %w", err)
+	}
+
+	m.heartbeat, err = meter.Float64ObservableGauge(prefix+"loop.heartbeat.age",
+		metric.WithUnit("s"),
+		metric.WithDescription("Time since the loop last finished a tick, or the age of the "+
+			"process while the loop has not started."))
+	if err != nil {
+		return fmt.Errorf("building the instrument of the heartbeat: %w", err)
+	}
+
+	m.registered, err = meter.Int64ObservableGauge(prefix+"stack.registered",
+		metric.WithUnit("1"),
+		metric.WithDescription("1 while Buildkite holds the registration of the stack, and 0 "+
+			"while the controller registers or after it withdrew."))
+	if err != nil {
+		return fmt.Errorf("building the instrument of the registration: %w", err)
 	}
 
 	return nil
@@ -365,57 +432,129 @@ func (m *Metrics) Observe(observation Observation) {
 // Close stops the callback. The meter provider does this as well when it stops, so a caller
 // needs it only to build a second set of instruments on one meter.
 func (m *Metrics) Close() error {
-	if m.registered == nil {
+	if m.callback == nil {
 		return nil
 	}
 
-	return m.registered.Unregister()
+	return m.callback.Unregister()
 }
 
-// report gives the levels of the last observation to the collector.
+// report gives the levels of the last observation to the collector, and 0 for each series that
+// it reported before and that the observation no longer holds.
 func (m *Metrics) report(_ context.Context, observer metric.Observer) error {
 	m.mu.RLock()
 	observation := m.observation
 	m.mu.RUnlock()
 
+	levels := &levels{
+		observer: observer,
+		sets:     map[metric.Observable]map[attribute.Distinct]attribute.Set{},
+	}
+
 	for profile, jobs := range observation.Waiting {
-		observer.ObserveInt64(m.waiting, jobs,
-			metric.WithAttributes(attribute.String(attributeProfile, profile)))
+		levels.int64(m.waiting, jobs, attribute.NewSet(attribute.String(attributeProfile, profile)))
 	}
 
 	for profile, age := range observation.OldestWaiting {
-		observer.ObserveFloat64(m.oldest, age.Seconds(),
-			metric.WithAttributes(attribute.String(attributeProfile, profile)))
+		levels.float64(m.oldest, age.Seconds(),
+			attribute.NewSet(attribute.String(attributeProfile, profile)))
 	}
 
 	for slot, count := range observation.Slots {
-		observer.ObserveInt64(m.slots, count, metric.WithAttributes(
+		levels.int64(m.slots, count, attribute.NewSet(
 			attribute.String(attributePool, pool(slot.Pool)),
 			attribute.String(attributeSlotState, string(slot.State)),
 		))
 	}
 
 	for vm, count := range observation.VMs {
-		observer.ObserveInt64(m.vms, count, metric.WithAttributes(
+		levels.int64(m.vms, count, attribute.NewSet(
 			attribute.String(attributeProfile, vm.Profile),
 			attribute.String(attributeVMPhase, string(vm.Phase)),
 		))
 	}
 
 	for state, count := range observation.Workers {
-		observer.ObserveInt64(m.workers, count,
-			metric.WithAttributes(semconv.CICDWorkerStateKey.String(string(state))))
+		levels.int64(m.workers, count,
+			attribute.NewSet(semconv.CICDWorkerStateKey.String(string(state))))
 	}
 
-	observer.ObserveInt64(m.leftover, observation.Leftover)
+	levels.int64(m.leftover, observation.Leftover, attribute.NewSet())
 
-	// The age of an answer is its age when the collector reads it, which is real time.
+	// An age is its age when the collector reads it, which is real time, so it keeps rising while
+	// the loop is stuck and no new observation arrives.
 	for source, at := range observation.Synced {
-		observer.ObserveFloat64(m.staleness, time.Since(at).Seconds(), //nolint:forbidigo // real age
-			metric.WithAttributes(attribute.String(attributeSource, string(source))))
+		levels.float64(m.staleness, time.Since(at).Seconds(), //nolint:forbidigo // real age
+			attribute.NewSet(attribute.String(attributeSource, string(source))))
 	}
+
+	if !observation.Heartbeat.IsZero() {
+		levels.float64(m.heartbeat,
+			time.Since(observation.Heartbeat).Seconds(), //nolint:forbidigo // real age
+			attribute.NewSet())
+	}
+
+	registered := int64(0)
+	if observation.Registered {
+		registered = 1
+	}
+
+	levels.int64(m.registered, registered, attribute.NewSet())
+
+	m.zero(levels)
 
 	return nil
+}
+
+// zero reports 0 for each series that the callback reported before and that this read did not,
+// and remembers the series of this read.
+func (m *Metrics) zero(levels *levels) {
+	for instrument, sets := range m.reported {
+		for key, set := range sets {
+			if _, now := levels.sets[instrument][key]; now {
+				continue
+			}
+
+			switch observable := instrument.(type) {
+			case metric.Int64Observable:
+				levels.observer.ObserveInt64(observable, 0, metric.WithAttributeSet(set))
+			case metric.Float64Observable:
+				levels.observer.ObserveFloat64(observable, 0, metric.WithAttributeSet(set))
+			}
+		}
+	}
+
+	for instrument, sets := range levels.sets {
+		if m.reported[instrument] == nil {
+			m.reported[instrument] = map[attribute.Distinct]attribute.Set{}
+		}
+
+		maps.Copy(m.reported[instrument], sets)
+	}
+}
+
+// levels is what one read of the callback reported.
+type levels struct {
+	observer metric.Observer
+	sets     map[metric.Observable]map[attribute.Distinct]attribute.Set
+}
+
+func (l *levels) int64(instrument metric.Int64Observable, value int64, set attribute.Set) {
+	l.observer.ObserveInt64(instrument, value, metric.WithAttributeSet(set))
+	l.remember(instrument, set)
+}
+
+func (l *levels) float64(instrument metric.Float64Observable, value float64, set attribute.Set) {
+	l.observer.ObserveFloat64(instrument, value, metric.WithAttributeSet(set))
+	l.remember(instrument, set)
+}
+
+func (l *levels) remember(instrument metric.Observable, set attribute.Set) {
+	if l.sets[instrument] == nil {
+		l.sets[instrument] = map[attribute.Distinct]attribute.Set{}
+	}
+
+	l.sets[instrument][set.Equivalent()] = set
 }
 
 // pool gives the pool of a worker. A metric series needs a value for each attribute, and a

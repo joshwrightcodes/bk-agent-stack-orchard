@@ -1283,13 +1283,15 @@ The name that an operator queries has the full prefix.
 | Counter | `bkaso.job.failed` (`{job}`) | `error.type` |
 | UpDownCounter | `bkaso.slot.count` (`{slot}`) | `bkaso.pool`, `bkaso.slot.state` = `total`/`used`/`free` |
 | UpDownCounter | `bkaso.vm.count` (`{vm}`) | `bkaso.profile`, `bkaso.vm.phase` = `unplaced`/`booting`/`running`/`failed` |
-| UpDownCounter | `cicd.worker.count` (`{worker}`) | `cicd.worker.state` = `available`/`busy`/`offline` |
+| UpDownCounter | `cicd.worker.count` (`{worker}`) | `cicd.worker.state` = `busy`/`offline` |
 | Histogram | `bkaso.job.phase.duration` (`s`) | `bkaso.profile`, `bkaso.job.phase` = `scheduled_to_reserved`/`reserved_to_placed`/`placed_to_running`/`running_to_accepted`/`finished_to_deleted`/`total` |
 | Counter | `bkaso.vm.deletions` (`{vm}`) | `bkaso.vm.delete.reason` (§7.2) |
 | Counter | `cicd.system.errors` (`{error}`) | `cicd.system.component` = `buildkite`/`orchard`, `error.type` |
 | Histogram | `bkaso.tick.duration` (`s`) | `bkaso.tick.step` |
 | Gauge | `bkaso.vm.leftover` (`{vm}`) | — |
 | Gauge | `bkaso.source.staleness` (`s`) | `bkaso.source` = `scheduled_jobs`/`job_states`/`inventory` |
+| Gauge | `bkaso.loop.heartbeat.age` (`s`) | — |
+| Gauge | `bkaso.stack.registered` (`1`) | — |
 
 These rules come from the conventions and MUST hold:
 
@@ -1301,11 +1303,19 @@ These rules come from the conventions and MUST hold:
   a gauge.
 * **A level comes from a callback.** The controller computes its levels from observed state at
   each tick, so it gives the whole observation and an asynchronous instrument reports it. A
-  series that leaves an observation stops, which is why a profile that no longer exists cannot
-  report its last count for ever.
+  series that the callback reported once and that leaves an observation MUST report 0. A series
+  that stops keeps its last value in many backends for minutes, so a count that fell to zero
+  would look like the count that it had.
+* **Every series exists from the start.** The series of each profile of the configuration, of
+  each closed set of values, and of each source MUST exist from the first observation, which the
+  loop gives before it registers the stack. An alert that compares a value does not fire on a
+  series that is absent. A pool is known only from the workers, so its series start with the
+  first answer of the Inventory.
 * **The worker of the conventions is the virtual machine**, because `cicd.worker` is the thing
-  that does the work of a job. The Mac host is not that worker, and the attribute for its name
-  is `bkaso.worker.name`.
+  that does the work of a job. A VM of this controller carries one job, so it is `busy` while it
+  runs and `offline` when it failed, and never `available`.
+* **The Mac host is not the worker of the conventions**, and the attribute for its name is
+  `bkaso.worker.name`.
 * **The controller MUST NOT define a metric for its own HTTP calls.** `otelhttp` gives
   `http.client.request.duration` with the attributes of the conventions, and a second instrument
   for the same measurement would disagree with it. A rate limit and a status that the controller
@@ -1314,7 +1324,14 @@ These rules come from the conventions and MUST hold:
   `timeout`, or `_OTHER`. An answer about one job, such as a job that ended or a VM that exists,
   is not an error of the system.
 * **`bkaso.source.staleness` is an age and not a time.** The readiness alert reads a number that
-  needs no clock of its own, and the value cannot disagree with the clock of the backend.
+  needs no clock of its own, and the value cannot disagree with the clock of the backend. The age
+  is computed when the collector reads it, so it keeps rising while the loop is stuck. A source
+  that has not answered since the start of the process is as old as the process.
+* **`bkaso.loop.heartbeat.age` is the age of the last tick.** It is the time since the loop last
+  finished a tick, computed when the collector reads it, and the age of the process before the
+  loop starts. Liveness fails when the loop has not finished a tick inside 15 min.
+  `bkaso.stack.registered` is 0 while the controller registers its stack (§7.4, step 1) and after
+  it withdrew it, and 1 between.
 
 * **`bkaso.vm.leftover` counts the owned VMs whose job is terminal.** At each tick, the controller
   counts the VMs in the last inventory whose job has a terminal state in the last job states
