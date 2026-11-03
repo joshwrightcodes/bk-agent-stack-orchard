@@ -206,6 +206,16 @@ for a source that waits for the ones before it in the same tick, so a comparison
 a source whose interval equals the tick interval at only every other tick. A source that failed
 MUST wait for its interval like one that answered.
 
+Every call to Buildkite or to Orchard MUST have a time limit, which covers all of its tries and
+waits (§15). The limit is 10 s (`callTimeout`). A call that hangs holds every step after it in the
+tick, the extensions and the deletions of the Reaper included, so the limit MUST keep a tick in
+which both APIs hang inside the renewal lead of a reservation (`reservationRenewBefore`, 120 s).
+Before the extensions, a tick makes five calls that can hang: one poll of the queue (a page that
+fails ends the read), two Inventory calls, one JobStates call, and one call for the progress
+notices. At 10 s each, the extensions leave in 50 s and end in 60 s, which leaves room for the
+next tick to try again inside the lead. The Reaper and the Launcher also make one call for each VM
+that they act on, and each of these calls has the same limit.
+
 The loop MUST take the time of a tick from the one clock of the controller (§15), and not from
 the ticker. A ticker gives the time that a beat was due. After a tick that took longer than the
 interval, that time is in the past, and the freshness gate of admission (§6.3) would measure an
@@ -288,10 +298,9 @@ For each unmatched job that has no entry in the notified set, the controller MUS
 The controller writes these notices after it reserves and starts the admitted jobs of the same
 tick, so that a slow notification call cannot delay an admitted job. It sends at most 1000 lines
 in one call (`NotificationsPerRequest`, §3). Each call has its own time limit of 10 s
-(`notifyTimeout`), so that a call that retries cannot hold the loop for more than 10 s. The
-Buildkite client and the Orchard client each have a limit of 30 s for a whole call for the same
-reason. The Buildkite client also limits the body of an answer to 16 MiB, and a longer body fails
-the call.
+(`notifyTimeout`), so that a call that retries cannot hold the loop for more than 10 s. Every call
+to either API has the same limit (§4). The Buildkite client also limits the body of an answer to
+16 MiB, and a longer body fails the call.
 
 The controller keeps the identifiers of the jobs that it notified in a set in memory, so that it
 writes the notice for a job once while the job stays listed and the process runs. The set has
@@ -752,6 +761,10 @@ At start-up, before the first Admission, the controller MUST do these steps:
 | The Buildkite API is not available, or applies a rate limit | The controller obeys `Retry-After`. JobStates data becomes stale. The controller does not reserve or finish jobs. The controller deletes VMs only for rows 1 and 2. |
 | A worker is offline | After the worker offline timeout (3 min), Orchard sets the VMs of the worker to `failed`. Rows 7 and 9 apply. `restart_policy: Never` prevents a new VM for the same job on a different worker. |
 | The queue is `dispatch_paused` | Admission stops. The controller does not write new notifications for unmatched jobs. The Reaper continues for existing VMs. |
+
+An API that accepts calls and does not answer is an outage of the same kind. Each call ends at
+its time limit (§4), so the loop continues: while Buildkite hangs, rows 1 and 2 still delete VMs,
+and while Orchard hangs, the Reaper still extends the reservations of the VMs that start.
 
 ### 7.6 Pipeline guidance
 

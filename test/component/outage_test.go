@@ -3,7 +3,9 @@
 package component_test
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -23,6 +25,31 @@ var (
 	errUnavailable = errors.New("answered 503 Service Unavailable")
 	errLostAnswer  = errors.New("the connection closed before Orchard answered")
 )
+
+// callTimeout is the time limit of each call in the suite. The fakes answer at once, so only a
+// fake that hangs waits for it, in real time.
+const callTimeout = 5 * time.Millisecond
+
+// hangLimit is how long a fake that hangs waits for the end of a call. A call that no limit
+// bounds would hold the suite for ever, so the fake gives up after this real time and records a
+// violation.
+const hangLimit = 2 * time.Second
+
+// hang is a call to an API that accepts it and never answers: it ends only when its context ends.
+func hang(ctx context.Context, violations *[]string, endpoint string) error {
+	timer := time.NewTimer(hangLimit)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		*violations = append(*violations, fmt.Sprintf("a call of %s waited %s, so no time "+
+			"limit bounds it", endpoint, hangLimit))
+
+		return errUnavailable
+	}
+}
 
 // scenario is a world of the component suite that a test drives step by step.
 type scenario struct {
@@ -286,6 +313,89 @@ func TestAnOrchardOutageStopsAdmissionAndDeletion(t *testing.T) {
 	}
 
 	s.budget()
+}
+
+// Buildkite accepts each call and never answers, which is worse for the loop than an error: each
+// call holds the one goroutine of the loop until its time limit. The loop still runs its ticks,
+// and rows 1 and 2, whose rules need no job state, delete their machines while every call to
+// Buildkite hangs.
+func TestAHungBuildkiteStillDeletesByRowsOneAndTwo(t *testing.T) {
+	s := newScenario(t)
+
+	waiting := s.arrive()
+	s.run(15)
+
+	orphan := "bk-" + controllerID + "-not-a-job"
+	ancient := vmspec.Name(controllerID, s.nextJob())
+
+	for name, created := range map[string]time.Time{
+		orphan: s.now, ancient: s.now.Add(-26 * time.Hour),
+	} {
+		s.orchard.vms[name] = &orchard.VM{Name: name, Status: orchard.StatusPending, CreatedAt: created}
+	}
+
+	s.stacks.hangs = true
+	finished := len(s.stacks.finished)
+
+	s.run(5)
+
+	for name := range map[string]bool{orphan: true, ancient: true} {
+		if _, exists := s.orchard.vms[name]; exists {
+			t.Errorf("the machine %s remains, want rows 1 and 2 to delete it while Buildkite hangs",
+				name)
+		}
+	}
+
+	if _, exists := s.machine(waiting); !exists {
+		t.Error("the machine of the reserved job is gone, want no deletion on a job state that " +
+			"the controller could not read")
+	}
+
+	if len(s.stacks.finished) != finished {
+		t.Errorf("the controller finished %v while Buildkite hung, want nothing", s.stacks.finished)
+	}
+
+	s.stacks.hangs = false
+	s.run(10)
+
+	if _, exists := s.machine(waiting); !exists || s.stacks.jobs[waiting].state != stateReserved {
+		t.Errorf("the reserved job is %s with a machine %t, want it reserved and on its machine",
+			s.stacks.jobs[waiting].state, exists)
+	}
+}
+
+// Orchard accepts each call and never answers. The reaper still reads the job states and extends
+// the reservation of a machine that boots, so the job stays with this stack while Orchard hangs.
+func TestAHungOrchardStillExtendsTheReservations(t *testing.T) {
+	s := newScenario(t)
+
+	booting := s.arrive()
+	s.run(10)
+
+	first := s.stacks.jobs[booting].reservedUntil
+	if first.IsZero() {
+		t.Fatal("the job has no reservation before Orchard hangs")
+	}
+
+	s.orchard.hangs = true
+
+	// Past the moment that the reservation needs its renewal, and inside the acquire timeout,
+	// after which the reaper would end the job.
+	renewal := first.Add(-s.settings.Buildkite.ReservationRenewBefore)
+	s.run(int(renewal.Sub(s.now).Seconds()) + 20)
+
+	w := s.stacks.jobs[booting]
+	if w.state != stateReserved || !w.reservedUntil.After(first) {
+		t.Errorf("the job is %s until %s, want it reserved past %s", w.state,
+			w.reservedUntil.Format(time.TimeOnly), first.Format(time.TimeOnly))
+	}
+
+	s.orchard.hangs = false
+	s.run(10)
+
+	if vm, exists := s.machine(booting); !exists || vm.Status != orchard.StatusRunning {
+		t.Error("the job has no running machine after Orchard answers again")
+	}
 }
 
 // A worker stops reporting. After the offline timeout, Orchard fails its machines. The machine of

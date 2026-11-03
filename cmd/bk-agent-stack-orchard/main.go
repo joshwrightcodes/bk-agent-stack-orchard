@@ -245,8 +245,9 @@ func orUnknown(value string) string {
 	return value
 }
 
-// httpTimeout limits one whole call to Buildkite or to Orchard. A server that accepts a call and
-// never answers would otherwise hold the loop for ever, with no reaping and no restart.
+// httpTimeout limits one HTTP request to Buildkite or to Orchard. The loop gives each call a
+// shorter limit of its own, which covers all of its tries (internal/app), and this limit holds
+// for a request outside a call of the loop too.
 const httpTimeout = 30 * time.Second
 
 // newHTTPClient builds the client for one remote service. A nil transport gives the default one.

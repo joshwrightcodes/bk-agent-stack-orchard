@@ -290,9 +290,10 @@ After each event the suite checks the invariants I-1, I-2, I-5, and I-8. At the 
 sequence it checks I-6.
 
 Beside the random sequences, the suite runs the outages of the target design, section 7.5, as
-scenarios on the same fakes (T-024): Buildkite not available, Orchard not available, and a worker
-that stops reporting. Each scenario also checks the request budget of the Stacks API in each
-second of the run. The client tests prove that the controller waits for `Retry-After` (T-040).
+scenarios on the same fakes (T-024). Buildkite, Orchard, or only the job states are not available.
+Buildkite or Orchard accepts calls and never answers. A worker stops reporting. Each scenario
+also checks the request budget of the Stacks API in each second of the run. The client tests
+prove that the controller waits for `Retry-After` (T-040).
 
 `go test ./...` runs it, on any host, in under a minute. The component suite also fails when a
 goroutine remains after the tests end (`go.uber.org/goleak`). When an invariant breaks, rapid

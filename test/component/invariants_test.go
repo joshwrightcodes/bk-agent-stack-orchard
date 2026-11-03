@@ -255,6 +255,7 @@ func newFleetOf(t *testing.T, fatal fataler, recorder *telemetry.Telemetry, load
 	f.stacks = newStacks(clock, &f.violations)
 	f.orchard = newOrchardOf(clock, f.settings.Orchard.WorkerOfflineTimeout, hosts)
 	f.orchard.created = f.created
+	f.orchard.violations = &f.violations
 	f.start(fatal)
 
 	return f
@@ -271,6 +272,7 @@ func (f *fleet) start(rt fataler) {
 		Now:       func() time.Time { return f.now },
 
 		Environment: func(name string) string { return f.environment[name] },
+		CallTimeout: callTimeout,
 	})
 	if err != nil {
 		rt.Fatalf("building the controller: %v", err)
@@ -639,7 +641,9 @@ func (f *fleet) Restart(rt *rapid.T) {
 func (f *fleet) drain(rt *rapid.T) {
 	f.stacks.paused = false
 	f.stacks.down = nil
+	f.stacks.hangs = false
 	f.orchard.down = nil
+	f.orchard.hangs = false
 	f.orchard.deleteFails = nil
 
 	for _, h := range f.orchard.hosts {

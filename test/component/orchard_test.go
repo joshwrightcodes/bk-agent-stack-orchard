@@ -47,6 +47,23 @@ type orchardFake struct {
 	// conflictNext makes the next create answer 409, with the machine in place, as the retry of a
 	// create that an earlier process made shows. The knob clears itself when a create uses it.
 	conflictNext bool
+
+	// hangs makes every call wait for the end of its context, as an Orchard controller that
+	// accepts a call and never answers does. Its scheduler stops too, as it does while it is
+	// down.
+	hangs bool
+
+	violations *[]string
+}
+
+// unavailable gives the answer of an Orchard that is down, or waits for the end of the call when
+// it hangs.
+func (o *orchardFake) unavailable(ctx context.Context, endpoint string) error {
+	if o.hangs {
+		return hang(ctx, o.violations, endpoint)
+	}
+
+	return o.down
 }
 
 // hostShape is what one worker offers: the slots for machines, the cores, and the memory.
@@ -86,7 +103,7 @@ func (o *orchardFake) online(w orchard.Worker) bool {
 // sync is what Orchard does between two calls of the controller: the workers that run report,
 // the machines of a worker that stopped reporting fail, and the scheduler places what waits.
 func (o *orchardFake) sync() {
-	if o.down != nil {
+	if o.down != nil || o.hangs {
 		return
 	}
 
@@ -178,9 +195,9 @@ func contains(labels, wanted map[string]string) bool {
 	return true
 }
 
-func (o *orchardFake) CreateVM(_ context.Context, spec orchard.VM) error {
-	if o.down != nil {
-		return o.down
+func (o *orchardFake) CreateVM(ctx context.Context, spec orchard.VM) error {
+	if err := o.unavailable(ctx, "create"); err != nil {
+		return err
 	}
 
 	if _, exists := o.vms[spec.Name]; exists {
@@ -211,9 +228,9 @@ func (o *orchardFake) CreateVM(_ context.Context, spec orchard.VM) error {
 	return nil
 }
 
-func (o *orchardFake) ListVMs(context.Context) ([]orchard.VM, error) {
-	if o.down != nil {
-		return nil, o.down
+func (o *orchardFake) ListVMs(ctx context.Context) ([]orchard.VM, error) {
+	if err := o.unavailable(ctx, "list machines"); err != nil {
+		return nil, err
 	}
 
 	names := slices.Sorted(maps.Keys(o.vms))
@@ -228,9 +245,9 @@ func (o *orchardFake) ListVMs(context.Context) ([]orchard.VM, error) {
 
 // DeleteVM removes a machine. The client of this project gives no error for a machine that is
 // already gone, and the fake answers as the client does.
-func (o *orchardFake) DeleteVM(_ context.Context, name string) error {
-	if o.down != nil {
-		return o.down
+func (o *orchardFake) DeleteVM(ctx context.Context, name string) error {
+	if err := o.unavailable(ctx, "delete"); err != nil {
+		return err
 	}
 
 	if o.deleteFails != nil {
@@ -242,9 +259,9 @@ func (o *orchardFake) DeleteVM(_ context.Context, name string) error {
 	return nil
 }
 
-func (o *orchardFake) ListWorkers(context.Context) ([]orchard.Worker, error) {
-	if o.down != nil {
-		return nil, o.down
+func (o *orchardFake) ListWorkers(ctx context.Context) ([]orchard.Worker, error) {
+	if err := o.unavailable(ctx, "list workers"); err != nil {
+		return nil, err
 	}
 
 	workers := make([]orchard.Worker, 0, len(o.hosts))
@@ -255,9 +272,9 @@ func (o *orchardFake) ListWorkers(context.Context) ([]orchard.Worker, error) {
 	return workers, nil
 }
 
-func (o *orchardFake) Events(_ context.Context, name string) ([]orchard.Event, error) {
-	if o.down != nil {
-		return nil, o.down
+func (o *orchardFake) Events(ctx context.Context, name string) ([]orchard.Event, error) {
+	if err := o.unavailable(ctx, "events"); err != nil {
+		return nil, err
 	}
 
 	if _, exists := o.vms[name]; !exists {
