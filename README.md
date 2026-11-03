@@ -36,7 +36,8 @@ export BUILDKITE_AGENT_TOKEN=...   # your cluster agent token
 mise run quickstart -- --queue macos-quickstart
 ```
 
-The command starts a local Orchard and the controller, and prints a pipeline step. Run the step in
+The command downloads and verifies the newest release of the controller, starts it with a local
+Orchard, and prints a pipeline step. Run the step in
 Buildkite: the job runs in a new VM, and the VM is deleted when the job ends. Press Ctrl-C to stop.
 The first run downloads a macOS image of about 40 GB. The [quick start](docs/user/quickstart.md)
 gives each step, the Buildkite setup included.

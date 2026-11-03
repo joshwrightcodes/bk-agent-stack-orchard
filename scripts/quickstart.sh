@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # The quick start: one real job in a real Tart VM on this Mac, from a real Buildkite queue.
 #
-# It starts a local Orchard (orchard dev, with one worker that uses the Tart of this Mac), then the
-# controller with one profile, and prints a pipeline step to paste into Buildkite. Ctrl-C deletes
+# It downloads a release of the controller and verifies its signature, starts a local Orchard
+# (orchard dev, with one worker that uses the Tart of this Mac), then the controller with one
+# profile, and prints a pipeline step to paste into Buildkite. Ctrl-C deletes
 # the VMs that it started, stops what it started, and deletes its work directory. The image stays
 # in the Tart cache.
 #
@@ -29,6 +30,9 @@ ORCHARD_URL=""
 SERVICE_ACCOUNT="bk-agent-stack-orchard"
 HEALTH="127.0.0.1:18080"
 CONTROLLER_ID="quickstart"
+REPO="joshwrightcodes/bk-agent-stack-orchard"
+VERSION=""
+FROM_SOURCE=""
 MIN_TART="2.39.0"
 
 say() { printf 'quickstart: %s\n' "$*"; }
@@ -51,6 +55,8 @@ Usage: BUILDKITE_AGENT_TOKEN=... $0 --queue NAME [options]
                          token goes in BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN, and a private CA in
                          BK_AGENT_STACK_ORCHARD_ORCHARD_CA_CERT
   --service-account NAME the Orchard service account of --orchard-url (default: $SERVICE_ACCOUNT)
+  --version vX.Y.Z       the release of the controller (default: the newest published release)
+  --from-source          build the controller from this clone instead of a release
 EOF
 	exit "${1:-0}"
 }
@@ -65,6 +71,8 @@ while [[ $# -gt 0 ]]; do
 	--match) MATCH+=("${2:-}"); shift 2 ;;
 	--orchard-url) ORCHARD_URL="${2:-}"; shift 2 ;;
 	--service-account) SERVICE_ACCOUNT="${2:-}"; shift 2 ;;
+	--version) VERSION="${2:-}"; shift 2 ;;
+	--from-source) FROM_SOURCE=1; shift ;;
 	-h | --help) usage 0 ;;
 	*) printf 'quickstart: unknown option %s\n\n' "$1" >&2; usage 2 ;;
 	esac
@@ -104,6 +112,15 @@ if [[ "$(stat -f '%Su %Sp' "$softnet")" != root\ ???s* ]]; then
 fi
 
 command -v jq >/dev/null || die "jq is not on the PATH: run this through mise (mise run quickstart)"
+if [[ -n "$FROM_SOURCE" ]]; then
+	[[ -z "$VERSION" ]] || die "--version and --from-source exclude each other"
+	command -v go >/dev/null || die "go is not on the PATH: run this through mise (mise run quickstart)"
+else
+	command -v cosign >/dev/null ||
+		die "cosign, which verifies the release, is not on the PATH: run this through mise (mise run quickstart)"
+	[[ -z "$VERSION" || "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] ||
+		die "--version takes a release tag such as v0.1.0, not $VERSION"
+fi
 
 ORCHARD=""
 if [[ -z "$ORCHARD_URL" ]]; then
@@ -226,8 +243,47 @@ fi
 
 # --- The controller. ---
 
-say "building the controller"
-(cd "$HERE" && go build -o "$WORK/controller" ./cmd/bk-agent-stack-orchard)
+# install_release downloads one release of the controller, and runs nothing from it until its
+# signature and its checksum pass. The signature must come from the release workflow of this
+# repository at that tag, as scripts/verify-release.sh requires.
+install_release() {
+	local tag="$VERSION" dir="$WORK/release" archive
+	if [[ -z "$tag" ]]; then
+		# Every 0.x release is a GitHub pre-release, so the latest release of the API skips it.
+		tag="$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=30" |
+			jq -r '[.[] | select(.draft | not)][0].tag_name // empty')"
+		[[ -n "$tag" ]] || die "$REPO has published no release yet: use --from-source to build the
+  controller from this clone"
+	fi
+	archive="bk-agent-stack-orchard_${tag#v}_darwin_arm64.tar.gz"
+
+	say "downloading the controller $tag"
+	mkdir -p "$dir"
+	for file in "$archive" checksums.txt checksums.txt.sigstore.json; do
+		curl -fsSL --retry 3 -o "$dir/$file" "https://github.com/$REPO/releases/download/$tag/$file" ||
+			die "could not download $file of the release $tag: check that the release exists"
+	done
+
+	say "verifying the signature and the checksum of $tag"
+	cosign verify-blob \
+		--certificate-identity "https://github.com/$REPO/.github/workflows/release.yml@refs/tags/$tag" \
+		--certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+		--bundle "$dir/checksums.txt.sigstore.json" "$dir/checksums.txt" >/dev/null 2>&1 ||
+		die "the signature of checksums.txt of $tag is not one of the release workflow of $REPO: stopping"
+	(cd "$dir" && grep "  $archive\$" checksums.txt | shasum -a 256 -c - >/dev/null 2>&1) ||
+		die "$archive does not match checksums.txt of $tag: stopping"
+
+	tar -xzf "$dir/$archive" -C "$dir" bk-agent-stack-orchard
+	mv "$dir/bk-agent-stack-orchard" "$WORK/controller"
+	say "the controller is $tag, verified"
+}
+
+if [[ -n "$FROM_SOURCE" ]]; then
+	say "building the controller from this clone"
+	(cd "$HERE" && go build -o "$WORK/controller" ./cmd/bk-agent-stack-orchard)
+else
+	install_release
+fi
 
 match="{}"
 if [[ ${#MATCH[@]} -gt 0 ]]; then

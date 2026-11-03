@@ -23,7 +23,7 @@ You need:
   ```
 
   Set the bit again after each upgrade of Softnet.
-* **[mise](https://mise.jdx.dev)**. It installs Go, Orchard, and jq at the versions of this
+* **[mise](https://mise.jdx.dev)**. It installs Orchard, cosign, and jq at the versions of this
   repository.
 * **A Buildkite cluster.** In Buildkite:
   1. Open a cluster, or create one.
@@ -47,8 +47,11 @@ The command:
 1. Checks the Mac, Tart, Softnet, and the token, and stops with a message if one is missing.
 2. Pulls the image `ghcr.io/cirruslabs/macos-golden-gate-base:latest` into the Tart cache.
 3. Starts a local Orchard controller and one Orchard worker, which uses the Tart of your Mac.
-4. Builds and starts the controller, with one profile for the queue.
-5. Prints a pipeline step, then the log of the controller.
+4. Downloads the newest release of the controller for macOS. It checks the signature of the
+   release, which must come from the release workflow of this repository, and the checksum of the
+   archive. It stops if either check fails.
+5. Starts the controller, with one profile for the queue.
+6. Prints a pipeline step, then the log of the controller.
 
 ## Run a job
 
@@ -93,14 +96,18 @@ tart delete ghcr.io/cirruslabs/macos-golden-gate-base:latest
 | `--match KEY=VALUE` | none | A tag that a job must have besides the queue. Repeat it for more tags |
 | `--orchard-url URL` | a local Orchard | An Orchard that you run. Put its service account token in `BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN`, and a private CA in `BK_AGENT_STACK_ORCHARD_ORCHARD_CA_CERT` |
 | `--service-account NAME` | `bk-agent-stack-orchard` | The service account of `--orchard-url` |
+| `--version vX.Y.Z` | the newest published release | The release of the controller |
+| `--from-source` | off | Build the controller from your clone instead of a release. It needs Go, which `mise install` gives |
 
 ## When something goes wrong
 
 | What you see | What to do |
 |---|---|
+| `has published no release yet` | No release of the controller exists yet. Use `--from-source`. |
+| `the signature of checksums.txt … is not one of the release workflow` | The download is not a release of this project. Do not use it. Report it as [SECURITY.md](../../SECURITY.md) says. |
 | `something already answers on port 6120` | Another Orchard runs on this Mac. Stop it, or give its address with `--orchard-url`. |
 | `Softnet needs the set-user-ID bit` | Run the two commands that the message shows. |
-| The controller is not ready, and its log says that Buildkite refused the agent token | The token is not a cluster agent token, or the cluster has no queue of that name. |
+| The controller stops with `buildkite did not accept the agent token` | The token is not a cluster agent token. Create one for the cluster of the queue. |
 | The job stays `scheduled`, and the log says `the controller skips a job that no profile carries` | The tags of the job must be the queue and the `--match` tags, and no others. |
 | The job fails with `the image has "buildkite-agent version 3…"` | The profile uses the agent of the image. The quick start downloads the agent, so this happens only with your own configuration. |
 
