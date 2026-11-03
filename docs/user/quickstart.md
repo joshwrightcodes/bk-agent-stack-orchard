@@ -113,5 +113,7 @@ tart delete ghcr.io/cirruslabs/macos-golden-gate-base:latest
 
 ## Next steps
 
+* [How it works](how-it-works.md): the life of a job, profiles, and capacity.
 * [Install the controller](install.md) for a fleet: your Orchard, your Mac hosts, and your images.
+* [Troubleshooting](troubleshooting.md) when a job waits or fails.
 * [How the agent gets into each VM](install.md#the-agent-in-each-vm), and how to use a mirror.

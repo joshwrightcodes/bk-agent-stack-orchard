@@ -15,7 +15,9 @@ Checks:
   5. every line outside a table row or a fenced block is 100 characters or less;
   6. each ADR file name matches its title, and its status is a lifecycle value;
   7. no "ADR-0001 to ADR-NNNN" range stops below the highest ADR that exists;
-  8. the glossary lists every identifier family that this script knows, with its digits.
+  8. the glossary lists every identifier family that this script knows, with its digits;
+  9. the telemetry page names every metric, attribute, attribute value, and VM deletion reason
+     that the code defines.
 """
 
 from __future__ import annotations
@@ -32,6 +34,9 @@ STRATEGY = ROOT / "docs/quality/test-strategy.md"
 PLAN = ROOT / "docs/delivery/implementation-plan.md"
 ADR_DIR = ROOT / "docs/adrs"
 GLOSSARY = ROOT / "docs/glossary.md"
+TELEMETRY_PAGE = ROOT / "docs/user/telemetry.md"
+METRICS_CODE = ROOT / "internal/telemetry/metrics.go"
+REAPER_CODE = ROOT / "internal/reaper/decide.go"
 
 # Generated files. Their producer owns their shape.
 GENERATED = {ROOT / "docs/architecture/c4.md"}
@@ -232,6 +237,32 @@ def check_glossary_families() -> None:
                  f"the table of identifier families lists {prefix}-{listed[prefix]}, want {want}")
 
 
+def telemetry_names() -> set[str]:
+    """The names that an operator can query or see: metric and attribute names, the values of
+    the attributes, and the reasons of a VM deletion."""
+    names: set[str] = set()
+    if METRICS_CODE.exists():
+        code = read(METRICS_CODE)
+        prefix = re.search(r'^const prefix = "([^"]+)"', code, re.M)
+        if prefix:
+            names |= {prefix.group(1) + s for s in re.findall(r'prefix\s*\+\s*"([a-z_.]+)"', code)}
+        names |= set(re.findall(r'"(cicd\.[a-z_.]+)"', code))
+        names |= set(re.findall(r'^\s+\w+\s+(?:SlotState|VMPhase|WorkerState|JobPhase|Component|Source)'
+                                r'\s*=\s*"([a-z_]+)"', code, re.M))
+    if REAPER_CODE.exists():
+        names |= set(re.findall(r'^\s+Reason\w+\s*=\s*"([a-z_]+)"', read(REAPER_CODE), re.M))
+    return names
+
+
+def check_telemetry_page() -> None:
+    """The telemetry page is how an operator learns what to query, so a name that the code adds
+    and the page lacks is a name that nobody can find."""
+    page = read(TELEMETRY_PAGE) if TELEMETRY_PAGE.exists() else ""
+    for name in sorted(telemetry_names()):
+        if f"`{name}`" not in page:
+            fail(TELEMETRY_PAGE, None, f"does not name `{name}`, which the code defines")
+
+
 def main() -> int:
     defined = defined_identifiers()
     if not defined["PR"] or not defined["W"]:
@@ -246,6 +277,7 @@ def main() -> int:
     check_adr_ranges()
     check_adr_metadata()
     check_glossary_families()
+    check_telemetry_page()
 
     if errors:
         print(f"check-docs: {len(errors)} problem(s)\n", file=sys.stderr)
