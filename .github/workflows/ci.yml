@@ -1,7 +1,8 @@
 name: ci
 
-# The Go gates: the dependency rules, the linters, the tests, and the release artifacts. The
-# document gates live in docs.yml, and the title gate in title.yml.
+# The Go gates: the dependency rules, the linters, the tests, and the release artifacts, and the
+# linters of the scripts and the workflows. The document gates live in docs.yml, and the title
+# gate in title.yml.
 #
 # Each mise-action step pins the same mise as release.yml. The action checks the binary against
 # the signed checksums of the mise release, and Renovate moves every pin together.
@@ -54,6 +55,21 @@ jobs:
       - run: mise run lint-format
       - run: mise run lint-config
       - run: mise run test
+
+  scripts:
+    name: lint scripts
+    # shellcheck and shfmt for the shell scripts, ruff for the Python scripts, and actionlint and
+    # zizmor for the workflows (mise run lint-scripts).
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          version: 2026.10.24
+      - run: mise run lint-scripts
 
   vulnerabilities:
     name: known vulnerabilities
