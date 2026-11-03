@@ -4,13 +4,6 @@ This chart deploys the controller of bk-agent-stack-orchard on Kubernetes (targe
 section 11). It runs one replica, with the strategy `Recreate`, a ConfigMap for the configuration
 file, and a Secret that the operator creates before the install.
 
-## Conventions
-
-The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT",
-"RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be
-interpreted as described in BCP 14 [RFC 2119] [RFC 8174] when, and only when, they appear in
-all capitals, as shown here.
-
 ## The values
 
 `values.yaml` has a comment for each value. The table below groups them.
@@ -19,10 +12,10 @@ all capitals, as shown here.
 |---|---|
 | `image.repository`, `image.tag`, `image.digest`, `image.pullPolicy` | The image. The tag defaults to the `appVersion` of the chart, and a digest wins over the tag. |
 | `imagePullSecrets` | The Secrets that the kubelet uses to pull the image from a private registry. Each entry is `{name: <secret>}`. The default is empty. |
-| `config` | The configuration file of the controller (target design, section 8). It MUST NOT hold a secret. A change restarts the pod. |
+| `config` | The configuration file of the controller, as the [configuration reference](../../../docs/user/configuration.md) describes. It never holds a secret. A change restarts the pod. |
 | `secret.name` | The existing Secret whose keys are the environment variables of the tokens. The chart creates no Secret. |
 | `otel.endpoint`, `otel.protocol` | The export of the telemetry. Other SDK settings go in `extraEnv`. |
-| `extraEnv` | More environment variables. A variable that a profile sends to a VM MUST start with `VM_`. |
+| `extraEnv` | More environment variables. A variable that a profile sends to a VM starts with `VM_`. |
 | `resources` | The requests and limits of the container. |
 | `networkPolicy` | The egress destinations. See the section "The NetworkPolicy". |
 | `deploymentAnnotations`, `podAnnotations`, `podLabels` | Annotations of the Deployment, and annotations and labels of the pod. The selector labels of the chart win over a label of `podLabels` with the same key. |
@@ -73,7 +66,7 @@ A value that passes the schema can therefore still stop the controller. Read the
 when it does.
 
 CI runs `mise run check-deploy`. The task lints the chart with `ci/values.yaml` and each file in
-`ci/good/`, and it MUST fail if a file in `ci/bad/` lints clean or fails for a reason other than the
+`ci/good/`, and it fails if a file in `ci/bad/` lints clean or fails for a reason other than the
 schema. A change of the schema adds a bad file for the new rule. `.helmignore` keeps `ci/` out of
 the packaged chart.
 
@@ -184,9 +177,9 @@ cluster before the first production run, and check that the probes still reach t
 
 ## A change of the Secret
 
-The controller reads its environment only when it starts, and Kubernetes does not restart a pod
-when a Secret that it uses changes. After a change of a token or of another key of the Secret, the
-operator MUST restart the controller:
+The controller reads its environment only when it starts, and Kubernetes does not restart a pod when
+a Secret that it uses changes. After a change of a token or of another key of the Secret, restart
+the controller:
 
 ```sh
 kubectl rollout restart deployment/<release>-bk-agent-stack-orchard --namespace <namespace>

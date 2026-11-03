@@ -1,21 +1,14 @@
 # Runbook: replace the cluster agent token
 
 This runbook replaces the Buildkite cluster agent token of one controller. It follows the
-procedure of the target design, section 9.2, and the token review of T-141.
+procedure of the target design, section 9.2, and the regular review of the token.
 
 Do this procedure:
 
-* before the token expires. The `expires_at` of the token MUST be 90 days or less, so a
-  replacement is necessary at least each 90 days;
+* before the token expires. Give each token an `expires_at` of 90 days or less, so replace
+  it at least each 90 days;
 * when the token could be known to a person or a system that must not have it;
 * when the controller logs that Buildkite refused the agent token.
-
-## Conventions
-
-The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT",
-"RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be
-interpreted as described in BCP 14 [RFC 2119] [RFC 8174] when, and only when, they appear in
-all capitals, as shown here.
 
 ## Why the order is important
 
@@ -25,7 +18,7 @@ acquisition token. A revoked cluster agent token also stops each job acquisition
 issued. If the operator revokes the old token while a VM from before the restart exists, the agent
 in that VM loses its job or cannot acquire it. Revoke the old token last.
 
-The controller keeps no durable state. A restart does not change the result of a job (PR-010).
+The controller keeps no durable state. A restart does not change the result of a job.
 After the restart, the controller finds its VMs by name, and it extends every reservation at the
 first pass.
 
@@ -117,7 +110,7 @@ The old token stays valid until step 5, so a rollback is always possible before 
 
 ## After the replacement
 
-Record these values for the next review (T-141):
+Record these values for the next review:
 
 * the date of the replacement;
 * the `expires_at` of the new token;
@@ -125,7 +118,7 @@ Record these values for the next review (T-141):
 
 ## Verification
 
-Before the pilot, do this procedure one time against a Buildkite test cluster (W-18, W-24). Until
-then, the tests of this repository confirm only the part of the procedure that the controller
-controls. When the Stacks API returns HTTP 401, readiness fails and the log names the token
-(T-063).
+This procedure has run against a Buildkite test cluster with jobs in progress: the jobs completed,
+new jobs started with the new token, and Buildkite refused the old token. The tests of this
+repository also confirm the part that the controller controls: when the Stacks API returns HTTP
+401, readiness fails and the log names the token.
