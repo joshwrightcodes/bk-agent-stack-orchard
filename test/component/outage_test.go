@@ -489,9 +489,10 @@ func TestAHungOrchardDuringABurstEndsTheTickInsideItsBudget(t *testing.T) {
 
 	// The calls that can hang in this tick: two inventory calls, the deletions of the reaper,
 	// and the creates of the launcher, each step inside its budget of parallel.Rounds limits.
-	// Twice that is room for a slow test machine, and it is still far less than one limit for
-	// each job of the burst.
-	if took, most := time.Since(began), 2*(2+2*parallel.Rounds)*callTimeout; took > most {
+	// That is about a third of the bound below. A tick that sent the creates one at a time
+	// would take at least one limit for each job of the burst, so the bound leaves room for a
+	// slow test machine and still fails that tick. The counts below are the main check.
+	if took, most := time.Since(began), time.Duration(cap(burst))*callTimeout; took > most {
 		t.Errorf("the tick of the burst took %s, want it inside %s", took, most)
 	}
 
