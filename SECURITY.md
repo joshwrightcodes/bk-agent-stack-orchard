@@ -72,7 +72,8 @@ These are known, recorded, and accepted. They are not vulnerabilities in this pr
   each profile.
 * An Orchard account with the `compute:read` role can read the job acquisition token of a job
   VM, because the token is in the VM specification for the full life of the VM. The token opens
-  one job only, and it expires after a maximum of 30 minutes (target design, section 9.2). The
+  one job only. It ends when the reservation of its job ends, and it expires after a maximum of
+  30 minutes (target design, sections 3 and 9.1). The
   mitigation is to give `compute:read` to few accounts and to no build.
 * One compromised Mac host exposes the jobs of the whole fleet, and not only the jobs of that
   host. Each worker account has `compute:read`, because an Orchard worker needs it, and that role
@@ -84,10 +85,11 @@ These are known, recorded, and accepted. They are not vulnerabilities in this pr
   a job acquisition token, and
   [ADR-0008](docs/adrs/0008-use-a-dedicated-cluster-agent-token.md) requires it to include the
   egress of the job VMs, which is the egress of the hosts. A request from any host therefore
-  passes. The limits are that a token opens one job, and that it expires one minute after the
-  start timeouts of its profile (23 minutes with the defaults, and never more than
-  `jobTokenLifetime`, at most 30 minutes). The controls are a token for each host, so that the
-  operator revokes one host alone (runbook
+  passes. The limits are that a token opens one job, that it ends when the reservation of its job
+  ends, which the controller stops extending once the start of the VM fails, and that it expires
+  one minute after the start timeouts of its profile in any case (23 minutes with the defaults,
+  and never more than `jobTokenLifetime`, at most 30 minutes). The controls are a token for each
+  host, so that the operator revokes one host alone (runbook
   [`docs/user/runbooks/orchard-worker-accounts.md`](docs/user/runbooks/orchard-worker-accounts.md)),
   and the pf isolation of each host from its VMs. Orchard has no role narrower than
   `compute:read` for a worker. The residual risk remains while the job acquisition token is in the

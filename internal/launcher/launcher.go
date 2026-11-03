@@ -555,18 +555,30 @@ func (l *Launcher) tell(ctx context.Context, fresh []admission.Unmatched) error 
 }
 
 // lifetimeOf is how long the token of a job of the profile works: the time that the reaper gives
-// its machine to start, and profile.TokenMargin, inside the configured limit. A token that outlived the
-// start would be of no use to its machine, and could still take the job when the job went back to
-// the queue.
+// its machine to start, and profile.TokenMargin, inside the configured limit.
+//
+// The reservation of the job bounds the token already: Buildkite ends a token when the reservation
+// of its job expires, and a finish ends the job. The lifetime is a second bound, for the times
+// when the controller holds a reservation longer than the start of the machine needs, such as while
+// its snapshot of Orchard is stale, and for a Buildkite that did not end the token with the
+// reservation.
 func (l *Launcher) lifetimeOf(carrier profile.Profile) time.Duration {
 	return min(carrier.EffectiveTimeouts(l.defaults).StartSum()+profile.TokenMargin, l.lifetime)
 }
 
 // tokens gets one job acquisition token for each reserved job, in one call for each lifetime. A
 // call that fails ends the calls, and the tokens of the calls before it stay.
+//
+// The calls share the time budget of a step, as the creates do, so that the longest tick does not
+// grow with the number of profiles (target design, section 4). The calls are quick when Buildkite
+// answers, so every lifetime gets its call. When each call takes most of its limit, the budget
+// ends the later calls, and their jobs keep reservations that lapse.
 func (l *Launcher) tokens(ctx context.Context, wanted []admission.Candidate) (map[job.ID]secret.String, error) {
 	ctx, span := l.tracer.Start(ctx, "stacks.issue_token")
 	defer span.End()
+
+	ctx, cancel := context.WithTimeout(ctx, l.budget)
+	defer cancel()
 
 	var lifetimes []time.Duration
 

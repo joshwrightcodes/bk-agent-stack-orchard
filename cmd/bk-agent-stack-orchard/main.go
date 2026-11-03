@@ -210,8 +210,8 @@ func serve(ctx context.Context, path, origin string, out, problems io.Writer) er
 // livenessStall is how long the loop may go without progress before liveness fails and the
 // platform restarts the process. The loop makes progress when it starts and when a tick ends, so
 // the bound covers one whole tick. Each call to an API has a limit of 10 s, and the longest tick,
-// in which every call takes its whole limit, is 210 s (target design, section 4), so the bound is
-// more than four times that tick. A restart cures a loop that waits without an end, and not an
+// in which every call takes its whole limit, is 230 s (target design, section 4), so the bound is
+// more than three times that tick. A restart cures a loop that waits without an end, and not an
 // outage.
 const livenessStall = 15 * time.Minute
 

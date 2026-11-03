@@ -239,20 +239,25 @@ the read), two Inventory calls, one JobStates call, and one call for the progres
 try again inside the lead.
 
 The longest tick has every call take its whole limit and still answer. With the defaults it is
-210 s, which is 3.5 minutes:
+230 s, which is less than 4 minutes:
 
 | Part of the tick | Calls of 10 s | Time |
 |---|---|---|
 | Refresh: 3 pages of the poll, 2 Inventory calls, 1 JobStates call | 6 | 60 s |
 | Progress notices, and the extensions of the Reaper | 2 | 20 s |
 | Actions of the Reaper (their budget), then its notices | 3 + 1 | 40 s |
-| Reservation and tokens, creates of the Launcher (their budget), "VM requested" | 2 + 3 + 1 | 60 s |
+| Reservation, tokens (their budget), creates of the Launcher (their budget), "VM requested" | 1 + 3 + 3 + 1 | 80 s |
 | Skip notices, for at most 3000 unmatched jobs in requests of 1000 | 3 | 30 s |
-| Total | 21 | 210 s |
+| Total | 23 | 230 s |
 
 A notice request carries 1000 lines, so one request holds the notices of a fleet at the target
-scale. A tick this long can let a reservation lapse between two extensions, and row 6 and
-Admission then start the job again.
+scale. The Launcher makes one token call for each lifetime among the admitted jobs, and a profile
+has one lifetime, so the number of calls is at most the number of profiles (§6.4). The token calls
+of a tick share a budget of 3 call limits (`parallel.Rounds`), as the creates do, so the longest
+tick does not grow with the number of profiles. The calls are quick when Buildkite answers, so
+each lifetime gets its call. When every call takes most of its limit, the budget ends the later
+calls, and their jobs keep reservations that lapse. A tick this long can let a reservation lapse
+between two extensions, and row 6 and Admission then start the job again.
 
 An API that does not answer gives a shorter tick, because the first call that does not answer
 stops its step, and a notice request that does not answer stops the notice requests after it. In
@@ -260,7 +265,9 @@ the first tick in which both APIs hang, the calls before the extensions take 50 
 extensions 10 s. The Reaper takes 30 s: one round of actions, in which an action can wait for
 the events of Orchard and then for a finish, and one notice request. The Launcher, which still
 has fresh data, takes 20 s: the reservation and one notice request. That is 110 s, so the
-extensions of two such ticks are at most 110 s apart, inside the renewal lead.
+extensions of two such ticks are at most 110 s apart, inside the renewal lead. The token calls come
+after the extensions, and a reservation that does not answer ends the Launcher before them, so
+their number does not change these times.
 
 The loop MUST take the time of a tick from the one clock of the controller (§15), and not from
 the ticker. A ticker gives the time that a beat was due. After a tick that took longer than the
@@ -629,10 +636,19 @@ For the admitted jobs, the Launcher MUST do these steps:
 2. Send `POST job-acquisition-tokens` for the reserved jobs, in one call for each lifetime. The
    lifetime of the token of a job MUST be `unplaced + boot + acquire` of its profile and one
    minute, and MUST NOT be more than `jobTokenLifetime` (1800 s by default). With the default
-   timeouts it is 23 min. A token that outlived the start of its VM would be of no use to the VM,
-   and could still take the job when the job went back to the queue (§9.1). Skip the jobs in
-   `not_issued`. Their reservations expire. A call that fails ends the calls of the tick: the
-   jobs of the calls before it keep their tokens and get their VMs.
+   timeouts it is 23 min. Skip the jobs in `not_issued`. Their reservations expire. A call that
+   fails ends the calls of the tick: the jobs of the calls before it keep their tokens and get
+   their VMs. The calls MUST end inside a budget of 3 call limits (§4).
+
+   The reservation bounds the token in most cases already: Buildkite ends a token when the
+   reservation of its job expires (§3), a finish of rows 11 and 12 ends the job, and after row
+   10, or after a stop of the controller, the reservation lapses within `reservationExpiry`
+   (300 s). The lifetime of each token is a second bound for the cases in which the controller
+   holds the reservation longer than the start of the VM needs. While the Inventory data is
+   stale, row 13 extends the reservations of the VMs that start and no timeout applies (§7.1,
+   rule 3). After a restart, a VM whose tags name no profile of the configuration gets the widest
+   timeouts (§7.2). The lifetime also bounds the token if Buildkite does not end it with the
+   reservation, which the project has not tested (O-6 of the test strategy).
 3. Send `POST /v1/vms` for each job, with the specification below. The creates run at most 8 at
    a time, inside a budget of 3 call limits, and a create that finds Orchard not answering stops
    the creates that have not started (§4). The job of a create that did not start keeps its
@@ -1008,8 +1024,8 @@ natively (`grpc: {port, service}`).
 `liveness` serves while the process serves and its loop finishes its ticks. It does not depend
 on either API, because a restart cures nothing that an API causes. The loop records its progress
 when it starts, after the registration, and when each tick ends. `liveness` stops serving only
-when the loop has made no progress for 15 minutes. That is more than four times the longest tick
-of §4 (210 s), so only a tick that never ends fails it. A loop that waits without an end does
+when the loop has made no progress for 15 minutes. That is more than three times the longest tick
+of §4 (230 s), so only a tick that never ends fails it. A loop that waits without an end does
 nothing, and a restart cures it. While the controller registers its stack, before the loop
 starts, `liveness` serves.
 
@@ -1111,8 +1127,11 @@ The controller MUST treat all builds as untrusted (PR-030). Each VM MUST have th
 * The VM gets only a job acquisition token for its own job. The token lasts the start timeouts of
   its profile and one minute (23 min with the defaults), and never more than 30 minutes (1800 s):
   the controller refuses a longer `jobTokenLifetime` at start-up (§8). After the agent acquires
-  the job, the token has no use, and after the reaper gives up on the start of the VM, the token
-  expires within a minute.
+  the job, the token has no use. Buildkite ends the token when the reservation of its job
+  expires (§3). After the Reaper gives up on the start of a VM, it finishes the job (rows 11 and
+  12) or stops the extensions (row 10), so the reservation, and with it the token, ends within
+  `reservationExpiry` (300 s) at most. The lifetime of the token bounds it when the controller
+  holds a reservation for longer (§6.4).
 
 The cluster agent token and the Orchard credentials MUST NOT go into a VM.
 
