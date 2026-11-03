@@ -50,10 +50,13 @@ version in `Chart.yaml`. The pull request collects all changes until the maintai
    VM, so CI does not run the quick start.
 3. Merge the release pull request. release-please creates the tag and a draft release with the
    changelog.
-4. The tag starts the release workflow in the `release` environment. Check that the SHA of the tag
-   is the merge commit of the release pull request, and then approve the deployment. The workflow
-   builds and signs the artifacts, verifies the signatures and the assets, and then publishes the
-   release.
+4. The tag starts the release workflow in the `release` environment. Each of its two jobs waits
+   for an approval:
+   1. Check that the SHA of the tag is the merge commit of the release pull request. Then approve
+      the `build` job. It builds the archives and the image, and pushes the image and the chart.
+   2. When the `build` job passes, approve the `sign and publish` job. It signs the artifacts,
+      uploads them to the draft release, verifies the signatures and the assets, and then
+      publishes the release.
 
    release-please creates the draft release when the release pull request merges, before the
    workflow waits for the approval. For version 0.1.0, edit the notes of the draft release before
@@ -74,8 +77,8 @@ pull request. Remove it in the next pull request after the release.
 
 If the workflow fails before it publishes, the release stays a draft.
 
-* If the cause is outside the repository, for example an outage of Sigstore, run the workflow
-  again. It replaces the assets on the draft.
+* If the cause is outside the repository, for example an outage of Sigstore, run the failed jobs
+  again. The workflow replaces the assets on the draft.
 * If the cause needs a change in the repository, the version is lost, because the tag cannot move.
   Delete the draft, merge the correction, and release the next version.
 
