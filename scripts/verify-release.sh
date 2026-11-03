@@ -4,14 +4,21 @@
 # the SBOM of each platform image, and the chart in the registry.
 #
 # The release workflow runs this before it publishes the draft release, and an operator can run it
-# before a deployment. It needs cosign, docker with buildx, and jq. Each check requires a
+# before a deployment. It needs cosign, docker with buildx, jq, and curl. Each check requires a
 # certificate for the release workflow of this repository at this exact tag, from the OIDC issuer
-# of GitHub Actions.
+# of GitHub Actions, for the commit of the tag. That commit must be on main.
+#
+# The workflow file and its own "is the tag on main" check come from the tagged commit, so a tag on
+# another commit would give signatures that pass the identity checks. The certificate also names
+# the commit that the workflow ran on, and GitHub says whether main contains it. Neither comes from
+# the tagged commit.
 #
 # Usage: scripts/verify-release.sh <tag> [<directory with checksums.txt>]
 #
 # IMAGE_DIGEST and CHART_DIGEST, when set, are the digests that the release signed. The registry
 # tags must then give these digests. The release workflow sets them from build/release.env.
+# GH_TOKEN or GITHUB_TOKEN, when set, authenticates the calls to the GitHub API, which raises its
+# rate limit. Without a token the calls are anonymous, which works for this public repository.
 set -euo pipefail
 
 tag="${1:?usage: verify-release.sh <tag> [<directory>]}"
@@ -21,9 +28,42 @@ repo="joshwrightcodes/bk-agent-stack-orchard"
 image="ghcr.io/$repo"
 chart="ghcr.io/joshwrightcodes/charts/bk-agent-stack-orchard"
 
+die() {
+  echo "verify-release: $*" >&2
+  exit 1
+}
+
+# github_api PATH ACCEPT: one call to the GitHub API. A token travels in the configuration of curl
+# on standard input, never on its command line.
+github_api() {
+  local token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+  {
+    printf 'header = "Accept: %s"\n' "$2"
+    printf 'header = "X-GitHub-Api-Version: 2022-11-28"\n'
+    if [ -n "$token" ]; then
+      printf 'header = "Authorization: Bearer %s"\n' "$token"
+    fi
+  } | curl -fsS --retry 3 -K - "https://api.github.com/$1"
+}
+
+# The commit of the tag. Each certificate must name this commit (below), and main must contain it.
+commit="$(github_api "repos/$repo/commits/refs/tags/$tag" application/vnd.github.sha)" ||
+  die "could not get the commit of $tag from GitHub: check that the tag exists"
+[[ "$commit" =~ ^[0-9a-f]{40}$ ]] || die "GitHub gave no commit SHA for $tag: $commit"
+
+# "behind" or "identical": main contains the commit. "ahead" or "diverged": it does not.
+status="$(github_api "repos/$repo/compare/main...$commit?per_page=1" application/vnd.github+json |
+  jq -r '.status // empty')" || status=""
+case "$status" in
+  behind | identical) ;;
+  "") die "could not ask GitHub whether main contains $commit, the commit of $tag: stopping" ;;
+  *) die "$tag is the commit $commit, which is not on main ($status): do not use this release" ;;
+esac
+
 identity=(
   --certificate-identity "https://github.com/$repo/.github/workflows/release.yml@refs/tags/$tag"
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+  --certificate-github-workflow-sha "$commit"
 )
 
 if [ -n "$dir" ]; then
@@ -59,12 +99,20 @@ if [ -n "${IMAGE_DIGEST:-}" ] && [ "$index" != "$IMAGE_DIGEST" ]; then
   exit 1
 fi
 cosign verify "${identity[@]}" "$image@$index" > /dev/null
-docker buildx imagetools inspect "$image@$index" --raw |
-  jq -r '.manifests[] | select(.platform.os == "linux") | .digest' |
-  while read -r digest; do
-    cosign verify "${identity[@]}" "$image@$digest" > /dev/null
-    cosign verify-attestation "${identity[@]}" --type spdxjson "$image@$digest" > /dev/null
-  done
+# Exactly the two platforms of the release, because a loop over no platform checks nothing and
+# passes. No mapfile: an operator can run this with the bash of macOS (3.2).
+platforms='[.manifests[] | select(.platform.os == "linux")] | sort_by(.platform.architecture)
+  | if map(.platform.architecture) == ["amd64", "arm64"] then .[].digest
+    else error("got \(map("linux/" + .platform.architecture))") end'
+digests="$(docker buildx imagetools inspect "$image@$index" --raw | jq -r "$platforms")" ||
+  die "$image@$index must have exactly the platforms linux/amd64 and linux/arm64"
+verified=0
+for digest in $digests; do
+  cosign verify "${identity[@]}" "$image@$digest" > /dev/null
+  cosign verify-attestation "${identity[@]}" --type spdxjson "$image@$digest" > /dev/null
+  verified=$((verified + 1))
+done
+[ "$verified" = "2" ] || die "verified $verified platform images of $image@$index, and want 2"
 
 # The chart is an OCI artifact, not an image, so cosign resolves its tag. The signed payload names
 # the digest that the signature covers.
@@ -74,5 +122,7 @@ if [ -n "${CHART_DIGEST:-}" ] && [ "$chart_digest" != "$CHART_DIGEST" ]; then
   echo "verify-release: $chart:$version is $chart_digest, and the release signed $CHART_DIGEST" >&2
   exit 1
 fi
+[[ "$chart_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die "the signature of $chart:$version names no digest"
 
-echo "verify-release: $tag is signed by the release workflow of $repo"
+echo "verify-release: $tag is commit $commit on main, signed by the release workflow of $repo"
+echo "verify-release: install the chart by its digest: oci://$chart@$chart_digest"
