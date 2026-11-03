@@ -14,8 +14,9 @@ put more than 3000 such jobs at the head of the queue, and every job behind them
 The fleet then stays idle for every pipeline of the queue. The decision is to read 2 pages from
 the head and 1 page from a sweep. The sweep moves through the rest of the list, one page in each
 tick, and starts again after the head at the end of the list. A read still makes at most 3 list
-requests. A longer flood makes a job behind it wait longer, but it cannot hide the job. The cost
-is that a job behind the head is in one read of each sweep, not in every read.
+requests. A longer flood makes a job behind it wait longer. If Buildkite accepts a cursor from an
+earlier tick, the flood cannot hide the job (see Consequences). The cost is that a job behind the
+head is in one read of each sweep, not in every read.
 
 ## Context
 
@@ -42,11 +43,12 @@ a warning existed, but no alert used them, and nothing recovered without a perso
 Goals:
 
 * **No hidden job.** A job behind any number of jobs that never leave the list reaches admission
-  in a time that grows with the length of the list, and never stops.
+  in a time that grows with the length of the list, and never stops, if Buildkite accepts a
+  cursor from an earlier tick (see Consequences).
 * **A fixed cost.** One read makes at most 3 list requests, whatever the length of the queue, so
   the rate limit and the time budget of a tick hold.
 * **No gain from a longer flood.** More jobs at the head can make a job wait longer, but cannot
-  hide it.
+  hide it, with the same condition on the cursor.
 * **The same whole listing.** The launcher forgets notified jobs only after a whole listing. The
   meaning of a whole listing does not change.
 * **A clear signal.** An operator learns that the queue is longer than one read, and which
@@ -118,8 +120,9 @@ does with an unmatched job.
 
 Good:
 
-* No number of jobs at the head can hide a job behind them. With a tick of 1 s, a job behind N
-  jobs reaches a read in about (N − 2000) / 1000 s.
+* If Buildkite accepts a cursor from an earlier tick, no number of jobs at the head can hide a
+  job behind them. With a tick of 1 s, a job behind N jobs reaches a read in about
+  (N − 2000) / 1000 s.
 * A read makes at most 3 list requests, as before, so the rate limit and the time budget of a
   tick do not change.
 * A queue of up to 3000 jobs gives the same read as before: 3 pages in sequence, which is a whole

@@ -1343,7 +1343,7 @@ scope, because they depend on the backend behind the collector.
 | Controller is not ready | `bkaso.source.staleness` of a source rises and stays high. | The controller has no fresh answer from Buildkite or Orchard, so it starts no VM (§7.5). |
 | Controller fails jobs | `bkaso.job.failed` keeps increasing. | VMs fail, or time out before an agent takes the job. |
 | Timeouts repeat | `bkaso.vm.deletions{bkaso.vm.delete.reason=~".*_timeout"}` keeps increasing. | VMs do not place, boot, or reach an agent within the timeouts of their profile (§7.3). |
-| VMs remain | `bkaso.vm.leftover` stays above 0 for longer than the window of 10 ticks (§10.1), across more than one export. Outages of Buildkite excluded. | The Reaper does not delete the VMs of ended jobs. |
+| VMs remain | `bkaso.vm.leftover` rises and stays high. Outages of Buildkite excluded. | The Reaper does not delete the VMs of ended jobs. A VM that stays in the count for longer than the window of §10.1 is a leak. |
 | Orphans exist | `bkaso.vm.deletions{bkaso.vm.delete.reason="orphan"}` increases. | A VM with the name prefix of this controller has no job. Two controllers can share a `controllerID` (§11). |
 | Fleet is full | `bkaso.slot.count{bkaso.slot.state="free"}` stays at 0. | Every slot is in use, so new jobs wait. |
 | Queue is longer than one read | `bkaso.queue.truncated` keeps increasing. | Jobs behind the head of the queue wait for the sweep (§6.3). The usual cause is a flood of jobs that no profile carries. The warning of the read names the pipeline that has the most jobs of the read. |

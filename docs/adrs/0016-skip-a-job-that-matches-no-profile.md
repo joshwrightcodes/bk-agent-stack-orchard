@@ -125,8 +125,15 @@ Bad:
 * After a restart, the controller can write a second notification for a job.
 * Another agent or stack on the queue runs untrusted macOS builds as well. ADR-0004 binds the VMs
   of this fleet only. The operator decides the isolation of each other runner of the queue.
-* The free slots and the waiting jobs that this controller reports cover only its own workers and
-  the jobs that its profiles carry. They do not show the capacity of the other runners.
+* The waiting jobs that this controller reports cover only the jobs that its profiles carry. The
+  free slots that it reports (`bkaso.slot.count`) cover every online worker that Orchard returns,
+  and not only the workers that its profiles select. The metric splits them by the `pool` label
+  of the worker only. Controllers that share one Orchard MUST use disjoint worker pools (§11 of
+  the target design). If their workers also have different `pool` values, an alert can select
+  the pools of one controller with `bkaso.pool`. If they do not, the free slots of the workers of
+  another stack can keep the alert "Fleet is full" (§10.6 of the target design) silent while the
+  workers of this controller are full. The metric does not show the capacity of runners outside
+  this Orchard.
 
 ## Confirmation
 
