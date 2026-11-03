@@ -140,7 +140,7 @@ run = [
 ]
 
 [tasks.check-deps]
-description = "Check the dependency and licence rules of go.mod"
+description = "Check that the Orchard and Tart pins agree, and the licence copies of the chart"
 run = "python3 scripts/check-deps.py"
 
 [tasks.lint]
