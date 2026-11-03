@@ -53,6 +53,22 @@ jobs:
       - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
           version: 2026.10.24
+      # The modules and the build cache of Go, from the last run of this job on main. A pull request
+      # only reads them, so its code cannot change what main builds with.
+      - name: find the go caches
+        id: go-cache
+        run: |
+          echo "modules=$(mise x -- go env GOMODCACHE)" >>"$GITHUB_OUTPUT"
+          echo "build=$(mise x -- go env GOCACHE)" >>"$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.modules }}
+            ${{ steps.go-cache.outputs.build }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.sum') }}-
+            go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
       - run: mise run check-deps
       - run: mise run check-tidy
 
@@ -97,6 +113,14 @@ jobs:
         with:
           sarif_file: build/sarif/golangci-lint.sarif
           category: golangci-lint
+      - name: save the go caches
+        if: github.event_name == 'push'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.modules }}
+            ${{ steps.go-cache.outputs.build }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
 
   scripts:
     name: lint scripts
@@ -124,8 +148,9 @@ jobs:
 
       # The SARIF reports run after a failed gate too, and their result does not change the result
       # of the job. lint-scripts above is the gate.
+      # The reports exist only for the upload, so a run that cannot upload does not write them.
       - name: write the SARIF reports
-        if: always()
+        if: always() && env.SARIF_UPLOAD == 'true'
         continue-on-error: true
         run: mise run sarif-scripts
       - name: upload the ruff findings
@@ -164,20 +189,39 @@ jobs:
       - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
           version: 2026.10.24
-      - run: mise run vuln
-      # govulncheck exits 0 with SARIF output, also when it finds a vulnerability, so mise run vuln
-      # above stays the gate. The SARIF report runs after a failed gate too, and its result does
-      # not change the result of the job.
-      - name: write the SARIF report
-        if: always()
-        continue-on-error: true
-        run: mise run sarif-vuln
+      # The modules and the build cache of Go, from the last run of this job on main. A pull request
+      # only reads them, so its code cannot change what main builds with.
+      - name: find the go caches
+        id: go-cache
+        run: |
+          echo "modules=$(mise x -- go env GOMODCACHE)" >>"$GITHUB_OUTPUT"
+          echo "build=$(mise x -- go env GOCACHE)" >>"$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.modules }}
+            ${{ steps.go-cache.outputs.build }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.sum') }}-
+            go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
+      # One run of govulncheck writes the SARIF report and is the gate: it fails on each finding of
+      # level error, which is a vulnerability that the code calls.
+      - run: mise run sarif-vuln
       - name: upload the govulncheck findings
         if: always() && env.SARIF_UPLOAD == 'true' && hashFiles('build/sarif/govulncheck.sarif') != ''
         uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           sarif_file: build/sarif/govulncheck.sarif
           category: govulncheck
+      - name: save the go caches
+        if: github.event_name == 'push'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.modules }}
+            ${{ steps.go-cache.outputs.build }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
 
   deploy:
     name: deploy manifests
@@ -210,7 +254,31 @@ jobs:
       - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
           version: 2026.10.24
+      # The modules and the build cache of Go, from the last run of this job on main. A pull request
+      # only reads them, so its code cannot change what main builds with.
+      - name: find the go caches
+        id: go-cache
+        run: |
+          echo "modules=$(mise x -- go env GOMODCACHE)" >>"$GITHUB_OUTPUT"
+          echo "build=$(mise x -- go env GOCACHE)" >>"$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.modules }}
+            ${{ steps.go-cache.outputs.build }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.sum') }}-
+            go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
       - run: mise run smoke
+      - name: save the go caches
+        if: github.event_name == 'push'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.modules }}
+            ${{ steps.go-cache.outputs.build }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
 
   integration:
     name: integration tests
@@ -236,10 +304,34 @@ jobs:
       - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
           version: 2026.10.24
+      # The modules and the build cache of Go, from the last run of this job on main. A pull request
+      # only reads them, so its code cannot change what main builds with.
+      - name: find the go caches
+        id: go-cache
+        run: |
+          echo "modules=$(mise x -- go env GOMODCACHE)" >>"$GITHUB_OUTPUT"
+          echo "build=$(mise x -- go env GOCACHE)" >>"$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.modules }}
+            ${{ steps.go-cache.outputs.build }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.sum') }}-
+            go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
       - run: mise run integration
       # The VM startup script runs in a macOS guest, so its tests run here, under the sh and zsh
       # of macOS. CI=true makes a missing shell fail the test.
       - run: mise run test-startup-script
+      - name: save the go caches
+        if: github.event_name == 'push'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.modules }}
+            ${{ steps.go-cache.outputs.build }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
 
   release:
     name: snapshot release
@@ -254,4 +346,28 @@ jobs:
       - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
           version: 2026.10.24
+      # The modules and the build cache of Go, from the last run of this job on main. A pull request
+      # only reads them, so its code cannot change what main builds with.
+      - name: find the go caches
+        id: go-cache
+        run: |
+          echo "modules=$(mise x -- go env GOMODCACHE)" >>"$GITHUB_OUTPUT"
+          echo "build=$(mise x -- go env GOCACHE)" >>"$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.modules }}
+            ${{ steps.go-cache.outputs.build }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.sum') }}-
+            go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
       - run: mise run snapshot
+      - name: save the go caches
+        if: github.event_name == 'push'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.modules }}
+            ${{ steps.go-cache.outputs.build }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.sha }}

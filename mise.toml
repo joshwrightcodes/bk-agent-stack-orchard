@@ -415,8 +415,22 @@ description = "Run the Go tests with the race detector and coverage, and fail be
 run = "./scripts/coverage.sh"
 
 [tasks.sarif-vuln]
-description = "Write the govulncheck findings as SARIF to build/sarif, for code scanning"
-run = "mkdir -p build/sarif && govulncheck -format sarif ./... >build/sarif/govulncheck.sarif"
+description = "Write the govulncheck findings as SARIF to build/sarif, and fail on a vulnerability that the code calls"
+# With SARIF output, govulncheck exits 0 whatever it finds. It gives level error to a vulnerability
+# that the code calls, which is what its text output fails on, and warning or note to one that the
+# code only imports or requires. The task fails on the first kind, as mise run vuln does.
+run = '''
+set -eu
+mkdir -p build/sarif
+govulncheck -format sarif ./... >build/sarif/govulncheck.sarif
+called=$(jq '[.runs[].results[] | select(.level == "error")] | length' build/sarif/govulncheck.sarif)
+if [ "$called" -gt 0 ]; then
+  echo "govulncheck: the code calls $called known vulnerabilities:" >&2
+  jq -r '.runs[].results[] | select(.level == "error") | "  \(.ruleId): \(.message.text)"' build/sarif/govulncheck.sarif >&2
+  exit 3
+fi
+echo "govulncheck: the code calls no known vulnerability"
+'''
 
 [tasks.sarif-scripts]
 description = "Write the ruff, actionlint, and zizmor findings as SARIF to build/sarif, for code scanning"
