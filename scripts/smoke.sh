@@ -218,14 +218,21 @@ vms="$(<"$WORK/vms.json")"
 # The list is an array, or null when Orchard has no machine and encodes the empty list as null.
 jq -e 'type == "array" or . == null' <<<"$vms" >/dev/null || die "the machine list of orchard is not a JSON array"
 
-# The runbooks list and delete workers with the operator account. This call proves that the Job
-# gave that account the roles of those calls.
-code="$(printf 'user = "operator:%s"\n' "$operator_token" |
-	curl -s -K - --cacert "$WORK/ca.crt" -o /dev/null -w '%{http_code}' \
-		--connect-to orchard.orchard.svc:6120:127.0.0.1:16120 \
-		https://orchard.orchard.svc:6120/v1/workers)" || code=000
+# The runbooks list and delete workers with the operator account. These two calls prove that the
+# Job gave that account the roles of those calls: compute:read for the list, and compute:write for
+# the delete. Orchard 0.58.0 checks the role before it looks for the worker, and it deletes a
+# worker that does not exist with no error. A delete of a name that no worker has therefore
+# answers 200 with compute:write, and 401 without it (deleteWorker and authorizeBase of
+# internal/controller, and genericDelete of internal/controller/store/badger, at the tag 0.58.0).
+# Smoke registers no worker, so the delete changes nothing.
+for call in "GET /v1/workers" "DELETE /v1/workers/smoke-absent-worker"; do
+	code="$(printf 'user = "operator:%s"\n' "$operator_token" |
+		curl -s -K - --cacert "$WORK/ca.crt" -o /dev/null -w '%{http_code}' -X "${call%% *}" \
+			--connect-to orchard.orchard.svc:6120:127.0.0.1:16120 \
+			"https://orchard.orchard.svc:6120${call#* }")" || code=000
 
-[[ "$code" == 200 ]] || die "orchard answered the worker list of the operator account with the status $code"
+	[[ "$code" == 200 ]] || die "orchard answered $call of the operator account with the status $code"
+done
 
 for source in "controller log:$controller_log" "collector output:$collector_log" \
 	"machine list of orchard:$vms"; do
