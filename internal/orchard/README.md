@@ -90,9 +90,9 @@ ADR-0010 and ADR-0015, and the client then becomes their package with a pinned v
 
 ## Running the generator
 
-The generator reads the upstream source through the GitHub API, which limits an anonymous caller
-to sixty calls each hour. A local run therefore uses a token, and CI gives one to the job:
+The generator reads the tags of Orchard from the reference list that git reads before a clone,
+and each source file at the pinned commit from `raw.githubusercontent.com`:
 
 ```sh
-GITHUB_TOKEN=$(gh auth token) mise run generate
+mise run generate
 ```
