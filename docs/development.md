@@ -347,7 +347,9 @@ configuration goes through the real configuration loader. A drawn input that the
 fails the sequence, and the suite never repairs it.
 
 After each event the suite checks the invariants I-1, I-2, I-5, and I-8. At the end of each
-sequence it checks I-6.
+sequence it checks I-6. The creates of one tick reach Orchard in any order, so the suite checks
+the room of I-2 once for each tick, after its last create. The order of the goroutines decides
+nothing in the fakes, so rapid can replay a sequence.
 
 Beside the random sequences, the suite runs the outages of the target design, section 7.5, as
 scenarios on the same fakes (T-024). Buildkite, Orchard, or only the job states are not available.

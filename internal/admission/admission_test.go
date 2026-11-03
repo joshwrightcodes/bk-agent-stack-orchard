@@ -608,3 +608,45 @@ func TestAHeldJobWithNoMachineTakesNoRoom(t *testing.T) {
 		}
 	}
 }
+
+// The decision is a pure function (target design, section 12): the same observation gives the
+// same jobs. The machines that this process asked for take their room one after another, on the
+// first worker with room, so their order decides what is left. Here the 8-core machine first
+// leaves room for the candidate, and the 28 GiB machine first does not.
+func TestTheMachinesThatThisProcessAskedForTakeTheirRoomInAFixedOrder(t *testing.T) {
+	t.Parallel()
+
+	small := profile.Profile{Name: "small", Match: map[string]string{"xcode": "26"}, CPU: 8, MemoryMiB: 6144}
+	large := profile.Profile{Name: "large", Match: map[string]string{"xcode": "25"}, CPU: 6, MemoryMiB: 28672}
+
+	slots := func(name string, cores, memoryMiB uint64) orchard.Worker {
+		w := worker(name, nil)
+		w.Resources[orchard.ResourceCores] = cores
+		w.Resources[orchard.ResourceMemoryMiB] = memoryMiB
+
+		return w
+	}
+
+	ids := identifiers(3)
+	fleet := inventory.Snapshot{
+		Workers: []orchard.Worker{slots("mac-01", 16, 32768), slots("mac-02", 8, 65536)},
+		At:      now,
+	}
+
+	candidate := waiting(ids[2], 0, time.Minute)
+	candidate.Rules = []string{"queue=macos-prod", "xcode=26"}
+
+	settings := request([]buildkite.ScheduledJob{candidate}, fleet)
+	settings.Profiles = []profile.Profile{pilot, small, large}
+	settings.MaxInFlight = 10
+	settings.Held = map[job.ID]string{job.ID(ids[0]): small.Name, job.ID(ids[1]): large.Name}
+
+	// In the order of the jobs, the small machine takes mac-01, the large one mac-02, and mac-01
+	// keeps 8 cores and 26 GiB for the candidate.
+	for range 100 {
+		if result := admission.Decide(settings); len(result.Admit) != 1 {
+			t.Fatalf("admission started %d jobs, want the candidate in the room that the machines "+
+				"on their way leave in the order of their jobs", len(result.Admit))
+		}
+	}
+}
