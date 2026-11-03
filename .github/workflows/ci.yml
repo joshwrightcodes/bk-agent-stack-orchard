@@ -39,6 +39,7 @@ jobs:
         with:
           version: 2026.10.24
       - run: mise run check-deps
+      - run: mise run check-tidy
 
       # The analysis runs through the action, which turns each finding into an annotation on the
       # changed line. install-mode "none" uses the golangci-lint that mise installed, so

@@ -292,7 +292,7 @@ run = "./scripts/licenses.sh"
 [tasks.check]
 description = "Run every gate that this repository has"
 depends = ["check-docs", "check-commits", "check-c4", "check-deps", "check-deploy", "lint",
-           "lint-format", "lint-config", "test", "lint-scripts"]
+           "lint-format", "lint-config", "test", "lint-scripts", "check-tidy"]
 
 # ci differs from check. check is the gate before a pull request: it holds the checks of the
 # repository, and it needs Docker for check-c4. ci runs what the required jobs of CI run, so a
@@ -312,7 +312,7 @@ run = [{ task = "check-generate" }, { task = "ci-checks" }]
 description = "Run the checks of ci in parallel, after check-generate (use mise run ci)"
 depends = ["check-docs", "check-commits", "test-scripts", "check-deps", "lint", "lint-format",
            "lint-config", "test", "vuln", "check-deploy", "check-hook", "check-hosts",
-           "integration", "test-startup-script", "ci-docker", "lint-scripts"]
+           "integration", "test-startup-script", "ci-docker", "lint-scripts", "check-tidy"]
 
 [tasks.ci-docker]
 description = "Run the CI jobs that need Docker: c4 model, Orchard image, smoke deployment, snapshot"
@@ -388,3 +388,7 @@ actionlint
 # --offline runs the audits that work without the GitHub API.
 zizmor --offline .github/workflows
 '''
+
+[tasks.check-tidy]
+description = "Fail when go.mod or go.sum differs from what go mod tidy writes"
+run = "go mod tidy -diff"
