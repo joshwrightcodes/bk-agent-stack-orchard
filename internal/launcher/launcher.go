@@ -22,6 +22,7 @@ import (
 	"slices"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 
@@ -335,15 +336,16 @@ func (l *Launcher) Extend(ctx context.Context, ids []job.ID) error {
 		return nil
 	}
 
-	ctx, span := l.tracer.Start(ctx, "stacks.reserve")
-	defer span.End()
+	spans := telemetry.StartJobs(ctx, l.tracer, ids, "stacks.reserve",
+		trace.WithAttributes(attribute.Bool(telemetry.SpanExtension, true)))
+	defer spans.End()
 
 	// The end counts from the send, for the reason that reserve gives.
 	sent := l.now()
 
 	answer, err := l.stacks.Reserve(ctx, ids, l.expiry)
 	if err != nil {
-		telemetry.Fail(span, err)
+		spans.Fail(err)
 
 		return fmt.Errorf("extending %d reservations: %w", len(ids), err)
 	}
@@ -352,12 +354,14 @@ func (l *Launcher) Extend(ctx context.Context, ids []job.ID) error {
 
 	for _, id := range answer.Reserved {
 		l.held.reserved(id, until, sent)
+		spans.Span(id).SetAttributes(attribute.Bool(telemetry.SpanReserved, true))
 	}
 
 	for _, id := range answer.NotReserved {
 		l.held.refused(id, sent)
-		l.logger.WarnContext(ctx, "buildkite did not extend the reservation of this job, so "+
-			"the reaper removes its machine without a finish",
+		spans.Span(id).SetAttributes(attribute.Bool(telemetry.SpanReserved, false))
+		l.logger.WarnContext(spans.Context(ctx, id), "buildkite did not extend the reservation of "+
+			"this job, so the reaper removes its machine without a finish",
 			telemetry.LogJob, string(id))
 	}
 
@@ -373,14 +377,14 @@ func (l *Launcher) RefusedAt(id job.ID) time.Time {
 
 // reserve holds every admitted job, in one call.
 func (l *Launcher) reserve(ctx context.Context, admit []admission.Candidate) (map[job.ID]bool, error) {
-	ctx, span := l.tracer.Start(ctx, "stacks.reserve")
-	defer span.End()
-
 	ids := make([]job.ID, 0, len(admit))
 
 	for _, candidate := range admit {
 		ids = append(ids, candidate.Job.ID)
 	}
+
+	spans := telemetry.StartJobs(ctx, l.tracer, ids, "stacks.reserve")
+	defer spans.End()
 
 	// The reservation starts when Buildkite handles the call, which is after the call leaves. An
 	// end counted from the send is therefore never later than the true end, so the renewal comes
@@ -390,7 +394,7 @@ func (l *Launcher) reserve(ctx context.Context, admit []admission.Candidate) (ma
 
 	answer, err := l.stacks.Reserve(ctx, ids, l.expiry)
 	if err != nil {
-		telemetry.Fail(span, err)
+		spans.Fail(err)
 
 		return nil, fmt.Errorf("reserving %d jobs: %w", len(ids), err)
 	}
@@ -402,6 +406,7 @@ func (l *Launcher) reserve(ctx context.Context, admit []admission.Candidate) (ma
 		taken[id] = true
 
 		l.held.reserved(id, until, sent)
+		spans.Span(id).SetAttributes(attribute.Bool(telemetry.SpanReserved, true))
 	}
 
 	// The first phase of a job ends with its reservation. The later phases are what the progress
@@ -418,7 +423,8 @@ func (l *Launcher) reserve(ctx context.Context, admit []admission.Candidate) (ma
 
 	// A job that another stack holds is normal: every stack of the queue reads the same list.
 	for _, id := range answer.NotReserved {
-		l.logger.DebugContext(ctx, "another stack holds this job",
+		spans.Span(id).SetAttributes(attribute.Bool(telemetry.SpanReserved, false))
+		l.logger.DebugContext(spans.Context(ctx, id), "another stack holds this job",
 			telemetry.LogJob, string(id))
 	}
 
@@ -519,17 +525,19 @@ func (l *Launcher) tell(ctx context.Context, fresh []admission.Unmatched) error 
 	ctx, cancel := context.WithTimeout(ctx, notifyTimeout)
 	defer cancel()
 
-	ctx, span := l.tracer.Start(ctx, "stacks.notify_skipped")
-	defer span.End()
-
 	at := l.now()
 	lines := make([]buildkite.Notification, 0, len(fresh))
+	ids := make([]job.ID, 0, len(fresh))
 
 	for _, entry := range fresh {
 		lines = append(lines, buildkite.Notification{
 			JobID: entry.Job.ID, Detail: entry.Summary(), At: at,
 		})
+		ids = append(ids, entry.Job.ID)
 	}
+
+	spans := telemetry.StartJobs(ctx, l.tracer, ids, "stacks.notify_skipped")
+	defer spans.End()
 
 	refused := map[int]bool{}
 
@@ -537,7 +545,7 @@ func (l *Launcher) tell(ctx context.Context, fresh []admission.Unmatched) error 
 		var partial *buildkite.RefusedError
 
 		if !errors.As(err, &partial) {
-			telemetry.Fail(span, err)
+			spans.Fail(err)
 
 			return err
 		}
@@ -558,15 +566,18 @@ func (l *Launcher) tell(ctx context.Context, fresh []admission.Unmatched) error 
 
 	for index, entry := range fresh {
 		if refused[index] {
+			spans.Span(entry.Job.ID).SetAttributes(attribute.Bool(telemetry.SpanRefused, true))
+
 			continue
 		}
 
 		l.see(entry.Job.ID)
 		l.metrics.Skipped(ctx)
-		l.logger.InfoContext(ctx, "the controller skips a job that no profile carries",
+		l.logger.InfoContext(spans.Context(ctx, entry.Job.ID),
+			"the controller skips a job that no profile carries",
 			telemetry.LogJob, string(entry.Job.ID),
 			telemetry.LogPipeline, entry.Job.Pipeline,
-			"reason", entry.Reason())
+			telemetry.SpanMismatch, entry.Reason())
 	}
 
 	return nil
@@ -600,9 +611,6 @@ func (l *Launcher) lifetimeOf(carrier profile.Profile) time.Duration {
 // answers, so every lifetime gets its call. When each call takes most of its limit, the budget
 // ends the later calls, and their jobs keep reservations that lapse.
 func (l *Launcher) tokens(ctx context.Context, wanted []admission.Candidate) (map[job.ID]secret.String, error) {
-	ctx, span := l.tracer.Start(ctx, "stacks.issue_token")
-	defer span.End()
-
 	ctx, cancel := context.WithTimeout(ctx, l.budget)
 	defer cancel()
 
@@ -622,38 +630,60 @@ func (l *Launcher) tokens(ctx context.Context, wanted []admission.Candidate) (ma
 	issued := make(map[job.ID]secret.String, len(wanted))
 
 	for _, lifetime := range lifetimes {
-		ids := groups[lifetime]
-
-		// A token starts to expire when Buildkite handles the call, which is after the call
-		// leaves. A time taken from the send is therefore never later than the issue, so the
-		// unplaced timeout that counts from it ends inside the token (target design, section 7.3).
-		sent := l.now()
-
-		answer, err := l.stacks.Tokens(ctx, ids, lifetime)
+		got, err := l.issue(ctx, groups[lifetime], lifetime, issued)
 		if err != nil {
-			telemetry.Fail(span, err)
-
-			return issued, fmt.Errorf("getting the tokens of %d jobs: %w", len(ids), err)
+			return issued, err
 		}
 
-		got := make([]job.ID, 0, len(answer.Issued))
-
-		for _, token := range answer.Issued {
-			issued[token.JobID] = token.Token
-			got = append(got, token.JobID)
-		}
-
-		l.held.tokened(got, sent)
-
-		// A job with no token gets no machine. Its reservation expires by itself, and admission
-		// meets the job again at a later tick.
-		for _, id := range answer.NotIssued {
-			l.logger.WarnContext(ctx, "buildkite issued no token for this job",
-				telemetry.LogJob, string(id))
-		}
+		l.held.tokened(got.ids, got.sent)
 	}
 
 	return issued, nil
+}
+
+// sending is the jobs that one token call got tokens for, and when the call left.
+type sending struct {
+	ids  []job.ID
+	sent time.Time
+}
+
+// issue makes one token call for jobs of one lifetime, and adds the tokens that it got to issued.
+// Each job has a span of the call in its own trace.
+func (l *Launcher) issue(ctx context.Context, ids []job.ID, lifetime time.Duration,
+	issued map[job.ID]secret.String,
+) (sending, error) {
+	spans := telemetry.StartJobs(ctx, l.tracer, ids, "stacks.issue_token")
+	defer spans.End()
+
+	// A token starts to expire when Buildkite handles the call, which is after the call leaves. A
+	// time taken from the send is therefore never later than the issue, so the unplaced timeout
+	// that counts from it ends inside the token (target design, section 7.3).
+	sent := l.now()
+
+	answer, err := l.stacks.Tokens(ctx, ids, lifetime)
+	if err != nil {
+		spans.Fail(err)
+
+		return sending{}, fmt.Errorf("getting the tokens of %d jobs: %w", len(ids), err)
+	}
+
+	got := sending{ids: make([]job.ID, 0, len(answer.Issued)), sent: sent}
+
+	for _, token := range answer.Issued {
+		issued[token.JobID] = token.Token
+		got.ids = append(got.ids, token.JobID)
+		spans.Span(token.JobID).SetAttributes(attribute.Bool(telemetry.SpanTokenIssued, true))
+	}
+
+	// A job with no token gets no machine. Its reservation expires by itself, and admission meets
+	// the job again at a later tick.
+	for _, id := range answer.NotIssued {
+		spans.Span(id).SetAttributes(attribute.Bool(telemetry.SpanTokenIssued, false))
+		l.logger.WarnContext(spans.Context(ctx, id), "buildkite issued no token for this job",
+			telemetry.LogJob, string(id))
+	}
+
+	return got, nil
 }
 
 // create asks Orchard for the machine of each job that has a token.

@@ -1362,16 +1362,27 @@ real VMs; the attribute is added when they show a pull.
   Because of this, all spans of a job are in one trace, also after controller restarts. A person
   can find the trace from the job UUID.
 * **Spans:** `job.match`, `job.admit`, `stacks.reserve`, `stacks.issue_token`,
-  `orchard.vm.create`, `reaper.decide` (attributes `bkaso.vm.phase`, `bkaso.job.state`,
-  `bkaso.reaper.decision`, `bkaso.reaper.reason`), `stacks.finish_job`, `orchard.vm.delete`.
-  Orchard state changes (placement on a worker, `running`) are span events. A span carries
-  `cicd.pipeline.task.run.id` for its job, and the HTTP client spans come from `otelhttp`.
+  `orchard.vm.create`, `orchard.vm.change`, `stacks.notify_skipped`, `reaper.decide` (attributes
+  `bkaso.vm.phase`, `bkaso.job.state`, `bkaso.reaper.decision`, `bkaso.reaper.reason`,
+  `bkaso.reaper.row`), and, under `reaper.decide`, `stacks.finish_job`, `orchard.vm.events`, and
+  `orchard.vm.delete`. Each of these spans MUST be in the trace of its job. Orchard state changes
+  (placement on a worker, `running`) are events of `orchard.vm.change`. The HTTP client spans come
+  from `otelhttp`.
   `job.match` is written once for each job that a process sees in the queue, with
   `bkaso.job.matched` and `bkaso.profile`. When no profile matches, it also has the attribute
-  `bkaso.job.skipped` set to true, and the reason as the event `no profile`. A skip is not an
-  error of the controller, so the span has no error status. `job.admit` is written when admission
-  starts the job. `stacks.notify_skipped` is written when the controller writes skip notices. A
-  span at each tick would put one span each second into the trace of a job that waits.
+  `bkaso.job.skipped` set to true, and the event `no profile` with the reason in
+  `bkaso.match.reason`. A skip is not an error of the controller, so the span has no error status.
+  `job.admit` is written when admission starts the job. `stacks.notify_skipped` is written when the
+  controller writes the skip notice of the job. A span at each tick would put one span each second
+  into the trace of a job that waits.
+* **One call for several jobs.** One call to Buildkite reserves, extends, gets the tokens of, or
+  writes the skip notices of several jobs. A span can be in one trace only, and the trace of each
+  job MUST show the call and its answer for that job. Because of this, each job of the call gets
+  its own span of the call (`stacks.reserve`, `stacks.issue_token`, `stacks.notify_skipped`), with
+  the answer for the job: `bkaso.job.reserved`, `bkaso.job.token_issued`, or
+  `bkaso.notification.refused`. An extension has `bkaso.reservation.extension`. The call itself
+  runs under the tick span, which links to each of these spans. A log record about one job of the
+  call carries the trace of that job.
 * **Tick spans** (`tick.poll`, `tick.inventory`, `tick.job_states`, `tick.reap`, `tick.admit`)
   are separate short traces. They have span links to the job traces that they affect.
 * **Errors.** A span whose work failed MUST record the error as an `exception` event and MUST

@@ -75,16 +75,29 @@ The reasons of `bk_agent_stack_orchard.vm.delete.reason`:
 ## Traces
 
 Each Buildkite job has one trace, and the trace ID is the job UUID without its dashes. To find the
-trace of a job, search your backend for that ID. The trace holds the spans of the controller for the
-job: `job.match`, `job.admit`, `stacks.reserve`, `stacks.issue_token`, `orchard.vm.create`,
-`reaper.decide`, `stacks.finish_job`, and `orchard.vm.delete`, with the steps of the VM as events.
-`job.match` has the attributes `bk_agent_stack_orchard.job.matched`,
-`bk_agent_stack_orchard.profile`, and, for a job that no profile carries,
-`bk_agent_stack_orchard.job.skipped`. `reaper.decide` has `bk_agent_stack_orchard.vm.phase`,
-`bk_agent_stack_orchard.job.state`, `bk_agent_stack_orchard.reaper.decision`,
-`bk_agent_stack_orchard.reaper.reason`, and `bk_agent_stack_orchard.reaper.row`.
-Each step of the loop (`tick.poll`, `tick.inventory`, `tick.job_states`, `tick.reap`, `tick.admit`)
-is a short trace of its own, with links to the jobs that it affected.
+trace of a job, search your backend for that ID. The trace has no root span, because no process
+of the controller lives as long as a job. Each step of the loop is a short trace of its own, with
+links to the job spans that it wrote.
+
+| Span | Trace | What it covers | Attributes |
+|---|---|---|---|
+| `job.match` | job | The first time that this process sees the job in the queue. A job that no profile carries has the event `no profile`, with the reason in `bk_agent_stack_orchard.match.reason`. | `bk_agent_stack_orchard.job.matched`, `bk_agent_stack_orchard.profile`, `bk_agent_stack_orchard.job.skipped` |
+| `job.admit` | job | Admission starts the job. | `bk_agent_stack_orchard.profile` |
+| `stacks.reserve` | job | The reservation of the job, and each extension of it. | `bk_agent_stack_orchard.job.reserved`, and `bk_agent_stack_orchard.reservation.extension` on an extension |
+| `stacks.issue_token` | job | The token call of the job. | `bk_agent_stack_orchard.job.token_issued` |
+| `orchard.vm.create` | job | The create of the VM. | |
+| `orchard.vm.change` | job | A step of the VM, as the event `placed` or `running`. | The events carry `bk_agent_stack_orchard.worker.name` and `bk_agent_stack_orchard.vm.name` |
+| `stacks.notify_skipped` | job | The skip notice of a job that no profile carries. | `bk_agent_stack_orchard.notification.refused` when Buildkite refused the line |
+| `reaper.decide` | job | One action of the reaper on the VM of the job. | `bk_agent_stack_orchard.vm.phase`, `bk_agent_stack_orchard.job.state`, `bk_agent_stack_orchard.reaper.decision`, `bk_agent_stack_orchard.reaper.reason`, `bk_agent_stack_orchard.reaper.row` |
+| `stacks.finish_job` | job | The finish of a job that the controller fails, under `reaper.decide`. | |
+| `orchard.vm.events` | job | The read of the startup-script lines for a finish, under `reaper.decide`. | |
+| `orchard.vm.delete` | job | The delete of the VM, under `reaper.decide`. | |
+| `tick.poll`, `tick.inventory`, `tick.job_states`, `tick.reap`, `tick.admit` | its own | One step of the loop. It links to each job span of the step. | |
+
+One call to Buildkite can reserve, or get the tokens of, several jobs. Each job then has its own
+`stacks.reserve` or `stacks.issue_token` span with the answer for that job, and the HTTP span of
+the call is under the step of the loop. The HTTP clients add the spans of `otelhttp`. A span whose
+work failed has the status Error and an `exception` event.
 
 ## Logs
 

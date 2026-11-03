@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
@@ -299,4 +300,73 @@ func TestFailRecordsTheErrorAndSetsTheStatusError(t *testing.T) {
 	if len(spans[0].Events) != 1 || spans[0].Events[0].Name != "exception" {
 		t.Errorf("the span holds the events %+v, want one exception", spans[0].Events)
 	}
+}
+
+// One call can act on several jobs, such as a reservation. Each job gets its own span of the call
+// in its own trace, so that the trace of each job shows the call and its result, and the tick links
+// to each of them.
+func TestABatchHasOneSpanInTheTraceOfEachJob(t *testing.T) {
+	t.Parallel()
+
+	provider, exporter := recorder(t)
+	tracer := provider.Tracer("test")
+
+	const other = job.ID("018f3b2c-1c4a-7e5b-9a3d-2f1e4c5b6a7e")
+
+	ctx, tick := tracer.Start(t.Context(), "tick.admit")
+	batch := telemetry.StartJobs(ctx, tracer, []job.ID{sample, other, sample}, "stacks.reserve")
+
+	// A record of one job carries the trace of that job.
+	if got, want := trace.SpanContextFromContext(batch.Context(ctx, other)).TraceID(),
+		traceOf(t, other); got != want {
+		t.Errorf("the context of the job is in trace %s, want %s", got, want)
+	}
+
+	// A job outside the batch keeps the context of the call.
+	if got := batch.Context(ctx, "not-in-the-batch"); got != ctx {
+		t.Error("the context of a job outside the batch is not the context of the call")
+	}
+
+	if batch.Span("not-in-the-batch").IsRecording() {
+		t.Error("a job outside the batch has a span that records, want one that records nothing")
+	}
+
+	batch.Fail(errors.New("buildkite answered 503"))
+	batch.End()
+	tick.End()
+
+	recorded := exporter.GetSpans()
+	if len(recorded) != 3 {
+		t.Fatalf("the exporter holds %d spans, want one for each job and the tick", len(recorded))
+	}
+
+	traces := map[trace.TraceID]bool{}
+
+	for _, span := range recorded[:2] {
+		traces[span.SpanContext.TraceID()] = true
+
+		if span.Name != "stacks.reserve" || span.Status.Code != codes.Error {
+			t.Errorf("the span %s has the status %v, want stacks.reserve with Error",
+				span.Name, span.Status)
+		}
+	}
+
+	if !traces[traceOf(t, sample)] || !traces[traceOf(t, other)] {
+		t.Errorf("the spans are in the traces %v, want one in the trace of each job", traces)
+	}
+
+	if links := recorded[2].Links; len(links) != 2 {
+		t.Errorf("the tick has %d links, want one to each job", len(links))
+	}
+}
+
+func traceOf(t *testing.T, id job.ID) trace.TraceID {
+	t.Helper()
+
+	traceID, err := telemetry.TraceID(id)
+	if err != nil {
+		t.Fatalf("TraceID(%s) = %v, want no error", id, err)
+	}
+
+	return traceID
 }

@@ -317,7 +317,8 @@ func (a *admitter) trace(ctx context.Context, waiting []buildkite.ScheduledJob,
 		if unmatched {
 			// A skip is not an error of the controller: another runner may carry the job.
 			span.SetAttributes(attribute.Bool(telemetry.SpanSkipped, true))
-			span.AddEvent("no profile", trace.WithAttributes(attribute.String("reason", skip.Reason())))
+			span.AddEvent("no profile", trace.WithAttributes(
+				attribute.String(telemetry.SpanMismatch, skip.Reason())))
 		}
 		span.End()
 

@@ -35,11 +35,30 @@ const (
 	attributeSource       = prefix + "source"
 )
 
-// The attributes of the job.match span: the profile that carries the job, or none.
+// The attributes of the job.match span: the profile that carries the job, or none. A job that no
+// profile carries has the event "no profile", whose attribute SpanMismatch holds the reason. The
+// log record of the skip carries the reason under the same key.
 const (
-	SpanProfile = prefix + "profile"
-	SpanMatched = prefix + "job.matched"
-	SpanSkipped = prefix + "job.skipped"
+	SpanProfile  = prefix + "profile"
+	SpanMatched  = prefix + "job.matched"
+	SpanSkipped  = prefix + "job.skipped"
+	SpanMismatch = prefix + "match.reason"
+)
+
+// The attributes of the spans of the Stacks calls that act on several jobs at once. Each job has
+// its own span of the call, with the answer for that job.
+const (
+	// SpanReserved is on stacks.reserve: Buildkite reserved the job, or extended its reservation.
+	SpanReserved = prefix + "job.reserved"
+
+	// SpanExtension is on stacks.reserve: the call extends a reservation of the reaper.
+	SpanExtension = prefix + "reservation.extension"
+
+	// SpanTokenIssued is on stacks.issue_token: Buildkite issued a token for the job.
+	SpanTokenIssued = prefix + "job.token_issued"
+
+	// SpanRefused is on stacks.notify_skipped: Buildkite refused the line of the job.
+	SpanRefused = prefix + "notification.refused"
 )
 
 // The attributes of the reaper.decide span (target design, section 10.2).
