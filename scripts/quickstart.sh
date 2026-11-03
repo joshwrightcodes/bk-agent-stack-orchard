@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # The quick start: one real job in a real Tart VM on this Mac, from a real Buildkite queue.
 #
-# It downloads a release of the controller and verifies its signature, starts a local Orchard
-# (orchard dev, with one worker that uses the Tart of this Mac), then the controller with one
-# profile, and prints a pipeline step to paste into Buildkite. Ctrl-C deletes
-# the VMs that it started, stops what it started, and deletes its work directory. The image stays
-# in the Tart cache.
+# It downloads a release of the controller and verifies its signature, starts a local Orchard (a
+# controller on 127.0.0.1 with TLS and authentication, and one worker that uses the Tart of this
+# Mac), then the controller with one profile, and prints a pipeline step to paste into Buildkite.
+# Ctrl-C deletes the VMs that it started, stops what it started, and deletes its work directory.
+# The image stays in the Tart cache.
 #
 # Usage: BUILDKITE_AGENT_TOKEN=... scripts/quickstart.sh --queue NAME [options]
 #
@@ -17,7 +17,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-# The real home. orchard dev gets a home of its own below, and Tart must keep using this one.
+# The real home. The local Orchard gets a home of its own below, and Tart must keep using this one.
 REAL_HOME="$HOME"
 
 QUEUE=""
@@ -31,7 +31,11 @@ MEMORY=8192
 DISK=50
 MATCH=()
 ORCHARD_URL=""
+# The address of the local Orchard. It is a loopback address, so no other computer can reach it.
+LOCAL_ORCHARD="127.0.0.1:6120"
 SERVICE_ACCOUNT="bk-agent-stack-orchard"
+# The Orchard service account of the local worker.
+WORKER_ACCOUNT="quickstart-worker"
 HEALTH="127.0.0.1:18080"
 CONTROLLER_ID="quickstart"
 REPO="joshwrightcodes/bk-agent-stack-orchard"
@@ -127,15 +131,26 @@ else
 fi
 
 ORCHARD=""
+ORCHARD_TOKEN=""
+ORCHARD_CA=""
 if [[ -z "$ORCHARD_URL" ]]; then
 	ORCHARD="$(command -v orchard || true)"
 	[[ -n "$ORCHARD" ]] || die "orchard is not on the PATH: run this through mise (mise run quickstart)"
-	if curl -s -o /dev/null --max-time 2 http://127.0.0.1:6120/; then
+	command -v openssl >/dev/null ||
+		die "openssl, which makes the certificate and the tokens of the local Orchard, is not on the PATH"
+	# curl exits with 7 when nothing accepts the connection. Any other result means that a process
+	# listens on the port, whether it speaks HTTP, TLS, or something else.
+	port=0
+	curl -s -o /dev/null --max-time 2 "http://$LOCAL_ORCHARD/" || port=$?
+	if [[ "$port" -ne 7 ]]; then
 		die "something already answers on port 6120, the port of a local Orchard: stop it, or give its
   address with --orchard-url"
 	fi
+	ORCHARD_URL="https://$LOCAL_ORCHARD"
 else
-	[[ -n "${BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN:-}" ]] ||
+	ORCHARD_TOKEN="${BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN:-}"
+	ORCHARD_CA="${BK_AGENT_STACK_ORCHARD_ORCHARD_CA_CERT:-}"
+	[[ -n "$ORCHARD_TOKEN" ]] ||
 		die "--orchard-url needs the service account token in BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN"
 fi
 
@@ -150,23 +165,28 @@ fi
 tmp="${TMPDIR:-/tmp}"
 WORK="$(mktemp -d "${tmp%/}/bkaso-quickstart.XXXXXX")"
 ORCHARD_PID=""
+WORKER_PID=""
 CONTROLLER_PID=""
 FOLLOW_PID=""
 
-# orchard_api METHOD PATH: one call to Orchard. A token travels in the configuration of curl on
-# standard input, never on its command line.
-orchard_api() {
-	local url="${ORCHARD_URL:-http://127.0.0.1:6120}" ca=()
-	if [[ -n "${BK_AGENT_STACK_ORCHARD_ORCHARD_CA_CERT:-}" ]]; then
-		printf '%s\n' "$BK_AGENT_STACK_ORCHARD_ORCHARD_CA_CERT" >"$WORK/ca.crt"
+# orchard_as ACCOUNT TOKEN METHOD PATH [BODY]: one call to Orchard as a service account. The token
+# and the body travel in the configuration of curl on standard input, never on its command line.
+# BODY is JSON with each quote escaped for that configuration. The call fails when Orchard answers
+# with an error.
+orchard_as() {
+	local ca=()
+	if [[ -n "$ORCHARD_CA" ]]; then
+		printf '%s\n' "$ORCHARD_CA" >"$WORK/ca.crt"
 		ca=(--cacert "$WORK/ca.crt")
 	fi
-	if [[ -n "$ORCHARD_URL" ]]; then
-		printf 'user = "%s:%s"\n' "$SERVICE_ACCOUNT" "$BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN"
-	else
-		printf '\n'
-	fi | curl -sS -K - ${ca[@]+"${ca[@]}"} -X "$1" "$url$2"
+	{
+		printf 'user = "%s:%s"\n' "$1" "$2"
+		[[ -z "${5:-}" ]] || printf 'data = "%s"\n' "$5"
+	} | curl -fsS -K - ${ca[@]+"${ca[@]}"} -H 'Content-Type: application/json' -X "$3" "$ORCHARD_URL$4"
 }
+
+# orchard_api METHOD PATH: one call to Orchard as the service account of the controller.
+orchard_api() { orchard_as "$SERVICE_ACCOUNT" "$ORCHARD_TOKEN" "$@"; }
 
 our_vms() {
 	orchard_api GET /v1/vms 2>/dev/null |
@@ -199,10 +219,16 @@ cleanup() {
 	done
 	[[ -n "${left:-}" ]] && say "warning: Orchard still lists these VMs: $left"
 
+	if [[ -n "$WORKER_PID" ]]; then
+		kill "$WORKER_PID" 2>/dev/null || true
+		wait "$WORKER_PID" 2>/dev/null || true
+	fi
 	if [[ -n "$ORCHARD_PID" ]]; then
 		kill "$ORCHARD_PID" 2>/dev/null || true
 		wait "$ORCHARD_PID" 2>/dev/null || true
-		# A VM that Orchard started and did not stop.
+	fi
+	if [[ -n "$WORKER_PID" ]]; then
+		# A VM that the worker started and did not stop.
 		for vm in $(tart list --source local --format json 2>/dev/null |
 			jq -r --arg p "orchard-bk-$CONTROLLER_ID-" '.[] | select(.Name | startswith($p)) | .Name'); do
 			say "deleting the Tart VM $vm"
@@ -226,23 +252,93 @@ tart pull "$IMAGE"
 
 # --- Orchard. ---
 
-if [[ -z "$ORCHARD_URL" ]]; then
-	say "starting a local Orchard with one worker on this Mac"
+# b64url: standard input in the base64url encoding without padding, the encoding of the parts of
+# an Orchard bootstrap token.
+b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+
+# account_body NAME TOKEN: the body that creates a service account with the roles compute:read and
+# compute:write, escaped for the data line of orchard_as. Both the worker and the controller need
+# these two roles, and no other.
+account_body() {
+	printf '{\\"name\\":\\"%s\\",\\"token\\":\\"%s\\",\\"roles\\":[\\"compute:read\\",\\"compute:write\\"]}' "$1" "$2"
+}
+
+# start_orchard starts an Orchard controller and one worker on this Mac. The VMs of Orchard carry
+# the job tokens of real Buildkite jobs, so the controller listens on the loopback address only,
+# with TLS, and answers only a service account. Each run makes a new certificate and new tokens.
+# They stay in variables of this script, and reach Orchard and curl on standard input, in the
+# environment, or through a pipe, never on a command line. This script writes none of them to a
+# file. Orchard keeps the accounts in its data directory and a context in its home. Both are in the
+# work directory, which the cleanup deletes.
+start_orchard() {
+	local key cert admin worker_token
+	say "starting a local Orchard on $LOCAL_ORCHARD, with one worker on this Mac"
+	key="$(openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 \
+		-pkeyopt ec_param_enc:named_curve 2>/dev/null)" || die "openssl could not make a key"
+	# The certificate names the address of the controller, so the worker and the controller of this
+	# project can check it. It is valid for one day, which is longer than a trial needs.
+	cert="$(printf '%s\n' "$key" | openssl req -x509 -new -key /dev/stdin -days 1 \
+		-subj "/CN=bk-agent-stack-orchard quickstart" \
+		-addext "subjectAltName=IP:${LOCAL_ORCHARD%:*}" -addext "extendedKeyUsage=serverAuth" \
+		2>/dev/null)" || die "openssl could not make a certificate"
+	admin="$(openssl rand -hex 32)"
+	worker_token="$(openssl rand -hex 32)"
+	ORCHARD_TOKEN="$(openssl rand -hex 32)"
+	ORCHARD_CA="$cert"
+
 	mkdir -p "$WORK/home"
-	# orchard dev writes a context into $HOME/.orchard, so it gets a home of its own. Tart keeps
-	# its cache and its VMs in the real home, so that the pulled image serves the VMs.
-	HOME="$WORK/home" TART_HOME="$REAL_HOME/.tart" "$ORCHARD" dev --data-dir "$WORK/orchard-data" \
+	# Orchard writes a context into $HOME/.orchard, so it gets a home of its own. Tart keeps its
+	# cache and its VMs in the real home, so that the pulled image serves the VMs. The controller
+	# makes the bootstrap admin from ORCHARD_BOOTSTRAP_ADMIN_TOKEN, and reads the certificate and
+	# its key from pipes.
+	HOME="$WORK/home" ORCHARD_BOOTSTRAP_ADMIN_TOKEN="$admin" "$ORCHARD" controller run \
+		--listen "$LOCAL_ORCHARD" --data-dir "$WORK/orchard-data" \
+		--controller-cert <(printf '%s\n' "$cert") --controller-key <(printf '%s\n' "$key") \
 		>"$WORK/orchard.log" 2>&1 &
 	ORCHARD_PID=$!
-	for _ in $(seq 1 60); do
-		if [[ "$(orchard_api GET /v1/workers 2>/dev/null | jq 'length' 2>/dev/null || echo 0)" -ge 1 ]]; then
-			break
-		fi
+	unset key
+	for _ in $(seq 1 30); do
+		orchard_as bootstrap-admin "$admin" GET /v1/service-accounts >/dev/null 2>&1 && break
 		kill -0 "$ORCHARD_PID" 2>/dev/null || die "Orchard stopped: $(tail -5 "$WORK/orchard.log")"
 		sleep 1
 	done
-	[[ "$(orchard_api GET /v1/workers | jq 'length')" -ge 1 ]] ||
-		die "the Orchard worker did not report in 60 s: $(tail -5 "$WORK/orchard.log")"
+
+	# One account for the controller of this project, and one for the worker. Then the bootstrap
+	# admin deletes itself, so that its token opens nothing for the rest of the run.
+	orchard_as bootstrap-admin "$admin" POST /v1/service-accounts \
+		"$(account_body "$SERVICE_ACCOUNT" "$ORCHARD_TOKEN")" >/dev/null ||
+		die "Orchard did not create the service account $SERVICE_ACCOUNT: $(tail -5 "$WORK/orchard.log")"
+	orchard_as bootstrap-admin "$admin" POST /v1/service-accounts \
+		"$(account_body "$WORKER_ACCOUNT" "$worker_token")" >/dev/null ||
+		die "Orchard did not create the service account $WORKER_ACCOUNT: $(tail -5 "$WORK/orchard.log")"
+	orchard_as bootstrap-admin "$admin" DELETE /v1/service-accounts/bootstrap-admin >/dev/null ||
+		die "Orchard did not delete its bootstrap admin: $(tail -5 "$WORK/orchard.log")"
+	unset admin
+
+	# The bootstrap token of the worker: the version, then the account, its token, and the
+	# certificate that the worker trusts, each in base64url without padding, joined by dots. This
+	# is the format of the bootstrap tokens of Orchard 0.58.0.
+	printf 'orchard-bootstrap-token-v0.%s.%s.%s\n' \
+		"$(printf '%s' "$WORKER_ACCOUNT" | b64url)" "$(printf '%s' "$worker_token" | b64url)" \
+		"$(printf '%s\n' "$cert" | b64url)" |
+		HOME="$WORK/home" TART_HOME="$REAL_HOME/.tart" "$ORCHARD" worker run --bootstrap-token-stdin \
+			"$ORCHARD_URL" >"$WORK/worker.log" 2>&1 &
+	WORKER_PID=$!
+	unset worker_token
+
+	for _ in $(seq 1 60); do
+		if [[ "$(orchard_api GET /v1/workers 2>/dev/null | jq 'length' 2>/dev/null || echo 0)" -ge 1 ]]; then
+			return 0
+		fi
+		kill -0 "$ORCHARD_PID" 2>/dev/null || die "Orchard stopped: $(tail -5 "$WORK/orchard.log")"
+		kill -0 "$WORKER_PID" 2>/dev/null || die "the Orchard worker stopped: $(tail -5 "$WORK/worker.log")"
+		sleep 1
+	done
+	die "the Orchard worker did not report in 60 s: $(tail -5 "$WORK/worker.log")"
+}
+
+if [[ -n "$ORCHARD" ]]; then
+	start_orchard
 fi
 
 # --- The controller. ---
@@ -335,7 +431,7 @@ healthAddress: "$HEALTH"
 buildkite:
   queue: "$QUEUE"
 orchard:
-  url: "${ORCHARD_URL:-http://127.0.0.1:6120}"
+  url: "$ORCHARD_URL"
   serviceAccount: "$SERVICE_ACCOUNT"
 profiles:
   - name: quickstart
@@ -346,13 +442,13 @@ profiles:
     diskSizeGB: $DISK
 EOF
 
-orchard_token="${BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN:-quickstart}"
 BK_AGENT_STACK_ORCHARD_BUILDKITE_AGENT_TOKEN="$TOKEN" \
-	BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN="$orchard_token" \
+	BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN="$ORCHARD_TOKEN" \
+	BK_AGENT_STACK_ORCHARD_ORCHARD_CA_CERT="$ORCHARD_CA" \
 	OTEL_TRACES_EXPORTER=none OTEL_METRICS_EXPORTER=none OTEL_LOGS_EXPORTER=none \
 	"$WORK/controller" -config "$WORK/config.yaml" >"$WORK/controller.log" 2>&1 &
 CONTROLLER_PID=$!
-unset TOKEN orchard_token
+unset TOKEN
 
 # Readable lines: the time, the message, and the job, the profile, and the reason when a record has
 # them. A line that is not a record, such as a refusal of the configuration, passes as it is.
