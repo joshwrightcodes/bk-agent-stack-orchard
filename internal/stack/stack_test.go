@@ -767,30 +767,48 @@ func TestAReadOfThePagesInSequenceToTheEndIsWhole(t *testing.T) {
 	}
 }
 
-// A sweep page that fails ends the read, as every page does. The next read starts the sweep
-// again after the head, because a cursor that Buildkite refused once may never work again.
-func TestAFailedSweepStartsAgainAfterTheHead(t *testing.T) {
+// A sweep page that fails leaves the head pages of the read, which arrived whole, so the read
+// keeps them as a truncated answer and says why in the log (ADR-0019). Buildkite may refuse a
+// cursor of an earlier read, and a read that kept nothing would then fail at every other tick.
+// The next read starts the sweep again after the head, because a cursor that Buildkite refused
+// once may never work again.
+func TestAFailedSweepKeepsTheHeadAndStartsAgainAfterIt(t *testing.T) {
 	t.Parallel()
 
 	api := &fake{pages: pagesOf(flood(1), flood(2), flood(3), flood(4), flood(5))}
 
-	poller, _ := stack.NewPoller(stack.PollerOptions{Stacks: api, Interval: time.Second, Now: time.Now})
+	var logged bytes.Buffer
+
+	moment := time.Date(2026, 11, 3, 9, 0, 0, 0, time.UTC)
+	clock := moment
+
+	poller, _ := stack.NewPoller(stack.PollerOptions{
+		Stacks: api, Interval: time.Second, Now: func() time.Time { return clock },
+		Logger: slog.New(slog.NewTextHandler(&logged, nil)),
+	})
 
 	if err := poller.Refresh(t.Context()); err != nil {
 		t.Fatalf("Refresh() = %v, want no error", err)
 	}
 
-	before, _ := poller.Latest()
-
 	api.pageErrs = map[string]error{"page-4": errors.New("the cursor is not valid")}
+	clock = moment.Add(time.Second)
 
-	if err := poller.Refresh(t.Context()); err == nil {
-		t.Fatal("Refresh() = nil, want the error of the sweep page")
+	if err := poller.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh() = %v after a failed sweep page, want the head as the answer", err)
 	}
 
-	if after, _ := poller.Latest(); !slices.Equal(ids(after), ids(before)) {
-		t.Errorf("the answer is %v after a failed sweep, want the answer before it %v",
-			ids(after), ids(before))
+	after, _ := poller.Latest()
+
+	head := []job.ID{flood(1)[0].ID, flood(2)[0].ID}
+	if !slices.Equal(ids(after), head) || !after.Truncated || !after.At.Equal(clock) {
+		t.Errorf("the answer after a failed sweep is %v, Truncated = %t, at %s; want the head %v, "+
+			"truncated, at %s", ids(after), after.Truncated, after.At, head, clock)
+	}
+
+	if log := logged.String(); !strings.Contains(log, "level=WARN") ||
+		!strings.Contains(log, "the cursor is not valid") {
+		t.Errorf("the log reads %q, want a warning with the error of the sweep page", log)
 	}
 
 	api.cursors = nil

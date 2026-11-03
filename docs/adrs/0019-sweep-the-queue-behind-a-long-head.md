@@ -102,6 +102,9 @@ Read 2 pages from the head and 1 page of a sweep. Alert on a read that is not wh
 * The controller MUST keep the sweep cursor in memory from one read to the next. It MUST empty
   the cursor when the sweep reaches the end of the list, when the head reaches the end of the
   list, and when a read fails.
+* If the sweep page fails, the read MUST keep the head pages as its answer, which is not whole,
+  and MUST write a warning that gives the error. The head pages arrived whole, and a read that
+  kept nothing would fail at every other tick when Buildkite refuses an old cursor.
 * A read is whole only when its pages follow one another from the head to the end of the list.
   Each other read MUST write a warning, and MUST add 1 to `bkaso.queue.truncated`. The warning
   SHOULD name the pipeline that has the most jobs of the read.
@@ -130,9 +133,11 @@ Bad:
 * A job behind the head is in one read of each sweep. If no slot is free at that read, the job
   waits for the next sweep. Each 1000 jobs of a flood add about 1 s to that wait.
 * Whether Buildkite accepts a cursor in a later tick is `UNKNOWN` (owner: the maintainers; trigger:
-  the pilot, or the first failed read of a sweep page). If it does not, each sweep page fails, the
-  sweep starts again after the head, and the controller sees only 3000 jobs, as before this
-  decision. `cicd.system.errors` then shows the failed calls.
+  the pilot, or the first failed read of a sweep page). If it does not, each sweep page with a
+  cursor of an earlier read fails. That read keeps the 2000 head jobs, and the next sweep starts
+  again after the head, with a cursor of the same read. The controller then sees 3000 jobs at
+  every other read and 2000 jobs at the others, so no job behind the first 3000 jobs reaches a
+  read. `cicd.system.errors` and the warning of the read then show the failed calls.
 * The sweep gives the launcher new unmatched jobs at each read. With more than 10 000 unmatched
   jobs in the list (`NotifiedLimit`), the launcher forgets a job before the sweep returns to it.
   The job then gets its notice again at each sweep, and it counts again in `bkaso.job.skipped`.
@@ -147,7 +152,8 @@ Bad:
   calls.
 * Unit tests confirm the cursors of each read, the start of a new sweep at the end of the list,
   after a failed read, and after a short queue, and that only a read of the pages in sequence to
-  the end is whole.
+  the end is whole. A unit test confirms that a failed sweep page leaves the head pages as the
+  answer.
 * A unit test confirms that the warning names the pipeline with the most jobs of the read.
 * The component test T-026 confirms that a job behind 6500 unmatched jobs gets a VM, inside the
   request budget of the Stacks API.

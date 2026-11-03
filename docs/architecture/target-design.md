@@ -585,7 +585,9 @@ One read MUST make at most 3 list requests (`MaxPages`), whatever the length of 
    head.
 
 The Poller keeps each job once, at its first place, because a cursor over a list that changes can
-give a job twice. If a page fails, the Poller keeps the answer of the last whole read.
+give a job twice. If a head page fails, the Poller keeps the answer of the last read. If the sweep
+page fails, the head pages arrived whole, so the Poller MUST keep them as the answer of the read,
+mark the read as not complete, and write a warning that gives the error.
 
 A read is complete only when its pages follow one another from the head to the end of the list.
 A queue of up to 3000 jobs gives a complete read at each tick. In a longer queue, a job behind
@@ -594,8 +596,10 @@ jobs behind them: a job behind N such jobs reaches a read in about (N − 2000) 
 slot is free at that read, the job waits for the next sweep.
 
 Whether Buildkite accepts a cursor in a later tick is `UNKNOWN` (owner: the maintainers; trigger:
-the pilot, or the first failed read of a sweep page). If it does not, each sweep page fails, and
-the Poller sees only the first 3000 jobs.
+the pilot, or the first failed read of a sweep page). If it does not, each sweep page with a
+cursor of an earlier read fails. That read keeps the first 2000 jobs, and the next read starts
+the sweep after the head again, with a cursor of the same read. The Poller then sees the first
+3000 jobs at every other read, and the first 2000 jobs at the others.
 
 A read that is not complete writes a warning in the log, and it adds 1 to the counter
 `bkaso.queue.truncated` (§10.1). The warning names the pipeline that has the most jobs of the

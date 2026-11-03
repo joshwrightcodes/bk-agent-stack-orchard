@@ -245,9 +245,12 @@ const HeadPages = 2
 // wait behind a long head.
 //
 // A job that two pages both give enters the answer once, at its first place, because the cursor
-// reads a list that changes. The poll keeps nothing when a page fails, so that a half-read queue
-// does not replace a whole one. A failed read also starts the sweep again after the head, because
-// a cursor that Buildkite refused once may never work again.
+// reads a list that changes. The poll keeps nothing when a head page fails, so that a half-read
+// head does not replace a whole one. A sweep page that fails leaves a whole head, so the read
+// keeps the head pages as a truncated answer and logs a warning with the error: Buildkite may
+// refuse a cursor of an earlier read, and a read that kept nothing would then fail at every other
+// tick. A failed read also starts the sweep again after the head, because a cursor that Buildkite
+// refused once may never work again.
 //
 // Refresh holds a lock for the whole read, so that two reads cannot move the sweep at once.
 func (p *Poller) Refresh(ctx context.Context) error {
@@ -275,14 +278,18 @@ func (p *Poller) Refresh(ctx context.Context) error {
 
 		next, err := read.pages(ctx, p.stacks, start, MaxPages-HeadPages)
 		if err != nil {
+			// The head pages of this read arrived whole, and they stay the answer. The pages
+			// of the sweep that arrived before the failure stay too.
 			p.sweep = ""
 
-			return err
+			p.logger.WarnContext(ctx, "a page of the sweep of the queue failed, so the read "+
+				"keeps the pages before it and the next sweep starts after the head",
+				slog.String("error", err.Error()))
+		} else {
+			// The sweep starts again after the head when it reached the end of the list.
+			p.sweep = next
+			whole = !continued && next == ""
 		}
-
-		// The sweep starts again after the head when it reached the end of the list.
-		p.sweep = next
-		whole = !continued && next == ""
 	}
 
 	if !whole {
