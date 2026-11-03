@@ -1637,13 +1637,14 @@ func TestAFailedTokenCallKeepsTheTokensBeforeIt(t *testing.T) {
 
 // The token calls of a tick, one for each lifetime, share the time budget of a step, as the creates
 // do (target design, section 4). A tick then spends at most parallel.Rounds call limits on tokens,
-// whatever the number of profiles. Here five lifetimes each take most of a call limit: the first
-// three calls answer inside the budget, and their jobs get machines, and the budget ends the
-// fourth.
+// whatever the number of profiles. Here five lifetimes each take four fifths of a call limit: the
+// first three calls answer inside the budget, and their jobs get machines, and the budget ends the
+// fourth. The three calls leave 300 ms of the budget for a slow machine. The fourth call cannot
+// answer inside the budget, because a timer never fires early.
 func TestTheTokenCallsOfATickShareTheBudgetOfAStep(t *testing.T) {
 	t.Parallel()
 
-	const limit = 100 * time.Millisecond
+	const limit = 500 * time.Millisecond
 
 	ids := []job.ID{first, second, third, fourth, fifth}
 	admit := make([]admission.Candidate, 0, len(ids))
@@ -1657,7 +1658,7 @@ func TestTheTokenCallsOfATickShareTheBudgetOfAStep(t *testing.T) {
 		admit = append(admit, admission.Candidate{Job: buildkite.ScheduledJob{ID: id}, Profile: carrier})
 	}
 
-	api := &stacks{tokenDelay: limit * 9 / 10}
+	api := &stacks{tokenDelay: limit * 4 / 5}
 	fleet := &machines{}
 	started := buildTimed(t, api, fleet, &records{}, limit)
 
