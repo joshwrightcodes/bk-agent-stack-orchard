@@ -20,6 +20,7 @@ import (
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/profile"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/vmspec"
 )
@@ -290,22 +291,39 @@ func (i *Inventory) Online(worker orchard.Worker) bool {
 // poolLabel is the worker label that names a pool of the fleet.
 const poolLabel = "pool"
 
+// ProfileOf gives the profile of a machine of this controller: the profile that this process
+// started it with, as started gives it, or else the profile that the tags of the machine name, when
+// the configuration still has a profile of that name. It gives empty text for a machine of neither,
+// such as one whose profile an operator removed before a restart.
+func ProfileOf(owned Owned, started func(job.ID) string, profiles []profile.Profile) string {
+	if name := started(owned.Job); name != "" {
+		return name
+	}
+
+	name := vmspec.ProfileOf(owned.VM)
+
+	for _, p := range profiles {
+		if name != "" && p.Name == name {
+			return name
+		}
+	}
+
+	return ""
+}
+
 // Observe adds what the fleet holds to an observation of the instruments.
 //
-// The profile of a machine is not in the machine: a machine carries the worker labels of its
-// profile and nothing that names the profile itself (target design, section 6.1). The caller
-// therefore gives what it knows, which is the profile of a job that this process started. A
-// machine that this process did not start, because the process restarted, counts under
-// UnknownProfile.
+// The caller gives the profile of each machine, as ProfileOf finds it. A machine whose profile it
+// cannot name counts under UnknownProfile.
 func (s Snapshot) Observe(observation *telemetry.Observation, online func(orchard.Worker) bool,
-	profileOf func(job.ID) string,
+	profileOf func(Owned) string,
 ) {
 	observation.VMs = map[telemetry.VM]int64{}
 	observation.Slots = map[telemetry.Slot]int64{}
 	observation.Workers = map[telemetry.WorkerState]int64{}
 
 	for _, owned := range s.Owned {
-		name := profileOf(owned.Job)
+		name := profileOf(owned)
 		if name == "" {
 			name = UnknownProfile
 		}
@@ -340,7 +358,8 @@ func (s Snapshot) Leftover(observation *telemetry.Observation, terminal func(job
 	}
 }
 
-// UnknownProfile is the profile of a machine that this process did not start.
+// UnknownProfile is the profile of a machine that this process did not start and whose tags name no
+// profile of the configuration.
 const UnknownProfile = "unknown"
 
 // slots counts the machine slots of each pool.

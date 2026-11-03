@@ -307,13 +307,13 @@ func older(now, since time.Time, limit time.Duration) bool {
 	return !since.IsZero() && now.Sub(since) > limit
 }
 
-// Timeouts gives the limits of a machine.
+// Timeouts gives the limits of a machine whose profile has the name.
 //
-// A machine does not carry the name of its profile (target design, section 6.1), so after a
-// restart the controller cannot name the profile of a machine that it did not start. The limits
-// are then the largest of each limit across the profiles. A restart must never end a machine
-// sooner than its own profile allows: a stray machine that lives an hour longer costs a slot,
-// and a job that the controller ends early costs a build.
+// The tags of a machine name its profile, so a process after a restart reads the name back from
+// Orchard. A name that no profile of the configuration has, such as the name of a profile that an
+// operator removed, or no name at all, gives the largest of each limit across the profiles. A
+// restart must never end a machine sooner than its own profile allows: a stray machine that lives
+// an hour longer costs a slot, and a job that the controller ends early costs a build.
 func Timeouts(name string, profiles []profile.Profile, defaults profile.Timeouts) profile.Timeouts {
 	for _, p := range profiles {
 		if p.Name == name {

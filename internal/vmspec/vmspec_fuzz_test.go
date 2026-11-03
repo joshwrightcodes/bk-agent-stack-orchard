@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/profile"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/secret"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/vmspec"
@@ -144,6 +145,31 @@ func FuzzATagReachesTheEnvironmentAndNeverTheScript(f *testing.F) {
 
 		if got := len(strings.Split(list, ",")); got != 4 {
 			t.Fatalf("Build() with the tag %q=%q gave %d tags in %q, want 4", key, value, got, list)
+		}
+	})
+}
+
+// Orchard gives back the environment of each machine, and any tool can create a machine with any
+// environment. Whatever the tags, ProfileOf gives one value of the list, or nothing: never a text
+// that spans two tags.
+func FuzzProfileOfReadsOneTag(f *testing.F) {
+	f.Add("queue=macos,agent-stack=orchard,profile=xcode-27,xcode=27")
+	f.Add("profile=")
+	f.Add("profile=a,profile=b")
+	f.Add(",,,")
+	f.Add("")
+
+	f.Fuzz(func(t *testing.T, tags string) {
+		got := vmspec.ProfileOf(orchard.VM{StartupScript: &orchard.Script{
+			Env: map[string]string{"BUILDKITE_AGENT_TAGS": tags},
+		}})
+
+		if strings.Contains(got, ",") {
+			t.Fatalf("ProfileOf(%q) = %q, which spans two tags", tags, got)
+		}
+
+		if got != "" && !strings.Contains(","+tags+",", ",profile="+got+",") {
+			t.Fatalf("ProfileOf(%q) = %q, which is not the value of a profile tag", tags, got)
 		}
 	})
 }

@@ -121,9 +121,10 @@ type Launcher struct {
 	now          func() time.Time
 
 	// held is what this process knows about the jobs that it started: when the reservation of a
-	// job ends, and which profile carries it. Neither is in Orchard, and a machine does not
-	// carry the name of its profile, so this is the only place that has them. A restart loses
-	// them, and the reaper treats an unknown reservation as one to extend at once.
+	// job ends, and which profile carries it. The end of a reservation is in neither Orchard nor
+	// Buildkite, so this is the only place that has it. A restart loses both, the reaper treats
+	// an unknown reservation as one to extend at once, and it reads the profile from the tags of
+	// the machine.
 	held *memory
 
 	// notified holds the unmatched jobs that this process wrote a notification for, so that it

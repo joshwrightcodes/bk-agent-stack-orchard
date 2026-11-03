@@ -222,6 +222,15 @@ func buildHolding(t *testing.T, api *observed, machines *fleet, log *decisions,
 ) *reaper.Reaper {
 	t.Helper()
 
+	return buildProfiles(t, api, machines, log, jobPages, reservations,
+		[]profile.Profile{{Name: "xcode-27"}})
+}
+
+func buildProfiles(t *testing.T, api *observed, machines *fleet, log *decisions,
+	jobPages *pages, reservations *held, profiles []profile.Profile,
+) *reaper.Reaper {
+	t.Helper()
+
 	provider := sdkmetric.NewMeterProvider()
 	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
 
@@ -238,7 +247,7 @@ func buildHolding(t *testing.T, api *observed, machines *fleet, log *decisions,
 		CallTimeout:  time.Second,
 		Orchard:      machines,
 		Fleet:        machines,
-		Profiles:     []profile.Profile{{Name: "xcode-27"}},
+		Profiles:     profiles,
 		Defaults:     limits,
 		Freshness:    freshness,
 		Metrics:      instruments,
@@ -976,5 +985,53 @@ func TestADeletedMachineIsForgottenAndARefusedDeletionIsNot(t *testing.T) {
 	if len(machines.forgot) != 1 || machines.forgot[0] != "bk-macos-prod-"+string(ended) {
 		t.Errorf("the reaper told the fleet to forget %v, want only the machine that went",
 			machines.forgot)
+	}
+}
+
+// After a restart, this process did not start the machines that it finds, and its memory names no
+// profile for them. The tags of each machine name its profile, so the timeouts of that profile
+// apply, and a machine of a profile with a short acquire limit does not get the widest limits of
+// the fleet. A tag that names a profile that the configuration no longer has gives the widest
+// limits, so that no machine ends sooner than its own profile allows.
+func TestTheTagsOfAMachineNameItsTimeoutsAfterARestart(t *testing.T) {
+	t.Parallel()
+
+	profiles := []profile.Profile{
+		{Name: "short", Timeouts: profile.Timeouts{Acquire: 2 * time.Minute}},
+		{Name: "slow", Timeouts: profile.Timeouts{Acquire: 20 * time.Minute}},
+	}
+
+	for name, test := range map[string]struct {
+		tag      string
+		finished int
+	}{
+		"a profile of the configuration": {tag: "short", finished: 1},
+		"a profile that is gone":         {tag: "removed", finished: 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			// The machine runs for 10 minutes, past the 2 minutes of the short profile and the
+			// 5 minutes of the defaults, and inside the 20 minutes of the slow one.
+			machine := owned(ended, 10*time.Minute)
+			machine.VM.StartupScript = &orchard.Script{Env: map[string]string{
+				"BUILDKITE_AGENT_TAGS": "queue=macos,agent-stack=orchard,profile=" + test.tag,
+			}}
+
+			api := &observed{states: map[job.ID]string{ended: "reserved"}}
+			machines := &fleet{read: true, snapshot: inventory.Snapshot{
+				Owned: []inventory.Owned{machine},
+			}}
+			jobPages := &pages{}
+
+			reaping := buildProfiles(t, api, machines, &decisions{}, jobPages, &held{}, profiles)
+			if err := reaping.Reap(t.Context()); err != nil {
+				t.Fatalf("Reap() = %v, want no error", err)
+			}
+
+			if len(jobPages.finished) != test.finished {
+				t.Errorf("buildkite saw %d finishes, want %d", len(jobPages.finished), test.finished)
+			}
+		})
 	}
 }

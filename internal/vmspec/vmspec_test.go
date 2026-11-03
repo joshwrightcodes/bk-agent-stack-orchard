@@ -504,3 +504,33 @@ func TestVMDoesNotPrintItsSecrets(t *testing.T) {
 		}
 	}
 }
+
+// The tags of the agent name the profile of the machine, so a process that did not start the
+// machine, such as the process after a restart, can read the profile back from Orchard.
+func TestTheProfileOfAMachineReadsBackFromItsTags(t *testing.T) {
+	t.Parallel()
+
+	r := request()
+	r.Tags = map[string]string{"os": "tahoe", "xcode": "27"}
+
+	spec, err := vmspec.Build(r)
+	if err != nil {
+		t.Fatalf("Build() = %v, want a specification", err)
+	}
+
+	if got := vmspec.ProfileOf(spec); got != r.Profile.Name {
+		t.Errorf("ProfileOf() = %q, want %q", got, r.Profile.Name)
+	}
+
+	for name, vm := range map[string]orchard.VM{
+		"no startup script": {Name: spec.Name},
+		"no tags":           {StartupScript: &orchard.Script{Env: map[string]string{}}},
+		"no profile tag": {StartupScript: &orchard.Script{Env: map[string]string{
+			"BUILDKITE_AGENT_TAGS": "queue=macos,agent-stack=orchard",
+		}}},
+	} {
+		if got := vmspec.ProfileOf(vm); got != "" {
+			t.Errorf("ProfileOf() of a machine with %s = %q, want empty text", name, got)
+		}
+	}
+}

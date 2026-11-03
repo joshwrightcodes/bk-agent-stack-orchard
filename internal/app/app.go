@@ -353,10 +353,10 @@ func (a *admitter) observe() telemetry.Observation {
 	return observation
 }
 
-// profileOf gives the profile of a job that this process started. A machine of a process before
-// a restart has none, and it counts as one of an unknown profile until it ends.
-func (a *admitter) profileOf(id job.ID) string {
-	return a.starter.Profile(id)
+// profileOf gives the profile of a machine: the one that this process started it with, or else the
+// one that its tags name. A machine of neither counts as one of an unknown profile until it ends.
+func (a *admitter) profileOf(owned inventory.Owned) string {
+	return inventory.ProfileOf(owned, a.starter.Profile, a.settings.Profiles)
 }
 
 // ended reports a job whose state in Buildkite, as the controller last read it, is terminal.

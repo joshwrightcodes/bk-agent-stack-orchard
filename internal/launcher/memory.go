@@ -30,13 +30,13 @@ type held struct {
 
 // memory holds what only this process knows about the jobs that it started.
 //
-// Two things are in neither Orchard nor Buildkite. The first is when a reservation ends: the
-// reaper extends a reservation before it lapses, and nothing else records that time. The second
-// is the profile of a machine: a machine carries the worker labels of its profile and nothing
-// that names the profile itself.
+// When a reservation ends is in neither Orchard nor Buildkite: the reaper extends a reservation
+// before it lapses, and nothing else records that time. The memory also holds the profile of each
+// machine, which the tags of the machine name too.
 //
 // A restart loses both, which the design allows. The reaper then extends every reservation at
-// once, and the machines of the process before the restart count under an unknown profile.
+// once, and it reads the profile of each machine of the process before the restart from its
+// tags.
 type memory struct {
 	mu   sync.RWMutex
 	jobs map[job.ID]held

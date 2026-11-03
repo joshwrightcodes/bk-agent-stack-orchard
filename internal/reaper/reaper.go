@@ -70,7 +70,7 @@ type Options struct {
 	Fleet        Fleet
 
 	// Profile gives the profile of a job that this process started, and empty text for one that
-	// it did not.
+	// it did not. The tags of a machine name the profile of one that it did not start.
 	Profile func(job.ID) string
 
 	// Profiles and Defaults give the limits of a machine.
@@ -372,7 +372,7 @@ func (r *Reaper) collect(snapshot inventory.Snapshot) []Machine {
 			ListedAt:   seen.at,
 			PlacedAt:   seen.placed,
 			RunningAt:  seen.running,
-			Timeouts:   Timeouts(r.profile(owned.Job), r.profiles, r.defaults),
+			Timeouts:   Timeouts(r.nameOf(owned), r.profiles, r.defaults),
 		}
 
 		// A reservation whose end the controller does not know is extended at once, which is
@@ -686,12 +686,18 @@ func (r *Reaper) deleted(ctx context.Context, machine Machine) {
 	// The entry stays, as recorded, until forget removes it with the machine.
 	r.ended[machine.Job] = time.Time{}
 
-	name := r.profile(machine.Job)
+	name := r.nameOf(inventory.Owned{VM: machine.VM, Job: machine.Job})
 	if name == "" {
 		name = inventory.UnknownProfile
 	}
 
 	r.metrics.JobPhase(ctx, name, telemetry.PhaseFinishedToDeleted, r.now().Sub(began))
+}
+
+// nameOf gives the profile of a machine: the one that this process started it with, or else the
+// one that its tags name, when the configuration has it.
+func (r *Reaper) nameOf(owned inventory.Owned) string {
+	return inventory.ProfileOf(owned, r.profile, r.profiles)
 }
 
 // delete removes a machine from Orchard. Orchard answers a machine that is already gone as a

@@ -473,8 +473,11 @@ digits as a number, so the examples put the SHA-256 in quotes.
   so the controller MUST NOT treat it as an orphan unless that text is its own `controllerID`.
   A name that starts with `bk-<controllerID>-` and does not end in a job UUID is an orphan.
 * **VM labels:** only the profile `workerLabels`.
-* **Profile of an owned VM:** not necessary. Capacity accounting uses the `resources` and
-  `labels` of the VM.
+* **Profile of an owned VM:** the `profile` tag in `BUILDKITE_AGENT_TAGS` of the VM
+  specification (§6.4). Orchard gives the specification back when the controller lists the VMs.
+  Capacity accounting does not need the profile, because it uses the `resources` and `labels` of
+  the VM. The Reaper reads it for the timeouts of a VM that this process did not start (§7.2),
+  and the metrics for the profile attribute (§10.1).
 
 ### 6.2 Normal sequence
 
@@ -845,11 +848,12 @@ A row that finishes a job and whose job state is from an earlier tick does not a
 then waits with no action, and row 13 applies to a `pending` or `running` VM. After Buildkite
 refused a finish of the job (rule 4), rows 9, 11, and 12 delete the VM and send no finish.
 
-The timeouts of a VM are the effective timeouts of its profile. A VM does not carry the name of
-its profile (§6.1), so after a restart the controller cannot name the profile of a VM that it did
-not start. The Reaper MUST then use the largest value of each timeout across the profiles. A
-restart MUST NOT end a VM sooner than its own profile allows: a VM that stays longer costs a slot,
-and a job that the controller ends early costs a build.
+The timeouts of a VM are the effective timeouts of its profile. For a VM that this process did not
+start, such as a VM of the process before a restart, the Reaper MUST read the profile from the tags
+of the VM (§6.1). If the tags name no profile of the configuration, for example because an operator
+removed the profile before the restart, the Reaper MUST use the largest value of each timeout
+across the profiles. A restart MUST NOT end a VM sooner than its own profile allows: a VM that
+stays longer costs a slot, and a job that the controller ends early costs a build.
 
 Orchard sets the VM status to `running` when the Tart VM process starts. At this time, macOS has
 not completed its boot. Because of this:
@@ -1271,7 +1275,8 @@ These rules come from the conventions and MUST hold:
   in a terminal state, and it ends at the deletion that Orchard accepted. A failed deletion does
   not end it. A restart loses the start, so the first tick after a restart starts the time again.
   It has the tolerance of `jobStatesInterval`, like the other phases. The value of the
-  attribute `bkaso.profile` is `unknown` for a VM that this process did not start.
+  attribute `bkaso.profile` is `unknown` for a VM that this process did not start and whose tags
+  name no profile of the configuration.
 
 Metric attributes MUST NOT contain job UUIDs or VM names. The `bkaso.pool` attribute is the value
 of the worker `pool` label. If the worker has no `pool` label, the value is `none`.
