@@ -17,6 +17,7 @@ reason. [Telemetry](telemetry.md) lists the reasons and the metrics.
 | The job waits while other jobs run | Each Mac host runs at most two VMs. | Add hosts, or wait. `bk_agent_stack_orchard.job.waiting.oldest.age` shows the wait. |
 | The log warns that the queue is longer than one read | Many jobs that never leave the queue, such as jobs that no profile carries, are at the head of the queue. Each tick, the controller reads the head and one more page, so a job behind them waits longer. | The warning names the pipeline that has the most jobs of the read. Cancel the build of that pipeline, or fix the `agents:` of its steps. |
 | The controller log says that it is not ready | Buildkite or Orchard does not answer, or Buildkite refused the agent token. | Fix the connection or the token. The log names the source. |
+| No job starts, and `bk_agent_stack_orchard.admission.blocked` is 1 for a reason | The reason says why admission stopped: a queue that the controller has not read or that an operator paused, or a source that has not answered or whose answer is old. | For `queue_paused`, resume the queue in Buildkite. For a source, fix the connection to Buildkite or Orchard, and read `bk_agent_stack_orchard.source.staleness`. |
 
 ## A job fails before it runs
 

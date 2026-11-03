@@ -666,3 +666,42 @@ func TestEachProfileHasItsSeriesFromTheFirstTick(t *testing.T) {
 		t.Errorf("cicd.worker.count holds %v, want 0 for busy and offline", got)
 	}
 }
+
+// blind is an Orchard whose workers do not answer, so the inventory has no answer and the gate of
+// admission stays closed.
+type blind struct{ fleet }
+
+func (*blind) ListWorkers(context.Context) ([]orchard.Worker, error) {
+	return nil, errors.New("orchard answered 503")
+}
+
+// Jobs keep arriving while the gate of admission is closed, and an outage is when they wait the
+// longest. The gauges of the waiting jobs therefore read the queue at each tick, and the gauge of
+// the gate says why no job starts.
+func TestTheWaitingJobsAreCountedWhileTheGateIsClosed(t *testing.T) {
+	recorded := measure(t, stacks{}, &blind{})
+
+	if got := levels(recorded, "bk_agent_stack_orchard.job.waiting.count"); got["xcode-27"] != 1 {
+		t.Errorf("job.waiting.count holds %v, want the one job of the queue", got)
+	}
+
+	var aged bool
+
+	for _, one := range recorded {
+		if one.Name != "bk_agent_stack_orchard.job.waiting.oldest.age" {
+			continue
+		}
+
+		for _, point := range one.Data.(metricdata.Gauge[float64]).DataPoints {
+			aged = aged || point.Value > 0
+		}
+	}
+
+	if !aged {
+		t.Error("job.waiting.oldest.age holds no age, want the age of the waiting job")
+	}
+
+	if got := levels(recorded, "bk_agent_stack_orchard.admission.blocked"); got["inventory_unanswered"] != 1 {
+		t.Errorf("admission.blocked holds %v, want 1 for inventory_unanswered", got)
+	}
+}

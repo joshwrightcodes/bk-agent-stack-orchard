@@ -26,8 +26,9 @@ small.
 
 | Metric | Type, unit | Attributes | What it measures |
 |---|---|---|---|
-| `bk_agent_stack_orchard.job.waiting.count` | up-down counter, `{job}` | `bk_agent_stack_orchard.profile` | Matched jobs that wait for a VM |
-| `bk_agent_stack_orchard.job.waiting.oldest.age` | gauge, `s` | `bk_agent_stack_orchard.profile` | How long the oldest waiting job has waited |
+| `bk_agent_stack_orchard.job.waiting.count` | up-down counter, `{job}` | `bk_agent_stack_orchard.profile` | Matched jobs of the last read of the queue that wait for a VM |
+| `bk_agent_stack_orchard.job.waiting.oldest.age` | gauge, `s` | `bk_agent_stack_orchard.profile` | How long the oldest waiting job has waited, or 0 when no job of the profile waits |
+| `bk_agent_stack_orchard.admission.blocked` | gauge, `1` | `bk_agent_stack_orchard.admission.reason` | 1 for the reason that stopped admission at the last tick, and 0 for each other reason (below) |
 | `bk_agent_stack_orchard.job.skipped` | counter, `{job}` | | Jobs that match no profile, and that the controller leaves for another runner |
 | `bk_agent_stack_orchard.queue.truncated` | counter, `{read}` | | Reads of the queue that did not list it whole, so that jobs behind the head of the queue wait for a later read |
 | `bk_agent_stack_orchard.job.failed` | counter, `{job}` | `error.type` | Jobs that the controller failed, such as after a timeout |
@@ -55,6 +56,24 @@ finished tick, and the platform then restarts the process.
 An alert that compares a value does not fire on a series that does not exist. For each alert on
 the controller, also alert when its series is absent for the `service.instance.id` of the
 controller, which covers a process that does not start or that crashes in a loop.
+
+The two gauges of the waiting jobs read the last read of the queue at each tick, also while
+admission is stopped. A read that did not list the whole queue (`queue.truncated`) does not count
+the jobs behind its last page. While a source does not answer, the last read of the queue stays,
+so the count stays and the age rises.
+
+The reasons of `bk_agent_stack_orchard.admission.reason`. Admission starts no VM while one of them
+holds:
+
+| Reason | Why admission stopped |
+|---|---|
+| `queue_unread` | The controller has not read the queue since it started. |
+| `queue_paused` | An operator paused the queue in Buildkite. |
+| `scheduled_jobs_stale` | The last read of the queue is older than `stateFreshness`. |
+| `inventory_unanswered` | Orchard has not answered since the start. |
+| `inventory_stale` | The last answer of Orchard is older than `stateFreshness`. |
+| `job_states_unanswered` | The job states have not answered since the start, so no reaper pass has seen the VMs of the last process. |
+| `job_states_stale` | The last job states are older than `stateFreshness`. |
 
 The phases of `bk_agent_stack_orchard.job.phase.duration`:
 
@@ -119,6 +138,9 @@ record has the job (`cicd.pipeline.task.run.id`), the pipeline (`cicd.pipeline.n
 (`bk_agent_stack_orchard.worker.name`), and the trace and span when one is active. Each time the
 controller acts on a VM, it writes one record with the reason.
 
+A record about admission has the reason in `bk_agent_stack_orchard.admission.reason`. A record
+that says more in a sentence has it in `bk_agent_stack_orchard.detail`.
+
 ## The agent in each VM
 
 When a profile sets `otel.enabled: true`, the agent in each VM sends its own traces to
@@ -136,6 +158,7 @@ fleet. These conditions are a good start:
 |---|---|---|---|
 | Jobs wait too long | `bk_agent_stack_orchard.job.waiting.oldest.age` rises and stays high. | Jobs wait longer than your wait objective. The fleet is full, or no host carries the profile. | [A job stays scheduled](troubleshooting.md#a-job-stays-scheduled) |
 | The controller is not ready | `bk_agent_stack_orchard.source.staleness` of a source rises and stays high. | The controller has no fresh answer from Buildkite or Orchard, so it starts no VM. | [A job stays scheduled](troubleshooting.md#a-job-stays-scheduled), the row about readiness |
+| Admission is stopped | `bk_agent_stack_orchard.admission.blocked` stays at 1 for a reason. | The controller starts no VM, and the reason says why. `queue_paused` is a choice of an operator. | [A job stays scheduled](troubleshooting.md#a-job-stays-scheduled) |
 | The controller fails jobs | `bk_agent_stack_orchard.job.failed` keeps going up. | VMs fail, or time out before an agent takes the job. | [A job fails before it runs](troubleshooting.md#a-job-fails-before-it-runs) |
 | Timeouts repeat | `bk_agent_stack_orchard.vm.deletions` with a reason that ends in `_timeout` keeps going up. | VMs do not reach a host, boot, or start an agent in time. | [A job fails before it runs](troubleshooting.md#a-job-fails-before-it-runs) |
 | VMs remain | `bk_agent_stack_orchard.vm.leftover` rises and stays high. Ignore it while Buildkite is down. | The controller does not delete the VMs of ended jobs. | [VMs remain after their jobs](troubleshooting.md#vms-remain-after-their-jobs) |

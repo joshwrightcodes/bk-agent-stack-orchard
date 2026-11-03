@@ -190,6 +190,11 @@ var design = []struct {
 	},
 	{"bk_agent_stack_orchard.loop.heartbeat.age", "s", nil, false},
 	{"bk_agent_stack_orchard.stack.registered", "1", nil, false},
+	{
+		"bk_agent_stack_orchard.admission.blocked", "1",
+		[]string{"bk_agent_stack_orchard.admission.reason"},
+		false,
+	},
 }
 
 func TestTheInstrumentsAreTheOnesOfTheDesign(t *testing.T) {
@@ -489,4 +494,49 @@ func TestTheLeftoverGaugeReportsTheCountOfTheObservation(t *testing.T) {
 	}
 
 	t.Error("no instrument reports the leftover machines")
+}
+
+// The age of the oldest waiting job is its age when the collector reads it, as the age of a source
+// is: the age at the observation, and the time since. A queue that the controller cannot act on,
+// such as one behind a stuck loop, still ages.
+func TestTheOldestWaitingJobAgesAtTheRead(t *testing.T) {
+	t.Parallel()
+
+	reader := metric.NewManualReader()
+	provider := metric.NewMeterProvider(metric.WithReader(reader))
+
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+
+	instruments, err := telemetry.NewMetrics(provider.Meter("test"))
+	if err != nil {
+		t.Fatalf("NewMetrics() = %v, want the instruments", err)
+	}
+
+	instruments.Observe(telemetry.Observation{
+		Waiting:       map[string]int64{"xcode-27": 1, "xcode-26": 0},
+		OldestWaiting: map[string]time.Duration{"xcode-27": 10 * time.Minute},
+	})
+
+	time.Sleep(50 * time.Millisecond)
+
+	ages := map[string]float64{}
+
+	for _, one := range collect(t, reader) {
+		if one.Name != "bk_agent_stack_orchard.job.waiting.oldest.age" {
+			continue
+		}
+
+		for _, point := range one.Data.(metricdata.Gauge[float64]).DataPoints {
+			profile, _ := point.Attributes.Value("bk_agent_stack_orchard.profile")
+			ages[profile.AsString()] = point.Value
+		}
+	}
+
+	if ages["xcode-27"] <= 600.04 || ages["xcode-27"] > 660 {
+		t.Errorf("the oldest job of xcode-27 waited %v s, want 600 s and the time since", ages["xcode-27"])
+	}
+
+	if age, ok := ages["xcode-26"]; !ok || age != 0 {
+		t.Errorf("the profile with no waiting job reads %v (present: %v), want 0", age, ok)
+	}
 }

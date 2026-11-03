@@ -67,6 +67,16 @@ const (
 	LogWorker   = prefix + "worker.name"
 )
 
+// The keys of the other log fields of the controller. Each one carries the prefix of this project,
+// as an attribute does, and a field with the meaning of an attribute has the key of that attribute.
+const (
+	// LogAdmissionReason is why the gate of admission is closed, as an AdmissionBlock.
+	LogAdmissionReason = attributeAdmission
+
+	// LogDetail is a sentence for a person that says more about the record.
+	LogDetail = prefix + "detail"
+)
+
 // DefaultServiceName names this controller when nothing else does.
 const DefaultServiceName = "bk-agent-stack-orchard"
 

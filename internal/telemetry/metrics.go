@@ -34,6 +34,7 @@ const (
 	attributeJobPhase     = prefix + "job.phase"
 	attributeStep         = prefix + "tick.step"
 	attributeSource       = prefix + "source"
+	attributeAdmission    = prefix + "admission.reason"
 )
 
 // The attributes of the job.match span: the profile that carries the job, or none. A job that no
@@ -141,6 +142,56 @@ const (
 	SourceInventory     Source = "inventory"
 )
 
+// AdmissionBlock says why the gate of admission is closed. It is the value of
+// bk_agent_stack_orchard.admission.reason, and empty text when the gate is open.
+type AdmissionBlock string
+
+// The reasons that close the gate of admission (target design, section 6.3). A source that has not
+// answered and a source whose answer is too old each have one reason. The queue has its own two:
+// a queue that the controller has not read, and one that an operator paused.
+const (
+	BlockQueueUnread         AdmissionBlock = "queue_unread"
+	BlockQueuePaused         AdmissionBlock = "queue_paused"
+	BlockScheduledJobsStale  AdmissionBlock = "scheduled_jobs_stale"
+	BlockInventoryUnanswered AdmissionBlock = "inventory_unanswered"
+	BlockInventoryStale      AdmissionBlock = "inventory_stale"
+	BlockJobStatesUnanswered AdmissionBlock = "job_states_unanswered"
+	BlockJobStatesStale      AdmissionBlock = "job_states_stale"
+)
+
+// admissionBlocks is the closed set of reasons, each of which has a series from the start.
+func admissionBlocks() []AdmissionBlock {
+	return []AdmissionBlock{
+		BlockQueueUnread, BlockQueuePaused, BlockScheduledJobsStale, BlockInventoryUnanswered,
+		BlockInventoryStale, BlockJobStatesUnanswered, BlockJobStatesStale,
+	}
+}
+
+// Unanswered gives the reason for a source that has not answered. The queue is read when its
+// source answered, so a queue source that has not answered is an unread queue.
+func Unanswered(source Source) AdmissionBlock {
+	switch source {
+	case SourceInventory:
+		return BlockInventoryUnanswered
+	case SourceJobStates:
+		return BlockJobStatesUnanswered
+	default:
+		return BlockQueueUnread
+	}
+}
+
+// Stale gives the reason for a source whose last answer is too old.
+func Stale(source Source) AdmissionBlock {
+	switch source {
+	case SourceInventory:
+		return BlockInventoryStale
+	case SourceJobStates:
+		return BlockJobStatesStale
+	default:
+		return BlockScheduledJobsStale
+	}
+}
+
 // Slot names one series of the slot count.
 type Slot struct {
 	Pool  string
@@ -165,7 +216,9 @@ type Observation struct {
 	// Waiting is the jobs of each profile that wait for a machine.
 	Waiting map[string]int64
 
-	// OldestWaiting is the age of the oldest waiting job of each profile.
+	// OldestWaiting is the age of the oldest waiting job of each profile, at the observation.
+	// The callback adds the time since the observation, so the age keeps rising while the loop
+	// is stuck.
 	OldestWaiting map[string]time.Duration
 
 	// Slots is the slots of each pool in each state.
@@ -195,6 +248,10 @@ type Observation struct {
 	// Registered reports a stack that Buildkite accepted. It is false while the controller
 	// registers, which it tries again while Buildkite does not answer, and after it withdrew.
 	Registered bool
+
+	// Blocked says why the gate of admission was closed at the tick, and is empty when it was
+	// open.
+	Blocked AdmissionBlock
 }
 
 // Expect adds a zero for each series that the profiles and the closed sets of values give, where
@@ -245,6 +302,7 @@ type Metrics struct {
 	staleness   metric.Float64ObservableGauge
 	heartbeat   metric.Float64ObservableGauge
 	registered  metric.Int64ObservableGauge
+	blocked     metric.Int64ObservableGauge
 	skipped     metric.Int64Counter
 	truncated   metric.Int64Counter
 	failed      metric.Int64Counter
@@ -255,6 +313,10 @@ type Metrics struct {
 	callback    metric.Registration
 	mu          sync.RWMutex
 	observation Observation
+
+	// observed is when the last observation arrived, in real time. The ages of an observation
+	// grow by the time since.
+	observed time.Time
 
 	// reported holds each series that the callback reported, so that a series that leaves the
 	// observation reports 0. The attributes of a series are bounded by the configuration and the
@@ -277,7 +339,7 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 
 	callback, err := meter.RegisterCallback(m.report,
 		m.waiting, m.oldest, m.slots, m.vms, m.workers, m.leftover, m.staleness, m.heartbeat,
-		m.registered)
+		m.registered, m.blocked)
 	if err != nil {
 		return nil, fmt.Errorf("registering the callback of the fleet levels: %w", err)
 	}
@@ -358,6 +420,14 @@ func (m *Metrics) observable(meter metric.Meter) error {
 		return fmt.Errorf("building the instrument of the registration: %w", err)
 	}
 
+	m.blocked, err = meter.Int64ObservableGauge(prefix+"admission.blocked",
+		metric.WithUnit("1"),
+		metric.WithDescription("1 for the reason that closed the gate of admission at the last "+
+			"tick, and 0 for each other reason. Every series is 0 while the gate is open."))
+	if err != nil {
+		return fmt.Errorf("building the instrument of the gate of admission: %w", err)
+	}
+
 	return nil
 }
 
@@ -427,6 +497,7 @@ func (m *Metrics) Observe(observation Observation) {
 	defer m.mu.Unlock()
 
 	m.observation = observation
+	m.observed = time.Now() //nolint:forbidigo // the real time that the ages grow from
 }
 
 // Close stops the callback. The meter provider does this as well when it stops, so a caller
@@ -443,8 +514,14 @@ func (m *Metrics) Close() error {
 // it reported before and that the observation no longer holds.
 func (m *Metrics) report(_ context.Context, observer metric.Observer) error {
 	m.mu.RLock()
-	observation := m.observation
+	observation, observed := m.observation, m.observed
 	m.mu.RUnlock()
+
+	// The time since the observation, which each age of the observation has grown by.
+	var since time.Duration
+	if !observed.IsZero() {
+		since = time.Since(observed) //nolint:forbidigo // real age
+	}
 
 	levels := &levels{
 		observer: observer,
@@ -455,8 +532,15 @@ func (m *Metrics) report(_ context.Context, observer metric.Observer) error {
 		levels.int64(m.waiting, jobs, attribute.NewSet(attribute.String(attributeProfile, profile)))
 	}
 
+	// A profile with no waiting job has no age, and reads 0.
+	for profile := range observation.Waiting {
+		if _, aged := observation.OldestWaiting[profile]; !aged {
+			levels.float64(m.oldest, 0, attribute.NewSet(attribute.String(attributeProfile, profile)))
+		}
+	}
+
 	for profile, age := range observation.OldestWaiting {
-		levels.float64(m.oldest, age.Seconds(),
+		levels.float64(m.oldest, (age + since).Seconds(),
 			attribute.NewSet(attribute.String(attributeProfile, profile)))
 	}
 
@@ -500,6 +584,16 @@ func (m *Metrics) report(_ context.Context, observer metric.Observer) error {
 	}
 
 	levels.int64(m.registered, registered, attribute.NewSet())
+
+	for _, reason := range admissionBlocks() {
+		closed := int64(0)
+		if observation.Blocked == reason {
+			closed = 1
+		}
+
+		levels.int64(m.blocked, closed,
+			attribute.NewSet(attribute.String(attributeAdmission, string(reason))))
+	}
 
 	m.zero(levels)
 

@@ -1278,6 +1278,7 @@ The name that an operator queries has the full prefix.
 |---|---|---|
 | UpDownCounter | `bkaso.job.waiting.count` (`{job}`) | `bkaso.profile` |
 | Gauge | `bkaso.job.waiting.oldest.age` (`s`) | `bkaso.profile` |
+| Gauge | `bkaso.admission.blocked` (`1`) | `bkaso.admission.reason` = `queue_unread`/`queue_paused`/`scheduled_jobs_stale`/`inventory_unanswered`/`inventory_stale`/`job_states_unanswered`/`job_states_stale` |
 | Counter | `bkaso.job.skipped` (`{job}`) | — |
 | Counter | `bkaso.queue.truncated` (`{read}`) | — |
 | Counter | `bkaso.job.failed` (`{job}`) | `error.type` |
@@ -1327,6 +1328,15 @@ These rules come from the conventions and MUST hold:
   needs no clock of its own, and the value cannot disagree with the clock of the backend. The age
   is computed when the collector reads it, so it keeps rising while the loop is stuck. A source
   that has not answered since the start of the process is as old as the process.
+* **The waiting jobs come from the last read of the queue at each tick.** The controller MUST
+  count the waiting jobs and the age of the oldest one at each tick, also when the gate of
+  admission (§6.3) is closed, because an outage is when jobs wait longest. The age at the tick
+  grows by the real time until the collector reads it, so it keeps rising while the loop is
+  stuck. A truncated read does not count the jobs behind its last page.
+* **`bkaso.admission.blocked` says why admission stopped.** At each tick, the series of the
+  reason that closed the gate is 1, and every other series is 0. The reasons are the checks of
+  the gate in their order: the queue was not read or is paused, then a source that has not
+  answered or whose answer is older than `stateFreshness`.
 * **`bkaso.loop.heartbeat.age` is the age of the last tick.** It is the time since the loop last
   finished a tick, computed when the collector reads it, and the age of the process before the
   loop starts. Liveness fails when the loop has not finished a tick inside 15 min.
@@ -1486,6 +1496,7 @@ scope, because they depend on the backend behind the collector.
 |---|---|---|
 | Jobs wait too long | `bkaso.job.waiting.oldest.age` rises and stays high. | Jobs wait longer than the wait objective of the operator. The fleet is full, or no worker carries the profile. |
 | Controller is not ready | `bkaso.source.staleness` of a source rises and stays high. | The controller has no fresh answer from Buildkite or Orchard, so it starts no VM (§7.5). |
+| Admission is stopped | `bkaso.admission.blocked` stays at 1 for a reason. | The controller starts no VM. The reason names the source, or a queue that an operator paused. |
 | Controller fails jobs | `bkaso.job.failed` keeps increasing. | VMs fail, or time out before an agent takes the job. |
 | Timeouts repeat | `bkaso.vm.deletions{bkaso.vm.delete.reason=~".*_timeout"}` keeps increasing. | VMs do not place, boot, or reach an agent within the timeouts of their profile (§7.3). |
 | VMs remain | `bkaso.vm.leftover` rises and stays high. Outages of Buildkite excluded. | The Reaper does not delete the VMs of ended jobs. A VM that stays in the count for longer than the window of §10.1 is a leak. |

@@ -859,3 +859,103 @@ func TestTheSeriesOfTheLoopExistWhileTheStackRegisters(t *testing.T) {
 		t.Fatalf("Run() = %v, want no error", err)
 	}
 }
+
+// blocked gives the value of each series of admission.blocked, by its reason.
+func blocked(t *testing.T, reader *sdkmetric.ManualReader) map[string]int64 {
+	t.Helper()
+
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(t.Context(), &collected); err != nil {
+		t.Fatalf("Collect() = %v, want the metrics", err)
+	}
+
+	values := map[string]int64{}
+
+	for _, scope := range collected.ScopeMetrics {
+		for _, one := range scope.Metrics {
+			if one.Name != "bk_agent_stack_orchard.admission.blocked" {
+				continue
+			}
+
+			for _, point := range one.Data.(metricdata.Gauge[int64]).DataPoints {
+				reason, _ := point.Attributes.Value("bk_agent_stack_orchard.admission.reason")
+				values[reason.AsString()] = point.Value
+			}
+		}
+	}
+
+	return values
+}
+
+// While the gate of admission is closed, jobs wait and nothing in a debug log is visible to an
+// operator. A gauge says that the gate is closed and why, with one series for each reason, so
+// that the series exist while the gate is open too.
+func TestTheGaugeOfTheGateSaysWhyAdmissionStopped(t *testing.T) {
+	t.Parallel()
+
+	reasons := []string{
+		"queue_unread", "queue_paused", "scheduled_jobs_stale", "inventory_unanswered",
+		"inventory_stale", "job_states_unanswered", "job_states_stale",
+	}
+
+	old := time.Now().Add(-2 * time.Minute)
+
+	for name, test := range map[string]struct {
+		change func(*controller.Options)
+		want   string
+	}{
+		"an open gate":    {func(*controller.Options) {}, ""},
+		"an unread queue": {func(o *controller.Options) { o.Queue = queue{} }, "queue_unread"},
+		"a paused queue":  {func(o *controller.Options) { o.Queue = pausedQueue() }, "queue_paused"},
+		"an old queue":    {sourceAt(telemetry.SourceScheduledJobs, old), "scheduled_jobs_stale"},
+		"no fleet":        {sourceAt(telemetry.SourceInventory, time.Time{}), "inventory_unanswered"},
+		"an old fleet":    {sourceAt(telemetry.SourceInventory, old), "inventory_stale"},
+		"no job states":   {sourceAt(telemetry.SourceJobStates, time.Time{}), "job_states_unanswered"},
+		"old job states":  {sourceAt(telemetry.SourceJobStates, old), "job_states_stale"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			settings, reader := measured(t, &recorder{})
+			test.change(&settings)
+
+			loop, err := controller.New(settings)
+			if err != nil {
+				t.Fatalf("New() = %v, want the loop", err)
+			}
+
+			loop.Tick(t.Context(), time.Now())
+
+			got := blocked(t, reader)
+			if len(got) != len(reasons) {
+				t.Errorf("admission.blocked has the series %v, want one for each of %v", got, reasons)
+			}
+
+			for _, reason := range reasons {
+				want := int64(0)
+				if reason == test.want {
+					want = 1
+				}
+
+				if got[reason] != want {
+					t.Errorf("admission.blocked{%s} = %d, want %d", reason, got[reason], want)
+				}
+			}
+		})
+	}
+}
+
+func pausedQueue() queue {
+	return queue{latest: stack.Queue{Paused: true, At: time.Now()}, read: true}
+}
+
+// sourceAt gives a change that sets when one source last answered.
+func sourceAt(kind telemetry.Source, at time.Time) func(*controller.Options) {
+	return func(o *controller.Options) {
+		for _, s := range o.Sources {
+			if s := s.(*source); s.kind == kind {
+				s.at = at
+			}
+		}
+	}
+}

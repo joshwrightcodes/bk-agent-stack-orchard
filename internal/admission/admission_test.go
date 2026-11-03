@@ -650,3 +650,29 @@ func TestTheMachinesThatThisProcessAskedForTakeTheirRoomInAFixedOrder(t *testing
 		}
 	}
 }
+
+// While the gate of admission is closed, the loop still counts the jobs that wait, so the demand
+// that the fleet faces stays visible. Waiting gives the demand and decides nothing.
+func TestWaitingCountsTheDemandAndAdmitsNothing(t *testing.T) {
+	t.Parallel()
+
+	ids := identifiers(2)
+	fleet := inventory.Snapshot{Workers: []orchard.Worker{worker("mac-01", nil)}, At: now}
+
+	result := admission.Waiting(request([]buildkite.ScheduledJob{
+		waiting(ids[0], 0, time.Minute),
+		waiting(ids[1], 0, 20*time.Minute),
+	}, fleet))
+
+	if len(result.Admit) != 0 {
+		t.Errorf("Waiting() admitted %v, want nothing", result.Admit)
+	}
+
+	if result.Waiting[pilot.Name] != 2 {
+		t.Errorf("Waiting() counts %d jobs of the profile, want 2", result.Waiting[pilot.Name])
+	}
+
+	if got := result.OldestWaiting[pilot.Name]; got != 20*time.Minute {
+		t.Errorf("the oldest job waited %s, want 20m", got)
+	}
+}

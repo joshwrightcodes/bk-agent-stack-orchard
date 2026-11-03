@@ -190,6 +190,10 @@ type Controller struct {
 	// registered reports a stack that Buildkite holds. Only the goroutine of the loop reads and
 	// writes it.
 	registered bool
+
+	// blocked is why the gate of admission was closed at the last tick, and empty when it was
+	// open. Only the goroutine of the loop reads and writes it.
+	blocked telemetry.AdmissionBlock
 }
 
 // New builds the loop.
@@ -269,6 +273,7 @@ func New(options Options) (*Controller, error) {
 		refreshed: map[telemetry.Source]time.Time{},
 		paused:    map[telemetry.Source]time.Duration{},
 		started:   options.Now(),
+		blocked:   telemetry.BlockQueueUnread,
 	}, nil
 }
 
@@ -412,8 +417,12 @@ func (c *Controller) Tick(ctx context.Context, at time.Time) {
 	// The gate measures the answers at the time of the decision, and not at the time of the
 	// tick: the refresh and the reaper can take long, and a source whose refresh failed keeps an
 	// answer that ages while they run.
-	if reason, ok := c.mayAdmit(c.now()); !ok {
-		c.logger.DebugContext(ctx, "the controller admitted no job", "reason", reason)
+	blocked, detail := c.mayAdmit(c.now())
+	c.blocked = blocked
+
+	if blocked != "" {
+		c.logger.DebugContext(ctx, "the controller admitted no job",
+			telemetry.LogAdmissionReason, string(blocked), telemetry.LogDetail, detail)
 
 		return
 	}
@@ -512,6 +521,7 @@ func (c *Controller) observe() {
 
 	observation.Synced = synced
 	observation.Registered = c.registered
+	observation.Blocked = c.blocked
 
 	observation.Heartbeat = c.Heartbeat()
 	if observation.Heartbeat.IsZero() {
@@ -521,29 +531,30 @@ func (c *Controller) observe() {
 	c.metrics.Observe(observation)
 }
 
-// mayAdmit reports whether the controller may start jobs at the time at, and why not when it may
-// not.
+// mayAdmit gives why the controller may not start jobs at the time at, with a sentence for a
+// person, and empty text when it may.
 //
 // The controller starts no job while it has not read the queue, because an empty queue and an
 // unread queue look the same, and because a paused queue is an instruction from an operator. It
 // starts no job on an answer older than the freshness limit either: a source whose calls fail
 // keeps its last answer, and the fleet and the queue move on without it.
-func (c *Controller) mayAdmit(at time.Time) (string, bool) {
+func (c *Controller) mayAdmit(at time.Time) (telemetry.AdmissionBlock, string) {
 	queue, ok := c.queue.Latest()
 	if !ok {
-		return "the controller has not read the queue yet", false
+		return telemetry.BlockQueueUnread, "the controller has not read the queue yet"
 	}
 
 	if queue.Paused {
-		return "an operator paused the queue", false
+		return telemetry.BlockQueuePaused, "an operator paused the queue"
 	}
 
 	rests := admissionRests()
 
 	for _, source := range c.sources {
 		if source.Source() == admissionFollows && source.At().IsZero() {
-			return fmt.Sprintf("the source %s has not answered yet, so no reaper pass has seen "+
-				"the machines of the last process", source.Source()), false
+			return telemetry.Unanswered(source.Source()), fmt.Sprintf("the source %s has not "+
+				"answered yet, so no reaper pass has seen the machines of the last process",
+				source.Source())
 		}
 
 		if !slices.Contains(rests, source.Source()) {
@@ -552,14 +563,16 @@ func (c *Controller) mayAdmit(at time.Time) (string, bool) {
 
 		answered := source.At()
 		if answered.IsZero() {
-			return fmt.Sprintf("the source %s has not answered yet", source.Source()), false
+			return telemetry.Unanswered(source.Source()),
+				fmt.Sprintf("the source %s has not answered yet", source.Source())
 		}
 
 		if age := at.Sub(answered); age > c.freshness {
-			return fmt.Sprintf("the last answer of the source %s is %s old, and admission "+
-				"needs one inside %s", source.Source(), age.Round(time.Second), c.freshness), false
+			return telemetry.Stale(source.Source()), fmt.Sprintf("the last answer of the source "+
+				"%s is %s old, and admission needs one inside %s", source.Source(),
+				age.Round(time.Second), c.freshness)
 		}
 	}
 
-	return "", true
+	return "", ""
 }

@@ -133,6 +133,21 @@ func (r Result) Observe(observation *telemetry.Observation) {
 	observation.OldestWaiting = r.OldestWaiting
 }
 
+// Waiting gives the jobs of the queue that wait, and the jobs that no profile carries, and admits
+// none. The loop reads it at a tick whose gate of admission is closed, so that the demand that the
+// fleet faces stays visible while no job starts.
+func Waiting(request Request) Result {
+	result := Result{
+		Truncated:     request.Truncated,
+		Waiting:       map[string]int64{},
+		OldestWaiting: map[string]time.Duration{},
+	}
+
+	result.Matched = sift(request, &result)
+
+	return result
+}
+
 // Decide gives the jobs to start and the jobs to end.
 func Decide(request Request) Result {
 	result := Result{
