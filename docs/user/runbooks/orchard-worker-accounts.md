@@ -39,6 +39,11 @@ Job again, and it needs no restart of Orchard. Do not use the controller account
 it serves the controller only. To run the Job again, delete it and apply the overlay:
 `kubectl -n orchard delete job orchard-bootstrap`, then apply the overlay.
 
+The Job reads the key `operator-token` of the Secret `orchard-bootstrap`, and it does not start
+when the Secret has no such key. The Secret of an older fleet can lack the key. Before the Job
+runs again, check that the Secret has the key. If it has no such key, add one with a new token
+(`openssl rand -hex 24`). The Job then creates the `operator` account.
+
 To list the workers, run `orchard_operator GET /v1/workers`. To delete a worker record, run
 `orchard_operator DELETE /v1/workers/<name>`. To list the accounts, run
 `orchard_admin GET /v1/service-accounts`. If you deleted the bootstrap admin, re-create it first
@@ -52,8 +57,10 @@ account stays valid, with `compute:write`, until the operator deletes it. The mi
 complete only after step 4.
 
 1. Create the Secret `orchard-worker-tokens` with one key `worker-<host>` for each host, as in
-   "Add a host", steps 1 and 2. Delete the Job `orchard-bootstrap`, apply the overlay, and wait
-   until the Job completes. The shared account still works, so no host is out.
+   "Add a host", steps 1 and 2. Add the key `operator-token` to the Secret `orchard-bootstrap`
+   if it has no such key (section "Access to the API and the Job"). Delete the Job
+   `orchard-bootstrap`, apply the overlay, and wait until the Job completes. The shared account
+   still works, so no host is out.
 2. Move each host to its own token. Set `orchard_worker_name` and the new token for the host in
    the inventory, and run the playbook for that host. Check with `orchard_operator GET /v1/workers`
    that the worker is online. Do one host first. A worker name that was set from the host name
@@ -76,7 +83,9 @@ complete only after step 4.
 2. Put it in the Secret `orchard-worker-tokens` as the key `worker-<host>`. `<host>` is a DNS
    label, and it is the `orchard_worker_name` of the host.
 3. Put the same token in the inventory vault as `vault_orchard_worker_tokens[<host>]`.
-4. Run the Job again (delete it and apply the overlay). Wait until the Job completes.
+4. Check that the Secret `orchard-bootstrap` has the key `operator-token`, and add it if it has
+   no such key (section "Access to the API and the Job"). Run the Job again (delete it and apply
+   the overlay). Wait until the Job completes.
 5. Run the playbook for the host. Check that the worker is online
    (`orchard_operator GET /v1/workers`).
 6. Add `<host>` to the list of the alert "Unknown worker" (target design, section 10.6).
