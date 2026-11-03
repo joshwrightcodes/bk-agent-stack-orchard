@@ -496,7 +496,7 @@ func TestAWorkerThatIsNotEligibleGivesNoSlots(t *testing.T) {
 	}
 }
 
-// The age of the oldest waiting job is the number that the alert of QA-02 reads.
+// The age of the oldest waiting job is the number that the alert "Jobs wait too long" reads.
 func TestTheDemandCarriesTheAgeOfTheOldestJob(t *testing.T) {
 	t.Parallel()
 

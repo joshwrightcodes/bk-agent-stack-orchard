@@ -1,7 +1,7 @@
 ---
-status: proposed
+status: accepted
 date: 2026-11-03
-decision-makers: maintainers
+decision-makers: Josh Wright
 ---
 
 # ADR-0019: Sweep the queue behind a long head
@@ -14,8 +14,9 @@ put more than 3000 such jobs at the head of the queue, and every job behind them
 The fleet then stays idle for every pipeline of the queue. The decision is to read 2 pages from
 the head and 1 page from a sweep. The sweep moves through the rest of the list, one page in each
 tick, and starts again after the head at the end of the list. A read still makes at most 3 list
-requests. A longer flood makes a job behind it wait longer, but it cannot hide the job. The cost
-is that a job behind the head is in one read of each sweep, not in every read.
+requests. A longer flood makes a job behind it wait longer. If Buildkite accepts a cursor from an
+earlier tick, the flood cannot hide the job (see Consequences). The cost is that a job behind the
+head is in one read of each sweep, not in every read.
 
 ## Context
 
@@ -31,22 +32,23 @@ at each tick of 1 s. The time budget of a tick (§4 of the target design) counts
 queue as one call that can hang, because a page that fails ends the read. These two facts limit
 the requests of one read to a small, fixed number.
 
-ADR-0016 keeps an unmatched job in the list until Buildkite times it out, or a person cancels it.
-Such a job stays at the head, because new jobs arrive behind it. A security review on 2026-11-03
-found that one pipeline upload of 3000 or more steps with tags that no profile carries hides
-every later job of the queue. The counter `bkaso.queue.truncated` and a warning existed, but no
-alert used them, and nothing recovered without a person.
+ADR-0016 keeps an unmatched job in the list until another runner of the queue takes it, Buildkite
+times it out, or a person cancels it. Such a job stays at the head, because new jobs arrive behind
+it. A security review on 2026-11-03 found that one pipeline upload of 3000 or more steps with tags
+that no profile carries hides every later job of the queue. The counter `bkaso.queue.truncated` and
+a warning existed, but no alert used them, and nothing recovered without a person.
 
 ## Goals and non-goals
 
 Goals:
 
 * **No hidden job.** A job behind any number of jobs that never leave the list reaches admission
-  in a time that grows with the length of the list, and never stops.
+  in a time that grows with the length of the list, and never stops, if Buildkite accepts a
+  cursor from an earlier tick (see Consequences).
 * **A fixed cost.** One read makes at most 3 list requests, whatever the length of the queue, so
   the rate limit and the time budget of a tick hold.
 * **No gain from a longer flood.** More jobs at the head can make a job wait longer, but cannot
-  hide it.
+  hide it, with the same condition on the cursor.
 * **The same whole listing.** The launcher forgets notified jobs only after a whole listing. The
   meaning of a whole listing does not change.
 * **A clear signal.** An operator learns that the queue is longer than one read, and which
@@ -108,8 +110,8 @@ Read 2 pages from the head and 1 page of a sweep. Alert on a read that is not wh
 * A read is whole only when its pages follow one another from the head to the end of the list.
   Each other read MUST write a warning, and MUST add 1 to `bkaso.queue.truncated`. The warning
   SHOULD name the pipeline that has the most jobs of the read.
-* An operator MUST alert when `bkaso.queue.truncated` increases for 10 min (§10.6 of the target
-  design).
+* An operator MUST alert when `bkaso.queue.truncated` keeps increasing (§10.6 of the target
+  design). The operator sets the window of the alert.
 
 The decision changes only how the poll reads the list. ADR-0016 still decides what the controller
 does with an unmatched job.
@@ -118,8 +120,9 @@ does with an unmatched job.
 
 Good:
 
-* No number of jobs at the head can hide a job behind them. With a tick of 1 s, a job behind N
-  jobs reaches a read in about (N − 2000) / 1000 s.
+* If Buildkite accepts a cursor from an earlier tick, no number of jobs at the head can hide a
+  job behind them. With a tick of 1 s, a job behind N jobs reaches a read in about
+  (N − 2000) / 1000 s.
 * A read makes at most 3 list requests, as before, so the rate limit and the time budget of a
   tick do not change.
 * A queue of up to 3000 jobs gives the same read as before: 3 pages in sequence, which is a whole
@@ -133,7 +136,8 @@ Bad:
 * A job behind the head is in one read of each sweep. If no slot is free at that read, the job
   waits for the next sweep. Each 1000 jobs of a flood add about 1 s to that wait.
 * Whether Buildkite accepts a cursor in a later tick is `UNKNOWN` (owner: the maintainers; trigger:
-  the pilot, or the first failed read of a sweep page). If it does not, each sweep page with a
+  the first queue of more than 3000 jobs on a real cluster, or the first failed read of a sweep
+  page). If it does not, each sweep page with a
   cursor of an earlier read fails. That read keeps the 2000 head jobs, and the next sweep starts
   again after the head, with a cursor of the same read. The controller then sees 3000 jobs at
   every other read and 2000 jobs at the others, so no job behind the first 3000 jobs reaches a

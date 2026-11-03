@@ -1,7 +1,7 @@
 ---
-status: proposed
-date: 2026-11-01
-decision-makers: maintainers
+status: accepted
+date: 2026-11-03
+decision-makers: Josh Wright
 supersedes: ADR-0011
 ---
 
@@ -51,8 +51,8 @@ A review on 2026-11-01 found two faults in the state after ADR-0011:
 
 The position of this project is that a field name, a JSON tag, and a type, for a field that the
 controller sends or reads, are copied only to the extent that interoperability needs. That
-position is the view of the project. It is not legal advice, and a lawyer has not confirmed it.
-The owner MUST ask a lawyer to confirm it before the project relies on it for a release.
+position is the view of the project, and it is not legal advice. The owner decided on 2026-11-03
+that the project needs no legal review of the position.
 
 ## Goals and non-goals
 
@@ -74,7 +74,7 @@ Non-goals:
   handwritten.
 * A client for the whole API.
 * The Orchard Go client as a dependency, which ADR-0010 settled.
-* A legal opinion. This ADR records a position that a lawyer is to confirm.
+* A legal opinion. This ADR records the position of the project.
 
 ## Options considered
 
@@ -150,14 +150,14 @@ Bad:
 
 * A person keeps the allow list current. A field that the controller starts to use, and that is
   missing from the list, fails to compile, so the omission is visible.
-* The licence position is the view of the project, and a lawyer has not confirmed it. If a lawyer
-  disagrees, the project MUST stop generating from Orchard source and return to a handwritten
-  client.
+* The licence position is the view of the project, and it is not legal advice. If the owner
+  receives legal advice that contradicts it, the project MUST stop generating from Orchard source
+  and return to a handwritten client.
 * The generator needs the network and a GitHub token for its rate limit.
 
 Review trigger:
 
-* Review this decision when the owner receives the advice of a lawyer.
+* Review this decision if the owner receives legal advice that contradicts the position.
 * Review it if Orchard publishes its client or its description under a permissive licence.
 * Review it if the upstream types move to a package that the generator cannot read.
 

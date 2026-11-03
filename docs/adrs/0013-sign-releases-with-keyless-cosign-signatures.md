@@ -1,7 +1,7 @@
 ---
-status: proposed
-date: 2026-10-31
-decision-makers: maintainers
+status: accepted
+date: 2026-11-03
+decision-makers: Josh Wright
 ---
 
 # ADR-0013: Sign releases with keyless cosign signatures

@@ -113,6 +113,8 @@ These are known, recorded, and accepted. They are not vulnerabilities in this pr
   `deploy/orchard-overlays/first-start`, for the first start), that Kubernetes RBAC limits who can
   read Secrets of the `orchard` namespace, and that the operator rotates the token (runbook
   [`docs/user/runbooks/orchard-bootstrap-admin.md`](docs/user/runbooks/orchard-bootstrap-admin.md)). The
+  same Secret holds the token of the `operator` account, with `compute:read` and `compute:write`,
+  which the runbooks use for workers and VMs, and the same controls cover it. The
   environment of the Orchard pod holds no admin token after the first start. The data volume of
   Orchard does, while the account exists: Orchard 0.58.0 keeps the token in its database, and
   writes it in plain text to `/data/orchard.yml` at each start. The residual risk is that a

@@ -103,15 +103,18 @@ and a rate limit. See the `otel` keys in the [configuration reference](configura
 
 ## Alerts
 
-The controller does not ship rules for a backend. These conditions are a good start:
+The controller does not ship rules for a backend, and it sets no thresholds. Choose the threshold
+and the window of each alert from your own objectives, such as how long a job can wait in your
+fleet. These conditions are a good start:
 
-| Alert | Condition |
-|---|---|
-| Jobs wait too long | `bk_agent_stack_orchard.job.waiting.oldest.age` is more than 15 min. |
-| The controller is not ready | `bk_agent_stack_orchard.source.staleness` of a source is more than 2 min. |
-| The controller fails jobs | `bk_agent_stack_orchard.job.failed` goes up for 15 min. |
-| Timeouts repeat | `bk_agent_stack_orchard.vm.deletions` with a reason that ends in `_timeout` goes up. |
-| VMs remain | `bk_agent_stack_orchard.vm.leftover` is more than 0 in two exports in a row, at the default interval of 60 s. Ignore it while Buildkite is down. |
-| Orphans exist | `bk_agent_stack_orchard.vm.deletions` with the reason `orphan` is more than 0. |
-| The fleet is full | `bk_agent_stack_orchard.slot.count` with the state `free` is 0 for 30 min. |
-| The queue is longer than one read | `bk_agent_stack_orchard.queue.truncated` goes up for 10 min. See [Troubleshooting](troubleshooting.md#a-job-stays-scheduled). |
+| Alert | Signal and direction | What it means | What to do |
+|---|---|---|---|
+| Jobs wait too long | `bk_agent_stack_orchard.job.waiting.oldest.age` rises and stays high. | Jobs wait longer than your wait objective. The fleet is full, or no host carries the profile. | [A job stays scheduled](troubleshooting.md#a-job-stays-scheduled) |
+| The controller is not ready | `bk_agent_stack_orchard.source.staleness` of a source rises and stays high. | The controller has no fresh answer from Buildkite or Orchard, so it starts no VM. | [A job stays scheduled](troubleshooting.md#a-job-stays-scheduled), the row about readiness |
+| The controller fails jobs | `bk_agent_stack_orchard.job.failed` keeps going up. | VMs fail, or time out before an agent takes the job. | [A job fails before it runs](troubleshooting.md#a-job-fails-before-it-runs) |
+| Timeouts repeat | `bk_agent_stack_orchard.vm.deletions` with a reason that ends in `_timeout` keeps going up. | VMs do not reach a host, boot, or start an agent in time. | [A job fails before it runs](troubleshooting.md#a-job-fails-before-it-runs) |
+| VMs remain | `bk_agent_stack_orchard.vm.leftover` rises and stays high. Ignore it while Buildkite is down. | The controller does not delete the VMs of ended jobs. | [VMs remain after their jobs](troubleshooting.md#vms-remain-after-their-jobs) |
+| Orphans exist | `bk_agent_stack_orchard.vm.deletions` with the reason `orphan` goes up. | A VM with the name prefix of this controller has no job. Two controllers can have the same `controllerID`. | [VMs remain after their jobs](troubleshooting.md#vms-remain-after-their-jobs) |
+| The fleet is full | `bk_agent_stack_orchard.slot.count` with the state `free` stays at 0. | Every slot is in use, so new jobs wait. | [A job stays scheduled](troubleshooting.md#a-job-stays-scheduled) |
+| The queue is longer than one read | `bk_agent_stack_orchard.queue.truncated` keeps going up. | Jobs that never leave the queue fill its head, so jobs behind them wait longer. | [A job stays scheduled](troubleshooting.md#a-job-stays-scheduled) |
+| Unknown worker | The Orchard metric `org.cirruslabs.orchard.controller.worker_resource` shows a `worker` value that is not in your list of hosts. | A worker registered with a name that no host of your fleet has, for example with a stolen host token. Orchard does not tie a worker name to an account, so this is the only sign of such a worker. It does not show a known name that another host uses. The project has not yet seen this series in a collector, so check that your collector receives it. | [Revoke one host](runbooks/orchard-worker-accounts.md#revoke-one-host) |

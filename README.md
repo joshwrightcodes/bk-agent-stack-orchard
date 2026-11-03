@@ -39,8 +39,9 @@ mise run quickstart -- --queue macos-quickstart
 The command downloads and verifies the newest release of the controller, starts it with a local
 Orchard, and prints a pipeline step. Run the step in
 Buildkite: the job runs in a new VM, and the VM is deleted when the job ends. Press Ctrl-C to stop.
-The first run downloads a macOS image of about 40 GB. The [quick start](docs/user/quickstart.md)
-gives each step, the Buildkite setup included.
+The first run downloads a macOS image of about 40 GB. That upstream image is for evaluation only:
+it does not meet the production image rules of the design. The
+[quick start](docs/user/quickstart.md) gives each step, the Buildkite setup included.
 
 ## How it works
 
@@ -80,17 +81,22 @@ The repository also has examples that you can adapt:
 
 * [`deploy/orchard`](deploy/orchard/README.md): an Orchard controller on Kubernetes.
 * [`deploy/hosts`](deploy/hosts/README.md): an Ansible playbook for the Mac hosts.
-* [`images/`](images/README.md): a build of the job VM images.
+* [`images/`](images/README.md): a reference build of the job VM images.
 
 ## Limitations
 
 * One controller serves one queue, and runs as one replica. For more queues, run more
-  controllers.
+  controllers. Controllers that share one Orchard need separate pools of workers: the
+  `workerLabels` of one controller must select no worker of another, or both count the same free
+  slots.
 * The controller does not add or remove Mac hosts. You size the host pool.
 * There is no pool of warm VMs. Each job waits for its VM to boot, typically 30 to 60 seconds.
 * The hosts must be Apple silicon Macs. Apple permits at most two macOS VMs on one Mac at a time.
-* The VM image must run the Tart guest agent. Each VM downloads `buildkite-agent` when it starts,
-  unless you choose the agent of the image.
+* The project publishes no job VM image. Build your own image for production. An image for the
+  default `tart-guest-agent` transport must run the Tart guest agent. An image for
+  `startupTransport: ssh` must accept an SSH login with the `vmCredentials` of the profile
+  instead. Each VM downloads `buildkite-agent` when it starts, unless you choose the agent of the
+  image.
 * If the tags of a job match no profile, the controller leaves the job for another runner, and
   adds a note to the job page.
 * Telemetry is OpenTelemetry (OTLP) only. There is no Prometheus endpoint.

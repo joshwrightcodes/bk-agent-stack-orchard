@@ -49,7 +49,7 @@ workspace "bk-agent-stack-orchard" "C4 model of the Buildkite agent stack that r
                 launcher = component "Launcher" "Reserves jobs, gets job acquisition tokens, and creates VMs." "Go"
                 reaper = component "Reaper" "Pure decision function and executor. Deletes VMs, finishes jobs, and extends reservations." "Go"
                 stacksClient = component "Stacks client" "Narrow interface over github.com/buildkite/stacksapi." "Go"
-                orchardClient = component "Orchard client" "Narrow interface over the Orchard pkg/client package." "Go"
+                orchardClient = component "Orchard client" "Client of this project over the Orchard REST API, with wire types generated for the fields that the controller uses (ADR-0010, ADR-0015)." "Go"
                 otelSetup = component "Telemetry" "Configures the OpenTelemetry meter, tracer, and slog bridge." "Go, OpenTelemetry SDK"
             }
 

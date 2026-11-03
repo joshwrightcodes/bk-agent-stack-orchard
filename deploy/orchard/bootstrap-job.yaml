@@ -2,6 +2,9 @@
 # gives each account its new token (target design, section 9.2):
 #
 # - bk-agent-stack-orchard, the controller of this project: compute:read and compute:write only.
+# - operator, the account of the runbooks for the worker and VM checks of a person: compute:read
+#   and compute:write only. The bootstrap admin keeps admin:read and admin:write, so the runbooks
+#   use this account for the worker and VM calls.
 # - worker-<host>, one for each Mac host that the Secret orchard-worker-tokens lists: compute:read
 #   and compute:write, the roles that an Orchard worker needs.
 #
@@ -103,6 +106,7 @@ spec:
               }
               check bootstrap-admin "$ORCHARD_BOOTSTRAP_ADMIN_TOKEN"
               account bk-agent-stack-orchard "$CONTROLLER_TOKEN"
+              account operator "$OPERATOR_TOKEN"
               # A key that does not start with worker- is a mistake, for example Worker-mac-01, and
               # the Job refuses it, so no host is lost without a message. The entries of the
               # volume that start with two dots are not keys.
@@ -140,6 +144,11 @@ spec:
                 secretKeyRef:
                   name: orchard-bootstrap
                   key: controller-token
+            - name: OPERATOR_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: orchard-bootstrap
+                  key: operator-token
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

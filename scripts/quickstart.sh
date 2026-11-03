@@ -22,8 +22,11 @@ REAL_HOME="$HOME"
 
 QUEUE=""
 # The default image, pinned by digest, because the VM gets the agent token and the secrets of the
-# job. It is the tag latest of ghcr.io/cirruslabs/macos-golden-gate-base, uploaded 2026-10-31. To
-# move it to a newer upload, read the digest of the tag and replace the one below:
+# job. It is the tag latest of ghcr.io/cirruslabs/macos-golden-gate-base, uploaded 2026-10-31. It is
+# for evaluation only: it does not meet the production image rules of target design section 9.2,
+# because it keeps the well-known account admin/admin, accepts that password over SSH, and gives
+# admin passwordless sudo. Production uses an image that the operator builds (ADR-0020). To move it
+# to a newer upload, read the digest of the tag and replace the one below:
 #   mise x crane@latest -- crane digest ghcr.io/cirruslabs/macos-golden-gate-base:latest
 IMAGE="ghcr.io/cirruslabs/macos-golden-gate-base@sha256:14f4fc32a778763ccae1a4d543ea0f177720c570dd7f859eda10b9e0020c7d05"
 CPU=4

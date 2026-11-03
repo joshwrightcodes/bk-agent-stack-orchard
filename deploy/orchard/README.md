@@ -30,12 +30,13 @@ Push it only to the registry of the fleet.
 
 The base creates no Secret, so no token goes through the repository. Create these three first.
 
-`orchard-bootstrap`, with two tokens that you generate:
+`orchard-bootstrap`, with three tokens that you generate:
 
 | Key | Use |
 |---|---|
 | `bootstrap-admin-token` | The `bootstrap-admin` account of Orchard. The Orchard pod reads it only during the first start, and after that only the bootstrap Job mounts it (see "First start and after the first bootstrap") |
 | `controller-token` | The `bk-agent-stack-orchard` account: `BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN` of the controller |
+| `operator-token` | The `operator` account, with `compute:read` and `compute:write` only. The runbooks use it to list and delete workers and to list VMs (see "Reach the API as an operator"). To rotate it, replace the key and run the bootstrap Job again |
 
 `orchard-worker-tokens`, with one key for each Mac host and no other key:
 
@@ -123,9 +124,9 @@ balancer public in an overlay.
 - `../orchard-overlays/first-start`: a kustomize component that gives the Orchard container
   `ORCHARD_BOOTSTRAP_ADMIN_TOKEN` for the first start. See "First start and after the first
   bootstrap".
-- `bootstrap-job.yaml`: sets the accounts `bk-agent-stack-orchard` and `worker-<host>` for each key
-  of the Secret `orchard-worker-tokens`, each with `compute:read` and `compute:write` only (the
-  roles that an Orchard worker needs, target design section 9.2), through the REST API of Orchard.
+- `bootstrap-job.yaml`: sets the accounts `bk-agent-stack-orchard`, `operator`, and `worker-<host>`
+  for each key of the Secret `orchard-worker-tokens`, each with `compute:read` and `compute:write`
+  only (target design section 9.2), through the REST API of Orchard.
   It never deletes an account: a host that leaves the Secret keeps its account until the operator
   revokes it (`docs/user/runbooks/orchard-worker-accounts.md`). It replaces an account
   that exists and creates one that does not, so a run after a rotation of a token sets the new
@@ -203,19 +204,44 @@ each token, so a list does not put the tokens of the fleet on the terminal. Do n
 filter. The last line of each answer gives the HTTP status, so a refusal (`HTTP 401`) and a
 deletion without a body are visible.
 
+The bootstrap admin has `admin:read` and `admin:write` only after its rotation, and Orchard does
+not let an `admin` role stand for a `compute` role. Calls about workers and VMs therefore use the
+`operator` account, which has `compute:read` and `compute:write` only. This function wraps it in
+the same way (`orchard_operator GET /v1/workers`):
+
+```sh
+orchard_operator() {
+  kubectl -n orchard get secret orchard-bootstrap \
+    -o go-template='{{index .data "operator-token" | base64decode}}{{"\n"}}' |
+    { read -r token; printf 'user = "operator:%s"\n' "$token"; } |
+    curl -sS -K - --cacert ca.crt -X "$1" -w '%{stderr}HTTP %{http_code}\n' \
+      --connect-to orchard.orchard.svc:6120:127.0.0.1:16120 \
+      "https://orchard.orchard.svc:6120$2"
+}
+```
+
+It writes the HTTP status to standard error, so you can give its answer to `jq`. An answer about
+a VM holds the job token of that VM in its startup script, so select the fields that you need with
+`jq`, and do not print a whole VM. For example, to list the VMs of a controller with their start:
+
+```sh
+orchard_operator GET /v1/vms |
+  jq -r '.[]? | select(.name | startswith("bk-<controllerID>-")) | "\(.name) \(.createdAt)"'
+```
+
 Change `orchard` to the namespace of the overlay. Do not run `orchard context create` for these
-calls, because it takes the token as a flag. The runbooks give every call in this form
-(`GET /v1/service-accounts`, `GET /v1/workers`, `DELETE /v1/service-accounts/<name>`,
-`DELETE /v1/workers/<name>`). The controller account has `compute:read` and `compute:write` only,
-so it cannot list service accounts (`admin:read`). Use the controller account for none of these.
+calls, because it takes the token as a flag. The runbooks give every call in this form: the
+calls about accounts with `orchard_admin` (`GET /v1/service-accounts`,
+`DELETE /v1/service-accounts/<name>`), and the calls about workers and VMs with
+`orchard_operator` (`GET /v1/workers`, `DELETE /v1/workers/<name>`, `GET /v1/vms`). Use the
+controller account for none of these: it serves the controller only.
 
 ## First start and after the first bootstrap
 
-**Interim procedure.** People copy, rotate, and remove tokens by hand in this procedure. That is
-not the target state. In the target state, only an engineer who sets or rotates a key in the
-secret store on a schedule does a manual step. The tokens on the Mac hosts rotate automatically,
-and each credential can be rotated on demand. The test strategy tracks the
-work that replaces this procedure.
+**Rotation is your responsibility.** The project does not automate the rotation of these tokens.
+This procedure is the way to do it by hand. You can automate it with the tools of your own
+platform. Machine identity is out of the scope of this project. You can put a machine-identity
+system in front of Orchard.
 
 Orchard 0.58.0 behaves as follows (source: `internal/command/controller/bootstrap.go` at the tag
 `0.58.0` of the Orchard repository, read on 2026-11-02; `orchard delete service-account` from

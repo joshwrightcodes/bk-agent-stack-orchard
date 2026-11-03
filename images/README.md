@@ -1,14 +1,15 @@
 # The images of the job VMs
 
 `images/build.sh` builds the image of a job VM into a local Tart VM. It is a reference build: the
-project publishes no image. An operator uses an upstream Tart image, or builds an image of its own,
-and the image meets the image requirements of the target design, section 6.4. This build is one
-way to meet them, and the project uses it for its own tests:
+project publishes no image. For production, build an image of your own that meets the image
+requirements of the target design, section 5, and the image rules of section 9.2. The upstream image
+of the quick start does not meet those rules, so use it for evaluation only. This build is one way
+to meet them, and the project uses it for its own tests:
 
 | Image | Use |
 |---|---|
 | `agent` | A job that needs no Xcode, every end-to-end test except the iOS build, and the real-VM tests of this repository |
-| `pilot` | The pilot profile: build, test, sign, and publish an iOS or macOS app with Xcode 27 |
+| `pilot` | An Xcode 27 image: build, test, sign, and publish an iOS or macOS app |
 
 Both start from `ghcr.io/cirruslabs/macos-golden-gate-vanilla`, pinned by digest. This base image
 is macOS 27.2 from the restore image of Apple, with the setup assistant finished. It has `admin`

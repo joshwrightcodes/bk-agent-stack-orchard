@@ -107,12 +107,15 @@ controller_token="$(openssl rand -hex 24)"
 agent_token="bkct_smoke_$(openssl rand -hex 16)"
 secret admin-token "$(openssl rand -hex 24)"
 secret controller-token "$controller_token"
+operator_token="$(openssl rand -hex 24)"
+secret operator-token "$operator_token"
 secret worker-token "$(openssl rand -hex 24)"
 secret agent-token "$agent_token"
 
 kubectl -n orchard create secret generic orchard-bootstrap \
 	--from-file=bootstrap-admin-token="$WORK/admin-token" \
-	--from-file=controller-token="$WORK/controller-token"
+	--from-file=controller-token="$WORK/controller-token" \
+	--from-file=operator-token="$WORK/operator-token"
 # One key for each Mac host. Smoke registers no worker, but the Job needs one host to complete.
 kubectl -n orchard create secret generic orchard-worker-tokens \
 	--from-file=worker-smoke-host="$WORK/worker-token"
@@ -215,10 +218,27 @@ vms="$(<"$WORK/vms.json")"
 # The list is an array, or null when Orchard has no machine and encodes the empty list as null.
 jq -e 'type == "array" or . == null' <<<"$vms" >/dev/null || die "the machine list of orchard is not a JSON array"
 
+# The runbooks list and delete workers with the operator account. These two calls prove that the
+# Job gave that account the roles of those calls: compute:read for the list, and compute:write for
+# the delete. Orchard 0.58.0 checks the role before it looks for the worker, and it deletes a
+# worker that does not exist with no error. A delete of a name that no worker has therefore
+# answers 200 with compute:write, and 401 without it (deleteWorker and authorizeBase of
+# internal/controller, and genericDelete of internal/controller/store/badger, at the tag 0.58.0).
+# Smoke registers no worker, so the delete changes nothing.
+for call in "GET /v1/workers" "DELETE /v1/workers/smoke-absent-worker"; do
+	code="$(printf 'user = "operator:%s"\n' "$operator_token" |
+		curl -s -K - --cacert "$WORK/ca.crt" -o /dev/null -w '%{http_code}' -X "${call%% *}" \
+			--connect-to orchard.orchard.svc:6120:127.0.0.1:16120 \
+			"https://orchard.orchard.svc:6120${call#* }")" || code=000
+
+	[[ "$code" == 200 ]] || die "orchard answered $call of the operator account with the status $code"
+done
+
 for source in "controller log:$controller_log" "collector output:$collector_log" \
 	"machine list of orchard:$vms"; do
 	leaked "${source%%:*}" "${source#*:}" \
-		"cluster agent token" "$agent_token" "Orchard token" "$controller_token"
+		"cluster agent token" "$agent_token" "Orchard token" "$controller_token" \
+		"operator token" "$operator_token"
 done
 
 say "the controller is ready, the collector has its telemetry, and no token leaked"

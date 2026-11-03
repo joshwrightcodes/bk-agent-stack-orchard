@@ -69,7 +69,8 @@ correct a fact inside them. A change of the decision, or of a meaning, needs a n
 ## Index
 
 The status column gives the state of each decision, and the front matter of each ADR gives its
-date. The content of an accepted ADR does not change: a new ADR supersedes it.
+date. The content of an accepted ADR does not change: a new ADR supersedes it. A row with the
+status `reserved` holds a number that no ADR has yet, so that a new ADR does not take it.
 
 | ADR | Decision | Status |
 |---|---|---|
@@ -79,15 +80,17 @@ date. The content of an accepted ADR does not change: a new ADR supersedes it.
 | [ADR-0004](0004-treat-all-builds-as-untrusted.md) | Treat all builds as untrusted and isolate each job VM | accepted |
 | [ADR-0005](0005-run-and-schedule-vms-with-tart-and-orchard.md) | Run and schedule the job VMs with Tart and Orchard | accepted |
 | [ADR-0006](0006-route-jobs-to-vm-profiles-by-agent-tags.md) | Route jobs to VM profiles by their agent tags | accepted (the "fails immediately" sentence is replaced by ADR-0016) |
-| [ADR-0007](0007-use-a-dedicated-queue-for-the-macos-fleet.md) | Use a dedicated queue for the macOS fleet | accepted |
+| [ADR-0007](0007-use-a-dedicated-queue-for-the-macos-fleet.md) | Use a dedicated queue for the macOS fleet | accepted (the rule that only VMs of this fleet serve the queue is replaced by ADR-0016) |
 | [ADR-0008](0008-use-a-dedicated-cluster-agent-token.md) | Use a dedicated cluster agent token with an expiry and an IP allowlist | accepted |
 | [ADR-0009](0009-run-startup-scripts-over-the-tart-guest-agent.md) | Run VM startup scripts over the Tart guest agent | accepted |
 | [ADR-0010](0010-call-the-orchard-api-with-a-client-of-this-project.md) | Call the Orchard API with a client of this project | accepted |
 | [ADR-0011](0011-generate-the-orchard-wire-types.md) | Generate the Orchard wire types from the pinned version | superseded by ADR-0015 |
-| [ADR-0012](0012-build-the-job-vm-images-from-a-vanilla-macos-image.md) | Build the job VM images from a vanilla macOS image | accepted |
-| [ADR-0013](0013-sign-releases-with-keyless-cosign-signatures.md) | Sign releases with keyless cosign signatures | proposed |
-| [ADR-0014](0014-calculate-releases-with-release-please.md) | Calculate releases with release-please | proposed |
-| [ADR-0015](0015-generate-only-the-orchard-fields-the-controller-uses.md) | Generate only the Orchard fields that the controller uses | proposed |
-| [ADR-0016](0016-skip-a-job-that-matches-no-profile.md) | Skip a job that matches no profile | proposed |
-| [ADR-0017](0017-download-the-agent-when-the-vm-starts.md) | Download the agent when the VM starts | proposed |
-| [ADR-0019](0019-sweep-the-queue-behind-a-long-head.md) | Sweep the queue behind a long head | proposed |
+| [ADR-0012](0012-build-the-job-vm-images-from-a-vanilla-macos-image.md) | Build the job VM images from a vanilla macOS image | accepted (the parts that assume that the project builds the images of the fleet are replaced by ADR-0020) |
+| [ADR-0013](0013-sign-releases-with-keyless-cosign-signatures.md) | Sign releases with keyless cosign signatures | accepted |
+| [ADR-0014](0014-calculate-releases-with-release-please.md) | Calculate releases with release-please | accepted |
+| [ADR-0015](0015-generate-only-the-orchard-fields-the-controller-uses.md) | Generate only the Orchard fields that the controller uses | accepted |
+| [ADR-0016](0016-skip-a-job-that-matches-no-profile.md) | Skip a job that matches no profile | accepted |
+| [ADR-0017](0017-download-the-agent-when-the-vm-starts.md) | Download the agent when the VM starts | accepted |
+| 0018 | Reserved. The number stays free for a later decision, and no ADR has it. | reserved |
+| [ADR-0019](0019-sweep-the-queue-behind-a-long-head.md) | Sweep the queue behind a long head | accepted |
+| [ADR-0020](0020-leave-the-job-vm-images-to-the-operator.md) | Leave the job VM images to the operator | accepted |

@@ -108,8 +108,8 @@ version. It holds only the field names, the JSON tags, and the types of the
 Orchard fields that this program uses, and it copies them for
 interoperability with the Orchard API. Its header names the source, the
 version, the commit, and the licence. This program copies no other code that
-is under the FSL. This is the view of the project, which a lawyer has not
-yet confirmed. See
+is under the FSL. This is the view of the project, and it is not legal
+advice. See
 docs/adrs/0015-generate-only-the-orchard-fields-the-controller-uses.md.
 
 The fleet operator installs Orchard and Tart, and the FSL of each version

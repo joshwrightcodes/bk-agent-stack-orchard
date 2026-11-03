@@ -4,11 +4,10 @@ This runbook adds a Mac host, rotates the token of one host, and revokes one hos
 has its own Orchard service account, `worker-<host>`, and its own token (target design, section
 9.2).
 
-**Interim procedure.** People copy, rotate, and remove tokens by hand in this procedure. That is
-not the target state. In the target state, only an engineer who sets or rotates a key in the
-secret store on a schedule does a manual step. The tokens on the Mac hosts rotate automatically,
-and each credential can be rotated on demand. The test strategy tracks the
-work that replaces this procedure.
+**Rotation is your responsibility.** The project does not automate the rotation of these tokens.
+This procedure is the way to do it by hand. You can automate it with the tools of your own
+platform. Machine identity is out of the scope of this project. You can put a machine-identity
+system in front of Orchard.
 
 ## What Orchard enforces
 
@@ -23,21 +22,32 @@ typo in the list. Removal is a manual step.
 
 ## Access to the API and the Job
 
-Each API call in this runbook uses the access path and the `orchard_admin` function of
-`deploy/orchard/README.md`, section "Reach the API as an operator". The NetworkPolicy refuses a
-workstation. Start `kubectl -n orchard port-forward svc/orchard 16120:6120` in another terminal. A
-port-forward runs from the node of the pod, which the policy always admits. `orchard_admin` reads
-the token of `bootstrap-admin` from the Secret `orchard-bootstrap` into the standard input of
-`curl`. The Job needs that account, and it stays after the first bootstrap
+Each API call in this runbook uses the access path and the functions `orchard_admin` and
+`orchard_operator` of `deploy/orchard/README.md`, section "Reach the API as an operator". The
+NetworkPolicy refuses a workstation. Start `kubectl -n orchard port-forward svc/orchard 16120:6120`
+in another terminal. A port-forward runs from the node of the pod, which the policy always admits.
+
+* `orchard_admin` reads the token of `bootstrap-admin` from the Secret `orchard-bootstrap` into the
+  standard input of `curl`. Use it for the calls about service accounts. After its rotation, the
+  account has `admin:read` and `admin:write` only, so it cannot read or delete workers.
+* `orchard_operator` reads the token of the `operator` account from the same Secret. Use it for the
+  calls about workers. The account has `compute:read` and `compute:write` only.
+
+The Job needs the bootstrap admin, and that account stays after the first bootstrap
 (`docs/user/runbooks/orchard-bootstrap-admin.md`). Each change of a host below therefore runs the
-Job again, and it needs no restart of Orchard. Do not use the controller account for these calls: it
-has no `admin:read` or `admin:write`. To run the Job again, delete it and apply the overlay:
+Job again, and it needs no restart of Orchard. Do not use the controller account for these calls:
+it serves the controller only. To run the Job again, delete it and apply the overlay:
 `kubectl -n orchard delete job orchard-bootstrap`, then apply the overlay.
 
-To list the workers, run `orchard_admin GET /v1/workers`. To delete a worker record, run
-`orchard_admin DELETE /v1/workers/<name>`. To list the accounts, run
-`orchard_admin GET /v1/service-accounts`. If the operator deleted the bootstrap admin, re-create
-it first (section "Delete the account completely" of the bootstrap admin runbook).
+The Job reads the key `operator-token` of the Secret `orchard-bootstrap`, and it does not start
+when the Secret has no such key. The Secret of an older fleet can lack the key. Before the Job
+runs again, check that the Secret has the key. If it has no such key, add one with a new token
+(`openssl rand -hex 24`). The Job then creates the `operator` account.
+
+To list the workers, run `orchard_operator GET /v1/workers`. To delete a worker record, run
+`orchard_operator DELETE /v1/workers/<name>`. To list the accounts, run
+`orchard_admin GET /v1/service-accounts`. If you deleted the bootstrap admin, re-create it first
+(section "Delete the account completely" of the bootstrap admin runbook).
 
 ## Migrate from the shared account
 
@@ -47,13 +57,15 @@ account stays valid, with `compute:write`, until the operator deletes it. The mi
 complete only after step 4.
 
 1. Create the Secret `orchard-worker-tokens` with one key `worker-<host>` for each host, as in
-   "Add a host", steps 1 and 2. Delete the Job `orchard-bootstrap`, apply the overlay, and wait
-   until the Job completes. The shared account still works, so no host is out.
+   "Add a host", steps 1 and 2. Add the key `operator-token` to the Secret `orchard-bootstrap`
+   if it has no such key (section "Access to the API and the Job"). Delete the Job
+   `orchard-bootstrap`, apply the overlay, and wait until the Job completes. The shared account
+   still works, so no host is out.
 2. Move each host to its own token. Set `orchard_worker_name` and the new token for the host in
-   the inventory, and run the playbook for that host. Check with `orchard_admin GET /v1/workers`
+   the inventory, and run the playbook for that host. Check with `orchard_operator GET /v1/workers`
    that the worker is online. Do one host first. A worker name that was set from the host name
    before can differ from the new name. Then delete the old worker record if the name changed
-   (`orchard_admin DELETE /v1/workers/<old name>`).
+   (`orchard_operator DELETE /v1/workers/<old name>`).
 3. When all hosts are online with their own accounts, remove the key `worker-token` from the
    Secret `orchard-bootstrap` and the old shared token from the inventory vault, and then delete
    the shared account. The Job does not read `worker-token`, so this order is safe:
@@ -71,9 +83,11 @@ complete only after step 4.
 2. Put it in the Secret `orchard-worker-tokens` as the key `worker-<host>`. `<host>` is a DNS
    label, and it is the `orchard_worker_name` of the host.
 3. Put the same token in the inventory vault as `vault_orchard_worker_tokens[<host>]`.
-4. Run the Job again (delete it and apply the overlay). Wait until the Job completes.
+4. Check that the Secret `orchard-bootstrap` has the key `operator-token`, and add it if it has
+   no such key (section "Access to the API and the Job"). Run the Job again (delete it and apply
+   the overlay). Wait until the Job completes.
 5. Run the playbook for the host. Check that the worker is online
-   (`orchard_admin GET /v1/workers`).
+   (`orchard_operator GET /v1/workers`).
 6. Add `<host>` to the list of the alert "Unknown worker" (target design, section 10.6).
 
 ## Rotate the token of one host
@@ -84,7 +98,7 @@ complete only after step 4.
    this point the old token fails, and the worker of the host fails to connect.
 3. Run the playbook for that host at once. The role writes the new bootstrap token and restarts
    the worker.
-4. Check that the worker is online again.
+4. Check that the worker is online again (`orchard_operator GET /v1/workers`).
 
 To limit the time that the host is out, do steps 2 and 3 one after the other without a pause. A
 VM that runs on the host while it is out can fail, and the controller of this project handles the
@@ -104,13 +118,13 @@ Use this procedure when a host is lost or stolen, or when the operator retires i
    orchard_admin DELETE /v1/service-accounts/worker-<host>
    ```
 
-3. Delete the worker record: `orchard_admin DELETE /v1/workers/<host>`. The account deletion
+3. Delete the worker record: `orchard_operator DELETE /v1/workers/<host>`. The account deletion
    stops the host from connecting, and it does not remove the record. A worker record that stays
    shows as offline.
 4. Confirm that the account is gone: `orchard_admin GET /v1/service-accounts` does not list
-   `worker-<host>`, and `orchard_admin GET /v1/workers` does not list `<host>`. The worker process
-   of the host fails its next call with HTTP 401, so a host that still runs stops reporting, and
-   the record shows it offline after the offline timeout of Orchard (expected from the source of
+   `worker-<host>`, and `orchard_operator GET /v1/workers` does not list `<host>`. The worker
+   process of the host fails its next call with HTTP 401, so a host that still runs stops reporting,
+   and the record shows it offline after the offline timeout of Orchard (expected from the source of
    Orchard).
 5. If the token is lost or stolen, also check the alert "Unknown worker" for the following days: a
    thief that has the token before step 2 could have registered other names. Delete such a worker

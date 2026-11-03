@@ -9,7 +9,8 @@ it changes nothing.
 Checks:
 
   1. every identifier that a document cites exists;
-  2. every requirement appears in an "Implements" line of the target design;
+  2. every requirement appears in an "Implements" line of the target design, unless its status
+     is `out of scope`;
   3. no ADR cites an ADR with a higher number;
   4. every relative link resolves;
   5. every line outside a table row or a fenced block is 100 characters or less;
@@ -126,13 +127,39 @@ def check_identifiers(defined: dict[str, set[str]]) -> None:
                     fail(path, number, f"cites {cited}, which no document defines")
 
 
+def requirement_status(block: str) -> str | None:
+    """The value of the status field of a requirement block. The field is the bullet that starts
+    with `Status:`, or the end of the bullet that starts with `Source:`. A status that another
+    bullet quotes, such as the history, is not the field. A line break can split the field."""
+    for bullet in re.split(r"\n(?=\* )", block):
+        field = re.match(r"\* (?:Source: .*? )?Status: `([^`]+)`", " ".join(bullet.split()))
+        if field:
+            return field.group(1)
+    return None
+
+
+def out_of_scope_requirements() -> set[str]:
+    """The requirements whose status is `out of scope`: the owner removed them from the scope, so
+    no design implements them."""
+    blocks = re.split(r"^(?=\*\*PR-\d{3}:)", read(REQUIREMENTS), flags=re.M)
+    return {
+        block[2:8]
+        for block in blocks
+        if block.startswith("**PR-") and requirement_status(block) == "out of scope"
+    }
+
+
 def check_requirement_coverage(defined: dict[str, set[str]]) -> None:
     implements = "\n".join(
         line for line in read(DESIGN).split("\n") if line.startswith("**Implements.**")
     )
-    for requirement in sorted(defined["PR"]):
+    retired = out_of_scope_requirements()
+    for requirement in sorted(defined["PR"] - retired):
         if requirement not in implements:
             fail(DESIGN, None, f"no Implements line claims {requirement}")
+    for requirement in sorted(retired):
+        if requirement in implements:
+            fail(DESIGN, None, f"an Implements line claims {requirement}, which is out of scope")
 
 
 def check_adr_direction() -> None:

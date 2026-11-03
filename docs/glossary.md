@@ -49,7 +49,7 @@ Each family has a prefix and a number. Each identifier is defined in one documen
 | `R-nn` | A risk | [Test strategy](quality/test-strategy.md), section 3 |
 | `I-n` | An invariant that the tests assert | [Test strategy](quality/test-strategy.md), section 5 |
 | `T-nnn` | A test obligation | [Test strategy](quality/test-strategy.md), section 6 |
-| `E-n` | A piece of pilot evidence | [Test strategy](quality/test-strategy.md), section 8 |
+| `E-n` | A piece of fleet evidence | [Test strategy](quality/test-strategy.md), section 8 |
 | `O-n` | An open item of the test strategy | [Test strategy](quality/test-strategy.md), section 11 |
 | `W-nn` | A work unit | [Implementation plan](delivery/implementation-plan.md), section 4 |
 | `D-n` | A delivery risk | [Implementation plan](delivery/implementation-plan.md), section 8 |

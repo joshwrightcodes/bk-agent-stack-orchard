@@ -9,7 +9,7 @@
   * [System design baseline](../architecture/system-design-baseline.md): driver identifiers such as
     `QA-01`, and quality scenarios such as `QS-1`
   * [Target design](../architecture/target-design.md)
-  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0016
+  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0019
 
 ## Conventions
 
@@ -25,7 +25,7 @@ Identifiers in this document:
 * `R-nn` is a risk in section 3.
 * `I-n` is an invariant in section 5.
 * `T-nnn` is a test obligation in section 6.
-* `E-n` is pilot evidence in section 8.
+* `E-n` is fleet evidence in section 8.
 
 ## 1. Purpose and scope
 
@@ -34,8 +34,9 @@ it. It does not contain test code, and it does not define the pipelines of the a
 the fleet builds.
 
 In scope: the controller, its two API clients, the VM specification that it sends to Orchard, the
-telemetry that measures the quality targets, the release artifacts, and the build of the job VM
-images. The owner decided on 2026-10-10 that the project builds the job VM images (ADR-0012).
+telemetry that measures the quality targets, the release artifacts, and the reference build of
+the job VM images in `images/`. The project publishes no job VM image, and the fleet operator
+builds the images of its fleet (owner decision, 2026-11-03, ADR-0020).
 
 Out of scope: the behaviour of Tart, Orchard, Buildkite, and Apple Virtualization; dashboards and
 alert rules for a specific telemetry backend (target design, section 10.6).
@@ -60,7 +61,7 @@ Until all thirteen rows exist and T-020 passes, these limits apply:
 
 * The skeleton MUST run only against `orchard dev --synthetic` or a development Mac with one
   worker, and only with a Buildkite test cluster.
-* The skeleton MUST NOT run against the pilot queue, and MUST NOT run against a host that serves
+* The skeleton MUST NOT run against a production queue, and MUST NOT run against a host that serves
   other work (PR-031).
 * Each skeleton run MUST end with a check that no owned VM remains. T-060 makes this check.
 * T-060 checks the stack notifications that the skeleton sends, which is "VM requested". The
@@ -97,7 +98,7 @@ break a quality target. `P3` degrades operation.
 | R-13 | A cancelled job releases its VM | Cancellation race | A slot is held for a job that nobody wants | PR-007 | P2 |
 | R-14 | A configuration that is not valid stops the controller | Accepted invalid input | Two profiles match one job, or a VM starts with `admin/admin` | PR-020, PR-021, ADR-0006, ADR-0009 | P2 |
 | R-15 | The token replacement changes no job result | Partial failure during replacement | Jobs in progress lose their agent registration | PR-023, SE-03, ADR-0008 | P2 |
-| R-16 | Telemetry measures the quality targets and contains no secret | Missing or wrong instrument; attribute leak | The pilot cannot prove QA-01, QA-02, or QA-04; a token reaches the telemetry backend | PR-024, PR-025, OP-05 | P2 |
+| R-16 | Telemetry measures the quality targets and contains no secret | Missing or wrong instrument; attribute leak | A fleet cannot prove QA-01, QA-02, or QA-04; a token reaches the telemetry backend | PR-024, PR-025, OP-05 | P2 |
 | R-17 | The controller obeys the Stacks API rate limits | Retry storm | Buildkite limits the stack, and all jobs wait | CO-01, QS-6 | P3 |
 | R-18 | The controller recovers in less than 15 minutes | Recovery error | The queue stops for longer than the target | QA-03, QS-6, QS-7 | P3 |
 | R-19 | The release artifacts are reproducible and distroless | Build configuration drift | The image runs as root, or the version is not pinned | CO-04, target design section 15 | P3 |
@@ -213,7 +214,7 @@ when it reports only.
 
 | ID | Basis | Scenario | Oracle | Gate |
 |---|---|---|---|---|
-| T-100 | R-03, ADR-0009, PR-001, PR-002, PR-026, PR-033 | A real job on a real Tart VM with the guest-agent transport, on the pilot profile | The agent starts, `xcodebuild -version` reports Xcode 27, the job finishes, the VM is deleted, the VM specification contains no credentials, and the job log is visible on the Buildkite job page | required before a release |
+| T-100 | R-03, ADR-0009, PR-001, PR-002, PR-033 | A real job on a real Tart VM with the guest-agent transport, on the Xcode 27 reference image of `images/` | The agent starts, `xcodebuild -version` reports Xcode 27, the job finishes, the VM is deleted, the VM specification contains no credentials, and the job log is visible on the Buildkite job page | required before a release |
 | T-101 | R-01, R-02, QS-5 | A job that tries to reach the host, another VM, and a private address that the profile does not permit. A preview without a job runs on the development Mac: `mise run softnet-test` probes from a VM of the controller specification (2026-09-27: it found that Softnet lets a VM reach the host through the gateway, which the pf rules of the hosts now close). The pf rules of that Mac permit the ranges from which Softnet picks the network of each VM, so the probe also checks a `softnetAllow` that holds the gateway | Each connection fails; a permitted CIDR succeeds; the VM contains no cluster agent token | required before a release |
 | T-102 | R-07, PR-032, QS-8 | A job that uploads an artifact | The artifact upload succeeds, and the artifact is visible on the job page. Checkouts and build data do not leave the host of the VM, except through the log and artifact services of Buildkite | required before a release |
 | T-103 | R-08, PR-008 | A profile with an image digest that does not exist, and an image whose agent does not start: an agent that exits, and an agent that runs and acquires nothing. A preview runs on the development Mac (`mise run failures-test`, 2026-09-27) | The job fails, within the boot timeout, with the reason of the pull (on real Tart a missing digest fails the VM at once, `MANIFEST_UNKNOWN`); with the status and the last log lines of the agent when the agent exits; and after the acquire timeout with the last log lines when it acquires nothing. No VM remains | required before a release |
@@ -228,7 +229,7 @@ These obligations are reviews, not automated tests. Both come from ADR confirmat
 
 | ID | Basis | Review | When |
 |---|---|---|---|
-| T-140 | ADR-0007, PR-031 | A review of the Buildkite queue confirms that only VMs of this fleet serve it | Before the controller goes live |
+| T-140 | ADR-0007, ADR-0016, PR-031 | A review of the Buildkite queue lists each agent and stack that serves it | Before the controller goes live |
 | T-141 | ADR-0008, SE-03 | A review of the token confirms that `expires_at` is 90 days or less, and that `allowed_ip_addresses` contains the egress addresses of the controller and of the job VMs | Before the controller goes live, and at each replacement |
 
 ## 7. Environments, data, and secrets
@@ -237,7 +238,7 @@ These obligations are reviews, not automated tests. Both come from ADR confirmat
 |---|---|---|
 | CI (Linux) | Go toolchain, `orchard dev --synthetic`, a fake Stacks API server, an OTLP collector that records | L0 to L5 |
 | Development Mac | Tart, one Orchard worker, a Buildkite test cluster and queue, one test pipeline | L6 |
-| Pilot fleet | 2 to 4 Macs, the Kubernetes reference deployment, telemetry | Section 8 |
+| Operator fleet | The fleet of an operator who shares its measurements, with telemetry | Section 8 |
 
 Rules for data and secrets:
 
@@ -247,13 +248,13 @@ Rules for data and secrets:
   3.2 gives the import and the copy option.
 * Tests MUST NOT use owner source code. The end-to-end pipeline MUST use a small synthetic
   repository.
-* Test credentials MUST come from CI secrets, and they MUST be separate from the pilot
-  credentials. A test that writes a token to a log or to telemetry MUST fail (I-3, I-7).
+* Test credentials MUST come from CI secrets, and they MUST be separate from the credentials of
+  any fleet. A test that writes a token to a log or to telemetry MUST fail (I-3, I-7).
 * No test uses customer data, personal data, or production artifacts.
-* L6 needs a Mac that can host the guest macOS version (CO-07). The pilot confirms this
-  assumption.
+* L6 needs a Mac that can host the guest macOS version (CO-07). The release gate confirms this
+  assumption (O-4).
 
-## 8. Gates and pilot evidence
+## 8. Gates and fleet evidence
 
 | Gate | Contents | Rule |
 |---|---|---|
@@ -262,7 +263,10 @@ Rules for data and secrets:
 | Release | L6 on the development Mac | All obligations that are "required before a release" pass |
 | Go live | T-140 and T-141 | Both reviews are complete |
 
-Pilot evidence replaces estimates. It is measurement, not a test:
+Fleet evidence replaces estimates. It is measurement, not a test. The project runs no pilot
+(ADR-0020): the release gate gives the first values, and the fleet of an operator gives the rest
+when the operator shares its measurements. The quality targets are product goals. They are not
+the thresholds of the alerts of an operator (target design, section 10.6).
 
 * **E-1:** two weeks with `bk_agent_stack_orchard.vm.leftover` at 0, except for the window in which
   the reaper did not delete a VM whose job it saw as terminal, and 0 jobs that the controller failed
@@ -279,9 +283,10 @@ Pilot evidence replaces estimates. It is measurement, not a test:
   the baseline assumes. The load condition is the one of T-080: 50 synthetic workers of 2 slots, 500
   generated jobs, and the arrival pattern of the demand model (baseline section 4.2, SC-05), with
   the tick duration at or below `LOAD_TICK_BUDGET`, which is 34 ms (O-5). The 34 ms is the budget of
-  T-080 against local fakes only. It does not apply to the pilot, because a real tick makes calls to
-  the Buildkite API and to Orchard. The tick budget of the pilot: `UNKNOWN`; owner: the maintainers;
-  trigger: the first week of pilot `bk_agent_stack_orchard.tick.duration` data. The start time
+  T-080 against local fakes only. It does not apply to a real fleet, because a real tick makes calls
+  to the Buildkite API and to Orchard. The tick budget of a real fleet: `UNKNOWN`; owner: the
+  maintainers; trigger: the first week of `bk_agent_stack_orchard.tick.duration` data that an
+  operator shares. The start time
   includes the starts that pulled an image, because the controller cannot tell them apart (cold or
   warm start: `UNKNOWN`; owner: the maintainers; trigger: O-7; target design, section 10.1).
 * **E-3:** the measured time from the job end to the VM deletion, which gives the value that QA-06
@@ -296,8 +301,9 @@ Pilot evidence replaces estimates. It is measurement, not a test:
   is more than `stateFreshness` (60 s), and for a restart of the controller it starts at the last
   export before the gap. It ends at the first export in which the
   `bk_agent_stack_orchard.source.staleness` of all three sources is at or below `stateFreshness` and
-  the readiness probe (gRPC health, `Check`) gives `SERVING`. The pilot MUST record each outage of
-  Orchard, each outage of Buildkite, and each restart of the controller, and the time of each one.
+  the readiness probe (gRPC health, `Check`) gives `SERVING`. The measure needs a record of each
+  outage of Orchard, each outage of Buildkite, and each restart of the controller, and the time of
+  each one, from the fleet that gives it.
 
 ## 9. Exclusions and accepted risks
 
@@ -330,10 +336,10 @@ Review this strategy when one of these events occurs:
   T-041, T-064, and T-122 change with it.
 * The Buildkite Stacks API changes a limit, a state, or a status code. T-040 changes with it.
 * Buildkite publishes an agent release line after v4. T-100 and the image contents change.
-* The pilot gives E-1 to E-5. The estimates in ADR-0001 and ADR-0003 and the values of QA-06 and
+* A fleet gives E-1 to E-5. The estimates in ADR-0001 and ADR-0003 and the values of QA-06 and
   SC-09 then come from measurement, and T-106 can retire.
 * The fleet uses a profile with the SSH transport. T-003 and T-100 then need an SSH case.
-* A new Xcode or macOS image changes the pilot profile (CO-05).
+* A new Xcode or macOS changes the reference build of `images/` (CO-05).
 
 ## 11. Open items
 
@@ -347,6 +353,6 @@ Each item is an unknown that can change a level or a scenario. Each has the smal
 | O-4 | The host macOS version that a macOS 27 guest needs is an assumption (CO-07). | L6 and the pilot can need a host update before the pilot hosts are ready. The date of the hosts is `UNKNOWN` (owner: the maintainers; trigger: the Mac hosts are ready). On 2026-09-14 the plan estimated that the hosts ship on 2026-09-22. | Start a Golden Gate VM on the development Mac before the pilot hosts arrive. **Evidence (2026-09-27):** macOS 27 Golden Gate VMs run on the macOS 27 development Mac (W-23, and the test of O-2). An older host is not tested. **Evidence (2026-11-03):** the release gate ran T-100 to T-105 with job VMs of macOS 27.2 on an Orchard worker on macOS 27.2. |
 | O-5 | The tick duration budget for T-080 had no value. **Closed on 2026-11-02.** | The load test judges the tick, together with the invariants and the request budget, when `LOAD_TICK_BUDGET` parses as a duration. | **Evidence (2026-11-01):** four runs of the `load` workflow on `macos-latest` (run IDs 41276671046, 41276715340, 41292677418, and 41297506926) gave a p95 of 17, 17, 15, and 16 ms. The budget is two times the highest p95, 17 ms, which is 34 ms. The repository variable `LOAD_TICK_BUDGET` is `34ms` (set 2026-11-02). |
 | O-6 | The Stacks API answers for the edge cases are not recorded: a finish of a job that is acquired, terminal, scheduled, or unknown, and a reserve of a job that is running or terminal. `test/fakestacks` assumes 422 and `not_reserved`. | The controller can treat a real answer incorrectly, and the fake hides it. | Record the real answers on the Buildkite test cluster, and put them in the fake. |
-| O-7 | Orchard 0.58.0 gives no event for an image pull (checked 2026-11-02, tag 0.58.0), so the start phase does not carry a cold or warm attribute. | The start time of QA-01 includes the starts that pulled an image. | Record the events and the status messages of real VMs on the pilot host, and add the attribute if a pull shows. |
+| O-7 | Orchard 0.58.0 gives no event for an image pull (checked 2026-11-02, tag 0.58.0), so the start phase does not carry a cold or warm attribute. | The start time of QA-01 includes the starts that pulled an image. | Record the events and the status messages of real VMs on a real host, and add the attribute if a pull shows. |
 | O-8 | Orchard 0.58.0 exports `org.cirruslabs.orchard.controller.worker_resource` with a `worker` attribute in its source (read 2026-11-02), but nobody has seen the series in a collector. The alert "Unknown worker" (target design, section 10.6) depends on it. | Without the series, nothing shows a worker name that no account of the list owns. | When the first host is registered (W-22; owner: the maintainers), read the series in the collector. If it is missing, write the alert on the worker list of the Orchard API, and record the result here. |
-| O-9 | The tokens of the Orchard accounts (the bootstrap admin, the controller, and each Mac host) are handled by hand in the interim runbooks, and the tokens on the Mac hosts do not rotate by themselves. The owner decided on 2026-11-02 that only an engineer who sets or rotates a key in the secret store does a manual step, that the tokens on the hosts rotate automatically, and that each credential can be rotated on demand. | A token on a host lives until a person rotates it, and a break-glass rotation needs several manual steps. | Write the requirements and an ADR for machine identity in front of Orchard (SPIFFE and SPIRE, decided by the owner on 2026-11-02), then the design and the code (owner: the maintainers). Close this item when the interim runbooks are replaced. |
+| O-9 | Who rotates the tokens of the Orchard accounts (the bootstrap admin, the controller, the operator, and each Mac host) and the cluster agent token. **Closed on 2026-11-03.** | None for the tests. Secret rotation is the responsibility of the fleet operator, and the project does not automate it (owner decision, 2026-11-03). The runbooks describe the procedures of the operator, and the project has no goal to automate them. | None. Machine identity, such as SPIFFE and SPIRE in front of Orchard, is out of the scope of this project (owner decision, 2026-11-03). An operator MAY put a machine-identity system in front of Orchard. The ADR index keeps the number 0018 reserved. |

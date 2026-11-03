@@ -183,9 +183,10 @@ from their number.
 
 **Scope of increment 4 (owner decision, 2026-11-03).**
 
-* W-23 is out of scope. The project publishes no VM image. An operator uses an upstream Tart image,
-  or builds an image of its own to the image requirements of the target design, section 6.4.
-  `images/build.sh` is a reference build of such an image.
+* W-23 is out of scope. The project publishes no VM image (ADR-0020). An operator builds an image
+  of its own to the image requirements of the target design, section 5, and the image rules of
+  section 9.2. `images/build.sh` is a reference build of such an image. The quick start uses an
+  upstream Tart image for evaluation only.
 * W-25 is out of scope. The operator of a fleet starts its own pilot, with its own queue, token,
   and alerts. The runbooks and the alert conditions of the target design support that work.
 * W-22 and W-24 are complete. The release gate of 2026-11-02 and 2026-11-03 ran T-100 to T-105 on

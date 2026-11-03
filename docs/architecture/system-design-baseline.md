@@ -129,7 +129,8 @@ No demand data exists. This model describes a generic enterprise-grade iOS app. 
 
 With this model, a fleet of 10 Macs (20 slots) serves the mean demand of the window, but jobs wait
 at peak. A fleet of approximately 20 Macs serves the peak without a wait. The 15-minute wait target
-can permit a smaller fleet at peak. The pilot must measure the real arrival rate and job duration.
+can permit a smaller fleet at peak. Measurements of a fleet give the real arrival rate and job
+duration.
 
 ### 4.3 Data and images
 
@@ -141,7 +142,9 @@ can permit a smaller fleet at peak. The pilot must measure the real arrival rate
   storage (Q-A7).
 * **Artifacts:** Buildkite-managed storage, in the region of Buildkite. The owner accepts this
   storage (owner statement, 2026-11-02; PR-032).
-* **Pilot image:** macOS 27 (Golden Gate) with Xcode 27 (owner comments 2026-09-19). Apple
+* **Xcode image:** macOS 27 (Golden Gate) with Xcode 27 (owner comments 2026-09-19). The project
+  publishes no image, and the fleet operator builds its own (owner decision, 2026-11-03, ADR-0020).
+  `images/` builds this image as a reference. Apple
   released macOS 27 and Xcode 27 (build 27A266a) on 2026-09-14. Xcode 27 needs macOS Tahoe 26.6 or
   later and an Apple silicon Mac, and it contains the iOS 27 SDK.
 * **Image availability:** `cirruslabs` publishes `ghcr.io/cirruslabs/macos-golden-gate-vanilla`
@@ -164,13 +167,13 @@ can permit a smaller fleet at peak. The pilot must measure the real arrival rate
 ## 5. Quality targets
 
 * **Correctness:** 0 VMs that remain after their job ends, and 0 jobs that the controller fails
-  incorrectly, during a two-week pilot (PR-001, PR-002, PR-008). At all times, each job has a
+  incorrectly, over two weeks of a fleet (PR-001, PR-002, PR-008). At all times, each job has a
   maximum of one VM, and owned VMs do not exceed capacity.
 * **Start time:** 60 s or less from `scheduled` to `accepted`, when the image is on the host. The
   owner did not state a percentile. This baseline assumes the 95th percentile (`ASSUMED`).
 * **Wait time:** 15 minutes or less for the oldest waiting job, at planned capacity. The design
-  alert uses the same value. It gives an alert when the oldest waiting job is more than 15 minutes
-  old.
+  gives the signal of this wait (target design, section 10.6). The target is a product goal, and
+  the operator sets the threshold of its own alert.
 * **Recovery time:** less than 15 minutes for the controller and for the Orchard controller.
 * **Failure visibility:** a job whose VM cannot start MUST fail with a message before its
   scheduled-job expiry. A job that no profile carries MUST get one notification (ADR-0016).
@@ -198,8 +201,10 @@ can permit a smaller fleet at peak. The pilot must measure the real arrival rate
   minutes or less.
 * **Controller credential:** a dedicated cluster agent token with an expiry of 90 days or less.
   Its IP allowlist contains the controller and the job VMs (ADR-0008).
-* **Queue separation:** the fleet has a dedicated queue (ADR-0007). The cluster may contain other
-  queues. A leaked cluster agent token reaches all self-hosted queues of the cluster.
+* **Queue separation:** the fleet has a dedicated queue (ADR-0007). Other agents or stacks may also
+  serve the queue, and the capacity of the controller counts only its own workers (ADR-0016). The
+  cluster may contain other queues. A leaked cluster agent token reaches all self-hosted queues of
+  the cluster.
 * **Orchard role:** the `compute:write` role also permits the deletion of workers. This risk is
   accepted.
 * **Source code:** checkouts and build data MUST stay on owner infrastructure, in the
@@ -218,7 +223,10 @@ can permit a smaller fleet at peak. The pilot must measure the real arrival rate
 
 * **Ownership:** one person builds and operates the system (`ASSUMED`).
 * **Licences:** Tart and Orchard have no licence cost for this use (as of 2026-09-13). This
-  project uses the AGPL-3.0, so the controller contains no Orchard code (ADR-0010).
+  project uses the AGPL-3.0, so the controller imports no Orchard package and has no Orchard
+  module dependency (ADR-0010). The project generates only the field names, the JSON tags, and the
+  types of the Orchard fields that the controller uses, and the generated file carries no Orchard
+  logic (ADR-0015).
 * **Cost envelope:** `NOT_APPLICABLE`. The purchase of the hosts is outside this system (owner
   answer Q-A4).
 * **Cost comparison:** Buildkite hosted macOS costs 0.12 USD each minute for Medium and 0.24 USD
@@ -257,14 +265,14 @@ can permit a smaller fleet at peak. The pilot must measure the real arrival rate
 | SC-05 | Demand | Job arrival rate and peak concurrency | APPLICABLE | DRIVER | ASSUMED | 880 jobs each workday; peak 38.7 concurrent VMs (section 4.2) | Demand model; owner answer Q-A1 | Pilot telemetry |
 | SC-06 | Demand | Job duration and longest job | APPLICABLE | SUPPORTING | ASSUMED | Mean 15 min; longest 60 min; safety limit `maxVMLifetime` 25 h | Demand model (section 4.2) | Pilot telemetry |
 | SC-07 | Data | Image size | APPLICABLE | SUPPORTING | CONFIRMED | `macos-golden-gate-base`: 30.6 GiB compressed, 39.9 GB disk. Xcode images: 64.1 GiB compressed and 140 GB disk for `macos-tahoe-xcode:26.5`; the template disk is 140 GB; `macos-golden-gate-xcode:27`: 68.9 GB compressed and 85.4 GB disk. The pilot image, `images/build.sh pilot` on `macos-golden-gate-vanilla`: 104 GB disk, 59 GB on the host | `ghcr.io` manifests; `cirruslabs/macos-image-templates` (2026-09-19, 2026-10-10); the pilot build (2026-10-10) | A new Xcode or vanilla image |
-| SC-08 | Data | VM size | APPLICABLE | SUPPORTING | ASSUMED | Half of a host: approximately 9 CPU cores, 32 GB memory | Inference from SC-02 and SC-04 | Pilot measurements |
-| SC-09 | Data | Host storage for images | APPLICABLE | SUPPORTING | UNKNOWN | 1 TB for each host; disk of the pilot image 104 GB, 59 GB on the host (SC-07); number of images for each host not measured | SC-04; SC-07 | Pilot measurement |
+| SC-08 | Data | VM size | APPLICABLE | SUPPORTING | ASSUMED | Half of a host: approximately 9 CPU cores, 32 GB memory | Inference from SC-02 and SC-04 | Fleet measurements |
+| SC-09 | Data | Host storage for images | APPLICABLE | SUPPORTING | UNKNOWN | 1 TB for each host; disk of the Xcode 27 reference image 104 GB, 59 GB on the host (SC-07); number of images for each host not measured | SC-04; SC-07 | Fleet measurement |
 | QA-01 | Quality | Start time, `scheduled` to `accepted` | APPLICABLE | DRIVER | CONFIRMED | 60 s or less, image on the host; 95th percentile (`ASSUMED`) | Owner answer Q-P2 | Measured start time exceeds the target |
 | QA-02 | Quality | Wait time when all slots are in use | APPLICABLE | DRIVER | CONFIRMED | 15 min or less, at planned capacity | Owner answer Q-P3 | Sustained waits over 15 min |
 | QA-03 | Quality | Recovery time | APPLICABLE | DRIVER | CONFIRMED | Less than 15 min for the controller and Orchard; no high availability | Owner answer Q-A3 | A recovery takes 15 min or more |
-| QA-04 | Quality | Correctness | APPLICABLE | DRIVER | CONFIRMED | 0 leaked VMs and 0 incorrect failures in the pilot; 1 VM maximum for each job | PR-001, PR-002, PR-008; owner statement (2026-09-13) | A failed invariant |
+| QA-04 | Quality | Correctness | APPLICABLE | DRIVER | CONFIRMED | 0 leaked VMs and 0 incorrect failures over two weeks of a fleet; 1 VM maximum for each job | PR-001, PR-002, PR-008; owner statement (2026-09-13) | A failed invariant |
 | QA-05 | Quality | Failure visibility | APPLICABLE | DRIVER | CONFIRMED | A VM failure fails the job with a message before scheduled-job expiry; an unmatched job gets one notification | ADR-0001; ADR-0016; PR-004; PR-008 | — |
-| QA-06 | Quality | Time from job end to VM deletion | APPLICABLE | SUPPORTING | UNKNOWN | — | PR-002 (the requirement states no value) | Slot shortage in the pilot |
+| QA-06 | Quality | Time from job end to VM deletion | APPLICABLE | SUPPORTING | UNKNOWN | — | PR-002 (the requirement states no value) | Slot shortage in a fleet |
 | DR-01 | Consistency | One VM for each job | APPLICABLE | DRIVER | CONFIRMED | Maximum of one | PR-001, PR-002; ADR-0002 | — |
 | DR-02 | Recovery | Delay after a controller crash | APPLICABLE | SUPPORTING | CONFIRMED | Maximum of 300 s | Derived from the target design (reservation expiry) | — |
 | DR-03 | Recovery | Orchard data loss | APPLICABLE | INFORMATIONAL | CONFIRMED | Recoverable; no backup | Orchard architecture: one instance with an embedded database | Orchard stores more state |
@@ -272,7 +280,7 @@ can permit a smaller fleet at peak. The pilot must measure the real arrival rate
 | SE-01 | Security | Trust of builds | APPLICABLE | DRIVER | CONFIRMED | All builds untrusted | ADR-0004 | A trusted queue becomes necessary |
 | SE-02 | Security | Credentials in VMs | APPLICABLE | DRIVER | CONFIRMED | Job acquisition token only; 30 min or less | PR-030; ADR-0004 | — |
 | SE-03 | Security | Controller Buildkite credential | APPLICABLE | DRIVER | CONFIRMED | Dedicated token; 90 days or less; allowlist | ADR-0008 | Short-lived Stacks API credential |
-| SE-04 | Security | Queue separation | APPLICABLE | SUPPORTING | CONFIRMED | Dedicated queue for the fleet; the cluster may contain other queues | Owner comment (2026-09-19); ADR-0007 | Tokens with a smaller scope |
+| SE-04 | Security | Queue separation | APPLICABLE | SUPPORTING | CONFIRMED | Dedicated queue for the fleet; other agents or stacks may also serve it; the cluster may contain other queues | Owner comment (2026-09-19); owner decision (2026-11-03); ADR-0007; ADR-0016 | Tokens with a smaller scope |
 | SE-05 | Sovereignty | Source code location | APPLICABLE | DRIVER | CONFIRMED | Owner infrastructure, in the operating country | Owner answer Q-A2 | Change of operating country |
 | SE-06 | Security | Orchard role scope | APPLICABLE | SUPPORTING | CONFIRMED | `compute:write` also permits worker deletion; accepted | Orchard 0.57.0 role list (2026-09-19) | A narrower Orchard role |
 | SE-07 | Sovereignty | Build log location | APPLICABLE | SUPPORTING | CONFIRMED | Buildkite SaaS in Amazon Web Services, region not stated; accepted by the owner | Buildkite documentation (2026-09-14); owner answer Q-A7 | Logs must stay in the operating country |
@@ -286,10 +294,10 @@ can permit a smaller fleet at peak. The pilot must measure the real arrival rate
 | OP-05 | Operations | Telemetry provider | APPLICABLE | SUPPORTING | CONFIRMED | Any OpenTelemetry-compatible provider; no source code in telemetry | Owner answers (2026-09-13 and Q-A6) | — |
 | OP-06 | Operations | Delivery cadence | APPLICABLE | INFORMATIONAL | ASSUMED | No fixed schedule. release-please calculates each version from the commits, as ADR-0014 proposes (2026-10-31) | ADR-0014 | A release schedule is set |
 | CO-01 | Constraint | Buildkite Stacks API limits | APPLICABLE | SUPPORTING | CONFIRMED | 10 requests/s for list and reserve; 20 requests/s for get-states; reservation 900 s default, 3600 s maximum (2026-09-13) | Buildkite Stacks API documentation (2026-09-13) | Buildkite API change |
-| CO-02 | Constraint | Orchard | APPLICABLE | SUPPORTING | CONFIRMED | One controller; minimum server version 0.58.0 (2026-10-19), after 0.57.0 added pull requests #465 and #470; FSL-1.1-ALv2, so the controller contains no Orchard code | ADR-0005; ADR-0010 | Orchard release |
+| CO-02 | Constraint | Orchard | APPLICABLE | SUPPORTING | CONFIRMED | One controller; minimum server version 0.58.0 (2026-10-19), after 0.57.0 added pull requests #465 and #470; FSL-1.1-ALv2, so the controller imports no Orchard package, and the project generates only the field names, JSON tags, and types of the Orchard fields that the controller uses | ADR-0005; ADR-0010; ADR-0015 | Orchard release |
 | CO-03 | Constraint | Host scaling | NOT_APPLICABLE | — | CONFIRMED | The host pool is fixed | Product requirements, section 3 | Cloud Macs become necessary |
 | CO-04 | Constraint | Implementation conventions | APPLICABLE | INFORMATIONAL | CONFIRMED | Go 1.27; `mise` for tool versions and tasks; GoReleaser and ko; distroless image; golangci-lint; AGPL-3.0 | Owner comments (2026-09-13 and 2026-09-14) | — |
-| CO-05 | Constraint | macOS and Xcode | APPLICABLE | SUPPORTING | CONFIRMED | Pilot: macOS 27 (Golden Gate) with Xcode 27, Apple silicon only, iOS 27 SDK; the fleet builds the Xcode image from `macos-golden-gate-vanilla` and an Xcode archive that the owner downloads (ADR-0012) | Owner comments (2026-09-19, 2026-10-10); Apple Developer; `ghcr.io` (2026-09-19) | A published macOS 27 image with Xcode, or a new Xcode version |
+| CO-05 | Constraint | macOS and Xcode | APPLICABLE | SUPPORTING | CONFIRMED | macOS 27 (Golden Gate) with Xcode 27, Apple silicon only, iOS 27 SDK; the fleet operator builds its images, and the reference build makes the Xcode image from `macos-golden-gate-vanilla` and an Xcode archive that the operator downloads (ADR-0012, ADR-0020) | Owner comments (2026-09-19, 2026-10-10); owner decision (2026-11-03); Apple Developer; `ghcr.io` (2026-09-19) | A published macOS 27 image with Xcode, or a new Xcode version |
 | CO-06 | Constraint | Buildkite agent | APPLICABLE | SUPPORTING | CONFIRMED | Agent v4 in each VM, downloaded at the start or from the image (2026-11-03); v4.0.0 stable 2026-09-01, v4.9.0 current (2026-10-30, checked 2026-11-01); v4.7.0 and later reject compromised eMudhra certificate chains (CVE-2026-111943); v4 rejects unknown flags and removes the OpenTracing and Datadog backends | Owner comment (2026-09-19); `buildkite/agent` releases (2026-09-19) | A v5 release line |
 | CO-07 | Constraint | Host macOS version | APPLICABLE | SUPPORTING | ASSUMED | A host runs a macOS version that can host the guest version. The guests run macOS 27.2, and the hosts run macOS 27.2 or later (owner decision, 2026-11-01) | Inference from Apple Virtualization; `vanilla-golden-gate.pkr.hcl` states macOS 27 for its build step (2026-09-19) | Apple or Tart states the host rule, or a macOS 27 guest starts on an older host |
 
@@ -302,7 +310,8 @@ Assumptions:
 * Each VM uses half of a host (SC-08).
 * The start-time target applies to the 95th percentile (QA-01).
 * The hosts are co-located with the controllers, in the operating country (OP-03).
-* A macOS 27.2 guest needs a host on macOS 27.2 or later (CO-07). The pilot confirms this value.
+* A macOS 27.2 guest needs a host on macOS 27.2 or later (CO-07). The release gate confirms this
+  value for a host on macOS 27.2 (O-4).
 
 Answered questions (2026-09-14):
 
@@ -319,8 +328,8 @@ Answered questions (2026-09-14):
 | Q-A9 | Layout for more than one region | Each region has its own fleet and a new queue. Assume one region for now. |
 
 No question needs an owner decision. Three values stay `UNKNOWN`, and each has an owner and a
-trigger: the number of images for each host (SC-09, pilot measurement), the time from the job
-end to the VM deletion (QA-06, pilot measurement), and the dates of the phases (SC-03, a Buildkite
+trigger: the number of images for each host (SC-09, fleet measurement), the time from the job
+end to the VM deletion (QA-06, fleet measurement), and the dates of the phases (SC-03, a Buildkite
 test cluster and the Mac hosts are ready). The delivery cadence (OP-06, informational)
 follows ADR-0014.
 
@@ -329,7 +338,7 @@ follows ADR-0014.
 Review this baseline when one of these events occurs:
 
 * The owner answers a question in section 11 or in the product requirements.
-* Pilot telemetry gives measured values for start time, wait time, or job demand.
+* Fleet telemetry gives measured values for start time, wait time, or job demand.
 * The hosts arrive, the Xcode 27 image is built, `cirruslabs` publishes a macOS 27 image with
   Xcode, or Apple releases a new Xcode version.
 * A review trigger in the driver register occurs.
