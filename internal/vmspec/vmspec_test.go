@@ -431,6 +431,9 @@ func TestOwnedJobIgnoresAVMOfAnotherOwner(t *testing.T) {
 	}
 }
 
+// A name with the prefix of this controller that does not end in a job UUID carries no job, and
+// nothing else removes the machine, so it is an orphan. A UUID with text after it, with text
+// before it and no dash, or in upper case is not a job UUID.
 func TestIsOrphanCatchesANameWithThePrefixAndNoJob(t *testing.T) {
 	for _, name := range []string{
 		"bk-macos-",
@@ -462,6 +465,8 @@ func TestIsOrphanLeavesTheMachineOfAnotherControllerAlone(t *testing.T) {
 	}
 }
 
+// A machine that this controller owns has a job, and a name without the prefix belongs to another
+// tool. Neither is an orphan.
 func TestIsOrphanIsFalseForAnOwnedMachineAndAForeignName(t *testing.T) {
 	for _, name := range []string{vmspec.Name("macos", jobUUID), "some-other-vm", "macos-1"} {
 		if vmspec.IsOrphan(name, "macos") {
