@@ -23,9 +23,16 @@ const (
 // Agent says where the agent of a virtual machine comes from. URL and SHA256 are one pair: they
 // name one release archive, and the script refuses an archive that does not match.
 type Agent struct {
+	// download: the VM downloads the archive at url, checks it against sha256, and runs its
+	// agent. image: the VM runs the agent of the image, which must be v4.
 	Source AgentSource `yaml:"source,omitempty"`
-	URL    string      `yaml:"url,omitempty"`
-	SHA256 string      `yaml:"sha256,omitempty"`
+
+	// The https URL of a buildkite-agent release archive for macOS on arm64. Set it with sha256.
+	URL string `yaml:"url,omitempty"`
+
+	// The SHA-256 of the archive at url: 64 lower-case hexadecimal characters, in quotes. Set it
+	// with url.
+	SHA256 string `yaml:"sha256,omitempty"`
 }
 
 // DefaultAgent is the release that this controller release was tested with. images/build.sh pins

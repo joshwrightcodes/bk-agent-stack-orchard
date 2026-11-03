@@ -71,8 +71,8 @@ releases.
    ```
 
 The [chart README](../../deploy/helm/bk-agent-stack-orchard/README.md) describes the values, the
-NetworkPolicy, and what to do when the Secret changes. Section 8 of the
-[target design](../architecture/target-design.md) lists every configuration key and environment
+NetworkPolicy, and what to do when the Secret changes. The
+[configuration reference](configuration.md) lists every configuration key and environment
 variable.
 
 ## The agent in each VM

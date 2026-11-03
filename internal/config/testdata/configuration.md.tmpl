@@ -1,0 +1,64 @@
+# Configuration reference
+
+<!-- A test writes this page from the code (internal/config/reference_test.go). Do not edit it:
+change the comments of the configuration types, or the template in internal/config/testdata,
+and run mise run docs-reference. -->
+
+The controller reads one YAML file, and its secrets from environment variables. It reads both when
+it starts. To change either, restart the controller.
+
+The file never holds a secret. The controller refuses a key that it does not know, so a secret that
+somebody adds to the file stops the controller instead of reaching a log or a VM.
+
+## A minimal file
+
+```yaml
+controllerID: macos-prod
+buildkite:
+  queue: macos
+orchard:
+  url: https://orchard.example.com:6120
+  serviceAccount: bk-agent-stack-orchard
+profiles:
+  - name: default
+    match: {}
+    image: ghcr.io/cirruslabs/macos-golden-gate-base@sha256:<digest>
+    cpu: 4
+    memoryMiB: 8192
+    diskSizeGB: 50
+```
+
+With the Helm chart, the file is the value `config`, and the chart checks it against its schema
+first.
+
+## Keys
+
+A duration is a number and a unit, such as `5s`, `2m`, or `25h`. A key with no default and no
+"Required" can be left out.
+
+{{ .Keys }}
+
+## Environment variables
+
+| Variable | Contents |
+|---|---|
+| `BK_AGENT_STACK_ORCHARD_CONFIG` | The path of the file. The default is `/etc/bk-agent-stack-orchard/config.yaml`. The `-config` flag takes precedence. |
+| `{{ .EnvBuildkiteAgentToken }}` | The cluster agent token of the queue. Required. |
+| `{{ .EnvOrchardToken }}` | The token of the Orchard service account. Required. |
+| `{{ .EnvOrchardCACert }}` | The PEM of the certificate of Orchard, or of its certificate authority, when it is private. |
+| `VM_*` | The variables that a profile names, such as `vmCredentials.passwordEnv` and `otel.headersEnv`. Only a variable that starts with `VM_` can go into a VM. |
+| `OTEL_*` | The standard OpenTelemetry settings of the telemetry of the controller. |
+
+## When the controller refuses the file
+
+The controller checks the whole file when it starts, and reports every problem, not only the
+first. It does not start until each one is fixed. Besides the limits in the tables, it refuses:
+
+* two profiles with the same name or the same `match` map;
+* a `match` key `queue`, `profile`, or `agent-stack`, which the controller sets itself;
+* a profile whose `unplaced`, `boot`, and `acquire` timeouts add up to more than
+  `buildkite.jobTokenLifetime`;
+* `vmCredentials` that do not agree with `startupTransport`;
+* half of an `agent` pair: `url` without `sha256`, or the reverse.
+
+It warns, and starts, when an image has no digest, or a profile has `softnetAllow` entries.

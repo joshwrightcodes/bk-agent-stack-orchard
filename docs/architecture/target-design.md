@@ -758,10 +758,11 @@ that an artifact upload succeeds, and that the artifact is visible on the job pa
 
 ## 8. Configuration
 
-The configuration is one YAML file. The file MUST NOT contain secrets. Secrets MUST come from
-environment variables. The platform that runs the controller supplies these variables. On
-Kubernetes, Secrets supply them. On other platforms, the process manager or a secret store
-supplies them.
+The configuration is one YAML file. [The configuration reference](../user/configuration.md), which a
+test writes from the code, lists each key with its type and default. The file MUST NOT contain
+secrets. Secrets MUST come from environment variables. The platform that runs the controller
+supplies these variables. On Kubernetes, Secrets supply them. On other platforms, the process
+manager or a secret store supplies them.
 
 ```yaml
 controllerID: macos-prod
