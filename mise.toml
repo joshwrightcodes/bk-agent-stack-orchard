@@ -341,7 +341,9 @@ version = "3.14.1"
 [tools.ruff]
 version = "0.17.3"
 
-[tools.actionlint]
+# The original rhysd/actionlint, named by its backend: the registry entry of "actionlint" points
+# to a young fork.
+[tools."aqua:rhysd/actionlint"]
 version = "1.7.12"
 
 [tools.zizmor]
