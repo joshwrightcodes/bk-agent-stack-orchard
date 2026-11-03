@@ -43,8 +43,10 @@ archives:
         strip_parent: false
 
 # Each archive gets an SPDX SBOM from syft. The checksums cover the archives and the SBOMs, and one
-# keyless cosign signature covers the checksums (ADR-0013). The chart is not here: it carries the
-# digest of the image, so the release workflow packages it after the image exists.
+# keyless cosign signature covers the checksums (ADR-0013). scripts/release-publish.sh makes that
+# signature in the publish job of the release workflow, which holds the OIDC token. The chart is
+# not here: it carries the digest of the image, so the release workflow packages it after the image
+# exists.
 sboms:
   - artifacts: archive
 
@@ -54,28 +56,12 @@ changelog:
 checksum:
   name_template: checksums.txt
 
-signs:
-  - cmd: cosign
-    signature: "${artifact}.sigstore.json"
-    args: ["sign-blob", "--bundle=${signature}", "${artifact}", "--yes"]
-    artifacts: checksum
-
-# release-please creates the release as a draft, with its changelog as the notes. GoReleaser
-# uploads the assets to that draft and keeps the notes. The workflow publishes the draft after it
-# has verified each signature, because the repository makes a published release immutable.
+# The publish job of the release workflow uploads the assets to the draft release of
+# release-please and publishes it (scripts/release-publish.sh and scripts/release-finish.sh).
+# That job holds the write access to the release, so the job that runs GoReleaser leaves the
+# release alone.
 release:
-  draft: true
-  use_existing_draft: true
-  mode: keep-existing
-  # A run that fails after the upload can run again on the same draft.
-  replace_existing_artifacts: true
-  # Checked 2026-11-01 in GoReleaser 2.18.2 (internal/pipe/release/release.go): the value is not a
-  # template. It is the string "auto" or "true", and "auto" marks only a tag with a suffix such as
-  # -rc.1, so it does not mark v0.1.0. In keep-existing mode the run still sends this flag to the
-  # existing draft (internal/client/github.go, createOrUpdateRelease), so it can reset the flag
-  # that release-please set. scripts/release-finish.sh decides the flag at the publication, from
-  # the tag, and no fixed value here could change to false at 1.0.0 by itself.
-  prerelease: auto
+  disable: true
 
 kos:
   - id: bk-agent-stack-orchard

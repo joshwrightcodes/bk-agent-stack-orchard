@@ -133,4 +133,5 @@ Bad:
 * The snapshot gate in CI builds an SBOM for each archive and a checksum file that names them.
 * `scripts/release-finish.sh` publishes the draft only when its assets are the verified files, by
   name and SHA-256.
-* `.goreleaser.yaml` signs `checksums.txt` with cosign, and `mise.toml` pins cosign and syft.
+* `scripts/release-publish.sh` signs `checksums.txt` with cosign, and `mise.toml` pins cosign and
+  syft.

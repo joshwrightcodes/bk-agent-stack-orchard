@@ -1364,38 +1364,53 @@ release pull request (`release-please--**`).
 **Release signatures.** A tag that matches `v*` starts `.github/workflows/release.yml` in the
 `release` environment. The environment permits only `v*` tags, and it MUST need the approval of
 the maintainers. The commit of the tag MUST be on `main`, and the version in `Chart.yaml` MUST be
-the version of the tag. The workflow checks both before it builds anything, and then does these
-steps in this order:
+the version of the tag. The workflow checks both before it builds anything.
 
-1. GoReleaser builds the archives, an SPDX JSON SBOM of each archive (syft), and `checksums.txt`,
-   which covers the archives and the SBOMs. cosign signs `checksums.txt` into the bundle
-   `checksums.txt.sigstore.json`. GoReleaser pushes the image, and uploads the assets to the
-   draft release of release-please. It keeps the notes of the draft, and it replaces an asset that
-   a failed run left.
-2. `scripts/release-publish.sh` reads the digest of the image from the record of GoReleaser
-   (`dist/artifacts.json`). It MUST NOT get the digest from a tag, because another workflow can
-   push to the tag. It signs the image index and each platform image by that digest. It makes an
-   SPDX JSON SBOM of each platform image with syft, and attaches it with `cosign attest --type
-   spdxjson`. The image has no SBOM from ko, because that SBOM has no signature.
-3. The same script packages the chart with `image.digest` set to that digest, signs the package
-   into its own bundle, pushes it to `oci://ghcr.io/joshwrightcodes/charts`, signs it there by
-   digest, and uploads the package and its bundle to the draft.
-4. `scripts/verify-release.sh` verifies each signature and each attestation, and checks that the
-   tags in the registry give the digests that step 2 and step 3 signed.
-5. `scripts/release-finish.sh` checks that exactly one release has the tag, and that the assets of
-   the draft are the verified files, by name and SHA-256. Then it publishes the draft. The
-   repository makes a published release immutable, so a changed asset would stay. The same step
-   sets the pre-release flag from the tag: a tag `v0.*` is a pre-release and not the latest
-   release, and any other tag is neither. GoReleaser resets the flag on the draft, so the tag
-   decides at publication (ADR-0014).
+The workflow has two jobs, and each one runs in the `release` environment. The `build` job runs
+the tools that build the release. It has `contents: read` and `packages: write`. The `publish` job
+signs and publishes. It has `id-token: write`, `contents: write`, and `packages: write`, and it
+installs only cosign and jq. Each job installs only the tools that it runs. The `publish` job gets
+the files of the `build` job as a workflow artifact, outside its checkout. It uses only the
+expected regular files, and it reads the digests of the `build` job as data, never as code. The
+jobs do these steps in this order:
+
+1. `build`: GoReleaser builds the archives, an SPDX JSON SBOM of each archive (syft), and
+   `checksums.txt`, which covers the archives and the SBOMs. GoReleaser pushes the image. Its
+   release pipe is off.
+2. `build`: `scripts/release-publish.sh build` reads the digest of the image from the record of
+   GoReleaser (`dist/artifacts.json`). It MUST NOT get the digest from a tag, because another
+   workflow can push to the tag. It makes an SPDX JSON SBOM of each platform image with syft. It
+   packages the chart with `image.digest` set to that digest, and pushes it to
+   `oci://ghcr.io/joshwrightcodes/charts`. The image has no SBOM from ko, because that SBOM has no
+   signature.
+3. `publish`: `scripts/release-publish.sh sign` checks that the archives and the SBOMs are
+   exactly the files that `checksums.txt` names, with their checksums. cosign signs
+   `checksums.txt` into the bundle `checksums.txt.sigstore.json`, and the script uploads these
+   files to the draft release of release-please. It signs the image index and each platform image
+   by the digest of step 2, and attaches the SBOM of each platform image with `cosign attest
+   --type spdxjson`. It signs the chart package into its own bundle, signs the chart in the
+   registry by digest, and uploads the package and its bundle to the draft. An upload replaces an
+   asset that a failed run left. Both phases MUST fail unless the image index holds exactly the
+   platforms `linux/amd64` and `linux/arm64`, because a loop over no platform signs nothing and
+   passes.
+4. `publish`: `scripts/verify-release.sh` verifies each signature and each attestation, and checks
+   that the tags in the registry give the digests that step 3 signed.
+5. `publish`: `scripts/release-finish.sh` checks that exactly one release has the tag, and that
+   the assets of the draft are the verified files, by name and SHA-256. It lists the assets again
+   just before the publish, and keeps the draft if an asset ID changed. Then it publishes the
+   draft. The repository makes a published release immutable, so a changed asset would stay.
+   After the publish, the script downloads the assets again and compares the notes with the notes
+   before the check, and it fails the run on a difference. The same step sets the pre-release flag
+   from the tag: a tag `v0.*` is a pre-release and not the latest release, and any other tag is
+   neither. The tag decides at publication (ADR-0014).
 
 Each signature MUST be keyless. cosign gets a short-lived certificate from Sigstore for the OIDC
 token of the workflow, and records the signature in the Rekor transparency log. A verification
 MUST require the certificate identity
 `https://github.com/joshwrightcodes/bk-agent-stack-orchard/.github/workflows/release.yml@refs/tags/<tag>`
 and the issuer `https://token.actions.githubusercontent.com`. The workflow MUST NOT restore a
-cache, and only its job has `id-token: write`, `packages: write`, and `contents: write`.
-`mise.toml` pins cosign and syft.
+cache, and only its `publish` job has `id-token: write` and `contents: write`. `mise.toml` pins
+cosign and syft.
 
 **Static analysis.** golangci-lint (v2.13 or later) MUST examine all Go code. In CI the analysis
 MUST report each finding as an annotation on the line that carries it, so that a person reads the

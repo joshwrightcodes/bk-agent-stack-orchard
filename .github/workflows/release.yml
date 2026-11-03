@@ -5,6 +5,12 @@ name: release
 # creates the tag and a draft release when the maintainer merges its release pull request
 # (release-please.yml, ADR-0014). The certificate of each signature names this file and the tag,
 # which is what scripts/verify-release.sh checks.
+#
+# Two jobs keep the tools that build the release away from the signing identity. build runs Go,
+# GoReleaser, go-licenses, syft, and helm, with access to push the image and the chart only.
+# publish installs only cosign and jq. It takes the files of build as an artifact, then signs,
+# uploads, verifies, and publishes them. GoReleaser signs and uploads only in the run that builds,
+# so the publish job does both with cosign and gh.
 
 on:
   push:
@@ -19,18 +25,16 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: release
+  build:
+    name: build
     runs-on: ubuntu-latest
-    # The environment permits only a v* tag, and it waits for the approval of the maintainer.
+    # The environment permits only a v* tag, and it waits for the approval of the maintainer. The
+    # job pushes the image and the chart, so nothing reaches the registry before the approval.
     environment: release
     permissions:
-      # The GitHub release and its assets.
-      contents: write
+      contents: read
       # The image and the chart in ghcr.io.
       packages: write
-      # The OIDC token that Sigstore exchanges for a signing certificate.
-      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -41,18 +45,13 @@ jobs:
       - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
           # A fixed version of mise, which the action checks against the signed checksums of the
-          # mise release. A cache that another run wrote must not reach the tools that sign.
+          # mise release. A cache that another run wrote must not reach the release.
           version: 2026.10.24
           cache: false
-
-      - name: log in to ghcr.io
-        env:
-          ACTOR: ${{ github.actor }}
-          TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          printf '%s' "$TOKEN" | docker login ghcr.io --username "$ACTOR" --password-stdin
-          printf '%s' "$TOKEN" | helm registry login ghcr.io --username "$ACTOR" --password-stdin
+          # Only the tools that this job runs. GoReleaser runs go-licenses through
+          # scripts/licenses.sh and syft for the SBOMs of the archives, and it builds the image
+          # with the ko library inside it.
+          install_args: go goreleaser syft helm jq go:github.com/google/go-licenses/v2
 
       # release-please wrote the version of the tag into the chart, on a commit of main. This
       # refuses a tag on another commit only while that commit holds this check: the tag rules and
@@ -73,25 +72,114 @@ jobs:
             exit 1
           fi
 
-      - name: build, sign, and upload to the draft release
+      - name: log in to ghcr.io
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$TOKEN" | docker login ghcr.io --username "$ACTOR" --password-stdin
+          printf '%s' "$TOKEN" | helm registry login ghcr.io --username "$ACTOR" --password-stdin
+
+      # GoReleaser pushes the image. The publish job signs the files and uploads them.
+      - name: build the archives, the SBOMs, the checksums, and the image
         run: goreleaser release --clean
 
-      - name: sign the image, and package, sign, and upload the chart
+      - name: make the SBOM of each platform image, and package and push the chart
+        env:
+          TAG: ${{ github.ref_name }}
+        run: ./scripts/release-publish.sh build "$TAG"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release
+          path: |
+            dist/*.tar.gz
+            dist/*.sbom.json
+            dist/checksums.txt
+            build/sbom/*.spdx.json
+            build/chart/*.tgz
+            build/release.env
+          if-no-files-found: error
+
+  publish:
+    name: sign and publish
+    needs: build
+    runs-on: ubuntu-latest
+    # The approval of this job is the second one of a release. It starts the signatures.
+    environment: release
+    permissions:
+      # The GitHub release and its assets.
+      contents: write
+      # The signatures and the attestations in ghcr.io.
+      packages: write
+      # The OIDC token that Sigstore exchanges for a signing certificate.
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          # A fixed version of mise, which the action checks against the signed checksums of the
+          # mise release. A cache that another run wrote must not reach the tools that sign.
+          version: 2026.10.24
+          cache: false
+          # Only the tools that sign and check. gh and docker come with the runner.
+          install_args: cosign jq
+
+      # Outside the checkout, so that a file of the artifact cannot replace a script that this job
+      # runs.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: ${{ runner.temp }}/release
+
+      # Only the expected files move into the checkout, and only regular files: a link could point
+      # cosign at a file of the runner, such as the registry login, and publish it.
+      - name: take the files of the build job
+        env:
+          FROM: ${{ runner.temp }}/release
+        run: |
+          set -euo pipefail
+          if [ -n "$(find "$FROM" ! -type f ! -type d)" ]; then
+            echo "release: the artifact of the build job holds something other than files" >&2
+            exit 1
+          fi
+          mkdir -p dist build/sbom build/chart
+          cp "$FROM"/dist/*.tar.gz "$FROM"/dist/*.sbom.json "$FROM"/dist/checksums.txt dist/
+          cp "$FROM"/build/sbom/*.spdx.json build/sbom/
+          cp "$FROM"/build/chart/*.tgz build/chart/
+          cp "$FROM"/build/release.env build/
+
+      # cosign reads the login of docker to sign in the registry.
+      - name: log in to ghcr.io
+        env:
+          ACTOR: ${{ github.actor }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$TOKEN" | docker login ghcr.io --username "$ACTOR" --password-stdin
+
+      - name: sign the checksums, the image, and the chart, and upload them to the draft release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: ./scripts/release-publish.sh "$TAG"
+        run: ./scripts/release-publish.sh sign "$TAG"
 
+      # The script reads the commit of the tag through the GitHub API.
       - name: verify the signatures
         env:
+          GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          set -a
-          . build/release.env
-          set +a
+          # The file comes from the build job, so this reads the two values as text, never as
+          # code. The sign step has checked their form.
+          IMAGE_DIGEST="$(sed -n 's/^IMAGE_DIGEST=//p' build/release.env)"
+          CHART_DIGEST="$(sed -n 's/^CHART_DIGEST=//p' build/release.env)"
+          export IMAGE_DIGEST CHART_DIGEST
           cp build/chart/* dist/
           ./scripts/verify-release.sh "$TAG" dist
 
