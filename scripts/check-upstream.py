@@ -4,19 +4,29 @@
 
 Several accepted facts in this project carry a version and a date: the minimum Orchard version,
 the Tart version, the Buildkite agent line, the Stacks API client, and the macOS images that the
-job VM images build on. This script compares those facts with the current upstream state and writes a report.
+job VM images build on. This script compares those facts with the current upstream state and
+writes a report.
 
 It reports only. A version change can need a decision, so it changes no document.
 
 The expected values come from the documents themselves, not from a copy in this script. When a
 document changes its pinned version, this check follows it. When a document no longer states a
 version in the expected shape, this check fails, because the report would otherwise be silent.
+For the same reason, a dependency whose upstream state this check could not read (an outage, a
+rate limit, a refused request, or a tag with no version) is "could not check", never "no".
 
 Usage:
     scripts/check-upstream.py [--output <file>]
 
-Exit status is 0 when the check ran, whatever it found. It is 2 when a document did not give an
-expected value, which is a defect in this script or in the document.
+Exit status:
+    0  every dependency was checked, whatever it found (moved or not)
+    2  a document did not give an expected value, which is a defect in this script or in the
+       document
+    3  the upstream state of at least one dependency could not be read; the table, --output,
+       and the step outputs are still written for the dependencies that were checked
+
+In GitHub Actions it writes the step outputs moved=true|false (a checked dependency moved) and
+unchecked=true|false (exit status 3).
 """
 
 from __future__ import annotations
@@ -30,6 +40,8 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
+from typing import NamedTuple
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DESIGN = ROOT / "docs/architecture/target-design.md"
@@ -39,6 +51,34 @@ HOSTS = ROOT / "deploy/hosts/roles/orchard_worker/defaults/main.yml"
 IMAGE_BUILD = ROOT / "images/build.sh"
 
 TIMEOUT = 20
+UNCHECKED_EXIT = 3
+
+# ghcr.io answers a HEAD of a manifest only for a media type that the request accepts. The tag
+# that the images follow can be an index or a single manifest, in the OCI or the Docker format.
+MANIFEST_TYPES = ", ".join((
+    "application/vnd.oci.image.index.v1+json",
+    "application/vnd.oci.image.manifest.v1+json",
+    "application/vnd.docker.distribution.manifest.list.v2+json",
+    "application/vnd.docker.distribution.manifest.v2+json",
+))
+
+
+class LookupFailed(Exception):
+    """The upstream state of a dependency could not be read."""
+
+
+class Row(NamedTuple):
+    name: str
+    expected: str
+    current: str
+    moved: bool
+    problem: str = ""  # Why the check could not read the upstream state; empty when it could.
+
+    @property
+    def status(self) -> str:
+        if self.problem:
+            return "could not check"
+        return "yes" if self.moved else "no"
 
 
 def sends_token(url: str) -> bool:
@@ -61,7 +101,7 @@ def get_json(url: str, headers: dict[str, str] | None = None):
         return json.load(response)
 
 
-def latest_release(repo: str) -> str | None:
+def latest_release(repo: str) -> str:
     """The newest release tag of a GitHub repository, or the newest tag when it has no release."""
     try:
         return get_json(f"https://api.github.com/repos/{repo}/releases/latest")["tag_name"]
@@ -69,19 +109,44 @@ def latest_release(repo: str) -> str | None:
         if error.code != 404:
             raise
     tags = get_json(f"https://api.github.com/repos/{repo}/tags?per_page=1")
-    return tags[0]["name"] if tags else None
+    if not tags:
+        raise LookupFailed(f"{repo} has no release and no tag")
+    return tags[0]["name"]
 
 
-def ghcr_tags(image: str) -> list[str]:
-    """The tags of a public image in the GitHub container registry."""
+def ghcr_digest(image: str, tag: str) -> str:
+    """The digest of a tag of a public image in the GitHub container registry."""
     token_url = f"https://ghcr.io/token?scope=repository:{image}:pull&service=ghcr.io"
+    token = get_json(token_url)["token"]
+    request = urllib.request.Request(
+        f"https://ghcr.io/v2/{image}/manifests/{tag}", method="HEAD",
+        headers={"Authorization": f"Bearer {token}", "Accept": MANIFEST_TYPES})
+    with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+        digest = response.headers.get("Docker-Content-Digest")
+    if not digest:
+        raise LookupFailed(f"ghcr.io gave no digest for {image}:{tag}")
+    return digest
+
+
+def lookup(fetch: Callable[..., str], *args: str) -> tuple[str, str]:
+    """The upstream value and an empty problem, or "unknown" and why the lookup failed.
+
+    Each kind of fault gives a row, not a traceback, so one failed dependency does not hide the
+    others.
+    """
     try:
-        token = get_json(token_url)["token"]
-        listing = get_json(f"https://ghcr.io/v2/{image}/tags/list?n=100",
-                           {"Authorization": f"Bearer {token}"})
-    except urllib.error.HTTPError:
-        return []
-    return listing.get("tags") or []
+        return fetch(*args), ""
+    except urllib.error.HTTPError as error:
+        # HTTPError keeps the URL in filename on every Python version, and in url only on some.
+        return "unknown", f"HTTP {error.code} from {error.filename}"
+    except urllib.error.URLError as error:
+        return "unknown", f"cannot reach the server: {error.reason}"
+    except (TimeoutError, OSError) as error:
+        return "unknown", f"cannot reach the server: {error}"
+    except (KeyError, IndexError, TypeError, ValueError) as error:
+        return "unknown", f"an answer of an unexpected shape: {error!r}"
+    except LookupFailed as error:
+        return "unknown", str(error)
 
 
 def stated(path: pathlib.Path, pattern: str, what: str) -> str:
@@ -96,26 +161,20 @@ def normalise(version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in re.findall(r"\d+", version))
 
 
-def ghcr_digest(image: str, tag: str) -> str | None:
-    """The digest of a tag of a public image in the GitHub container registry, or None."""
-    token_url = f"https://ghcr.io/token?scope=repository:{image}:pull&service=ghcr.io"
-    try:
-        token = get_json(token_url)["token"]
-        request = urllib.request.Request(
-            f"https://ghcr.io/v2/{image}/manifests/{tag}", method="HEAD",
-            headers={"Authorization": f"Bearer {token}",
-                     "Accept": "application/vnd.oci.image.manifest.v1+json"})
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
-            return response.headers.get("Docker-Content-Digest")
-    except urllib.error.HTTPError:
-        return None
+def version_row(name: str, expected: str, current: str, problem: str) -> Row:
+    """Compare an upstream version with the version that a document states."""
+    if not problem and not normalise(current):
+        problem = f"the upstream tag {current!r} holds no version"
+    moved = not problem and normalise(current) > normalise(expected)
+    return Row(name, expected, current, moved, problem)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--output", type=pathlib.Path)
-    arguments = parser.parse_args()
+def digest_row(name: str, pinned: str, current: str, problem: str) -> Row:
+    """Compare an upstream digest with the digest that a document pins."""
+    return Row(name, pinned[:19], current[:19], not problem and current != pinned, problem)
 
+
+def collect() -> list[Row]:
     orchard_min = stated(DESIGN, r"minimum Orchard version MUST be ([0-9.]+)",
                          "a minimum Orchard version")
     tart_version = stated(HOSTS, r'(?m)^orchard_worker_tart_version: "([0-9.]+)"', "a Tart version")
@@ -123,17 +182,14 @@ def main() -> int:
     stacks_version = stated(DESIGN, r"`github.com/buildkite/stacksapi` v([0-9.]+)",
                             "a stacksapi version")
 
-    rows: list[tuple[str, str, str, bool]] = []
-
+    rows: list[Row] = []
     for name, repo, expected in (
         ("Orchard", "openai/orchard", orchard_min),
         ("Tart", "openai/tart", tart_version),
         ("Buildkite agent", "buildkite/agent", agent_version),
         ("stacksapi", "buildkite/stacksapi", stacks_version),
     ):
-        current = latest_release(repo) or "unknown"
-        moved = normalise(current) > normalise(expected)
-        rows.append((name, expected, current, moved))
+        rows.append(version_row(name, expected, *lookup(latest_release, repo)))
 
     # The tools that images/build.sh adds to the images, pinned by version.
     for name, repo, variable in (
@@ -141,42 +197,58 @@ def main() -> int:
         ("Homebrew", "Homebrew/brew", "HOMEBREW_VERSION"),
     ):
         expected = stated(IMAGE_BUILD, rf'(?m)^{variable}="([0-9.]+)"', f"the {name} version")
-        current = latest_release(repo) or "unknown"
-        rows.append((name, expected, current, normalise(current) > normalise(expected)))
+        rows.append(version_row(name, expected, *lookup(latest_release, repo)))
 
     # The base of the job VM images, pinned by digest in images/build.sh. A new digest of the tag
     # that it follows is a new macOS release to build and test against.
     image, tag = "cirruslabs/macos-golden-gate-vanilla", "latest"
     pinned = stated(IMAGE_BUILD, rf'(?m)^BASE="ghcr.io/{re.escape(image)}@(sha256:[0-9a-f]{{64}})"',
                     "the base of the images")
-    current = ghcr_digest(image, tag) or "unknown"
-    rows.append((f"{image.split('/')[1]}:{tag}", pinned[:19], current[:19],
-                 current not in ("unknown", pinned)))
+    rows.append(digest_row(f"{image.split('/')[1]}:{tag}", pinned, *lookup(ghcr_digest, image, tag)))
+    return rows
 
-    moved = [row for row in rows if row[3]]
 
+def table(rows: list[Row]) -> str:
     lines = ["| Dependency | The documents state | Upstream now | Moved |",
              "|---|---|---|---|"]
-    for name, expected, current, has_moved in rows:
-        lines.append(f"| {name} | {expected} | {current} | {'yes' if has_moved else 'no'} |")
-    table = "\n".join(lines)
+    lines += [f"| {row.name} | {row.expected} | {row.current} | {row.status} |" for row in rows]
+    return "\n".join(lines)
 
-    print(table)
+
+def report(rows: list[Row], output: pathlib.Path | None = None) -> int:
+    """Print the table and the summary, write the outputs, and return the exit status."""
+    moved = [row for row in rows if row.moved]
+    unchecked = [row for row in rows if row.problem]
+    text = table(rows)
+
+    print(text)
     print()
     if moved:
         print(f"check-upstream: {len(moved)} dependency change(s) need an answer in the documents")
-    else:
+    if unchecked:
+        print(f"check-upstream: could not check {len(unchecked)} dependency(ies):", file=sys.stderr)
+        for row in unchecked:
+            print(f"  {row.name}: {row.problem}", file=sys.stderr)
+    if not moved and not unchecked:
         print("check-upstream: the documents agree with upstream")
 
-    if arguments.output:
-        arguments.output.write_text(table + "\n", encoding="utf-8")
+    if output:
+        output.write_text(text + "\n", encoding="utf-8")
 
     step_output = os.environ.get("GITHUB_OUTPUT")
     if step_output:
         with open(step_output, "a", encoding="utf-8") as handle:
             handle.write(f"moved={'true' if moved else 'false'}\n")
+            handle.write(f"unchecked={'true' if unchecked else 'false'}\n")
 
-    return 0
+    return UNCHECKED_EXIT if unchecked else 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="check-upstream")
+    parser.add_argument("--output", type=pathlib.Path)
+    arguments = parser.parse_args(argv)
+    return report(collect(), arguments.output)
 
 
 if __name__ == "__main__":

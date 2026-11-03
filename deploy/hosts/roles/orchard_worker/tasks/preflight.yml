@@ -66,6 +66,27 @@
       a DNS label (lower case letters, digits, and hyphens), because the account of the host is
       worker-<name>.
 
+# The worker gets its labels as key=value pairs joined by commas, and pf gets the admin interfaces
+# in a list with no quoting, so a comma, an equals sign, or a space in a value would change what
+# they read.
+- name: Check the labels and the admin interfaces
+  ansible.builtin.assert:
+    quiet: true
+    that:
+      - orchard_worker_labels is mapping
+      - orchard_worker_label_keys | reject('match', '^[a-z0-9][a-z0-9_.-]*$') | list | length == 0
+      - orchard_worker_label_values | reject('match', '^[^,=\s]+$') | list | length == 0
+      - orchard_worker_admin_interfaces | length > 0
+      - orchard_worker_admin_interfaces | map('string') | reject('match', '^[a-z][a-z0-9]*$') | list | length == 0
+    fail_msg: >-
+      Each key of orchard_worker_labels is lower case letters, digits, '_', '.', and '-', and each
+      value has no comma, equals sign, or space. orchard_worker_admin_interfaces names at least one
+      interface, such as en0. The labels are {{ orchard_worker_labels }}, and the admin interfaces
+      are {{ orchard_worker_admin_interfaces }}.
+  vars:
+    orchard_worker_label_keys: "{{ orchard_worker_labels | dict2items | map(attribute='key') | map('string') | list }}"
+    orchard_worker_label_values: "{{ orchard_worker_labels | dict2items | map(attribute='value') | map('string') | list }}"
+
 - name: Check the platform and the macOS version
   ansible.builtin.assert:
     quiet: true

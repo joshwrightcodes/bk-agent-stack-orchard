@@ -169,11 +169,20 @@ run = "govulncheck ./..."
 description = "Fuzz each fuzz test of the module, for FUZZTIME each (default 1m)"
 run = '''
 set -eu
-for package in $(go list ./...); do
-  for target in $(go test -list '^Fuzz' "$package" | grep '^Fuzz' || true); do
+# set -e does not see a failed command inside the word list of a for loop, so each list is
+# assigned first. A package that does not build then fails the task instead of being skipped.
+packages=$(go list ./...)
+fuzzed=0
+for package in $packages; do
+  list=$(go test -list '^Fuzz' "$package")
+  for target in $(printf '%s\n' "$list" | grep '^Fuzz' || true); do
     go test "$package" -run '^$' -fuzz "^${target}\$" -fuzztime "${FUZZTIME:-1m}"
+    fuzzed=$((fuzzed + 1))
   done
 done
+# A run that finds no fuzz test fuzzes nothing, so it fails.
+[ "$fuzzed" -gt 0 ] || { echo "fuzz: no fuzz test found" >&2; exit 1; }
+echo "fuzz: $fuzzed fuzz test(s) ran"
 '''
 
 [tasks.integration]

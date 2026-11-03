@@ -11,6 +11,10 @@
 # nothing, so these rules cannot name those interfaces or addresses (2026-10-10, tested on a VM).
 # They block by destination instead: from anything but the admin interfaces, the host is reachable
 # only for DHCP and DNS, and the private ranges only where a profile permits them.
+{#
+  pf has no quoting for a value in a macro or a table, so the role checks these values instead:
+  preflight.yml the names of the admin interfaces, and select.yml the addresses of softnetAllow.
+#}
 
 admin_ifs = "{ {{ orchard_worker_admin_interfaces | join(', ') }} }"
 private = "{ 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, fc00::/7, fe80::/10 }"

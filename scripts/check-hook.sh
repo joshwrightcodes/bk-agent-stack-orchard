@@ -5,32 +5,46 @@
 # image has an owner-managed storage, the hook keeps the artifacts of a job in it. When the image
 # has none, the hook leaves the destination alone, and the artifacts go to the storage of Buildkite
 # (PR-032, owner decision of 2026-11-02).
+#
+# Usage: scripts/check-hook.sh        (mise run check-hook)
+#
+# Exit status: 0 success, 1 failure, 2 usage error.
 set -euo pipefail
+
+readonly PROG="check-hook"
+
+usage() {
+	sed -n 's/^# Usage: /usage: /p' "${BASH_SOURCE[0]}" >&2
+	exit 2
+}
+
+[[ $# -eq 0 ]] || usage
 
 HOOK="$(git rev-parse --show-toplevel)/images/files/environment"
 failures=0
 
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
 # destination gives what the hook leaves in BUILDKITE_ARTIFACT_UPLOAD_DESTINATION, for the storage
-# that the build gives the image and the value that a pipeline step set, if it set one.
+# that the build gives the image and the value that a pipeline step set, if it set one. The
+# storages of the cases below hold no character that sed or the hook would read as syntax.
 destination() {
-	local owner="$1" set="$2" hook
-	hook="$(mktemp)"
+	local owner="$1" set="$2" hook="$work/environment"
 	sed "s|__ARTIFACT_DESTINATION__|${owner}|" "$HOOK" >"$hook"
 
 	env -i PATH="$PATH" BUILDKITE_PIPELINE_SLUG=app BUILDKITE_BUILD_ID=b1 BUILDKITE_JOB_ID=j1 \
 		${set:+BUILDKITE_ARTIFACT_UPLOAD_DESTINATION="$set"} \
 		bash -c ". '$hook' 2>/dev/null; printf '%s' \"\${BUILDKITE_ARTIFACT_UPLOAD_DESTINATION:-}\""
-
-	rm -f "$hook"
 }
 
 expect() {
 	local name="$1" got="$2" want="$3"
 
 	if [[ "$got" == "$want" ]]; then
-		printf 'check-hook: %s\n' "$name"
+		printf '%s: %s\n' "$PROG" "$name"
 	else
-		printf 'check-hook: %s: got %q, want %q\n' "$name" "$got" "$want" >&2
+		printf '%s: %s: got %q, want %q\n' "$PROG" "$name" "$got" "$want" >&2
 		failures=$((failures + 1))
 	fi
 }
@@ -49,5 +63,6 @@ expect "a storage whose name starts the same is another storage" \
 	"$(destination "s3://acme-au/ci" "s3://acme-au/ci-other")" "s3://acme-au/ci/app/b1/j1"
 
 if ((failures > 0)); then
+	printf '%s: %d case(s) failed\n' "$PROG" "$failures" >&2
 	exit 1
 fi

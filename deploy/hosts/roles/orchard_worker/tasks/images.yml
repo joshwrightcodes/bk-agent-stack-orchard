@@ -1,15 +1,50 @@
 # Tart keeps an image at ~/.tart/cache/OCIs/<repository>/<digest or tag>. A profile names its image
 # by digest, so an image in the cache is the image of the profile.
-- name: Pull the images
-  ansible.builtin.command:
-    cmd: tart pull {{ item }}
-    creates: "/Users/{{ orchard_worker_user }}/.tart/cache/OCIs/{{ item | regex_replace('@', '/') }}"
+- name: Look for the images in the cache of Tart
+  ansible.builtin.stat:
+    path: "/Users/{{ orchard_worker_user }}/.tart/cache/OCIs/{{ item | regex_replace('@', '/') }}"
+    get_checksum: false
   loop: "{{ orchard_worker_images | unique }}"
-  environment: "{{ orchard_worker_registry_env }}"
+  register: orchard_worker_cached
+  become: true
+  become_user: "{{ orchard_worker_user }}"
+
+# A run with every image in the cache skips the block, so it reaches no registry and changes
+# nothing.
+- name: Pull the images that the cache does not have
+  when: orchard_worker_missing | length > 0
   become: true
   become_user: "{{ orchard_worker_user }}"
   vars:
-    orchard_worker_registry_env: >-
-      {{ {'TART_REGISTRY_USERNAME': orchard_worker_registry_username,
-          'TART_REGISTRY_PASSWORD': orchard_worker_registry_password}
-         if orchard_worker_registry_username | length > 0 else {} }}
+    orchard_worker_missing: "{{ orchard_worker_cached.results | rejectattr('stat.exists') | map(attribute='item') | list }}"
+    # The credentials go only to the registries of the images that the host pulls.
+    orchard_worker_registries: "{{ orchard_worker_missing | map('regex_replace', '/.*$', '') | unique }}"
+  block:
+    # The password goes to Tart on its standard input, so it is in no argument list, process
+    # listing, or sudo log of the host. no_log keeps it out of the output of Ansible.
+    - name: Log in to the registries
+      ansible.builtin.command:
+        cmd: >-
+          tart login {{ item }} --username {{ orchard_worker_registry_username | quote }}
+          --password-stdin
+        stdin: "{{ orchard_worker_registry_password }}"
+      loop: "{{ orchard_worker_registries }}"
+      when: orchard_worker_registry_username | length > 0
+      changed_when: false
+      no_log: true
+
+    - name: Pull the images
+      ansible.builtin.command:
+        cmd: tart pull {{ item }}
+        creates: "/Users/{{ orchard_worker_user }}/.tart/cache/OCIs/{{ item | regex_replace('@', '/') }}"
+      loop: "{{ orchard_worker_missing }}"
+
+  # Tart keeps a login in the keychain of the user. The host needs the credentials only for the
+  # pull, so the logout removes them after it, also when a pull fails.
+  always:
+    - name: Log out of the registries
+      ansible.builtin.command: tart logout {{ item }}
+      loop: "{{ orchard_worker_registries }}"
+      when: orchard_worker_registry_username | length > 0
+      changed_when: false
+      failed_when: false

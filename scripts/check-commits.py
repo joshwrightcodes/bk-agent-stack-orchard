@@ -18,6 +18,7 @@ adds " (#NNN)" to the subject of the squash commit.
 
 from __future__ import annotations
 
+import argparse
 import re
 import subprocess
 import sys
@@ -40,6 +41,9 @@ MAX_BODY = 72
 MAX_TITLE = 65
 BOT_EMAIL_SUFFIX = "[bot]@users.noreply.github.com"
 SIGNOFF = re.compile(r"^Signed-off-by: .+? <([^<>\s]+)>\s*$", re.MULTILINE | re.IGNORECASE)
+# Conventional Commits defines the footer token as BREAKING CHANGE or BREAKING-CHANGE, followed by
+# ": ". The phrase in the body text is not the footer.
+BREAKING_FOOTER = re.compile(r"^BREAKING[ -]CHANGE: ", re.MULTILINE)
 FIELD = "\x1f"
 SEPARATOR = "\x1e"
 
@@ -47,7 +51,8 @@ SEPARATOR = "\x1e"
 def commits(base: str) -> list[tuple[str, str, str, str]]:
     # --no-merges: a pull request event checks out refs/pull/N/merge, so the range contains a
     # merge commit that GitHub wrote. The rules apply to the commits that a person wrote.
-    revs = subprocess.run(["git", "rev-list", "--no-merges", f"{base}..HEAD"],
+    # --end-of-options: a base that starts with "-" is a revision, never an option of git.
+    revs = subprocess.run(["git", "rev-list", "--no-merges", "--end-of-options", f"{base}..HEAD"],
                           capture_output=True, text=True, check=True).stdout.split()
     out = []
     for rev in revs:
@@ -64,13 +69,17 @@ def commits(base: str) -> list[tuple[str, str, str, str]]:
 BOTS = ("dependabot[bot]", "renovate[bot]", "github-actions[bot]")
 
 
+def trailer_block(message: str) -> str:
+    """The trailers of a message: its last paragraph, after the subject. A line in the body or in
+    a quote is not a trailer."""
+    return message.rstrip("\n").split("\n\n")[-1] if "\n\n" in message else ""
+
+
 def check_signoff(rev: str, message: str, email: str) -> list[str]:
     """Return the problems with the sign-off of one commit. A bot of a GitHub App is exempt."""
     if email.lower().endswith(BOT_EMAIL_SUFFIX):
         return []
-    # Only the trailer block counts: the last paragraph. A line in the body or in a quote does not.
-    trailers = message.rstrip("\n").split("\n\n")[-1] if "\n\n" in message else ""
-    emails = [found.lower() for found in SIGNOFF.findall(trailers)]
+    emails = [found.lower() for found in SIGNOFF.findall(trailer_block(message))]
     if not emails:
         return [f"{rev}: no Signed-off-by trailer. Commit with 'git commit -s'"]
     if email.lower() not in emails:
@@ -123,15 +132,24 @@ def check(rev: str, message: str, author: str = "", subject_limit: int = 0) -> l
         if len(line) > MAX_BODY and "http" not in line and not line.startswith("    "):
             problems.append(f"body line {number} is {len(line)} characters, the limit is {MAX_BODY}")
 
-    if "BREAKING CHANGE" in message and match and not match.group("breaking"):
+    if BREAKING_FOOTER.search(trailer_block(message)) and match and not match.group("breaking"):
         problems.append("a BREAKING CHANGE footer needs '!' before the colon in the subject")
 
     return [f"{rev}: {p}" for p in problems]
 
 
-def main() -> int:
-    if len(sys.argv) == 3 and sys.argv[1] == "--title":
-        problems = check_title(sys.argv[2])
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="check-commits", description="Check commit messages against Conventional Commits.")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("base", nargs="?", default="origin/main",
+                      help="check the commits in <base>..HEAD (default: origin/main)")
+    mode.add_argument("--title", help="check a pull request title instead of commits")
+    # argparse exits 2 on a usage error, such as --title with no value.
+    arguments = parser.parse_args(argv)
+
+    if arguments.title is not None:
+        problems = check_title(arguments.title)
         if problems:
             for problem in problems:
                 print(f"  {problem}", file=sys.stderr)
@@ -139,11 +157,13 @@ def main() -> int:
         print("check-commits: the title follows Conventional Commits")
         return 0
 
-    base = sys.argv[1] if len(sys.argv) > 1 else "origin/main"
+    base = arguments.base
     try:
         found = commits(base)
-    except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError as error:
         print(f"check-commits: cannot read the range {base}..HEAD", file=sys.stderr)
+        if error.stderr:
+            print(f"  {error.stderr.strip()}", file=sys.stderr)
         return 2
 
     if not found:

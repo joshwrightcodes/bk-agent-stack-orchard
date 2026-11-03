@@ -22,3 +22,17 @@
   loop_control:
     label: "{{ item.name }}"
   when: orchard_worker_labels | combine(item.workerLabels | default({})) == orchard_worker_labels
+
+# The addresses go into a table of the pf rules, which has no quoting, and a wide entry such as
+# 0.0.0.0/0 would let the VMs reach every private address, so each entry is an address or a range
+# inside the private ranges that the rules block.
+- name: Check the private addresses that the profiles permit
+  ansible.builtin.assert:
+    quiet: true
+    that: orchard_worker_softnet_wrong | length == 0
+    fail_msg: >-
+      Each softnetAllow entry of a profile is an address or a range inside 10.0.0.0/8,
+      172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, fc00::/7, or fe80::/10. The profiles of this
+      host also give {{ orchard_worker_softnet_wrong | join(', ') }}.
+  vars:
+    orchard_worker_softnet_wrong: "{{ orchard_worker_softnet_allow | map('string') | reject('match', orchard_worker_private_range) | list }}"
