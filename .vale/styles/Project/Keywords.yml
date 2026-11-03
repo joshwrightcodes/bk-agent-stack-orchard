@@ -1,0 +1,14 @@
+# The writing guide keeps the RFC 2119 key words to the design documents. A guide uses an
+# imperative ("Set queue.") or a plain statement instead.
+extends: existence
+message: "'%s' is an RFC 2119 key word, which guides do not use: write an imperative or a statement."
+level: error
+ignorecase: false
+tokens:
+  - 'MUST(?: NOT)?'
+  - 'SHALL(?: NOT)?'
+  - 'SHOULD(?: NOT)?'
+  - '(?:NOT )?RECOMMENDED'
+  - 'REQUIRED'
+  - 'MAY'
+  - 'OPTIONAL'

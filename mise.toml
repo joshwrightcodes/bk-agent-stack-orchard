@@ -16,6 +16,8 @@ cosign = "3.1.4"
 syft = "1.55.0"
 # The quick start reads the JSON log of the controller with jq (scripts/quickstart.sh).
 jq = "1.8.2"
+# Vale checks the language rules of the writing guide (.vale.ini, mise run check-docs).
+vale = "3.26.0"
 # The manifests of deploy are checked with these. The aqua backend of mise checks the checksum
 # that each release publishes.
 helm = "4.3.0"
@@ -69,8 +71,8 @@ macos-x64 = { asset_pattern = "orchard-darwin-amd64.tar.gz", checksum = "sha256:
 macos-arm64 = { asset_pattern = "orchard-darwin-arm64.tar.gz", checksum = "sha256:aa912db4d47d93413dabfd34c856c6ebb124e09d13fba70b5a62467276a1a71d" }
 
 [tasks.check-docs]
-description = "Check that the document set stays whole"
-run = "python3 scripts/check-docs.py"
+description = "Check that the document set stays whole, and the language rules of the writing guide (Vale)"
+run = ["python3 scripts/check-docs.py", "vale --glob='!{build,dist}/**' ."]
 
 [tasks.check-commits]
 description = "Check the commit messages of this branch"

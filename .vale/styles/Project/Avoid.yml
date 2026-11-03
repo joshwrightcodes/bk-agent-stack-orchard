@@ -1,0 +1,19 @@
+# Words that the writing guide avoids: words that assume knowledge, Latin abbreviations, and "we".
+extends: substitution
+message: "Use '%s' instead of '%s'."
+level: error
+ignorecase: true
+# Each pattern sets its own word boundaries, because a boundary after "e.g." never matches.
+nonword: true
+swap:
+  '\bjust\b': '(leave it out)'
+  '\bsimply\b': '(leave it out)'
+  '\beasy\b': '(leave it out)'
+  '\bobviously\b': '(leave it out)'
+  '(?:^|\s)please\b': '(leave it out)'
+  'e\.g\.': 'for example'
+  'i\.e\.': 'that is'
+  '\betc\.': 'a list that ends'
+  '\bwe\b': 'you, or the maintainers'
+  '\bour\b': 'your, or of the project'
+  'in order to': 'to'

@@ -1,0 +1,7 @@
+# Documents name the role, "the maintainers". MAINTAINERS.md is the one file that names people.
+extends: existence
+message: "'%s' names a person: write 'the maintainers', and keep names in MAINTAINERS.md."
+level: error
+ignorecase: true
+tokens:
+  - Josh Wright

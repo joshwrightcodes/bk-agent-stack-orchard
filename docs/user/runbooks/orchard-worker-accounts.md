@@ -5,9 +5,9 @@ has its own Orchard service account, `worker-<host>`, and its own token (target 
 9.2).
 
 **Interim procedure.** People copy, rotate, and remove tokens by hand in this procedure. That is
-not the target state. The owner decided on 2026-11-02 that only an engineer who sets or rotates a
-key in the secret store on a schedule does a manual step, that the tokens on the Mac hosts rotate
-automatically, and that each credential can be rotated on demand. The test strategy tracks the
+not the target state. In the target state, only an engineer who sets or rotates a key in the
+secret store on a schedule does a manual step. The tokens on the Mac hosts rotate automatically,
+and each credential can be rotated on demand. The test strategy tracks the
 work that replaces this procedure.
 
 ## What Orchard enforces

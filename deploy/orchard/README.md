@@ -190,9 +190,9 @@ so it cannot list service accounts (`admin:read`). Use the controller account fo
 ## First start and after the first bootstrap
 
 **Interim procedure.** People copy, rotate, and remove tokens by hand in this procedure. That is
-not the target state. The owner decided on 2026-11-02 that only an engineer who sets or rotates a
-key in the secret store on a schedule does a manual step, that the tokens on the Mac hosts rotate
-automatically, and that each credential can be rotated on demand. The test strategy tracks the
+not the target state. In the target state, only an engineer who sets or rotates a key in the
+secret store on a schedule does a manual step. The tokens on the Mac hosts rotate automatically,
+and each credential can be rotated on demand. The test strategy tracks the
 work that replaces this procedure.
 
 Orchard 0.58.0 behaves as follows (source: `internal/command/controller/bootstrap.go` at the tag
@@ -264,9 +264,11 @@ kubectl -n orchard patch secret orchard-bootstrap --type json \
 ```
 
 To change a host later, re-create the account:
-put the variable back in the StatefulSet and the key `bootstrap-admin-token` in the Secret,
-restart Orchard (a short outage of the API for the workers and the controller), run the Job, and
-retire again with steps 2 to 5.
+
+1. Put the variable back in the StatefulSet, and the key `bootstrap-admin-token` in the Secret.
+2. Restart Orchard. The API of Orchard is down for a short time for the workers and the controller.
+3. Run the Job.
+4. Retire the account again with steps 2 to 5.
 
 ### Warning: a start with an empty PVC can log an admin token
 

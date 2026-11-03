@@ -15,16 +15,21 @@ this guide says nothing, follow the Google guide.
 
 A document that uses the key words starts with the BCP 14 paragraph:
 
+<!-- vale off -->
 > The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT",
 > "RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be
 > interpreted as described in BCP 14 [RFC 2119] [RFC 8174] when, and only when, they appear in
 > all capitals, as shown here.
+<!-- vale on -->
 
 Use a key word only for a real obligation. In other sentences, rewrite the sentence rather than
 use "must" in lower case.
 
 ## Language
 
+The column "Don't" breaks the rules on purpose, so Vale does not check this table.
+
+<!-- vale off -->
 | Rule | Do | Don't |
 |---|---|---|
 | Use the present tense. | The controller deletes the VM. | The controller will delete the VM. |
@@ -40,6 +45,7 @@ use "must" in lower case.
 | Do not use idioms or jargon. | The controller stops. | The controller falls over. |
 | Do not write about the future in guides. Plans go in issues. | The controller supports one queue. | Support for more queues is coming soon. |
 | Name a role, not a person. | The maintainers merge it. | Alex merges it. |
+<!-- vale on -->
 
 ## Facts that change
 
@@ -80,5 +86,20 @@ reads, and run `mise run docs-reference`.
 ## Checks
 
 `mise run check-docs` checks the line width, that each link resolves, that each cited identifier
-exists, and that the glossary lists each identifier family. A reviewer checks the rest of this
-guide.
+exists, and that the glossary lists each identifier family.
+
+It also runs [Vale](https://vale.sh) with the rules in `.vale/styles/Project`, which `.vale.ini`
+applies by folder:
+
+<!-- vale off -->
+| Rule | Where | What it refuses |
+|---|---|---|
+| `Names` | Every Markdown file except `MAINTAINERS.md` and the ADRs | The name of a maintainer |
+| `Keywords` | The guides for operators and contributors | RFC 2119 key words in capitals |
+| `DesignIDs` | The guides for operators | Identifiers such as `ADR-0012` or `T-100` |
+| `Avoid` | The guides for operators and contributors | "just", "simply", "easy", "obviously", "please", "we", "our", "in order to", and Latin abbreviations |
+| `SentenceLength` | The guides for operators and contributors | Nothing: it warns about a sentence of more than 40 words |
+<!-- vale on -->
+
+To quote text that breaks a rule on purpose, put `<!-- vale off -->` before it and
+`<!-- vale on -->` after it. A reviewer checks the rest of this guide.

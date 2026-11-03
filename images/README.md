@@ -88,8 +88,8 @@ runner is a VM with 14 GB of disk (2026-10-10). For these reasons, a hosted runn
 the image.
 
 The build stops the VM from inside the VM. `tart stop` does not wait for macOS to write its caches,
-and a file written just before it is lost. The build then starts the VM again, without the
-directory of the archive. It checks the VM as a job VM finds it:
+and a file that macOS wrote shortly before it is lost. The build then starts the VM again, without
+the directory of the archive. It checks the VM as a job VM finds it:
 
 - The guest agent answers as `admin`.
 - `buildkite-agent` 4.9.0 runs from `/usr/local/bin`.
