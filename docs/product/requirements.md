@@ -84,6 +84,10 @@ Non-goals:
 * The purchase and the budget of the hosts.
 * Host directory caches, or other state that jobs share.
 * Secret injection for each job. Jobs get secrets through standard Buildkite mechanisms.
+* Automatic rotation of secrets. The fleet operator rotates them, and the runbooks describe the
+  procedures (owner decision, 2026-11-03).
+* Machine identity for the hosts and the controller. An operator MAY put a machine-identity
+  system, such as SPIFFE and SPIRE, in front of Orchard (owner decision, 2026-11-03).
 * High availability of the controller or of Orchard.
 * Wildcard and negated tag rules.
 * More than one queue in one controller process.
@@ -299,8 +303,11 @@ requirements. The target design describes the job lifecycle and the failure proc
 **PR-023: Replace the cluster agent token without job failures.**
 
 * Requirement: The fleet operator MUST replace the cluster agent token with the procedure in the
-  target design. The product MUST NOT fail jobs in progress because of the replacement.
-* Status: `accepted`.
+  target design. The product MUST NOT fail jobs in progress because of the replacement. Secret
+  rotation is the responsibility of the fleet operator, and the product does not automate it.
+  The runbooks describe the procedures of the operator for the cluster agent token and the tokens
+  of the Orchard accounts.
+* Source: owner decision (2026-11-03) for the rotation. Status: `accepted`.
 * Acceptance: Given jobs in progress. When the fleet operator follows the procedure. Then the jobs
   complete, and new jobs start with the new token.
 

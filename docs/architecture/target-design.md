@@ -58,6 +58,10 @@ less than 15 min (QA-03). The design MUST meet these targets.
 * Automatic scaling of the Mac hosts. The host pool is fixed and always on.
 * Host directory caches, or other state that jobs share.
 * Secret injection for each job. Jobs get secrets through standard Buildkite mechanisms.
+* Automatic rotation of secrets. Secret rotation is the responsibility of the fleet operator, and
+  the runbooks describe the procedures (§9.2, PR-023).
+* Machine identity. An operator MAY put a machine-identity system, such as SPIFFE and SPIRE, in
+  front of Orchard.
 * High availability of the controller or of Orchard. Instead, recovery takes less than 15 min
   (QA-03).
 * Operation in more than one region. Each additional region uses a new queue with its own fleet

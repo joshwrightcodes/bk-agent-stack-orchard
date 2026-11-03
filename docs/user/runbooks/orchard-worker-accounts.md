@@ -4,11 +4,10 @@ This runbook adds a Mac host, rotates the token of one host, and revokes one hos
 has its own Orchard service account, `worker-<host>`, and its own token (target design, section
 9.2).
 
-**Interim procedure.** People copy, rotate, and remove tokens by hand in this procedure. That is
-not the target state. In the target state, only an engineer who sets or rotates a key in the
-secret store on a schedule does a manual step. The tokens on the Mac hosts rotate automatically,
-and each credential can be rotated on demand. The test strategy tracks the
-work that replaces this procedure.
+**Rotation is your responsibility.** The project does not automate the rotation of these tokens.
+This procedure is the way to do it by hand. You can automate it with the tools of your own
+platform. Machine identity is out of the scope of this project. You can put a machine-identity
+system in front of Orchard.
 
 ## What Orchard enforces
 
