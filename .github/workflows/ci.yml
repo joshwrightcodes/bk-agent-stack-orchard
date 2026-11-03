@@ -139,20 +139,17 @@ jobs:
       - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
           version: 2026.10.24
-      - run: mise run lint-scripts
+      # When the run can upload, ruff, actionlint, and zizmor write their SARIF output to
+      # build/sarif in the same run, for the uploads below. The gate still fails on a finding.
+      - env:
+          SARIF_DIR: ${{ env.SARIF_UPLOAD == 'true' && 'build/sarif' || '' }}
+        run: mise run lint-scripts
       # mise lock reads the release of each tool from GitHub, which limits an anonymous caller.
       - name: check the lock
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: mise run check-lock
 
-      # The SARIF reports run after a failed gate too, and their result does not change the result
-      # of the job. lint-scripts above is the gate.
-      # The reports exist only for the upload, so a run that cannot upload does not write them.
-      - name: write the SARIF reports
-        if: always() && env.SARIF_UPLOAD == 'true'
-        continue-on-error: true
-        run: mise run sarif-scripts
       - name: upload the ruff findings
         if: always() && env.SARIF_UPLOAD == 'true' && hashFiles('build/sarif/ruff.sarif') != ''
         uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
@@ -205,9 +202,11 @@ jobs:
           restore-keys: |
             go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.sum') }}-
             go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
-      # One run of govulncheck writes the SARIF report and is the gate: it fails on each finding of
-      # level error, which is a vulnerability that the code calls.
-      - run: mise run sarif-vuln
+      # When the run can upload, govulncheck writes its SARIF output to build/sarif in the same run,
+      # and the task fails on a vulnerability that the code calls, as the text output does.
+      - env:
+          SARIF_DIR: ${{ env.SARIF_UPLOAD == 'true' && 'build/sarif' || '' }}
+        run: mise run vuln
       - name: upload the govulncheck findings
         if: always() && env.SARIF_UPLOAD == 'true' && hashFiles('build/sarif/govulncheck.sarif') != ''
         uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1

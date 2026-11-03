@@ -87,8 +87,8 @@ repository. The token of a pull request from a fork cannot write to code scannin
 does not upload. The upload does not change the result of a job. The gates (`lint`, `vuln`, and
 `lint-scripts`) fail on a finding. ShellCheck has no SARIF output, and `mise` has no converter
 with a published checksum, so the ShellCheck findings for the shell scripts are only in the log
-of `lint scripts`. `mise run sarif-vuln` and `mise run sarif-scripts` write the same reports to
-`build/sarif`.
+of `lint scripts`. To write the same reports locally, set `SARIF_DIR`, for example
+`SARIF_DIR=build/sarif mise run lint-scripts` or `SARIF_DIR=build/sarif mise run vuln`.
 
 `mise run coverage` runs the tests of `mise run test` with a coverage profile. It writes
 `build/coverage.out`, `build/coverage.html`, and `build/coverage.md`. It prints the coverage of
