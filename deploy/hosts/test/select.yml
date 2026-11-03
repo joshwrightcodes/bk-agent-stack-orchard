@@ -60,3 +60,23 @@
     - name: Check the xcode worker
       ansible.builtin.assert:
         that: orchard_worker_images == ['registry.test/xcode@sha256:3333333333333333333333333333333333333333333333333333333333333333']
+
+    - name: A profile that permits more than the private ranges stops the host
+      block:
+        - name: Choose the profiles of a worker with the wide profile
+          ansible.builtin.include_role:
+            name: orchard_worker
+            tasks_from: select
+          vars:
+            orchard_worker_labels: {pool: wide}
+            orchard_worker_config_file: "{{ playbook_dir }}/testdata/wide.yaml"
+
+        - name: The wide profile passed
+          ansible.builtin.fail:
+            msg: The role accepted the softnetAllow entry 0.0.0.0/0.
+      rescue:
+        - name: Check that only the wide entry failed
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_task.name == 'Check the private addresses that the profiles permit'
+              - ansible_failed_result.msg is search('also give 0.0.0.0/0[.]$')

@@ -1,0 +1,6 @@
+# A profile that permits more than the private ranges: the host refuses it.
+profiles:
+  - name: wide
+    image: registry.test/wide@sha256:5555555555555555555555555555555555555555555555555555555555555555
+    workerLabels: {pool: wide}
+    softnetAllow: ["10.20.30.40/32", "fd12:3456::/48", "0.0.0.0/0"]

@@ -71,7 +71,13 @@ The host pulls the image of each profile whose `workerLabels` the labels of the 
 pulls no other image, because a 1 TB host holds only a few Xcode images. A profile names
 its image by digest. The image in the cache is therefore always the image of the profile. When the
 registry needs credentials, give `orchard_worker_registry_username` and
-`orchard_worker_registry_password`.
+`orchard_worker_registry_password`. The role gives the password to `tart login` on its standard
+input, and it logs out after the pull. The keychain of the host therefore keeps no credentials.
+
+Each `softnetAllow` entry of the profiles of a host is an address or a range inside the private
+ranges that the pf rules block, such as `10.20.30.40/32`. The playbook stops on a wider entry,
+such as `0.0.0.0/0`. Each key of `orchard_worker_labels` has only lower case letters, digits, `_`,
+`.`, and `-`. A label value has no comma, equals sign, or space.
 
 ## Run
 
@@ -95,7 +101,8 @@ failed start to `/var/log/orchard-worker.stdout.log`.
 ## Tests
 
 `mise run check-hosts` lints the role, and checks the images that a host pulls for different
-labels. CI runs it.
+labels. It also checks that the role refuses a `softnetAllow` entry outside the private ranges. CI
+runs it.
 
 `mise run hosts-test` runs the playbook against a Tart VM on an Apple silicon Mac. An Orchard
 controller is on the Mac, and the certificate comes from a test CA. The test checks these points:

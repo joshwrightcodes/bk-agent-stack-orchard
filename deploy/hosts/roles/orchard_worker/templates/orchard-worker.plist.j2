@@ -4,7 +4,7 @@
 <plist version="1.0">
   <dict>
     <key>Label</key>
-    <string>{{ orchard_worker_label_name }}</string>
+    <string>{{ orchard_worker_label_name | e }}</string>
     <key>ProgramArguments</key>
     <array>
       <string>/usr/local/bin/orchard</string>
@@ -24,7 +24,7 @@
       <string>{{ orchard_worker_controller_url | e }}</string>
     </array>
     <key>StandardInPath</key>
-    <string>{{ orchard_worker_etc }}/bootstrap-token</string>
+    <string>{{ orchard_worker_etc | e }}/bootstrap-token</string>
     <key>StandardOutPath</key>
     <string>/var/log/orchard-worker.stdout.log</string>
     <key>StandardErrorPath</key>
