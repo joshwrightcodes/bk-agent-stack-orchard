@@ -49,7 +49,7 @@ The gates are also tasks of their own: `check-docs`, `check-commits`, `check-dep
 * `check` is the gate before a pull request. It runs `check-c4`, so it needs Docker.
 * `ci` runs the checks that the required CI jobs run, so a pass predicts a pass in CI. It adds
   `test-scripts`, `vuln`, `check-hook`, `check-hosts`, `check-generate`, and `integration`, which
-  `check` does not run.
+  `check` does not run. It runs `coverage` in place of `test`, as CI does.
 * `ci` runs `check-generate` alone and first, because it rewrites the generated files that the
   other checks compile. It then runs the other checks in parallel, through `ci-checks`.
 * `ci` runs the Docker jobs (`check-c4`, `orchard-image`, `smoke`, and `snapshot`) through
@@ -67,6 +67,38 @@ binary links. Fix it in this order:
 3. Copy `NOTICE` to `deploy/helm/bk-agent-stack-orchard/NOTICE`, because the chart carries a copy
    that equals the file of the root.
 4. Run `go test ./internal/repocheck` and `mise run check-deps`.
+
+## Code scanning and coverage
+
+CI sends the findings of each linter to GitHub code scanning, with the CodeQL findings. To see
+them, open the **Security** tab of the repository, then **Code scanning**, and filter by tool.
+Each tool has its own category:
+
+| Category | Tool | CI job |
+|---|---|---|
+| `golangci-lint` | golangci-lint | `lint and test` |
+| `govulncheck` | govulncheck | `known vulnerabilities` |
+| `ruff` | ruff | `lint scripts` |
+| `actionlint` | actionlint, and ShellCheck on the `run:` blocks of the workflows | `lint scripts` |
+| `zizmor` | zizmor | `lint scripts` |
+
+CI uploads the findings on a push to `main`, and on a pull request from a branch of this
+repository. The token of a pull request from a fork cannot write to code scanning, so that run
+does not upload. The upload does not change the result of a job. The gates (`lint`, `vuln`, and
+`lint-scripts`) fail on a finding. ShellCheck has no SARIF output, and `mise` has no converter
+with a published checksum, so the ShellCheck findings for the shell scripts are only in the log
+of `lint scripts`. `mise run sarif-vuln` and `mise run sarif-scripts` write the same reports to
+`build/sarif`.
+
+`mise run coverage` runs the tests of `mise run test` with a coverage profile. It writes
+`build/coverage.out`, `build/coverage.html`, and `build/coverage.md`. It prints the coverage of
+each function and the total, and fails when the total is less than the threshold. The threshold
+is the `threshold` value in `scripts/coverage.sh`. The total does not include the generated
+files (`*_gen.go`), the test suites and fakes in `test/`, and `internal/repocheck`, which only the
+tests import. The coverage of a package counts only the statements that the tests of that package
+run. The `lint and test` job runs `mise run coverage`, writes the coverage of each package to the
+job summary, and keeps the profile and the HTML report as the `coverage` artifact. When the total
+increases, set the threshold to the new total, rounded down to a whole percent.
 
 ## The package map
 

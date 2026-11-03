@@ -34,6 +34,7 @@ These are the tasks that you use most. `mise tasks` lists all of them.
 |---|---|
 | `mise run build` | Compile every package, and build the controller binary |
 | `mise run test` | Run the Go tests with the race detector |
+| `mise run coverage` | Run the Go tests with coverage, and fail below the threshold |
 | `mise run lint` | Run golangci-lint |
 | `mise run lint-scripts` | Lint the shell and Python scripts and the workflows |
 | `mise run integration` | Run the integration tests against a synthetic Orchard |
