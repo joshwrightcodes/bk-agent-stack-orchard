@@ -11,7 +11,8 @@
 // What it writes: the field names, the JSON tags, and a type for each field, and only for the
 // fields on the allow list of the `wanted` variable, which are the fields that the controller
 // uses. It writes no logic of Orchard, and it reads the source of the pinned version over the
-// network without keeping a copy in this repository. The file that it writes carries a header
+// network without keeping a copy in this repository. It reads only public data, so it needs no
+// token and sends none. The file that it writes carries a header
 // that names the source, the version, the commit, the licence, and the copyright notice.
 //
 // A field whose type this generator cannot express becomes json.RawMessage, because the
@@ -20,8 +21,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/base64"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"go/ast"
@@ -33,6 +32,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -155,29 +155,88 @@ func short(ref string) string {
 // verifyRef confirms that the tag of a version still points at the commit that this repository
 // pins. A tag that moved is a supply-chain change, and it stops the generator here instead of
 // changing the generated file without a word.
+//
+// It reads the list of references that git reads before a clone, not the GitHub API. The list
+// is public and needs no token, and the API limits an anonymous caller to sixty calls each hour.
 func verifyRef(version, ref string) error {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/commits/%s", upstreamRepo, version)
+	url := fmt.Sprintf("https://github.com/%s.git/info/refs?service=git-upload-pack", upstreamRepo)
 
 	body, err := get(url)
 	if err != nil {
-		return fmt.Errorf("resolving the tag %s: %w", version, err)
+		return fmt.Errorf("reading the tags of %s: %w", upstreamRepo, err)
 	}
 
-	var commit struct {
-		SHA string `json:"sha"`
-	}
-	if err := json.Unmarshal(body, &commit); err != nil {
-		return fmt.Errorf("reading the commit of %s: %w", version, err)
+	commit, err := tagCommit(body, version)
+	if err != nil {
+		return err
 	}
 
-	if commit.SHA != ref {
+	if commit != ref {
 		return fmt.Errorf(
 			"the tag %s now points at %s, and this repository pins %s. A tag that moves changes "+
 				"the generated file without a word: read the difference, then change the -ref of "+
-				"the go:generate directive", version, short(commit.SHA), short(ref))
+				"the go:generate directive", version, short(commit), short(ref))
 	}
 
 	return nil
+}
+
+// tagCommit finds the commit of a tag in the reference list that a git server advertises. The
+// list is a sequence of packet lines: four hexadecimal digits give the length of a line, those
+// four digits included, and "0000" ends a section. An annotated tag names a tag object, and a
+// second line, whose name ends in "^{}", names its commit. That commit is the one to compare.
+func tagCommit(advertisement []byte, tag string) (string, error) {
+	name := "refs/tags/" + tag
+
+	var direct, peeled string
+
+	for rest := advertisement; len(rest) > 0; {
+		if len(rest) < 4 {
+			return "", fmt.Errorf("the tags of %s end in a line that is cut short", upstreamRepo)
+		}
+
+		length, err := strconv.ParseUint(string(rest[:4]), 16, 16)
+		if err != nil {
+			return "", fmt.Errorf("the tags of %s hold a line with no length", upstreamRepo)
+		}
+
+		if length == 0 {
+			rest = rest[4:]
+
+			continue
+		}
+
+		if length < 4 || int(length) > len(rest) {
+			return "", fmt.Errorf("the tags of %s hold a line that is cut short", upstreamRepo)
+		}
+
+		line := string(rest[4:length])
+		rest = rest[length:]
+
+		// The first reference carries the capabilities of the server after a NUL byte.
+		line, _, _ = strings.Cut(strings.TrimSuffix(line, "\n"), "\x00")
+
+		sha, ref, ok := strings.Cut(line, " ")
+		if !ok {
+			continue
+		}
+
+		switch ref {
+		case name:
+			direct = sha
+		case name + "^{}":
+			peeled = sha
+		}
+	}
+
+	switch {
+	case peeled != "":
+		return peeled, nil
+	case direct != "":
+		return direct, nil
+	default:
+		return "", fmt.Errorf("%s has no tag %s", upstreamRepo, tag)
+	}
 }
 
 // pinnedVersion reads the version out of the design, so that one document decides it.
@@ -310,40 +369,29 @@ func expression(e ast.Expr) string {
 	return b.String()
 }
 
+// fetch reads one file of the upstream source at a commit. The raw file server gives a file of a
+// public repository to anyone, so this needs no token and does not count against the limit of the
+// GitHub API.
 func fetch(path, ref string) (string, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/contents/%s?ref=%s", upstreamRepo, path, ref)
+	url := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s", upstreamRepo, ref, path)
 
-	raw, err := get(url)
+	body, err := get(url)
 	if err != nil {
 		return "", fmt.Errorf("reading %s at %s: %w", path, short(ref), err)
 	}
 
-	var body struct {
-		Content string `json:"content"`
-	}
-	if err := json.Unmarshal(raw, &body); err != nil {
-		return "", err
-	}
-
-	decoded, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(body.Content, "\n", ""))
-	if err != nil {
-		return "", err
-	}
-
-	return string(decoded), nil
+	return string(body), nil
 }
 
-// get reads one document of the GitHub API. A token raises the limit for an anonymous caller,
-// which is sixty calls each hour.
+// get reads one public document. It sends no credentials, even when the environment holds a
+// token: everything that it reads is public, and a token that this tool never reads cannot leak
+// through it.
 func get(url string) ([]byte, error) {
 	request, err := http.NewRequest(http.MethodGet, url, nil) //nolint:noctx // a short tool run
 	if err != nil {
 		return nil, err
 	}
 	request.Header.Set("User-Agent", "bk-agent-stack-orchard")
-	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
-		request.Header.Set("Authorization", "Bearer "+token)
-	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
 
@@ -354,7 +402,7 @@ func get(url string) ([]byte, error) {
 	defer func() { _ = response.Body.Close() }()
 
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("the answer was %s", response.Status)
+		return nil, fmt.Errorf("the answer from %s was %s", url, response.Status)
 	}
 
 	return io.ReadAll(response.Body)

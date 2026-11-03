@@ -12,7 +12,7 @@
 tap "openai/tools"
 
 brew "mise"                 # Go, Orchard, the linters, Helm, kind, ko, and the release tools
-brew "gh"                   # pull requests, and GITHUB_TOKEN for `mise run ci`
+brew "gh"                   # pull requests
 brew "jq"                   # scripts/verify-release.sh
 brew "colima"               # a Docker runtime for check-c4, snapshot, and smoke
 brew "docker"               # the Docker CLI
