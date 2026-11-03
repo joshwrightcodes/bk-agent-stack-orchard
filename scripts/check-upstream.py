@@ -40,7 +40,8 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Callable, NamedTuple
+from collections.abc import Callable
+from typing import NamedTuple
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DESIGN = ROOT / "docs/architecture/target-design.md"

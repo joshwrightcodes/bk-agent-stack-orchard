@@ -167,8 +167,11 @@ class CheckTest(unittest.TestCase):
         self.assertTrue(any("BREAKING CHANGE" in p for p in problems), problems)
         hyphen = "feat: drop a flag\n\nBREAKING-CHANGE: the flag is gone"
         self.assertTrue(check_commits.check("r", hyphen))
-        self.assertEqual(check_commits.check("r", "feat!: drop a flag\n\nBREAKING CHANGE: gone"), [])
-        prose = "docs: explain\n\nA BREAKING CHANGE footer needs a mark.\n\nSigned-off-by: A <a@b.c>"
+        marked = "feat!: drop a flag\n\nBREAKING CHANGE: gone"
+        self.assertEqual(check_commits.check("r", marked), [])
+        prose = (
+            "docs: explain\n\nA BREAKING CHANGE footer needs a mark.\n\nSigned-off-by: A <a@b.c>"
+        )
         self.assertEqual(check_commits.check("r", prose), [])
 
 
