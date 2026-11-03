@@ -637,7 +637,9 @@ For the admitted jobs, the Launcher MUST do these steps:
 2. Send `POST job-acquisition-tokens` for the reserved jobs, in one call for each lifetime. The
    lifetime of the token of a job MUST be `unplaced + boot + acquire` of its profile and one
    minute, and MUST NOT be more than `jobTokenLifetime` (1800 s by default). With the default
-   timeouts it is 23 min. Skip the jobs in `not_issued`. Their reservations expire. A call that
+   timeouts it is 23 min. For each job that gets a token, record in memory the time that its call
+   left, on the clock of the controller. Row 10 counts from it (§7.1, rule 1). Skip the jobs in
+   `not_issued`. Their reservations expire. A call that
    fails ends the calls of the tick: the jobs of the calls before it keep their tokens and get
    their VMs. The calls MUST end inside a budget of 3 call limits (§4).
 
@@ -781,18 +783,25 @@ above, and for `download` also `BKASO_AGENT_URL` and `BKASO_AGENT_SHA256`. When
 
 1. **Observed state only.** Decisions MUST use Inventory data and JobStates data. Decisions
    MUST NOT use counters. The start timeouts of rows 10 to 12 MUST measure their age on the clock
-   of the controller, from the first Inventory answer of this process that listed the VM (row
-   10), that showed the VM on a worker (row 11), or that showed the VM `running` (row 12). They
-   MUST NOT compare a time of Orchard, such as `createdAt`, `scheduled_at`, or `started_at`, with
-   the clock of the controller. These timeouts last minutes. An Orchard clock that runs behind by
-   more than a timeout would end each VM at its first sighting, and one that runs ahead would hide
-   each timeout. Each start is no earlier than the event that it marks, so an age errs short and a
-   timeout errs long. After a restart, the first answer of the new process starts each of these
-   ages again. A restart can therefore extend a start timeout by up to the age that the VM had in
-   that phase when the new process first listed it: the time that the controller was down, and
-   the part of the timeout that the process before it had counted. This is the conservative
-   direction: a VM that stays longer costs a slot, and a job that the controller ends early costs
-   a build.
+   of the controller. Row 10 MUST measure from the time that this process sent the token call of
+   the job (§7.4, step 2). If this process sent no token call for the job, as after a restart, or
+   sent it after the first Inventory answer of this process that listed the VM, row 10 MUST
+   measure from that first answer. Row 11 MUST measure from the first Inventory answer of this
+   process that showed the VM on a worker, and row 12 from the first one that showed the VM
+   `running`. They MUST NOT compare a time of Orchard, such as `createdAt`, `scheduled_at`, or
+   `started_at`, with the clock of the controller. These timeouts last minutes. An Orchard clock
+   that runs behind by more than a timeout would end each VM at its first sighting, and one that
+   runs ahead would hide each timeout. Each start of rows 11 and 12, and the first listing, is no
+   earlier than the event that it marks, so an age errs short and a timeout errs long. The token
+   call comes before the create, so row 10 ends the wait for a worker inside the token (§7.3). It
+   errs short by the time from the token call to the create, which is at most the token and create
+   budgets of a tick (60 s, §4). Row 10 returns the job to the queue and does not fail it, so this
+   costs a new start and not a build. After a restart, the first answer of the new process starts
+   each of these ages again. A restart can therefore extend a start timeout by up to the age that
+   the VM had in that phase when the new process first listed it: the time that the controller was
+   down, and the part of the timeout that the process before it had counted. This is the
+   conservative direction: a VM that stays longer costs a slot, and a job that the controller ends
+   early costs a build.
 
    The lifetime of row 2 MUST count from the `createdAt` of the VM. The Reaper compares this
    Orchard time with the clock of the controller. The lifetime is an absolute limit, so a restart
@@ -868,7 +877,7 @@ The Reaper MUST examine each owned VM at each tick. The first row that matches a
 | 7 | `failed` | An agent owns the job: `assigned`, `accepted`, `running`, `canceling`, `timing_out` | Send a notification with `status_message`. Delete the VM. | `vm_failed` |
 | 8 | Not `failed` | An agent owns the job | No action. | — |
 | 9 | `failed` | `reserved`, asked for in this tick (rule 3) | Finish the job (`-1`, `status_message`, and the last 50 startup-script log lines when the script wrote any). Delete the VM. | `vm_failed` |
-| 10 | `pending`, no worker, and the age since the first listing is more than `unplaced` (2 min) | `reserved` | Delete the VM. Do not extend the reservation. The job becomes `scheduled` again, and Admission starts it again. | `unplaced_timeout` |
+| 10 | `pending`, no worker, and the age since the token call of the job is more than `unplaced` (2 min). Without a token call of this process, the age counts from the first listing (§7.1, rule 1) | `reserved` | Delete the VM. Do not extend the reservation. The job becomes `scheduled` again, and Admission starts it again. | `unplaced_timeout` |
 | 11 | `pending`, a worker is set, and the age since the first answer that showed a worker is more than `boot` (15 min) | `reserved`, asked for in this tick (rule 3) | Finish the job (`-1`, `status_message`). Delete the VM. | `boot_timeout` |
 | 12 | `running`, and the age since the first answer that showed it `running` is more than `acquire` (5 min) | `reserved`, asked for in this tick (rule 3) | Finish the job (`-1`, the last 50 startup-script log lines from `GET /v1/vms/{name}/events`). Delete the VM. | `acquire_timeout` |
 | 13 | `pending` or `running` | `reserved` | Extend the reservation when `reservedUntil − now` is less than `reservationRenewBefore` (120 s). If `reservedUntil` is unknown, extend it immediately. | — |
@@ -911,10 +920,22 @@ one `batch-reserve` call, before the other actions of the Reaper (§4).
 
 The sum `unplaced + boot + acquire` and one minute MUST NOT be more than `jobTokenLifetime`. If
 it is more, a slow but healthy VM can start with an expired token. Each token lasts the sum of
-its profile and one minute, up to `jobTokenLifetime` (§6.4). The minute covers the time from the
-token to the create, which is inside the time budget of the creates of a tick (§4), and the
-interval of the Inventory, because the unplaced timeout counts from the first listing (§7.1, rule
-1). A sum that filled the whole `jobTokenLifetime` would give a token with no margin.
+its profile and one minute, up to `jobTokenLifetime` (§6.4). A sum that filled the whole
+`jobTokenLifetime` would give a token with no margin.
+
+The unplaced timeout counts from the time that the Launcher sent the token call (§7.1, rule 1).
+This time is never later than the issue of the token. Row 10 therefore ends the wait for a worker
+inside the token, however long the tick that creates the VM is. When the calls take their whole
+limits (§4), the first listing can come more than two minutes after the token call. That is more
+than the minute, so a count from the first listing would not keep the wait inside the token.
+
+The boot and acquire timeouts count from the first Inventory answers that showed the VM on a
+worker and `running`. Each of these answers can come up to one tick after the event, and the pass
+of the Reaper that acts on row 12 can come one tick after the end of the acquire timeout. The
+minute covers these three lags while a tick takes less than 20 s. A tick takes a few seconds when
+both APIs answer, so the lags take about 10 s of the minute. In a tick whose calls take their
+whole limits (230 s, §4), the lags can be more than the minute, and a healthy VM can then meet an
+expired token near the end of its acquire timeout.
 
 With the default values, the sum is 2 min + 15 min + 5 min = 22 min, and 23 min with the minute.
 This is less than 30 min.

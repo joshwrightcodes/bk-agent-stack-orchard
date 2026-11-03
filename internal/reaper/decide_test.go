@@ -86,6 +86,12 @@ func started(ago time.Duration) func(*reaper.Machine) {
 	return func(m *reaper.Machine) { m.RunningAt = now.Add(-ago) }
 }
 
+// tokened is a job whose token call this process sent some time ago. A job with no such call has
+// the zero time, as every job after a restart has.
+func tokened(ago time.Duration) func(*reaper.Machine) {
+	return func(m *reaper.Machine) { m.TokenAt = now.Add(-ago) }
+}
+
 func unplaced(m *reaper.Machine) {
 	m.VM.Worker = ""
 	m.VM.ScheduledAt = time.Time{}
@@ -240,6 +246,25 @@ func TestTheDecisionTable(t *testing.T) {
 		"a machine that waits for a worker exactly as long as the limit stays": {
 			machine("reserved", status(orchard.StatusPending), unplaced, listed(2*time.Minute)),
 			13, reaper.Keep, "",
+		},
+		"the unplaced limit counts from the token call and not from the first listing": {
+			machine("reserved", status(orchard.StatusPending), unplaced, listed(time.Minute),
+				tokened(3*time.Minute)),
+			10, reaper.Delete, reaper.ReasonUnplacedTimeout,
+		},
+		"a machine inside the unplaced limit from the token call stays": {
+			machine("reserved", status(orchard.StatusPending), unplaced, listed(10*time.Second),
+				tokened(2*time.Minute)),
+			13, reaper.Keep, "",
+		},
+		"the unplaced limit counts from the first listing without a token call": {
+			machine("reserved", status(orchard.StatusPending), unplaced, listed(time.Minute)),
+			13, reaper.Keep, "",
+		},
+		"a token call after the first listing belongs to a later launch": {
+			machine("reserved", status(orchard.StatusPending), unplaced, listed(3*time.Minute),
+				tokened(30*time.Second)),
+			10, reaper.Delete, reaper.ReasonUnplacedTimeout,
 		},
 
 		// Row 11.

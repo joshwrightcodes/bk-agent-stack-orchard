@@ -76,10 +76,13 @@ func (t Timeouts) StartSum() time.Duration {
 	return t.Unplaced + t.Boot + t.Acquire
 }
 
-// TokenMargin is how long a job acquisition token outlives the start timeouts of its profile. The
-// token is issued before the create, and the unplaced timeout counts from the first snapshot that
-// lists the machine, on the clock of the controller, so the margin covers the time budget of the
-// creates of a tick and the interval of the inventory.
+// TokenMargin is how long a job acquisition token outlives the start timeouts of its profile.
+//
+// The unplaced timeout counts from the send of the token call, which is never later than the
+// issue of the token, so it needs no part of the margin. The boot and acquire timeouts count from
+// the first snapshots that show the machine on a worker and running, and each of those snapshots,
+// and the pass that ends the acquire timeout, can come one tick after its event. The margin covers
+// these three lags while a tick takes less than 20 s (target design, section 7.3).
 const TokenMargin = time.Minute
 
 // OTel carries the optional telemetry of the agent inside the virtual machine.

@@ -131,6 +131,12 @@ type Machine struct {
 	PlacedAt  time.Time
 	RunningAt time.Time
 
+	// TokenAt is when this process sent the token call of the job, on the clock of the
+	// controller, and the zero time when it sent none, which is every job after a restart. The
+	// token starts to expire at that call, and the machine is first listed up to a slow tick
+	// later, so the unplaced timeout counts from it when it is known (target design, section 7.3).
+	TokenAt time.Time
+
 	// ReservedUntil is when the reservation of the job ends, and the zero time when the
 	// controller does not know, which is every job after a restart.
 	ReservedUntil time.Time
@@ -271,7 +277,7 @@ func reserved(m Machine, now time.Time, rules Rules, failed bool) Decision {
 	// Row 10. No worker took the machine in time, which means that the fleet is full. The machine
 	// goes and the reservation is left to lapse, so the job returns to the queue and admission
 	// starts it again when there is room. The job does not fail.
-	if fresh && pending && !m.VM.Placed() && older(now, m.ListedAt, m.Timeouts.Unplaced) {
+	if fresh && pending && !m.VM.Placed() && older(now, unplacedSince(m), m.Timeouts.Unplaced) {
 		return Decision{Row: 10, Action: Delete, Reason: ReasonUnplacedTimeout}
 	}
 
@@ -304,6 +310,20 @@ func reserved(m Machine, now time.Time, rules Rules, failed bool) Decision {
 	}
 
 	return Decision{Action: Keep}
+}
+
+// unplacedSince gives the start of the unplaced timeout: the token call of the job when this
+// process sent it, and else the first listing of the machine.
+//
+// The token call comes before the create, so a token call after the first listing belongs to a
+// later launch of the job and not to this machine. The earlier of the two times is then the
+// first listing.
+func unplacedSince(m Machine) time.Time {
+	if !m.TokenAt.IsZero() && m.TokenAt.Before(m.ListedAt) {
+		return m.TokenAt
+	}
+
+	return m.ListedAt
 }
 
 // phased reports a machine whose snapshot is inside the freshness limit, so that a row may act on

@@ -121,6 +121,10 @@ func (s *stacks) Tokens(ctx context.Context, ids []job.ID, lifetime time.Duratio
 	s.tokenCalls = append(s.tokenCalls, ids)
 	s.lifetimes = append(s.lifetimes, lifetime)
 
+	if s.clock != nil {
+		*s.clock = s.clock.Add(3 * time.Second)
+	}
+
 	if s.tokenDelay > 0 {
 		timer := time.NewTimer(s.tokenDelay)
 		defer timer.Stop()
@@ -1575,6 +1579,48 @@ func TestEachTokenLastsTheStartOfItsProfile(t *testing.T) {
 
 	if len(fleet.created) != len(admit) {
 		t.Errorf("orchard saw %d machines, want %d", len(fleet.created), len(admit))
+	}
+}
+
+// The unplaced timeout of a machine counts from the token call of its job, which comes before the
+// create and before the first listing (target design, section 7.3). Each job keeps the send time
+// of the call that got its token, so the jobs of one lifetime share a time, and the jobs of the
+// next call have a later one. A job with no token from this process has no time.
+func TestEachJobKeepsTheSendTimeOfItsTokenCall(t *testing.T) {
+	t.Parallel()
+
+	quick := pilot
+	quick.Name = "quick"
+	quick.Timeouts = profile.Timeouts{
+		Unplaced: time.Minute, Boot: 5 * time.Minute, Acquire: 2 * time.Minute,
+	}
+
+	begin := time.Date(2026, 9, 20, 10, 0, 0, 0, time.UTC)
+	clock := begin
+	started := buildAt(t, &stacks{}, &machines{}, &clock)
+
+	admit := []admission.Candidate{
+		{Job: buildkite.ScheduledJob{ID: first}, Profile: quick},
+		{Job: buildkite.ScheduledJob{ID: second}, Profile: pilot},
+		{Job: buildkite.ScheduledJob{ID: third}, Profile: quick},
+	}
+
+	if err := started.Launch(t.Context(), admission.Result{Admit: admit},
+		inventory.Snapshot{}); err != nil {
+		t.Fatalf("Launch() = %v, want no error", err)
+	}
+
+	// Each call of the fake takes 3 s: the reservation, then the call of the quick lifetime, then
+	// the call of the default one.
+	for id, want := range map[job.ID]time.Time{
+		first:  begin.Add(3 * time.Second),
+		third:  begin.Add(3 * time.Second),
+		second: begin.Add(6 * time.Second),
+		fourth: {},
+	} {
+		if got := started.TokenAt(id); !got.Equal(want) {
+			t.Errorf("TokenAt(%s) = %s, want %s, the send time of its token call", id, got, want)
+		}
 	}
 }
 

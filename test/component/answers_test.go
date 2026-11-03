@@ -156,3 +156,75 @@ func TestTheTimeoutsIgnoreTheClockOfOrchard(t *testing.T) {
 		})
 	}
 }
+
+// T-030. A slow tick puts two minutes between the token call of a job and the first listing of
+// its machine, and no worker has room for the machine. The unplaced timeout counts from the token
+// call, so row 10 ends the wait two minutes after the token call, and not two minutes after the
+// first listing. The token then still outlives the boot and acquire timeouts that a placed machine
+// would get, so a healthy machine cannot meet an expired token (target design, section 7.3).
+func TestTheUnplacedTimeoutCountsFromTheTokenCall(t *testing.T) {
+	s := newScenario(t)
+
+	var sent time.Time
+
+	// The token call answers, and the rest of the tick takes two minutes: the creates and the
+	// notices at their time limits, and a poll of the next tick before its inventory.
+	s.stacks.afterTokens = func() {
+		sent = s.now
+		s.now = s.now.Add(2 * time.Minute)
+	}
+
+	waiting := s.arrive()
+
+	for range 10 {
+		if !sent.IsZero() {
+			break
+		}
+
+		s.run(1)
+	}
+
+	// Every worker stops taking machines after the tick that created the machine, so it waits
+	// unplaced. The fake places a machine at the start of the next tick, after the room check of
+	// the tick that asked for it.
+	for _, h := range s.orchard.hosts {
+		h.worker.SchedulingPaused = true
+	}
+
+	vm, exists := s.machine(waiting)
+	if sent.IsZero() || !exists || vm.Worker != "" {
+		t.Fatal("the job did not get an unplaced machine after its token call")
+	}
+
+	timeouts := s.settings.Defaults.Timeouts
+
+	var ended time.Time
+
+	for range int(2 * timeouts.Unplaced.Seconds()) {
+		s.run(1)
+
+		if _, exists := s.machine(waiting); !exists {
+			ended = s.now
+
+			break
+		}
+	}
+
+	if ended.IsZero() {
+		t.Fatalf("the unplaced machine remains %s after the token call", s.now.Sub(sent))
+	}
+
+	if late := ended.Sub(sent); late > timeouts.Unplaced+2*time.Second {
+		t.Errorf("row 10 ended the wait %s after the token call, want about %s", late,
+			timeouts.Unplaced)
+	}
+
+	if left := s.stacks.expires[waiting].Sub(ended); left < timeouts.Boot+timeouts.Acquire {
+		t.Errorf("the token had %s left when the wait ended, want at least boot and acquire, %s",
+			left, timeouts.Boot+timeouts.Acquire)
+	}
+
+	if slices.Contains(s.stacks.finished, waiting) {
+		t.Error("the controller finished the job, want it back in the queue")
+	}
+}

@@ -73,6 +73,11 @@ type Options struct {
 	// it did not. The tags of a machine name the profile of one that it did not start.
 	Profile func(job.ID) string
 
+	// TokenAt gives when this process sent the token call of a job, and the zero time for a job
+	// that got no token from it. The unplaced timeout counts from it. A nil value gives the zero
+	// time for every job, and the timeout then counts from the first listing.
+	TokenAt func(job.ID) time.Time
+
 	// Profiles and Defaults give the limits of a machine.
 	Profiles []profile.Profile
 	Defaults profile.Timeouts
@@ -106,6 +111,7 @@ type Reaper struct {
 	machines     Machines
 	fleet        Fleet
 	profile      func(job.ID) string
+	tokenAt      func(job.ID) time.Time
 	profiles     []profile.Profile
 	defaults     profile.Timeouts
 	freshness    time.Duration
@@ -209,6 +215,11 @@ func New(options Options) (*Reaper, error) {
 		name = func(job.ID) string { return "" }
 	}
 
+	tokenAt := options.TokenAt
+	if tokenAt == nil {
+		tokenAt = func(job.ID) time.Time { return time.Time{} }
+	}
+
 	return &Reaper{
 		stacks:       options.Stacks,
 		states:       options.States,
@@ -218,6 +229,7 @@ func New(options Options) (*Reaper, error) {
 		machines:     options.Orchard,
 		fleet:        options.Fleet,
 		profile:      name,
+		tokenAt:      tokenAt,
 		profiles:     options.Profiles,
 		defaults:     options.Defaults,
 		freshness:    options.Freshness,
@@ -372,6 +384,7 @@ func (r *Reaper) collect(snapshot inventory.Snapshot) []Machine {
 			ListedAt:   seen.at,
 			PlacedAt:   seen.placed,
 			RunningAt:  seen.running,
+			TokenAt:    r.tokenAt(owned.Job),
 			Timeouts:   Timeouts(r.nameOf(owned), r.profiles, r.defaults),
 		}
 

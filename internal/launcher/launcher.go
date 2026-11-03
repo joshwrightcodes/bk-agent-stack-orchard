@@ -257,6 +257,14 @@ func (l *Launcher) ReservedUntil(id job.ID) (time.Time, bool) {
 	return l.held.reservedUntil(id)
 }
 
+// TokenAt gives when this process sent the token call of a job, on the clock of the controller,
+// and the zero time for a job that got no token from this process. The reaper counts the unplaced
+// timeout of the machine of the job from it, because the token starts to expire at that call. A
+// restart loses it, and the reaper then counts from the first listing of the machine.
+func (l *Launcher) TokenAt(id job.ID) time.Time {
+	return l.held.tokenSent(id)
+}
+
 // PerTick gives the most jobs that one tick reserves and starts. Admission admits no more, and
 // Launch reserves no more.
 //
@@ -606,6 +614,11 @@ func (l *Launcher) tokens(ctx context.Context, wanted []admission.Candidate) (ma
 	for _, lifetime := range lifetimes {
 		ids := groups[lifetime]
 
+		// A token starts to expire when Buildkite handles the call, which is after the call
+		// leaves. A time taken from the send is therefore never later than the issue, so the
+		// unplaced timeout that counts from it ends inside the token (target design, section 7.3).
+		sent := l.now()
+
 		answer, err := l.stacks.Tokens(ctx, ids, lifetime)
 		if err != nil {
 			span.RecordError(err)
@@ -613,9 +626,14 @@ func (l *Launcher) tokens(ctx context.Context, wanted []admission.Candidate) (ma
 			return issued, fmt.Errorf("getting the tokens of %d jobs: %w", len(ids), err)
 		}
 
+		got := make([]job.ID, 0, len(answer.Issued))
+
 		for _, token := range answer.Issued {
 			issued[token.JobID] = token.Token
+			got = append(got, token.JobID)
 		}
+
+		l.held.tokened(got, sent)
 
 		// A job with no token gets no machine. Its reservation expires by itself, and admission
 		// meets the job again at a later tick.

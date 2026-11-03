@@ -76,6 +76,13 @@ type stacksFake struct {
 	// arrives, after the state that the finish read.
 	takenAtFinish map[job.ID]bool
 
+	// afterTokens runs once, after the next token call has issued its tokens and before it
+	// answers. A test uses it to make the rest of the tick slow, on the clock of the suite.
+	afterTokens func()
+
+	// expires holds when the token of each job expires.
+	expires map[job.ID]time.Time
+
 	// calls holds each call, with the endpoint and the time of the suite, for the request
 	// budget. finished holds each job that a finish call ended, and lines each line of a job page.
 	calls    []call
@@ -97,6 +104,7 @@ func newStacks(now func() time.Time, violations *[]string) *stacksFake {
 		omit:     map[job.ID]int{},
 
 		takenAtFinish: map[job.ID]bool{},
+		expires:       map[job.ID]time.Time{},
 		failing:       map[string]error{},
 		violations:    violations,
 	}
@@ -265,18 +273,27 @@ func (s *stacksFake) Tokens(ctx context.Context, ids []job.ID, lifetime time.Dur
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	var answer buildkite.Tokens
 
 	for _, id := range ids {
 		if w, known := s.jobs[id]; known && w.state == stateReserved {
+			expires := s.now().Add(lifetime)
+			s.expires[id] = expires
 			answer.Issued = append(answer.Issued, buildkite.Token{
-				JobID: id, Token: "bkaj_component", ExpiresAt: s.now().Add(lifetime),
+				JobID: id, Token: "bkaj_component", ExpiresAt: expires,
 			})
 		} else {
 			answer.NotIssued = append(answer.NotIssued, id)
 		}
+	}
+
+	after := s.afterTokens
+	s.afterTokens = nil
+	s.mu.Unlock()
+
+	if after != nil {
+		after()
 	}
 
 	return answer, nil

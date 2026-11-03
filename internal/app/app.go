@@ -155,6 +155,7 @@ func Build(options Options) (*controller.Controller, error) {
 		Orchard:      machines,
 		Fleet:        fleet,
 		Profile:      starter.Profile,
+		TokenAt:      starter.TokenAt,
 		Profiles:     settings.Profiles,
 		Defaults:     settings.Defaults.Timeouts,
 		Freshness:    settings.StateFreshness,
