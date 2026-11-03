@@ -251,7 +251,8 @@ fi
 # signature and its checksum pass. The signature must come from the release workflow of this
 # repository at that tag, for the commit of the tag, and main must contain that commit, as
 # scripts/verify-release.sh requires. The workflow runs from the tagged commit, so only a check
-# outside it, here, can refuse a tag on a commit that is not on main.
+# outside it, here, can refuse a tag on a commit that is not on main. With gh, the provenance
+# attestation of checksums.txt must pass too.
 install_release() {
 	local tag="$VERSION" dir="$WORK/release" archive commit status
 	if [[ -z "$tag" ]]; then
@@ -291,6 +292,23 @@ install_release() {
 		--certificate-github-workflow-sha "$commit" \
 		--bundle "$dir/checksums.txt.sigstore.json" "$dir/checksums.txt" >/dev/null 2>&1 ||
 		die "the signature of checksums.txt of $tag is not one of the release workflow of $REPO at $commit: stopping"
+	# Two paths, so that gh is not a requirement of the quick start:
+	# - gh with a login (gh auth login, or GH_TOKEN): also verify the SLSA build provenance of
+	#   checksums.txt, which GitHub keeps as an artifact attestation. It must come from the release
+	#   workflow of this repository, for the tag and its commit, on a runner that GitHub hosts. A
+	#   failed check stops the quick start.
+	# - No gh, or no login: the cosign check above is the only check of the origin. It requires the
+	#   same workflow, tag, and commit, from the Sigstore bundle on the release.
+	if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+		say "verifying the provenance attestation of $tag"
+		gh attestation verify "$dir/checksums.txt" --repo "$REPO" \
+			--signer-workflow "$REPO/.github/workflows/release.yml" \
+			--source-ref "refs/tags/$tag" --source-digest "$commit" --signer-digest "$commit" \
+			--deny-self-hosted-runners >/dev/null ||
+			die "checksums.txt of $tag has no valid provenance attestation of the release workflow of $REPO: stopping"
+	else
+		say "no gh with a login: the cosign signature is the check of the origin of $tag"
+	fi
 	(cd "$dir" && grep "  $archive\$" checksums.txt | shasum -a 256 -c - >/dev/null 2>&1) ||
 		die "$archive does not match checksums.txt of $tag: stopping"
 
