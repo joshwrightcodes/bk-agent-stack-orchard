@@ -651,9 +651,12 @@ above, and for `download` also `BKASO_AGENT_URL` and `BKASO_AGENT_SHA256`. When
    then trust it too soon.
 3. **Fresh data or no action.** If the job state of a VM is older than `stateFreshness` (60 s),
    the Reaper MUST do only the orphan action and the maximum-lifetime action.
-4. **Permanent errors are terminal.** If finish, get-states, or delete returns 404 or 422, the
-   controller MUST mark the job as ignored in memory. The controller MUST NOT send the call
-   again in a loop.
+4. **Permanent errors are terminal.** If finish or delete returns 404 or 422, the controller
+   MUST mark the job as ignored in memory. The controller MUST NOT send the call again in a
+   loop. The get-states call asks about many jobs at once, so a 404 or 422 on it is a failure
+   of the call and not an answer about one job. The controller MUST count it in
+   `cicd.system.errors` (§10.1). A job that the get-states answer does not name is unknown to
+   Buildkite (row 5).
 5. **Fail a job only before an agent acquires it.** After an agent acquires a job, the Buildkite
    lost-agent procedure controls the job result. The controller MUST NOT finish that job. The
    controller MUST only delete the VM.

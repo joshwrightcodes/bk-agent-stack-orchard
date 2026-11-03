@@ -436,15 +436,22 @@ func TestFinishTreatsA422AsTerminalAndSendsNoSecondCall(t *testing.T) {
 	}
 }
 
-func TestStatesTreatsA404AsTerminal(t *testing.T) {
-	client, fake := start(t)
+// The job states come in one call for many jobs, so a 404 or a 422 on it says nothing about one
+// job. It is a failure of the call, such as a stack that someone removed, and the error metric must
+// count it. A job that the answer does not name is how Buildkite says that it does not know a job.
+func TestAStatesRefusalIsAFailureOfTheCallAndNotOfAJob(t *testing.T) {
+	for _, status := range []int{http.StatusNotFound, http.StatusUnprocessableEntity} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			client, fake := start(t)
 
-	fake.GetJobStatesStatusCode = http.StatusNotFound
-	fake.GetJobStatesError = "stack not found"
+			fake.GetJobStatesStatusCode = status
+			fake.GetJobStatesError = "stack not found"
 
-	_, err := client.States(t.Context(), []job.ID{first})
-	if !errors.Is(err, buildkite.ErrTerminal) {
-		t.Fatalf("States() = %v, want ErrTerminal", err)
+			_, err := client.States(t.Context(), []job.ID{first})
+			if err == nil || errors.Is(err, buildkite.ErrTerminal) {
+				t.Fatalf("States() = %v, want an error that is not ErrTerminal", err)
+			}
+		})
 	}
 }
 

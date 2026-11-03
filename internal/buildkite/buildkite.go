@@ -302,6 +302,10 @@ func (c *Client) Tokens(ctx context.Context, ids []job.ID, lifetime time.Duratio
 
 // States gives the Buildkite state of each job that Buildkite knows. A job that Buildkite does
 // not name is absent from the result.
+//
+// The call asks about many jobs at once, so a 404 or a 422 on it is a failure of the call, such as
+// a stack that someone removed, and not an answer about one job. It is not ErrTerminal, and the
+// error metric counts it.
 func (c *Client) States(ctx context.Context, ids []job.ID) (map[job.ID]string, error) {
 	if len(ids) == 0 {
 		return map[job.ID]string{}, nil
@@ -312,7 +316,7 @@ func (c *Client) States(ctx context.Context, ids []job.ID) (map[job.ID]string, e
 		JobUUIDs: texts(ids),
 	})
 	if err != nil {
-		return nil, c.classifyJob(err)
+		return nil, c.classify(err)
 	}
 
 	states := make(map[job.ID]string, len(answer.States))
