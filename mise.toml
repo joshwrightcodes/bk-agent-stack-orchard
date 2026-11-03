@@ -389,25 +389,9 @@ python="$(git ls-files '*.py')"
 
 shellcheck $shell
 
-# These scripts do not have the style of shfmt yet. The script-correctness pull request formats
-# each one in a commit of its own and removes it from this list.
-unformatted='scripts/check-c4.sh
-scripts/check-image.sh
-scripts/licenses.sh
-scripts/quickstart.sh
-scripts/release-finish.sh
-scripts/release-publish.sh
-scripts/verify-release.sh
-images/build.sh
-deploy/hosts/test/pf.sh
-deploy/hosts/test/vm.sh
-docs/architecture/render-c4-md.sh'
-formatted="$(printf '%s\n' $shell | grep -vxF "$unformatted" || true)"
 # -i 0 is the default style of shfmt (tabs). With a style flag, shfmt reads no .editorconfig, so
 # the result is the same on each computer.
-if [ -n "$formatted" ]; then
-  shfmt -i 0 -d $formatted
-fi
+shfmt -i 0 -d $shell
 
 # With SARIF_DIR set, ruff, actionlint, and zizmor write their findings in their own SARIF output
 # there, for code scanning, and the gate still fails on a finding. Each tool runs even when one
@@ -420,14 +404,14 @@ if [ -n "${SARIF_DIR:-}" ]; then
   mkdir -p "$SARIF_DIR"
 fi
 
-# ruff.toml holds the rules, and the files that ruff format does not check yet.
+# ruff.toml holds the rules.
 if [ -n "${SARIF_DIR:-}" ]; then
   ruff check --no-cache --output-format sarif --output-file "$SARIF_DIR/ruff.sarif" $python ||
     { status=1; findings "$SARIF_DIR/ruff.sarif"; }
 else
   ruff check --no-cache $python || status=1
 fi
-ruff format --check --no-cache --force-exclude $python || status=1
+ruff format --check --no-cache $python || status=1
 
 # actionlint also runs shellcheck over the run: blocks of the workflows. Its -format option takes a
 # template, and .github/actionlint-sarif.tmpl is the SARIF template of the actionlint project.

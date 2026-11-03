@@ -10,26 +10,3 @@ line-length = 100
 # and old syntax, and they agree with the code as it is written.
 select = ["E", "F", "W", "B", "UP", "SIM", "I"]
 
-[lint.per-file-ignores]
-# Each of these files has one line longer than 100 characters. The script-correctness pull request
-# shortens the lines and removes these entries.
-"scripts/check-commits.py" = ["E501"]
-"scripts/check-deps.py" = ["E501"]
-"scripts/check-docs.py" = ["E501"]
-"scripts/check-upstream.py" = ["E501"]
-"scripts/test_check_docs.py" = ["E501"]
-
-[format]
-# No script has the format of ruff yet. The script-correctness pull request formats each file in
-# a commit of its own and removes it from this list, and ruff format --check then covers it.
-exclude = [
-  "scripts/check-commits.py",
-  "scripts/check-deps.py",
-  "scripts/check-docs.py",
-  "scripts/check-upstream.py",
-  "scripts/test_check_commits.py",
-  "scripts/test_check_deps.py",
-  "scripts/test_check_docs.py",
-  "scripts/test_check_upstream.py",
-  "scripts/test_release_finish.py",
-]
