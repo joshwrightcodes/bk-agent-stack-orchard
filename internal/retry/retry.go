@@ -131,14 +131,15 @@ func (p Policy) complete() Policy {
 	}
 
 	if p.Sleep == nil {
-		p.Sleep = sleep
+		p.Sleep = Sleep
 	}
 
 	return p
 }
 
-// sleep waits for a time, or until the context ends.
-func sleep(ctx context.Context, d time.Duration) error {
+// Sleep waits for a time, or until the context ends. It gives the error of the context when the
+// context ends first.
+func Sleep(ctx context.Context, d time.Duration) error {
 	timer := time.NewTimer(d)
 	defer timer.Stop()
 

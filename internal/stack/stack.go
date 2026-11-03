@@ -21,6 +21,7 @@ import (
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/retry"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
 )
 
@@ -52,9 +53,20 @@ type Queue struct {
 	At time.Time
 }
 
+// registerPatience is the longest that Register waits in total for the waits that Buildkite names.
+//
+// Register runs once, at start-up, before the loop, so a wait there holds no other work. A wait
+// that Buildkite names is the cheapest way through a rate limit: the process that ends instead
+// starts again after the backoff of the platform, and registers into the same limit. The total
+// keeps a limit that does not end from holding a process that cannot start for long.
+const registerPatience = 60 * time.Second
+
 // Stack registers this controller with Buildkite.
 type Stack struct {
 	stacks Stacks
+
+	// sleep waits for a time, or until the context ends. A test replaces it.
+	sleep func(ctx context.Context, d time.Duration) error
 
 	mu         sync.Mutex
 	registered bool
@@ -66,14 +78,34 @@ func New(stacks Stacks) (*Stack, error) {
 		return nil, errors.New("the stack needs a Buildkite client")
 	}
 
-	return &Stack{stacks: stacks}, nil
+	return &Stack{stacks: stacks, sleep: retry.Sleep}, nil
 }
 
 // Register announces this controller to Buildkite. The call is idempotent, so a restart repeats
 // it and Buildkite keeps one stack.
+//
+// A call that fails with a wait that Buildkite named (Retry-After) waits for it and tries again,
+// while the waits stay inside registerPatience in total. Any other failure, and a wait that would
+// pass the total, ends the registration at once. The end of the context ends a wait.
 func (s *Stack) Register(ctx context.Context) error {
-	if err := s.stacks.Register(ctx); err != nil {
-		return fmt.Errorf("registering the stack: %w", err)
+	var waited time.Duration
+
+	for {
+		err := s.stacks.Register(ctx)
+		if err == nil {
+			break
+		}
+
+		after, named := retry.After(err)
+		if !named || waited+after > registerPatience {
+			return fmt.Errorf("registering the stack: %w", err)
+		}
+
+		if slept := s.sleep(ctx, after); slept != nil {
+			return fmt.Errorf("registering the stack: %w", errors.Join(err, slept))
+		}
+
+		waited += after
 	}
 
 	s.mu.Lock()

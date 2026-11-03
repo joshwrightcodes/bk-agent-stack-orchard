@@ -18,6 +18,7 @@ import (
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/retry"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/stack"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
 )
@@ -35,6 +36,7 @@ type fake struct {
 
 	page          buildkite.Page
 	registerErr   error
+	registerErrs  []error
 	deregisterErr error
 	pollErr       error
 	pageErrs      map[string]error
@@ -42,6 +44,14 @@ type fake struct {
 
 func (f *fake) Register(context.Context) error {
 	f.registered++
+
+	// The answers of a sequence come first, one for each call, and then the fixed answer.
+	if len(f.registerErrs) > 0 {
+		err := f.registerErrs[0]
+		f.registerErrs = f.registerErrs[1:]
+
+		return err
+	}
 
 	return f.registerErr
 }
@@ -80,6 +90,105 @@ func TestRegisterAnnouncesTheStack(t *testing.T) {
 
 	if err := registration.Register(t.Context()); err != nil {
 		t.Fatalf("Register() = %v, want no error", err)
+	}
+
+	if api.registered != 1 {
+		t.Errorf("Buildkite saw %d registrations, want 1", api.registered)
+	}
+}
+
+// waits gives a stack that records each wait of Register and does not sleep.
+func waits(t *testing.T, api *fake) (*stack.Stack, *[]time.Duration) {
+	t.Helper()
+
+	registration, err := stack.New(api)
+	if err != nil {
+		t.Fatalf("New() = %v, want the stack", err)
+	}
+
+	var waited []time.Duration
+
+	registration.SetSleep(func(_ context.Context, d time.Duration) error {
+		waited = append(waited, d)
+
+		return nil
+	})
+
+	return registration, &waited
+}
+
+// limited is a rate limit of Buildkite that names a wait.
+func limited(after time.Duration) error {
+	return retry.Again(fmt.Errorf("%w: slow down", buildkite.ErrRateLimited), after)
+}
+
+// At start-up nothing else runs, so a registration that Buildkite limits waits for the time that
+// Buildkite names and tries again, and does not end the process at once.
+func TestRegisterWaitsForTheTimeThatBuildkiteNames(t *testing.T) {
+	t.Parallel()
+
+	api := &fake{registerErrs: []error{limited(5 * time.Second), limited(20 * time.Second)}}
+	registration, waited := waits(t, api)
+
+	if err := registration.Register(t.Context()); err != nil {
+		t.Fatalf("Register() = %v, want the third try to succeed", err)
+	}
+
+	if api.registered != 3 || !slices.Equal(*waited, []time.Duration{5 * time.Second, 20 * time.Second}) {
+		t.Errorf("Buildkite saw %d registrations after the waits %v, want 3 after 5s and 20s",
+			api.registered, *waited)
+	}
+}
+
+// The waits of a registration have a total. A wait that would pass it ends the registration at
+// once, and the process ends and starts again with the backoff of the platform.
+func TestRegisterStopsWhenTheWaitsPassTheirTotal(t *testing.T) {
+	t.Parallel()
+
+	for name, test := range map[string]struct {
+		answers []error
+		waited  []time.Duration
+	}{
+		"one long wait": {answers: []error{limited(2 * time.Minute)}},
+		"two waits":     {answers: []error{limited(40 * time.Second), limited(30 * time.Second)}, waited: []time.Duration{40 * time.Second}},
+		"no named wait": {answers: []error{retry.Again(errors.New("answered 503"), 0)}},
+		"a refusal":     {answers: []error{errors.New("answered 400")}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			api := &fake{registerErrs: test.answers, registerErr: errors.New("a call too many")}
+			registration, waited := waits(t, api)
+
+			err := registration.Register(t.Context())
+			if err == nil || strings.Contains(err.Error(), "a call too many") {
+				t.Fatalf("Register() = %v, want the answer of the last call", err)
+			}
+
+			if api.registered != len(test.answers) || !slices.Equal(*waited, test.waited) {
+				t.Errorf("Buildkite saw %d registrations after the waits %v, want %d after %v",
+					api.registered, *waited, len(test.answers), test.waited)
+			}
+		})
+	}
+}
+
+// The end of the context ends a wait, so a shutdown at start-up does not wait for Buildkite.
+func TestTheEndOfTheContextEndsTheWaitOfARegistration(t *testing.T) {
+	t.Parallel()
+
+	api := &fake{registerErrs: []error{limited(30 * time.Second)}}
+
+	registration, err := stack.New(api)
+	if err != nil {
+		t.Fatalf("New() = %v, want the stack", err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	if err := registration.Register(ctx); !errors.Is(err, context.Canceled) {
+		t.Errorf("Register() = %v, want the end of the context", err)
 	}
 
 	if api.registered != 1 {

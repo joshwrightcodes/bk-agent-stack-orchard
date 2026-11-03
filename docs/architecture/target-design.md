@@ -780,7 +780,11 @@ the timeout values that a profile overrides.
 
 At start-up, before the first Admission, the controller MUST do these steps:
 
-1. Register the stack. This call is idempotent.
+1. Register the stack. This call is idempotent. If the call fails with a wait that Buildkite
+   names in `Retry-After`, the controller MUST wait for it and register again, while the waits
+   stay inside 60 s in total. Nothing else runs before the registration, so the wait holds no
+   other work, and a process that ends instead registers again into the same limit. Any other
+   failure, and a wait that passes the total, MUST end the start.
 2. List all VMs, and select the owned VMs.
 3. Get the job states of these VMs.
 4. Run a full Reaper pass. `reservedUntil` is unknown, so row 13 extends all reservations
