@@ -46,22 +46,31 @@ version in `Chart.yaml`. The pull request collects all changes until the maintai
    (`mise run quickstart -- --queue <queue> --from-source`), and run the step that it prints.
    Check that the job passes and that Ctrl-C leaves no VM. A hosted runner cannot start a macOS
    VM, so CI does not run the quick start.
-3. Merge the release pull request. release-please creates the tag and a draft release with the
-   changelog.
-4. The tag starts the release workflow in the `release` environment. Each of its two jobs waits
+3. Write the release notes in the body of the release pull request. release-please takes the
+   notes of the GitHub release from the body of the merged release pull request, and not from
+   `CHANGELOG.md`. Make this edit last: release-please writes the body again on each push to
+   `main`, so merge nothing else between the edit and step 4. Keep these parts of the body:
+   * The two lines that are `---`. The notes are the text between them.
+   * The version heading, for example `## 0.4.0 (2027-01-15)`, as the first line of the notes.
+     Without it, release-please finds no version, and it creates no tag and no release.
+
+   Under the heading, you can add a summary for operators, such as what the release needs and
+   what to change, and remove entries that do not concern them. For version 0.1.0, remove the
+   entries of the `fix(ci)` and `fix(runner)` commits that are on `main` from before the rule of
+   `scripts/check-commits.py`. `CHANGELOG.md` keeps the list that release-please wrote, and the
+   project accepts this.
+4. Merge the release pull request. release-please creates the tag, and a draft release with the
+   notes of step 3.
+5. The tag starts the release workflow in the `release` environment. Each of its two jobs waits
    for an approval:
-   1. Check that the SHA of the tag is the merge commit of the release pull request. Then approve
-      the `build` job. It builds the archives and the image, and pushes the image and the chart.
+   1. Check that the SHA of the tag is the merge commit of the release pull request, and that the
+      notes of the draft release are correct. Then approve the `build` job. It builds the
+      archives and the image, and pushes the image and the chart.
    2. When the `build` job passes, approve the `sign and publish` job. It signs the artifacts,
       uploads them to the draft release, and attests their build provenance. It then verifies the
-      signatures, the attestations, and the assets, and publishes the release.
-
-   release-please creates the draft release when the release pull request merges, before the
-   workflow waits for the approval. For version 0.1.0, edit the notes of the draft release before
-   the approval: remove the entries of the `fix(ci)` and `fix(runner)` commits that are on `main`
-   from before the rule of `scripts/check-commits.py`. release-please rebuilds the release pull
-   request on each push to `main`, so an edit of `CHANGELOG.md` there does not stay.
-   `CHANGELOG.md` keeps these entries for version 0.1.0, and the project accepts this.
+      signatures, the attestations, and the assets, and publishes the release. Do not edit the
+      notes after this approval: the job compares them before and after it publishes, and fails
+      when they differ, but the published release is then immutable.
 
 After the release is published, run the quick start again with the release
 (`mise run quickstart -- --queue <queue> --version v<version>`). It downloads the archive, checks
