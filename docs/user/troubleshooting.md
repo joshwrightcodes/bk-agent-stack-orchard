@@ -1,0 +1,63 @@
+# Troubleshooting
+
+Start with the job page in Buildkite. The controller writes a line there at each step of a VM:
+"VM requested", "placed on" a host, "booting", and "VM deleted" with a reason. A job that fails
+before its agent starts shows why, and the last lines of the startup script of the VM.
+
+Then read the log of the controller. Each time it acts on a VM, it writes one record with the
+reason. [Telemetry](telemetry.md) lists the reasons and the metrics.
+
+## A job stays scheduled
+
+| What you see | Cause | What to do |
+|---|---|---|
+| The job page says that no profile carries the job | The tags of the job, without `queue`, equal no `match` map. The match is exact. | Change the `agents:` of the step, or add a profile with that `match` map. |
+| No line on the job page | The controller does not serve the queue, or does not run. | Check `buildkite.queue`, and that the controller is ready. |
+| "VM requested", then nothing | No Mac host has a free slot, or none has the `workerLabels` of the profile. | Check `bk_agent_stack_orchard.slot.count` with the state `free`, the workers in Orchard, and their labels. After `unplaced` (2 min), the VM is deleted and the job waits again. |
+| The job waits while other jobs run | Each Mac host runs at most two VMs. | Add hosts, or wait. `bk_agent_stack_orchard.job.waiting.oldest.age` shows the wait. |
+| The controller log says that it is not ready | Buildkite or Orchard does not answer, or Buildkite refused the agent token. | Fix the connection or the token. The log names the source. |
+
+## A job fails before it runs
+
+| What the job page shows | Cause | What to do |
+|---|---|---|
+| A boot timeout | The image pull, the clone, or the start of the VM took longer than `boot` (15 min). A first pull of a large image can. | Pull the image to each host first, or raise `timeouts.boot` of the profile. |
+| An acquire timeout, with lines of the startup script | macOS booted, but the agent did not take the job within `acquire` (5 min). | Read the lines. Check that the image runs the Tart guest agent, and that the VM reaches Buildkite. |
+| `could not download buildkite-agent` | The VM cannot reach `agent.url`. | Check the network of the hosts, or set a mirror. A mirror in a private range needs `softnetAllow`. |
+| `does not match agent.sha256` | The archive at `agent.url` is not the one that `agent.sha256` names. | Set the pair of the release that you want, together. |
+| `the image has "buildkite-agent version 3…"` | The profile uses the agent of the image (`agent.source: image`), and the image has another major version. | Put agent v4 in the image, or use `agent.source: download`. |
+| The reason that Orchard gives for a failed VM | Orchard or Tart could not run the VM: a missing image, a disk smaller than the image, or a host problem. | Read the reason. Check `diskSizeGB`, the image reference, and the log of the Orchard worker. |
+
+## A job fails while it runs
+
+After the agent takes the job, Buildkite decides the result, as for any agent. The controller only
+deletes the VM when the job ends. A VM that fails while its job runs gives the reason on the job
+page, and Buildkite marks the agent as lost.
+
+A job that runs longer than `maxVMLifetime` (25 h) loses its VM.
+
+## The controller does not start
+
+The controller checks its whole configuration when it starts, and prints every problem. The
+[configuration reference](configuration.md) gives the rules of each key. Common causes:
+
+* a key that the controller does not know, often a typing error;
+* an `agent.sha256` without quotes, which YAML reads as a number;
+* a token that is missing from the environment;
+* `buildkite did not accept the agent token`: the token is not a cluster agent token.
+
+## VMs remain after their jobs
+
+`bk_agent_stack_orchard.vm.leftover` counts VMs whose job ended. It is more than 0 for a few seconds
+after each job, and longer while Buildkite does not answer, because the controller deletes a VM
+only when it knows that the job ended. If it stays above 0, read the log of the controller for a
+delete that Orchard refused.
+
+A VM with the name prefix of this controller and no job in its name is an orphan, and the
+controller deletes it.
+
+## Git checkout fails with "cannot overwrite multiple values"
+
+The image has more than one `credential.helper` in its global git configuration, and the agent
+cannot replace them. The startup script removes them before the agent starts. If you still see
+this, the image sets them in another file, such as the system configuration of git.

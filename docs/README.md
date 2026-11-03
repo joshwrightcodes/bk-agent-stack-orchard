@@ -40,8 +40,11 @@ a number, such as the demand model or a quality target.
 | [Writing guide](writing-guide.md) | How does a contributor write a document? |
 | [Glossary](glossary.md) | What does a term or an identifier mean? |
 | [Quick start](user/quickstart.md) | How does an operator see one real job run in a Tart VM on one Mac? |
+| [How it works](user/how-it-works.md) | What does the controller do with each job, and why? |
 | [Install the controller](user/install.md) | What does an operator need, and how does an operator install, verify, and upgrade a release? |
 | [Configuration reference](user/configuration.md) | Which keys does the configuration file have, with their types and defaults? |
+| [Telemetry](user/telemetry.md) | Which metrics, traces, and logs does the controller send? |
+| [Troubleshooting](user/troubleshooting.md) | Why does a job wait or fail, and what does an operator do? |
 | [Third-party terms](user/third-party-terms.md) | Which terms of Apple, Tart, and Orchard affect a fleet? |
 | [Runbook: replace the agent token](runbooks/token-replacement.md) | How does an operator replace the cluster agent token? |
 | [Runbook: retire and rotate the Orchard bootstrap admin](runbooks/orchard-bootstrap-admin.md) | How does an operator take the `bootstrap-admin` token out of the Orchard pod and rotate it? |

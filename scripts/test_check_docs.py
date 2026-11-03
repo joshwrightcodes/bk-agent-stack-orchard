@@ -26,17 +26,22 @@ class CheckDocsTest(unittest.TestCase):
         for number in range(1, 15):
             (self.root / f"docs/adrs/{number:04d}-x.md").write_text("# x\n")
         self.saved = (check_docs.ROOT, check_docs.ADR_DIR, check_docs.GENERATED,
-                      check_docs.GLOSSARY)
+                      check_docs.GLOSSARY, check_docs.TELEMETRY_PAGE, check_docs.METRICS_CODE,
+                      check_docs.REAPER_CODE)
         check_docs.ROOT = self.root
         check_docs.ADR_DIR = self.root / "docs/adrs"
         check_docs.GENERATED = set()
         check_docs.GLOSSARY = self.root / "docs/glossary.md"
+        check_docs.TELEMETRY_PAGE = self.root / "docs/user/telemetry.md"
+        check_docs.METRICS_CODE = self.root / "internal/telemetry/metrics.go"
+        check_docs.REAPER_CODE = self.root / "internal/reaper/decide.go"
         check_docs.errors.clear()
         self.addCleanup(self.restore)
 
     def restore(self) -> None:
         (check_docs.ROOT, check_docs.ADR_DIR, check_docs.GENERATED,
-         check_docs.GLOSSARY) = self.saved
+         check_docs.GLOSSARY, check_docs.TELEMETRY_PAGE, check_docs.METRICS_CODE,
+         check_docs.REAPER_CODE) = self.saved
         check_docs.errors.clear()
 
     def write(self, name: str, text: str) -> None:
@@ -128,6 +133,30 @@ class CheckDocsTest(unittest.TestCase):
         for prefix, width in check_docs.FAMILIES.items():
             cited = f"{prefix}-{'1' * width}"
             self.assertEqual([cited], check_docs.CITATION.findall(f"see {cited}."), prefix)
+
+    def telemetry_code(self) -> None:
+        self.write("internal/telemetry/metrics.go",
+                   'const prefix = "bkx."\n'
+                   'const (\n\tattributeProfile = prefix + "profile"\n)\n'
+                   'const (\n\tSlotsFree  SlotState = "free"\n)\n'
+                   'm.c, err = meter.Int64Counter(prefix+"job.failed",\n'
+                   'm.w, err = meter.Int64ObservableUpDownCounter("cicd.worker.count",\n')
+        self.write("internal/reaper/decide.go", 'const (\n\tReasonOrphan = "orphan"\n)\n')
+
+    def test_a_telemetry_page_that_names_everything_passes(self) -> None:
+        self.telemetry_code()
+        self.write("docs/user/telemetry.md",
+                   "`bkx.job.failed` `bkx.profile` `cicd.worker.count` (`free`) `orphan`\n")
+        check_docs.check_telemetry_page()
+        self.assertEqual([], check_docs.errors)
+
+    def test_a_name_that_the_telemetry_page_lacks_fails_with_the_name(self) -> None:
+        self.telemetry_code()
+        self.write("docs/user/telemetry.md", "`bkx.job.failed` `bkx.profile` `cicd.worker.count`\n")
+        check_docs.check_telemetry_page()
+        self.assertEqual(2, len(check_docs.errors), check_docs.errors)
+        self.assertIn("`free`", check_docs.errors[0])
+        self.assertIn("`orphan`", check_docs.errors[1])
 
     def test_a_fenced_block_inside_a_list_item_is_code_for_the_width_check(self) -> None:
         self.write("README.md", "1. Run:\n\n   ```sh\n   " + "x" * 120 + "\n   ```\n")

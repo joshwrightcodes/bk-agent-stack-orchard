@@ -64,6 +64,9 @@ flowchart LR
 The controller keeps no state of its own. After a restart, it reads the current state from
 Orchard and Buildkite.
 
+[How it works](docs/user/how-it-works.md) explains the life of a job, profiles, capacity, and what
+happens when a VM does not start.
+
 ## Install
 
 You bring your own Buildkite cluster, Orchard, Mac hosts with Tart, and VM images. The controller
@@ -98,10 +101,12 @@ The repository also has examples that you can adapt:
 | Run it | Work on it |
 |---|---|
 | [Quick start](docs/user/quickstart.md) | [Contributing](CONTRIBUTING.md) |
-| [Install the controller](docs/user/install.md) | [Releasing](docs/releasing.md) |
-| [Configuration reference](docs/user/configuration.md) | [Writing guide](docs/writing-guide.md) |
-| [Replace the agent token](docs/runbooks/token-replacement.md) | [Development guide](docs/development.md) |
-| [Orchard worker accounts](docs/runbooks/orchard-worker-accounts.md) | [Target design](docs/architecture/target-design.md) |
+| [How it works](docs/user/how-it-works.md) | [Development guide](docs/development.md) |
+| [Install the controller](docs/user/install.md) | [Testing on real VMs](docs/testing-on-real-vms.md) |
+| [Configuration reference](docs/user/configuration.md) | [Releasing](docs/releasing.md) |
+| [Telemetry](docs/user/telemetry.md) | [Writing guide](docs/writing-guide.md) |
+| [Troubleshooting](docs/user/troubleshooting.md) | [Target design](docs/architecture/target-design.md) |
+| [Replace the agent token](docs/runbooks/token-replacement.md) | [Decision records](docs/adrs/README.md) |
 | [Third-party terms](docs/user/third-party-terms.md) | [All design documents](docs/README.md) |
 
 ## Community
