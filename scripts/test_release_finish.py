@@ -116,7 +116,9 @@ FILES = {
 NOTES = {"name": "v0.1.0", "body": "## Features\n\n* a feature"}
 
 
-def draft_assets(changes: dict[str, str] | None = None, first_id: int = 1) -> list[dict[str, object]]:
+def draft_assets(
+    changes: dict[str, str] | None = None, first_id: int = 1,
+) -> list[dict[str, object]]:
     contents = {pathlib.PurePath(p).name: c for p, c in FILES.items()}
     contents.update(changes or {})
     return [{"id": first_id + i, "name": n, "content": contents[n]}
@@ -124,8 +126,10 @@ def draft_assets(changes: dict[str, str] | None = None, first_id: int = 1) -> li
 
 
 class FinishTest(unittest.TestCase):
-    def finish(self, assets: list[list[dict[str, object]]], notes: list[dict[str, str]] | None = None,
-               switch: str = "none") -> tuple[subprocess.CompletedProcess[str], list[list[str]]]:
+    def finish(
+        self, assets: list[list[dict[str, object]]], notes: list[dict[str, str]] | None = None,
+        switch: str = "none",
+    ) -> tuple[subprocess.CompletedProcess[str], list[list[str]]]:
         """Run the script against the stub, and return the result and the calls of gh."""
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp, "repo")
