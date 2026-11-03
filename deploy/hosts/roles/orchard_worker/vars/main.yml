@@ -32,13 +32,17 @@ orchard_worker_pf_rules: /etc/pf.anchors/{{ orchard_worker_pf_label }}
 orchard_worker_pf_plist: "/Library/LaunchDaemons/{{ orchard_worker_pf_label }}.plist"
 orchard_worker_pf_script: "{{ orchard_worker_prefix }}/vm-isolation.sh"
 
+# The tart command that the role installs. Tasks name it by its path, because the PATH of a command
+# over SSH does not hold /usr/local/bin.
+orchard_worker_tart: /usr/local/bin/tart
+
 # The programs that root runs and the files that it reads, with each directory above them up to
 # /usr/local (tasks/ownership.yml). / and /usr belong to macOS, which protects them.
 orchard_worker_root_paths:
   - /usr/local
   - /usr/local/bin
   - /usr/local/bin/orchard
-  - /usr/local/bin/tart
+  - "{{ orchard_worker_tart }}"
   - /usr/local/bin/softnet
   - "{{ orchard_worker_prefix | dirname }}"
   - "{{ orchard_worker_prefix }}"
