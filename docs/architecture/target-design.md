@@ -92,7 +92,7 @@ The design depends on these facts. Each fact was verified against source code or
 | Orchard releases before 0.57.0 can release worker capacity before a VM stops. Pull requests #465 and #470 correct this. Orchard 0.57.0 (2026-09-15) contains both. | Orchard 0.57.0 release notes | §9.2 sets the minimum Orchard version. |
 | Orchard exports OTel metrics through OTLP. If the endpoint is not set, Orchard uses `localhost:4318`. | Orchard `internal/opentelemetry` | Each Orchard process MUST have an explicit endpoint (§11). |
 | Tart and Orchard use the FSL-1.1-ALv2 licence (since 2026-06-05). The licence permits all use except a competing commercial product. | `LICENSE` in `openai/tart` and `openai/orchard` | This project can use Tart and Orchard without cost. The tart.run licensing page is out of date. The `LICENSE` file is the authority. |
-| Orchard and its Go client carry the FSL-1.1-ALv2 licence, which permits every purpose except a competing use. This project uses the AGPL-3.0, which forbids a further restriction on a distributed work. The Orchard OpenAPI file is also under the FSL. | `LICENSE` of `openai/orchard`; AGPL-3.0 section 10 (2026-09-19) | The controller contains no Orchard code, and it does not generate code from an Orchard file. §15 gives the client rule. |
+| Orchard and its Go client carry the FSL-1.1-ALv2 licence, which permits every purpose except a competing use. This project uses the AGPL-3.0, which forbids a further restriction on a distributed work. The Orchard OpenAPI file is also under the FSL. | `LICENSE` of `openai/orchard`; AGPL-3.0 section 10 (2026-09-19) | The controller imports no Orchard package, and `go.mod` has no Orchard module. `tools/orchardgen` generates only the field names, the JSON tags, and the types of the Orchard fields that the controller uses, from the Orchard resource types of the pinned version, and the generated file carries no Orchard logic (ADR-0015). §15 gives the client rule. |
 
 **References.** ADR-0005 records the selection of Tart and Orchard. ADR-0006 records the tag
 match. ADR-0007 records the dedicated queue. ADR-0008 records the cluster agent token. ADR-0009
@@ -1460,12 +1460,12 @@ These rules apply:
 
 * `go.mod` MUST NOT contain an Orchard dependency, and it MUST NOT contain a `replace` directive
   for one.
-* The repository MUST NOT contain a file of the Orchard repository, and the project MUST NOT
-  generate code from one.
+* The repository MUST NOT contain a file of the Orchard repository. The project MUST NOT generate
+  code from an Orchard file, except the wire types of the allow list below (ADR-0015).
 * The client MUST cover only these calls: create a VM, list VMs, delete a VM, list workers, and
   read the events of a VM.
-* The client MUST define its own types for the fields of §6.4, and it MUST ignore the fields that
-  the design does not use.
+* The client MUST use the generated wire types for the fields of §6.4, and it MUST ignore the
+  fields that the design does not use.
 * The client MUST use the retry policy of the Buildkite client (below), and it MUST use
   `otelhttp`.
 

@@ -223,7 +223,10 @@ duration.
 
 * **Ownership:** one person builds and operates the system (`ASSUMED`).
 * **Licences:** Tart and Orchard have no licence cost for this use (as of 2026-09-13). This
-  project uses the AGPL-3.0, so the controller contains no Orchard code (ADR-0010).
+  project uses the AGPL-3.0, so the controller imports no Orchard package and has no Orchard
+  module dependency (ADR-0010). The project generates only the field names, the JSON tags, and the
+  types of the Orchard fields that the controller uses, and the generated file carries no Orchard
+  logic (ADR-0015).
 * **Cost envelope:** `NOT_APPLICABLE`. The purchase of the hosts is outside this system (owner
   answer Q-A4).
 * **Cost comparison:** Buildkite hosted macOS costs 0.12 USD each minute for Medium and 0.24 USD
@@ -291,7 +294,7 @@ duration.
 | OP-05 | Operations | Telemetry provider | APPLICABLE | SUPPORTING | CONFIRMED | Any OpenTelemetry-compatible provider; no source code in telemetry | Owner answers (2026-09-13 and Q-A6) | — |
 | OP-06 | Operations | Delivery cadence | APPLICABLE | INFORMATIONAL | ASSUMED | No fixed schedule. release-please calculates each version from the commits, as ADR-0014 proposes (2026-10-31) | ADR-0014 | A release schedule is set |
 | CO-01 | Constraint | Buildkite Stacks API limits | APPLICABLE | SUPPORTING | CONFIRMED | 10 requests/s for list and reserve; 20 requests/s for get-states; reservation 900 s default, 3600 s maximum (2026-09-13) | Buildkite Stacks API documentation (2026-09-13) | Buildkite API change |
-| CO-02 | Constraint | Orchard | APPLICABLE | SUPPORTING | CONFIRMED | One controller; minimum server version 0.58.0 (2026-10-19), after 0.57.0 added pull requests #465 and #470; FSL-1.1-ALv2, so the controller contains no Orchard code | ADR-0005; ADR-0010 | Orchard release |
+| CO-02 | Constraint | Orchard | APPLICABLE | SUPPORTING | CONFIRMED | One controller; minimum server version 0.58.0 (2026-10-19), after 0.57.0 added pull requests #465 and #470; FSL-1.1-ALv2, so the controller imports no Orchard package, and the project generates only the field names, JSON tags, and types of the Orchard fields that the controller uses | ADR-0005; ADR-0010; ADR-0015 | Orchard release |
 | CO-03 | Constraint | Host scaling | NOT_APPLICABLE | — | CONFIRMED | The host pool is fixed | Product requirements, section 3 | Cloud Macs become necessary |
 | CO-04 | Constraint | Implementation conventions | APPLICABLE | INFORMATIONAL | CONFIRMED | Go 1.27; `mise` for tool versions and tasks; GoReleaser and ko; distroless image; golangci-lint; AGPL-3.0 | Owner comments (2026-09-13 and 2026-09-14) | — |
 | CO-05 | Constraint | macOS and Xcode | APPLICABLE | SUPPORTING | CONFIRMED | macOS 27 (Golden Gate) with Xcode 27, Apple silicon only, iOS 27 SDK; the fleet operator builds its images, and the reference build makes the Xcode image from `macos-golden-gate-vanilla` and an Xcode archive that the operator downloads (ADR-0012, ADR-0020) | Owner comments (2026-09-19, 2026-10-10); owner decision (2026-11-03); Apple Developer; `ghcr.io` (2026-09-19) | A published macOS 27 image with Xcode, or a new Xcode version |
