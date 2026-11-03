@@ -548,7 +548,7 @@ Admission does these steps:
    lasts a short time. The default value of `maxInFlight` is 0, which means the total VM slots of
    the eligible workers. Because of this, the limit follows the fleet, and it does not hold slots
    empty at the target scale (SC-01, QA-02). A value more than 0 limits the controller to that
-   number of VMs, for example during a pilot.
+   number of VMs, for example while an operator tries the controller on a few hosts.
 3. **Eligible workers for each profile.** A worker is eligible if it is online, it is not paused
    for scheduling, and its labels contain the profile `workerLabels`.
 4. **Free resources of each worker.** Subtract the resources of all VMs on the worker from the
@@ -614,7 +614,8 @@ jobs behind them: a job behind N such jobs reaches a read in about (N − 2000) 
 slot is free at that read, the job waits for the next sweep.
 
 Whether Buildkite accepts a cursor in a later tick is `UNKNOWN` (owner: the maintainers; trigger:
-the pilot, or the first failed read of a sweep page). If it does not, each sweep page with a
+the first runs against a real queue with more than 2000 jobs, or the first failed read of a sweep
+page). If it does not, each sweep page with a
 cursor of an earlier read fails. That read keeps the first 2000 jobs, and the next read starts
 the sweep after the head again, with a cursor of the same read. The Poller then sees the first
 3000 jobs at every other read, and the first 2000 jobs at the others.

@@ -48,8 +48,9 @@ var controllerIDFormat = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,21}[a-z0-9])?
 // docs/user/configuration.md, which a test writes from this source. Notes for the code follow a
 // line with only //.
 type Buildkite struct {
-	// The self-hosted Buildkite queue that this controller serves. Use a queue that no other agent
-	// or stack serves. Required.
+	// The self-hosted Buildkite queue that this controller serves. Other agents and stacks may serve
+	// the same queue: the controller counts only the workers that its profiles select, and it
+	// leaves each job that no profile carries in the queue for them. Required.
 	Queue string `yaml:"queue"`
 
 	// AgentToken comes from the environment, never from the file.
