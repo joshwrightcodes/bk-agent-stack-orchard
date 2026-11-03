@@ -103,6 +103,7 @@ break a quality target. `P3` degrades operation.
 | R-19 | The release artifacts are reproducible and distroless | Build configuration drift | The image runs as root, or the version is not pinned | CO-04, target design section 15 | P3 |
 | R-20 | The controller stays compatible with its dependencies | Compatibility drift | An Orchard, Stacks API, or agent v4 change breaks the fleet without a signal | CO-01, CO-02, CO-06, ADR-0005 | P3 |
 | R-21 | The distributed work carries one licence | Licence contamination | A dependency with a field-of-use restriction enters the binary, so the project cannot publish the image under the AGPL-3.0 | ADR-0010, CO-04 | P2 |
+| R-22 | A job behind a long head of the queue still starts | A flood of jobs that never leave the list, such as jobs that no profile carries | One pipeline upload stops the fleet for every pipeline of the queue | QA-02, ADR-0016, ADR-0019 | P2 |
 
 ## 4. Test levels
 
@@ -183,6 +184,7 @@ when it reports only.
 | T-023 | R-13, PR-007 | A cancellation while the VM boots | The VM is deleted, and no agent acquires the job | required |
 | T-024 | R-17, R-18, QS-6, QS-7 | Outages: Orchard not available, Buildkite not available, only the get-states call not available, Buildkite or Orchard that accepts calls and does not answer, HTTP 429 with `Retry-After`, and a worker that goes offline | Admission stops, also on old job states while owned VMs exist; readiness fails; each call ends at its time limit, so rows 1 and 2 continue while Buildkite hangs and the reservations are extended while Orchard hangs; the controller obeys `Retry-After`; only rows 1 and 2 delete VMs with stale data; an offline worker gives rows 7 and 9 | required |
 | T-025 | R-09, target design section 7.2 row 13 | Reservation renewal for many VMs in one tick | One `batch-reserve` call contains all extensions, and the renewal starts before `reservationRenewBefore` | required |
+| T-026 | R-22, R-17, ADR-0019 | 6500 unmatched jobs at the head of the queue, and one matched job behind them | The matched job gets a VM within 10 s, and the list calls stay inside the request budget of the Stacks API | required |
 
 ### 6.4 Contract (L3)
 

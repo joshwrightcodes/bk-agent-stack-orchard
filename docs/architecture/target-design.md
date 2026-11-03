@@ -71,7 +71,7 @@ The design depends on these facts. Each fact was verified against source code or
 |---|---|---|
 | The Stacks API accepts only a cluster agent token (`bkct_`). | Buildkite docs, `apis/agent_api/stacks.md` | The controller keeps a cluster agent token (§9.2). |
 | The scheduled-jobs list gives all jobs in the queue. It does not filter by other tags. It does not include reserved jobs. | Stacks API docs | The controller does the tag match (§5). |
-| The scheduled-jobs call takes `limit` (page size, maximum 1000) and `after` (a cursor). The answer has `page_info.has_next_page` and `page_info.end_cursor`. The API orders the jobs by `scheduled_at`, oldest first. A call returns one page, and the library does not read the next page. Paging does not cover a snapshot: new jobs can appear behind the cursor. The documentation advises to read the first few pages only, and to reserve the jobs. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01); `buildkite/stacksapi` v1.2.0 `scheduled_jobs.go` | The Poller asks for 1000 jobs in each call, and it reads at most 3 pages in one tick, from the head of the list (§6.3). |
+| The scheduled-jobs call takes `limit` (page size, maximum 1000) and `after` (a cursor). The answer has `page_info.has_next_page` and `page_info.end_cursor`. The API orders the jobs by `scheduled_at`, oldest first. A call returns one page, and the library does not read the next page. Paging does not cover a snapshot: new jobs can appear behind the cursor. The documentation advises to read the first few pages only, and to reserve the jobs. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01); `buildkite/stacksapi` v1.2.0 `scheduled_jobs.go` | The Poller asks for 1000 jobs in each call. It makes at most 3 calls in one tick: 2 pages from the head of the list, and 1 page of the sweep (§6.3, ADR-0019). |
 | A reservation lasts 900 s by default and 3600 s maximum. A second reserve call extends it. When a reservation expires, the job becomes `scheduled` again. | Stacks API docs | The controller uses short reservations. It extends them while a VM starts (§6, §7). |
 | A job acquisition token (`bkjat_`) connects an agent to one reserved job. The token expires early if the reservation expires. At agent registration, Buildkite applies the expiry and the allowed IP addresses of the agent token that issued the JAT. | `buildkite/stacksapi` v1.2.0 `IssueJobAcquisitionTokens`; `buildkite/docs` `pages/agent/self_hosted/job_acquisition_tokens.md` (2026-08-26) | Only a job acquisition token goes into a VM (§9.1). The agent token allowlist MUST contain the job VM egress addresses (§9.2). |
 | `token_lifetime_seconds` of a job acquisition token has a minimum of 1, a maximum of 3600, and a default of 900. `reservation_expiry_seconds` has a default of 900 and a maximum of 3600. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The limits of 3600 s are the limits of the API. The controller refuses a `reservationExpiry` that is more than 3600 s. It refuses a `jobTokenLifetime` that is more than 1800 s, which is the security limit of §9.1. It refuses both values if they are less than 1 s, so that the refusal comes at start-up and not at the first job (§8). |
@@ -228,9 +228,10 @@ interval, that time is in the past, and the freshness gate of admission (§6.3) 
 old answer against an old time.
 
 With 100 VMs, the controller makes approximately three API calls each second in a normal tick. A
-tick that lists a long queue makes up to 3 list requests (one for each page of 1000 jobs), and each
-batch of at most 1000 notice lines adds one more call. All rate limits are higher. The Stacks API
-limits are 10 requests/s for list and reserve, and 20 requests/s for get-states.
+tick that lists a long queue makes up to 3 list requests (one for each page of 1000 jobs), whatever
+the length of the queue (§6.3), and each batch of at most 1000 notice lines adds one more call.
+All rate limits are higher. The Stacks API limits are 10 requests/s for list and reserve, and 20
+requests/s for get-states.
 
 **Implements.** PR-001, PR-005, PR-010, QA-01, QA-04, DR-01, OP-04.
 
@@ -318,15 +319,20 @@ these rules:
   jobs behind it. It writes one warning for each tick that has a failed call. If a call is partly
   refused, the response has the 0-based indexes of the refused lines. The accepted jobs enter the
   set, and only the refused jobs are tried again at the next tick.
-* The controller evicts jobs from the set only after a complete listing: the read was not cut at
-  `MaxPages`, and the last page had no cursor (§6.3). After a complete listing, a job that is
-  not unmatched in the decision leaves the set. A job that comes back is notified again, and
-  counted again.
+* The controller evicts jobs from the set only after a complete listing: the pages of the read
+  follow one another from the head to the end of the list (§6.3). After a complete listing, a
+  job that is not unmatched in the decision leaves the set. A job that comes back is notified
+  again, and counted again.
 * After a truncated listing, the controller keeps every entry, because a job that is not in the
-  listing may only be hidden behind the pages.
+  listing may only be outside the pages of that read.
 * The set has a cap of 10 000 identifiers (`NotifiedLimit`). When the set is over the cap, the
   controller evicts the identifiers that it saw least recently. A decision cannot name more than
   3000 jobs (3 pages of 1000), so the cap holds only when the listing is truncated for a long time.
+  While the listing stays truncated, the sweep (§6.3) gives new unmatched jobs at each read. With
+  more than 10 000 unmatched jobs in the list, the set evicts a job before the sweep returns to
+  it. The controller then writes the notice of that job again at each sweep, and counts it again.
+  This costs at most one call of 1000 lines in each tick. Buildkite refuses a line after the 100th
+  of a job (§3).
 * The set is not stored. After a restart, the controller MAY write the notice for a job again,
   and it counts the job again. This costs one extra line on the job page, and a job gets at most
   100 lines (§3).
@@ -514,20 +520,41 @@ these jobs, and MUST NOT finish them. It MUST NOT get a token or create a VM for
 one notification for each of them, once (§5, unmatched jobs). The `batch-reserve` call holds the
 admitted jobs only.
 
-**Reading the queue.** The Poller reads the list from its head at each tick. It asks for 1000
-jobs in each call, which is the largest page that the API accepts (§3). The size is a constant
-and it does not follow the slots of the fleet, because the list holds jobs that never leave it:
-unmatched jobs, which the controller skips (ADR-0016), jobs for other tags, and jobs that the API
-refuses with 422. The Poller reads at most 3 pages (`MaxPages`) in one tick. It keeps each job
-once, at its first place, because a cursor over a list that changes can give a job twice. If a
-page fails, the Poller keeps the answer of the last whole read.
+**Reading the queue.** The Poller asks for 1000 jobs in each call, which is the largest page
+that the API accepts (§3). The size is a constant and it does not follow the slots of the fleet,
+because the list holds jobs that never leave it: unmatched jobs, which the controller skips
+(ADR-0016), jobs for other tags, and jobs that the API refuses with 422. The API has no filter and
+no other order, so the only way to a job is to read the pages in front of it.
 
-More than 3 pages of 1000 jobs that never leave the list hide the jobs after them, and the
-controller never sees these jobs. This limit is `UNKNOWN`, in the sense that it is not measured
-(owner: the maintainers; trigger: the pilot, or the first warning of this kind). A read that
-stops at the cap with a page left writes a warning in the log, and it adds 1 to the counter
-`bkaso.queue.truncated` (§10.1). An operator MUST treat this counter as a sign that jobs may be
-hidden.
+One read MUST make at most 3 list requests (`MaxPages`), whatever the length of the queue
+(ADR-0019):
+
+1. **Head.** The Poller reads the first 2 pages (`HeadPages`) from the head of the list.
+2. **Sweep.** If the head has a next page, the Poller reads 1 more page from the sweep cursor. The
+   Poller keeps the sweep cursor in memory from one read to the next, so the sweep moves one page
+   further at each tick. If the sweep cursor is empty, the Poller starts the sweep at the cursor
+   that the head gave.
+3. The Poller MUST empty the sweep cursor when the sweep reaches the end of the list, when the
+   head reaches the end of the list, and when a read fails. The next sweep then starts after the
+   head.
+
+The Poller keeps each job once, at its first place, because a cursor over a list that changes can
+give a job twice. If a page fails, the Poller keeps the answer of the last whole read.
+
+A read is complete only when its pages follow one another from the head to the end of the list.
+A queue of up to 3000 jobs gives a complete read at each tick. In a longer queue, a job behind
+the head is in one read of each sweep. Jobs that never leave the list therefore cannot hide the
+jobs behind them: a job behind N such jobs reaches a read in about (N − 2000) / 1000 ticks. If no
+slot is free at that read, the job waits for the next sweep.
+
+Whether Buildkite accepts a cursor in a later tick is `UNKNOWN` (owner: the maintainers; trigger:
+the pilot, or the first failed read of a sweep page). If it does not, each sweep page fails, and
+the Poller sees only the first 3000 jobs.
+
+A read that is not complete writes a warning in the log, and it adds 1 to the counter
+`bkaso.queue.truncated` (§10.1). The warning names the pipeline that has the most jobs of the
+read, which is often the source of a flood. An operator MUST alert on this counter (§10.6),
+because jobs behind the head wait for the sweep.
 
 ### 6.4 Launch
 
@@ -1182,6 +1209,7 @@ are out of scope, because they depend on the backend behind the collector.
 | VMs remain | `bkaso.vm.leftover` is more than 0 in two exports in a row, at the default export interval of 60 s, which is longer than the window of 10 ticks (§10.1). Outages of Buildkite excluded. This value is the QA-04 target. |
 | Orphans exist | `bkaso.vm.deletions{bkaso.vm.delete.reason="orphan"}` is more than 0. |
 | Fleet is full | `bkaso.slot.count{bkaso.slot.state="free"}` is 0 for 30 min. |
+| Queue is longer than one read | `bkaso.queue.truncated` increases for 10 min. Jobs behind the head of the queue wait for the sweep (§6.3). The usual cause is a flood of jobs that no profile carries. The warning of the read names the pipeline that has the most jobs of the read. |
 | Unknown worker | The Orchard metric `org.cirruslabs.orchard.controller.worker_resource` has a `worker` attribute whose value is not in the list of host names that the operator keeps for `orchard-worker-tokens`. Orchard 0.58.0 does not tie a worker name to an account (§9.2), so this is the only signal of a stolen token that registers an unknown name. The metric has the attributes `worker`, `resource`, and `type`, and no account, so the alert does not see a host that registers a name that the operator knows, for example a stolen token that takes over the record of `mac-01`. That impersonation is not detected (residual risk, SECURITY.md). The operator keeps the list of host names in the alert rule, for example as a comparison that matches every `worker` value that is not one of `mac-01` and `mac-02`. The list MUST agree with the Secret. The metric is in `internal/controller/controller.go` (tag 0.58.0, read on 2026-11-02). Nobody has yet seen it in a running collector (test strategy, O-8). |
 
 **Implements.** PR-009, PR-025, QA-01, QA-02, OP-05.

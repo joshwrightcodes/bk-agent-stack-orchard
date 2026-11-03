@@ -34,16 +34,17 @@ type Stacks interface {
 
 // Queue is one answer of the scheduled-jobs list.
 type Queue struct {
-	// Jobs are the jobs of the first pages, at most MaxPages of them. The list gives every job
-	// of the queue, and the Matcher decides which of them this controller can carry.
+	// Jobs are the jobs of the pages of one read: the head of the queue, and the pages of the
+	// sweep when the queue is longer than the head. The list gives every job of the queue, and the
+	// Matcher decides which of them this controller can carry.
 	Jobs []buildkite.ScheduledJob
 
 	// Paused reports a queue whose dispatch an operator stopped. The controller then starts no
 	// machine, and the machines in progress continue.
 	Paused bool
 
-	// Truncated reports a read that stopped at MaxPages with a page left. Jobs behind the pages
-	// are hidden, so a job that is not in Jobs may still be in the queue.
+	// Truncated reports a read that is not a whole listing: its pages do not follow one another
+	// from the head to the end of the list. A job that is not in Jobs may still be in the queue.
 	Truncated bool
 
 	// At is when Buildkite answered. The control loop reads it to decide whether the answer is
@@ -113,6 +114,11 @@ type Poller struct {
 	logger   *slog.Logger
 	now      func() time.Time
 
+	// reading serialises the reads, and it guards sweep: the cursor where the next read
+	// continues the sweep. It is empty when the next sweep starts after the head.
+	reading sync.Mutex
+	sweep   string
+
 	mu     sync.RWMutex
 	latest Queue
 	got    bool
@@ -126,10 +132,10 @@ type PollerOptions struct {
 	// Interval is how often the poll may run. The design states one second.
 	Interval time.Duration
 
-	// Metrics counts the reads that stop at the cap. It is optional.
+	// Metrics counts the truncated reads. It is optional.
 	Metrics *telemetry.Metrics
 
-	// Logger gets the warning of a read that stops at the cap. A nil logger discards it.
+	// Logger gets the warning of a truncated read. A nil logger discards it.
 	Logger *slog.Logger
 
 	// Now is the clock of the part. internal/app gives every part the same one.
@@ -182,43 +188,112 @@ func (p *Poller) Interval() time.Duration {
 // no profile matches, and jobs for other tags. A page sized for the slots would fill with them.
 const PageSize = 1000
 
-// MaxPages is the most requests that one poll makes. The API documentation advises to read the
-// first few pages only.
+// MaxPages is the most requests that one poll makes, whatever the length of the queue. The API
+// documentation advises to read the first few pages only.
 const MaxPages = 3
 
-// Refresh reads the head of the queue, up to MaxPages pages of PageSize jobs, and keeps the
-// answer. The API orders the list by the time that the job was scheduled, oldest first.
+// HeadPages is the number of pages that each poll reads from the head of the list. The pages
+// after them are for the sweep, which moves through the rest of the list one read at a time.
+const HeadPages = 2
+
+// Refresh reads the queue and keeps the answer. The API orders the list by the time that the job
+// was scheduled, oldest first, and it gives no filter and no other order.
 //
-// The poll starts at the head at each tick. Jobs that the controller starts leave the list, but
-// jobs that never leave it stay at the head. More than MaxPages times PageSize of these hide the
-// jobs after them. That limit is not measured. A read that stops at the cap with a page left is
-// logged as a warning and counted, so that an operator can see that jobs may be hidden.
+// Each read takes the head of the list, up to HeadPages pages of PageSize jobs. When the list
+// continues, the read takes MaxPages minus HeadPages more pages from the sweep. The sweep starts
+// after the head, and each read continues from the cursor where the last read stopped. At the end
+// of the list, the sweep starts again after the head. Jobs that never leave the list, such as
+// jobs that no profile matches, therefore cannot hide the jobs behind them for ever: a job behind
+// them is in one read of each sweep, and a longer flood only makes the sweep longer. The number of
+// requests of a read stays MaxPages.
+//
+// A read is whole when its pages follow one another from the head to the last page. Any other
+// read is truncated: it is logged as a warning and counted, so that an operator can see that jobs
+// wait behind a long head.
 //
 // A job that two pages both give enters the answer once, at its first place, because the cursor
 // reads a list that changes. The poll keeps nothing when a page fails, so that a half-read queue
-// does not replace a whole one.
+// does not replace a whole one. A failed read also starts the sweep again after the head, because
+// a cursor that Buildkite refused once may never work again.
+//
+// Refresh holds a lock for the whole read, so that two reads cannot move the sweep at once.
 func (p *Poller) Refresh(ctx context.Context) error {
-	var (
-		jobs   []buildkite.ScheduledJob
-		paused bool
-		cursor string
-		seen   = map[job.ID]bool{}
-	)
+	p.reading.Lock()
+	defer p.reading.Unlock()
 
-	for number := range MaxPages {
-		page, err := p.stacks.ScheduledJobs(ctx, cursor, PageSize)
+	read := listing{seen: map[job.ID]bool{}}
+
+	cursor, err := read.pages(ctx, p.stacks, "", HeadPages)
+	if err != nil {
+		p.sweep = ""
+
+		return err
+	}
+
+	whole := cursor == ""
+
+	if whole {
+		p.sweep = ""
+	} else {
+		start, continued := p.sweep, p.sweep != ""
+		if !continued {
+			start = cursor
+		}
+
+		next, err := read.pages(ctx, p.stacks, start, MaxPages-HeadPages)
 		if err != nil {
-			return fmt.Errorf("reading page %d of the queue: %w", number+1, err)
+			p.sweep = ""
+
+			return err
 		}
 
-		if number == 0 {
-			paused = page.Paused
+		// The sweep starts again after the head when it reached the end of the list.
+		p.sweep = next
+		whole = !continued && next == ""
+	}
+
+	if !whole {
+		p.warn(ctx, read.jobs)
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.latest = Queue{Jobs: read.jobs, Paused: read.paused, Truncated: !whole, At: p.now()}
+	p.got = true
+
+	return nil
+}
+
+// listing collects the pages of one read.
+type listing struct {
+	jobs   []buildkite.ScheduledJob
+	paused bool
+	calls  int
+	seen   map[job.ID]bool
+}
+
+// pages reads up to count pages from the cursor, and gives the cursor of the next page. The
+// cursor is empty when the last page was the end of the list.
+func (l *listing) pages(ctx context.Context, stacks Stacks, cursor string, count int) (
+	string, error,
+) {
+	for range count {
+		page, err := stacks.ScheduledJobs(ctx, cursor, PageSize)
+		if err != nil {
+			return "", fmt.Errorf("reading page %d of the queue: %w", l.calls+1, err)
 		}
+
+		if l.calls == 0 {
+			l.paused = page.Paused
+		}
+
+		l.calls++
 
 		for _, scheduled := range page.Jobs {
-			if !seen[scheduled.ID] {
-				seen[scheduled.ID] = true
-				jobs = append(jobs, scheduled)
+			if !l.seen[scheduled.ID] {
+				l.seen[scheduled.ID] = true
+				l.jobs = append(l.jobs, scheduled)
 			}
 		}
 
@@ -228,22 +303,35 @@ func (p *Poller) Refresh(ctx context.Context) error {
 		}
 	}
 
-	if cursor != "" {
-		p.logger.WarnContext(ctx, "the read of the queue stopped at the page cap, and jobs behind "+
-			"the pages may be hidden", slog.Int("pages", MaxPages), slog.Int("pageSize", PageSize))
+	return cursor, nil
+}
 
-		if p.metrics != nil {
-			p.metrics.QueueTruncated(ctx)
+// warn writes the warning of a truncated read and counts it. The warning names the pipeline that
+// holds the most jobs of the read, which is often the source of a flood.
+func (p *Poller) warn(ctx context.Context, jobs []buildkite.ScheduledJob) {
+	counts := map[string]int{}
+
+	var (
+		pipeline string
+		most     int
+	)
+
+	for _, scheduled := range jobs {
+		counts[scheduled.Pipeline]++
+
+		if n := counts[scheduled.Pipeline]; n > most {
+			pipeline, most = scheduled.Pipeline, n
 		}
 	}
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.logger.WarnContext(ctx, "the queue is longer than one read, and jobs behind the head of "+
+		"the queue wait for the sweep to reach them",
+		slog.Int("pages", MaxPages), slog.Int("pageSize", PageSize),
+		slog.String("pipeline", pipeline), slog.Int("pipelineJobs", most))
 
-	p.latest = Queue{Jobs: jobs, Paused: paused, Truncated: cursor != "", At: p.now()}
-	p.got = true
-
-	return nil
+	if p.metrics != nil {
+		p.metrics.QueueTruncated(ctx)
+	}
 }
 
 // Latest gives the last answer, and reports whether one arrived. A controller that has no answer

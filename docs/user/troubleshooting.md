@@ -15,6 +15,7 @@ reason. [Telemetry](telemetry.md) lists the reasons and the metrics.
 | No line on the job page | The controller does not serve the queue, or does not run. | Check `buildkite.queue`, and that the controller is ready. |
 | "VM requested", then nothing | No Mac host has a free slot, or none has the `workerLabels` of the profile. | Check `bk_agent_stack_orchard.slot.count` with the state `free`, the workers in Orchard, and their labels. After `unplaced` (2 min), the VM is deleted and the job waits again. |
 | The job waits while other jobs run | Each Mac host runs at most two VMs. | Add hosts, or wait. `bk_agent_stack_orchard.job.waiting.oldest.age` shows the wait. |
+| The log warns that the queue is longer than one read | Many jobs that never leave the queue, such as jobs that no profile carries, are at the head of the queue. Each tick, the controller reads the head and one more page, so a job behind them waits longer. | The warning names the pipeline that has the most jobs of the read. Cancel the build of that pipeline, or fix the `agents:` of its steps. |
 | The controller log says that it is not ready | Buildkite or Orchard does not answer, or Buildkite refused the agent token. | Fix the connection or the token. The log names the source. |
 
 ## A job fails before it runs
