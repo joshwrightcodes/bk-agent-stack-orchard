@@ -36,11 +36,13 @@ another terminal first (`kubectl -n orchard port-forward svc/orchard 16120:6120`
 refuses a workstation, and the port-forward runs from the node of the pod, which the policy always
 admits. The commands read the token from the Secret into the standard input of `curl`. No token goes
 on an argv or into a file. The controller account cannot do these checks: it has no `admin:read`.
+A check of a worker uses the `orchard_operator` function of the same section, because the rotated
+bootstrap admin has no `compute` role.
 
 ## Procedure: retire
 
 1. Confirm that the bootstrap Job completed and that the controller and the Mac hosts connect with
-   their own accounts.
+   their own accounts. `orchard_operator GET /v1/workers` lists each host as online.
 2. Remove the component `deploy/orchard-overlays/first-start` from the overlay, which takes
    `ORCHARD_BOOTSTRAP_ADMIN_TOKEN` out of the StatefulSet `orchard`. Apply the overlay. Wait until
    the pod is ready.
@@ -67,7 +69,8 @@ Rotate the token on a schedule of the operator, after a person who could read th
 and after any suspected exposure. This sets a new token through the API and then puts it in the
 Secret. Keep the shell open until the last command succeeds, because the new token is only in
 the shell variable until then. The new token gets only `admin:read` and `admin:write`, which the
-Job needs (a restart with the variable set gives the account all roles again).
+Job needs (a restart with the variable set gives the account all roles again). The account then
+cannot read or delete workers or VMs. The runbooks use the `operator` account for those calls.
 
 ```sh
 new="$(openssl rand -hex 24)"

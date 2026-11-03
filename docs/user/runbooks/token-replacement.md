@@ -82,9 +82,18 @@ Write down the time of the restart. Step 4 needs it.
 A VM that the controller created before the restart has a job acquisition token that the old
 token issued. Keep the old token valid until each of these VMs is gone.
 
-List the VMs of the controller in Orchard. Their names start with `bk-<controllerID>-`. Compare
-the `createdAt` of each VM with the time of the restart. Wait until no VM has a `createdAt` before
-the restart.
+List the VMs of the controller in Orchard, with the `orchard_operator` function of
+`deploy/orchard/README.md`, section "Reach the API as an operator". Their names start with
+`bk-<controllerID>-`. The command prints only the name and the `createdAt` of each VM, because a
+VM answer holds the job token of the VM:
+
+```sh
+orchard_operator GET /v1/vms |
+  jq -r '.[]? | select(.name | startswith("bk-<controllerID>-")) | "\(.name) \(.createdAt)"'
+```
+
+Compare the `createdAt` of each VM with the time of the restart. Wait until no VM has a
+`createdAt` before the restart.
 
 Most VMs go when their job ends. The `maxVMLifetime` (25 h by default) is the longest time that a
 VM can exist. The Reaper deletes a VM that is older (row 2 of the target design, section 7.2).
