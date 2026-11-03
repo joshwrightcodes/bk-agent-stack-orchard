@@ -30,6 +30,8 @@ reason. [Telemetry](telemetry.md) lists the reasons and the metrics.
 | `does not match agent.sha256` | The archive at `agent.url` is not the one that `agent.sha256` names. | Set the pair of the release that you want, together. |
 | `the image has "buildkite-agent version 3…"` | The profile uses the agent of the image (`agent.source: image`), and the image has another major version. | Put agent v4 in the image, or use `agent.source: download`. |
 | The reason that Orchard gives for a failed VM | Orchard or Tart could not run the VM: a missing image, a disk smaller than the image, or a host problem. | Read the reason. Check `diskSizeGB`, the image reference, and the log of the Orchard worker. |
+| Failures of many jobs on one Mac host | `bk_agent_stack_orchard.job.failed` or `bk_agent_stack_orchard.vm.deletions` goes up for one `bk_agent_stack_orchard.worker.name`. A host with a full disk or a broken Tart fails each VM fast, frees its slot at once, and so gets many new VMs. | Pause scheduling on the worker in Orchard, so that admission skips it, and repair the host. |
+| Failures of many jobs of one profile | The same counters go up for one `bk_agent_stack_orchard.profile` on several hosts. | Check the image and the timeouts of the profile. |
 
 ## A job fails while it runs
 

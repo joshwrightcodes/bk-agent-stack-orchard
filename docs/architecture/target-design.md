@@ -1281,12 +1281,12 @@ The name that an operator queries has the full prefix.
 | Gauge | `bkaso.admission.blocked` (`1`) | `bkaso.admission.reason` = `queue_unread`/`queue_paused`/`scheduled_jobs_stale`/`inventory_unanswered`/`inventory_stale`/`job_states_unanswered`/`job_states_stale` |
 | Counter | `bkaso.job.skipped` (`{job}`) | — |
 | Counter | `bkaso.queue.truncated` (`{read}`) | — |
-| Counter | `bkaso.job.failed` (`{job}`) | `error.type` |
+| Counter | `bkaso.job.failed` (`{job}`) | `bkaso.profile`, `bkaso.worker.name`, `error.type` = `vm_failed`/`boot_timeout`/`acquire_timeout` |
 | UpDownCounter | `bkaso.slot.count` (`{slot}`) | `bkaso.pool`, `bkaso.slot.state` = `total`/`used`/`free` |
 | UpDownCounter | `bkaso.vm.count` (`{vm}`) | `bkaso.profile`, `bkaso.vm.phase` = `unplaced`/`booting`/`running`/`failed` |
 | UpDownCounter | `cicd.worker.count` (`{worker}`) | `cicd.worker.state` = `busy`/`offline` |
 | Histogram | `bkaso.job.phase.duration` (`s`) | `bkaso.profile`, `bkaso.job.phase` = `scheduled_to_reserved`/`reserved_to_placed`/`placed_to_running`/`running_to_accepted`/`finished_to_deleted`/`total` |
-| Counter | `bkaso.vm.deletions` (`{vm}`) | `bkaso.vm.delete.reason` (§7.2) |
+| Counter | `bkaso.vm.deletions` (`{vm}`) | `bkaso.profile`, `bkaso.worker.name`, `bkaso.vm.delete.reason` (§7.2) |
 | Counter | `cicd.system.errors` (`{error}`) | `cicd.system.component` = `buildkite`/`orchard`, `bkaso.operation`, `error.type` |
 | Histogram | `bkaso.tick.duration` (`s`) | `bkaso.tick.step` |
 | Gauge | `bkaso.vm.leftover` (`{vm}`) | — |
@@ -1369,6 +1369,11 @@ These rules come from the conventions and MUST hold:
   It has the tolerance of `jobStatesInterval`, like the other phases. The value of the
   attribute `bkaso.profile` is `unknown` for a VM that this process did not start and whose tags
   name no profile of the configuration.
+
+`bkaso.job.failed` and `bkaso.vm.deletions` carry the profile and the Mac host of the VM, so that a
+bad image and a broken host each show apart from the fleet. The host is `none` for a VM that no
+worker took. The profiles are bounded by the configuration and the hosts by the fleet, so both are
+allowed on a metric.
 
 Metric attributes MUST NOT contain job UUIDs or VM names. The `bkaso.pool` attribute is the value
 of the worker `pool` label. If the worker has no `pool` label, the value is `none`.

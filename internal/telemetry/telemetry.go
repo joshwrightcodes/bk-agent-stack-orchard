@@ -64,7 +64,7 @@ const (
 	LogBuild    = string(semconv.CICDPipelineRunIDKey)
 	LogVM       = prefix + "vm.name"
 	LogProfile  = attributeProfile
-	LogWorker   = prefix + "worker.name"
+	LogWorker   = attributeWorker
 )
 
 // The keys of the other log fields of the controller. Each one carries the prefix of this project,

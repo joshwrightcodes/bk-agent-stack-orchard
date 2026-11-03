@@ -36,6 +36,7 @@ const (
 	attributeSource       = prefix + "source"
 	attributeAdmission    = prefix + "admission.reason"
 	attributeOperation    = prefix + "operation"
+	attributeWorker       = prefix + "worker.name"
 )
 
 // The attributes of the job.match span: the profile that carries the job, or none. A job that no
@@ -681,11 +682,17 @@ func (l *levels) remember(instrument metric.Observable, set attribute.Set) {
 // pool gives the pool of a worker. A metric series needs a value for each attribute, and a
 // worker with no pool label would otherwise give an empty one.
 func pool(name string) string {
-	if name == "" {
+	return none(name)
+}
+
+// none gives the value of an attribute, and "none" for empty text, which a backend would show as
+// a series with a missing value.
+func none(value string) string {
+	if value == "" {
 		return "none"
 	}
 
-	return name
+	return value
 }
 
 // Skipped counts one job of the queue that no profile matches. The caller counts a job once.
@@ -698,16 +705,33 @@ func (m *Metrics) QueueTruncated(ctx context.Context) {
 	m.truncated.Add(ctx, 1)
 }
 
+// Failure names where one failure happened: the profile of the machine and the Mac host that
+// carried it. A bad image fails the machines of one profile, and a broken host fails the machines
+// on it, so the failure counters carry both. Both are bounded: the profiles by the configuration,
+// and the hosts by the fleet.
+type Failure struct {
+	Profile string
+	Worker  string
+}
+
+func (f Failure) attributes() []attribute.KeyValue {
+	return []attribute.KeyValue{
+		attribute.String(attributeProfile, f.Profile),
+		attribute.String(attributeWorker, none(f.Worker)),
+	}
+}
+
 // Failed counts one job that the controller ended. The cause is the value of error.type, so it
 // must be a short and closed set of words and not the message of the job page.
-func (m *Metrics) Failed(ctx context.Context, cause string) {
-	m.failed.Add(ctx, 1, metric.WithAttributes(semconv.ErrorTypeKey.String(cause)))
+func (m *Metrics) Failed(ctx context.Context, where Failure, cause string) {
+	m.failed.Add(ctx, 1, metric.WithAttributes(
+		append(where.attributes(), semconv.ErrorTypeKey.String(cause))...))
 }
 
 // Deleted counts one deleted virtual machine, with the reason of the decision table.
-func (m *Metrics) Deleted(ctx context.Context, reason string) {
-	m.deletions.Add(ctx, 1,
-		metric.WithAttributes(attribute.String(attributeDeleteReason, reason)))
+func (m *Metrics) Deleted(ctx context.Context, where Failure, reason string) {
+	m.deletions.Add(ctx, 1, metric.WithAttributes(
+		append(where.attributes(), attribute.String(attributeDeleteReason, reason))...))
 }
 
 // SystemError counts one call to Buildkite or to Orchard that failed, such as a rate limit or a

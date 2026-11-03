@@ -14,6 +14,7 @@ import (
 	"time"
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/inventory"
@@ -1146,5 +1147,105 @@ func TestTheTagsOfAMachineNameItsTimeoutsAfterARestart(t *testing.T) {
 				t.Errorf("buildkite saw %d finishes, want %d", len(jobPages.finished), test.finished)
 			}
 		})
+	}
+}
+
+// buildMeasured gives a reaper whose instruments a test reads, and whose jobs this process started
+// with the profile xcode-27.
+func buildMeasured(t *testing.T, api *observed, machines *fleet,
+	jobPages *pages,
+) (*reaper.Reaper, *sdkmetric.ManualReader) {
+	t.Helper()
+
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+
+	instruments, err := telemetry.NewMetrics(provider.Meter("test"))
+	if err != nil {
+		t.Fatalf("NewMetrics() = %v, want the instruments", err)
+	}
+
+	built, err := reaper.New(reaper.Options{
+		Stacks:       jobPages,
+		States:       api,
+		Reservations: &held{},
+		RenewBefore:  120 * time.Second,
+		CallTimeout:  time.Second,
+		Orchard:      machines,
+		Fleet:        machines,
+		Profile:      func(job.ID) string { return "xcode-27" },
+		Profiles:     []profile.Profile{{Name: "xcode-27"}},
+		Defaults:     limits,
+		Freshness:    freshness,
+		Metrics:      instruments,
+		Logger:       slog.New(slog.DiscardHandler),
+		Now:          func() time.Time { return now },
+	})
+	if err != nil {
+		t.Fatalf("New() = %v, want the reaper", err)
+	}
+
+	return built, reader
+}
+
+// counted gives the attributes of each point of a counter, each as key=value text.
+func counted(t *testing.T, reader *sdkmetric.ManualReader, name string) []string {
+	t.Helper()
+
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(t.Context(), &collected); err != nil {
+		t.Fatalf("Collect() = %v, want the metrics", err)
+	}
+
+	var found []string
+
+	for _, scope := range collected.ScopeMetrics {
+		for _, one := range scope.Metrics {
+			if one.Name != name {
+				continue
+			}
+
+			for _, point := range one.Data.(metricdata.Sum[int64]).DataPoints {
+				var pairs []string
+				for _, pair := range point.Attributes.ToSlice() {
+					pairs = append(pairs, string(pair.Key)+"="+pair.Value.String())
+				}
+
+				found = append(found, strings.Join(pairs, ","))
+			}
+		}
+	}
+
+	return found
+}
+
+// A bad image fails the machines of one profile, and a broken host fails the machines on it. The
+// failure counters carry both, so an operator can tell one from the other and from the fleet.
+func TestTheFailureCountersCarryTheProfileAndTheHost(t *testing.T) {
+	t.Parallel()
+
+	api := &observed{states: map[job.ID]string{ended: "reserved"}}
+	machines := &fleet{read: true, snapshot: inventory.Snapshot{
+		Owned: []inventory.Owned{failing(ended)},
+	}}
+
+	built, reader := buildMeasured(t, api, machines, &pages{})
+	if err := built.Reap(t.Context()); err != nil {
+		t.Fatalf("Reap() = %v, want no error", err)
+	}
+
+	want := "bk_agent_stack_orchard.profile=xcode-27,bk_agent_stack_orchard.worker.name=mac-01," +
+		"error.type=vm_failed"
+	if got := counted(t, reader, "bk_agent_stack_orchard.job.failed"); !slices.Equal(got,
+		[]string{want}) {
+		t.Errorf("job.failed holds %v, want [%s]", got, want)
+	}
+
+	want = "bk_agent_stack_orchard.profile=xcode-27,bk_agent_stack_orchard.vm.delete.reason=" +
+		"vm_failed,bk_agent_stack_orchard.worker.name=mac-01"
+	if got := counted(t, reader, "bk_agent_stack_orchard.vm.deletions"); !slices.Equal(got,
+		[]string{want}) {
+		t.Errorf("vm.deletions holds %v, want [%s]", got, want)
 	}
 }

@@ -524,8 +524,10 @@ func (r *Reaper) settle(ctx context.Context, t task, done result,
 		r.refused[machine.Job] = true
 	}
 
+	where := r.failure(machine)
+
 	if done.finished {
-		r.metrics.Failed(ctx, decision.Reason)
+		r.metrics.Failed(ctx, where, decision.Reason)
 	}
 
 	// Why the machine failed comes before its removal on the job page, and it goes whether the
@@ -550,7 +552,7 @@ func (r *Reaper) settle(ctx context.Context, t task, done result,
 		r.ignored[machine.Job] = true
 	}
 
-	r.metrics.Deleted(ctx, decision.Reason)
+	r.metrics.Deleted(ctx, where, decision.Reason)
 	r.deleted(ctx, machine)
 
 	// The last step on the job page. Buildkite may refuse a line for a job that ended, which
@@ -713,6 +715,17 @@ func (r *Reaper) deleted(ctx context.Context, machine Machine) {
 	}
 
 	r.metrics.JobPhase(ctx, name, telemetry.PhaseFinishedToDeleted, r.now().Sub(began))
+}
+
+// failure gives the profile and the host of a machine, for the failure counters. An orphan has no
+// job, and a machine of no known profile counts under inventory.UnknownProfile.
+func (r *Reaper) failure(machine Machine) telemetry.Failure {
+	name := r.nameOf(inventory.Owned{VM: machine.VM, Job: machine.Job})
+	if name == "" {
+		name = inventory.UnknownProfile
+	}
+
+	return telemetry.Failure{Profile: name, Worker: machine.VM.Worker}
 }
 
 // nameOf gives the profile of a machine: the one that this process started it with, or else the

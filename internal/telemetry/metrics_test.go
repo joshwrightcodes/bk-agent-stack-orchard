@@ -58,8 +58,8 @@ func recordAll(t *testing.T) []metricdata.Metrics {
 	ctx := t.Context()
 	instruments.Skipped(ctx)
 	instruments.QueueTruncated(ctx)
-	instruments.Failed(ctx, "no_profile")
-	instruments.Deleted(ctx, "job_ended")
+	instruments.Failed(ctx, telemetry.Failure{Profile: "xcode-27", Worker: "mac-01"}, "boot_timeout")
+	instruments.Deleted(ctx, telemetry.Failure{Profile: "xcode-27"}, "job_terminal")
 	instruments.SystemError(ctx, telemetry.ComponentBuildkite, telemetry.OperationReserve,
 		"rate_limited")
 	instruments.JobPhase(ctx, "xcode-27", telemetry.PhaseTotal, 4*time.Minute)
@@ -155,7 +155,11 @@ var design = []struct {
 	},
 	{"bk_agent_stack_orchard.job.skipped", "{job}", nil, true},
 	{"bk_agent_stack_orchard.queue.truncated", "{read}", nil, true},
-	{"bk_agent_stack_orchard.job.failed", "{job}", []string{"error.type"}, true},
+	{
+		"bk_agent_stack_orchard.job.failed", "{job}",
+		[]string{"bk_agent_stack_orchard.profile", "bk_agent_stack_orchard.worker.name", "error.type"},
+		true,
+	},
 	{
 		"bk_agent_stack_orchard.slot.count", "{slot}",
 		[]string{"bk_agent_stack_orchard.pool", "bk_agent_stack_orchard.slot.state"},
@@ -174,7 +178,10 @@ var design = []struct {
 	},
 	{
 		"bk_agent_stack_orchard.vm.deletions", "{vm}",
-		[]string{"bk_agent_stack_orchard.vm.delete.reason"},
+		[]string{
+			"bk_agent_stack_orchard.profile", "bk_agent_stack_orchard.vm.delete.reason",
+			"bk_agent_stack_orchard.worker.name",
+		},
 		true,
 	},
 	{

@@ -31,12 +31,12 @@ small.
 | `bk_agent_stack_orchard.admission.blocked` | gauge, `1` | `bk_agent_stack_orchard.admission.reason` | 1 for the reason that stopped admission at the last tick, and 0 for each other reason (below) |
 | `bk_agent_stack_orchard.job.skipped` | counter, `{job}` | | Jobs that match no profile, and that the controller leaves for another runner |
 | `bk_agent_stack_orchard.queue.truncated` | counter, `{read}` | | Reads of the queue that did not list it whole, so that jobs behind the head of the queue wait for a later read |
-| `bk_agent_stack_orchard.job.failed` | counter, `{job}` | `error.type` | Jobs that the controller failed, such as after a timeout |
+| `bk_agent_stack_orchard.job.failed` | counter, `{job}` | `bk_agent_stack_orchard.profile`, `bk_agent_stack_orchard.worker.name`, `error.type` (`vm_failed`, `boot_timeout`, `acquire_timeout`) | Jobs that the controller failed before an agent took them. The causes are the reasons of the same name (below) |
 | `bk_agent_stack_orchard.slot.count` | up-down counter, `{slot}` | `bk_agent_stack_orchard.pool`, `bk_agent_stack_orchard.slot.state` (`total`, `used`, `free`) | VM slots of the Mac hosts |
 | `bk_agent_stack_orchard.vm.count` | up-down counter, `{vm}` | `bk_agent_stack_orchard.profile`, `bk_agent_stack_orchard.vm.phase` (`unplaced`, `booting`, `running`, `failed`) | VMs of this controller, by phase |
 | `cicd.worker.count` | up-down counter, `{worker}` | `cicd.worker.state` (`busy`, `offline`) | Job VMs, by the status that Orchard gives them: `busy` while the VM runs, and `offline` when it failed. A VM carries one job, so no VM is `available` |
 | `bk_agent_stack_orchard.job.phase.duration` | histogram, `s` | `bk_agent_stack_orchard.profile`, `bk_agent_stack_orchard.job.phase` | How long each phase of a start took (below) |
-| `bk_agent_stack_orchard.vm.deletions` | counter, `{vm}` | `bk_agent_stack_orchard.vm.delete.reason` | VMs that the controller deleted, by reason (below) |
+| `bk_agent_stack_orchard.vm.deletions` | counter, `{vm}` | `bk_agent_stack_orchard.profile`, `bk_agent_stack_orchard.worker.name`, `bk_agent_stack_orchard.vm.delete.reason` | VMs that the controller deleted, by reason (below) |
 | `cicd.system.errors` | counter, `{error}` | `cicd.system.component` (`buildkite`, `orchard`), `bk_agent_stack_orchard.operation` (below), `error.type` (`unauthorized`, `rate_limited`, `timeout`, `_OTHER`) | Calls to Buildkite or Orchard that failed |
 | `bk_agent_stack_orchard.tick.duration` | histogram, `s` | `bk_agent_stack_orchard.tick.step` | How long each step of the loop took |
 | `bk_agent_stack_orchard.vm.leftover` | gauge, `{vm}` | | VMs whose job ended, and that are not deleted yet |
@@ -44,7 +44,10 @@ small.
 | `bk_agent_stack_orchard.loop.heartbeat.age` | gauge, `s` | | Time since the loop last finished a tick. Before the loop starts, it is the age of the process |
 | `bk_agent_stack_orchard.stack.registered` | gauge, `1` | | 1 while Buildkite holds the registration of the stack. 0 while the controller registers, which it tries again while Buildkite does not answer, and after it withdrew |
 
-`bk_agent_stack_orchard.pool` is the `pool` label of the worker, or `none`. The HTTP clients also
+`bk_agent_stack_orchard.pool` is the `pool` label of the worker, or `none`. On the two failure
+counters, `bk_agent_stack_orchard.worker.name` is the Mac host of the VM, or `none` for a VM that no
+host took, and the profile is `unknown` for a VM of no profile of the configuration. A bad image
+shows as failures of one profile, and a broken host as failures on one host. The HTTP clients also
 give `http.client.request.duration`.
 
 Each series exists from the start of the process, with 0 where nothing is counted. A pool is
