@@ -77,8 +77,9 @@ each job:
 | CI job | Runs when the pull request changes |
 |---|---|
 | `lint and test` | anything, because its tests also read documents and scripts |
+| `known vulnerabilities` | anything, because a new vulnerability applies to unchanged code, and the code scanning rule needs its result |
 | `lint scripts` | a shell or Python script, a workflow, or `ruff.toml` |
-| `known vulnerabilities`, `integration tests` | Go code, `go.mod`, `go.sum`, or `testdata` |
+| `integration tests` | Go code, `go.mod`, `go.sum`, or `testdata` |
 | `deploy manifests` | `deploy/`, `images/`, or `test/smoke/` |
 | `smoke deployment` | Go code, the chart, the Orchard base, or `test/smoke/` |
 | `snapshot release` | Go code, the GoReleaser or ko configuration, or the licence files |
@@ -105,13 +106,16 @@ Each tool has its own category:
 | `actionlint` | actionlint, and ShellCheck on the `run:` blocks of the workflows | `lint scripts` |
 | `zizmor` | zizmor | `lint scripts` |
 
-CI uploads the findings on a push to `main`, and on a pull request from a branch of this
-repository. The token of a pull request from a fork cannot write to code scanning, so that run
-does not upload. A job that the pull request does not need does not run, so it does not
-upload either. The upload does not change the result of a job. The gates (`lint`, `vuln`, and
-`lint-scripts`) fail on a finding. ShellCheck has no SARIF output, and `mise` has no converter
-with a published checksum, so the ShellCheck findings for the shell scripts are only in the log
-of `lint scripts`. To write the same reports locally, set `SARIF_DIR`, for example
+CI uploads the findings on a push to `main`, and on a pull request from a branch of this repository.
+The token of a pull request from a fork cannot write to code scanning, so that run does not upload.
+The `main` ruleset requires a result from CodeQL, golangci-lint, and govulncheck before a pull
+request merges, so the jobs that run golangci-lint and govulncheck run on each pull request. A pull
+request from a fork has no results, so it needs a maintainer to merge it. When the filter skips
+`lint scripts`, the ruff, actionlint, and zizmor findings of the pull request are not uploaded, and
+its gate does not run. The upload does not change the result of a job. The gates (`lint`, `vuln`,
+and `lint-scripts`) fail on a finding. ShellCheck has no SARIF output, and `mise` has no converter
+with a published checksum, so the ShellCheck findings for the shell scripts are only in the log of
+`lint scripts`. To write the same reports locally, set `SARIF_DIR`, for example
 `SARIF_DIR=build/sarif mise run lint-scripts` or `SARIF_DIR=build/sarif mise run vuln`.
 
 `mise run coverage` runs the tests of `mise run test` with a coverage profile. It writes
