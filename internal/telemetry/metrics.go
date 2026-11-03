@@ -230,7 +230,7 @@ func (m *Metrics) observable(meter metric.Meter) error {
 
 	m.oldest, err = meter.Float64ObservableGauge(prefix+"job.waiting.oldest.age",
 		metric.WithUnit("s"),
-		metric.WithDescription("Age of the oldest job that waits. The alert of QA-02 reads it."))
+		metric.WithDescription("Age of the oldest job that waits. The alert that jobs wait too long reads it."))
 	if err != nil {
 		return fmt.Errorf("building the instrument of the oldest waiting job: %w", err)
 	}

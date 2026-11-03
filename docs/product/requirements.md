@@ -317,7 +317,8 @@ requirements. The target design describes the job lifecycle and the failure proc
 
 * Requirement: The controller MUST export metrics, traces, and logs through OpenTelemetry only.
   Any OpenTelemetry-compatible provider MAY receive the data. The target design defines the
-  alert conditions.
+  alertable conditions and the signal of each one. The product MUST NOT set an alert threshold or
+  an objective: the fleet operator sets the threshold and the window of each alert.
 * Source: owner statements (2026-09-13 and 2026-09-14). Status: `accepted`.
 * Acceptance: Given an OpenTelemetry Collector. When jobs run. Then the collector receives the
   metrics, traces, and logs, and each job has one trace.

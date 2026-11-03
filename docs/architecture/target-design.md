@@ -1326,20 +1326,23 @@ or paragraph separator, before it counts the characters. A detail with only blan
 
 ### 10.6 Alert conditions
 
-These alert conditions are part of the design. Rule files and dashboards for a specific backend
-are out of scope, because they depend on the backend behind the collector.
+The design defines these alertable conditions and the signal of each one (PR-025). It sets no
+threshold and no window. The fleet operator sets each threshold and each window from its own
+objectives. The quality targets of the baseline (QA-01 to QA-06) are product goals, and they are
+not the thresholds of these alerts. Rule files and dashboards for a specific backend are out of
+scope, because they depend on the backend behind the collector.
 
-| Alert | Condition |
-|---|---|
-| Jobs wait too long | `bkaso.job.waiting.oldest.age` is more than 15 min. This value is the QA-02 target. |
-| Controller is not ready | `bkaso.source.staleness` of a source is more than 2 min. |
-| Controller fails jobs | `bkaso.job.failed` increases for 15 min. |
-| Timeouts repeat | `bkaso.vm.deletions{bkaso.vm.delete.reason=~".*_timeout"}` increases. |
-| VMs remain | `bkaso.vm.leftover` is more than 0 in two exports in a row, at the default export interval of 60 s, which is longer than the window of 10 ticks (§10.1). Outages of Buildkite excluded. This value is the QA-04 target. |
-| Orphans exist | `bkaso.vm.deletions{bkaso.vm.delete.reason="orphan"}` is more than 0. |
-| Fleet is full | `bkaso.slot.count{bkaso.slot.state="free"}` is 0 for 30 min. |
-| Queue is longer than one read | `bkaso.queue.truncated` increases for 10 min. Jobs behind the head of the queue wait for the sweep (§6.3). The usual cause is a flood of jobs that no profile carries. The warning of the read names the pipeline that has the most jobs of the read. |
-| Unknown worker | The Orchard metric `org.cirruslabs.orchard.controller.worker_resource` has a `worker` attribute whose value is not in the list of host names that the operator keeps for `orchard-worker-tokens`. Orchard 0.58.0 does not tie a worker name to an account (§9.2), so this is the only signal of a stolen token that registers an unknown name. The metric has the attributes `worker`, `resource`, and `type`, and no account, so the alert does not see a host that registers a name that the operator knows, for example a stolen token that takes over the record of `mac-01`. That impersonation is not detected (residual risk, SECURITY.md). The operator keeps the list of host names in the alert rule, for example as a comparison that matches every `worker` value that is not one of `mac-01` and `mac-02`. The list MUST agree with the Secret. The metric is in `internal/controller/controller.go` (tag 0.58.0, read on 2026-11-02). Nobody has yet seen it in a running collector (test strategy, O-8). |
+| Alert | Signal and direction | Meaning |
+|---|---|---|
+| Jobs wait too long | `bkaso.job.waiting.oldest.age` rises and stays high. | Jobs wait longer than the wait objective of the operator. The fleet is full, or no worker carries the profile. |
+| Controller is not ready | `bkaso.source.staleness` of a source rises and stays high. | The controller has no fresh answer from Buildkite or Orchard, so it starts no VM (§7.5). |
+| Controller fails jobs | `bkaso.job.failed` keeps increasing. | VMs fail, or time out before an agent takes the job. |
+| Timeouts repeat | `bkaso.vm.deletions{bkaso.vm.delete.reason=~".*_timeout"}` keeps increasing. | VMs do not place, boot, or reach an agent within the timeouts of their profile (§7.3). |
+| VMs remain | `bkaso.vm.leftover` stays above 0 for longer than the window of 10 ticks (§10.1), across more than one export. Outages of Buildkite excluded. | The Reaper does not delete the VMs of ended jobs. |
+| Orphans exist | `bkaso.vm.deletions{bkaso.vm.delete.reason="orphan"}` increases. | A VM with the name prefix of this controller has no job. Two controllers can share a `controllerID` (§11). |
+| Fleet is full | `bkaso.slot.count{bkaso.slot.state="free"}` stays at 0. | Every slot is in use, so new jobs wait. |
+| Queue is longer than one read | `bkaso.queue.truncated` keeps increasing. | Jobs behind the head of the queue wait for the sweep (§6.3). The usual cause is a flood of jobs that no profile carries. The warning of the read names the pipeline that has the most jobs of the read. |
+| Unknown worker | The Orchard metric `org.cirruslabs.orchard.controller.worker_resource` shows a `worker` value that is not in the list of hosts of the operator. | Orchard 0.58.0 does not tie a worker name to an account (§9.2), so this is the only signal of a stolen token that registers an unknown name. The metric has the attributes `worker`, `resource`, and `type`, and no account, so the alert does not see a host that registers a name that the operator knows, for example a stolen token that takes over the record of `mac-01`. That impersonation is not detected (residual risk, SECURITY.md). The operator keeps the list of host names in the alert rule, for example as a comparison that matches every `worker` value that is not one of `mac-01` and `mac-02`. The list MUST agree with the Secret. The metric is in `internal/controller/controller.go` (tag 0.58.0, read on 2026-11-02). Nobody has yet seen it in a running collector (test strategy, O-8). |
 
 **Implements.** PR-009, PR-025, QA-01, QA-02, OP-05.
 

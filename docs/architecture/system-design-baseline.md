@@ -172,8 +172,8 @@ duration.
 * **Start time:** 60 s or less from `scheduled` to `accepted`, when the image is on the host. The
   owner did not state a percentile. This baseline assumes the 95th percentile (`ASSUMED`).
 * **Wait time:** 15 minutes or less for the oldest waiting job, at planned capacity. The design
-  alert uses the same value. It gives an alert when the oldest waiting job is more than 15 minutes
-  old.
+  gives the signal of this wait (target design, section 10.6). The target is a product goal, and
+  the operator sets the threshold of its own alert.
 * **Recovery time:** less than 15 minutes for the controller and for the Orchard controller.
 * **Failure visibility:** a job whose VM cannot start MUST fail with a message before its
   scheduled-job expiry. A job that no profile carries MUST get one notification (ADR-0016).

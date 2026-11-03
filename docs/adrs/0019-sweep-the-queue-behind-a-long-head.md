@@ -108,8 +108,8 @@ Read 2 pages from the head and 1 page of a sweep. Alert on a read that is not wh
 * A read is whole only when its pages follow one another from the head to the end of the list.
   Each other read MUST write a warning, and MUST add 1 to `bkaso.queue.truncated`. The warning
   SHOULD name the pipeline that has the most jobs of the read.
-* An operator MUST alert when `bkaso.queue.truncated` increases for 10 min (§10.6 of the target
-  design).
+* An operator MUST alert when `bkaso.queue.truncated` keeps increasing (§10.6 of the target
+  design). The operator sets the window of the alert.
 
 The decision changes only how the poll reads the list. ADR-0016 still decides what the controller
 does with an unmatched job.
