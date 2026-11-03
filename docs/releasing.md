@@ -44,9 +44,12 @@ version in `Chart.yaml`. The pull request collects all changes until the maintai
    the Limitations section of `README.md` is still correct for the new version. For version 0.1.0,
    finish the legal review of ADR-0015 first: a lawyer confirms the licence position, and the
    maintainers record the result in the ADR.
-2. Merge the release pull request. release-please creates the tag and a draft release with the
+2. Run the quick start against `main` on a Mac (`mise run quickstart -- --queue <queue>`), and run
+   the step that it prints. Check that the job passes and that Ctrl-C leaves no VM. A hosted runner
+   cannot start a macOS VM, so CI does not run the quick start.
+3. Merge the release pull request. release-please creates the tag and a draft release with the
    changelog.
-3. The tag starts the release workflow in the `release` environment. Check that the SHA of the tag
+4. The tag starts the release workflow in the `release` environment. Check that the SHA of the tag
    is the merge commit of the release pull request, and then approve the deployment. The workflow
    builds and signs the artifacts, verifies the signatures and the assets, and then publishes the
    release.

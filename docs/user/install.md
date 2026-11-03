@@ -1,5 +1,7 @@
 # Install the controller
 
+To try the controller on one Mac first, follow the [quick start](quickstart.md).
+
 This guide tells you what the controller needs, how to install a release, and how to verify and
 upgrade it. It does not tell you how to set up Buildkite, Orchard, or your Mac hosts: use the
 setup that suits you.
