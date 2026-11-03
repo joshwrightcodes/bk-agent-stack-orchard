@@ -284,7 +284,7 @@ func (p *Poller) Refresh(ctx context.Context) error {
 
 			p.logger.WarnContext(ctx, "a page of the sweep of the queue failed, so the read "+
 				"keeps the pages before it and the next sweep starts after the head",
-				slog.String("error", err.Error()))
+				slog.Any(telemetry.LogError, err))
 		} else {
 			// The sweep starts again after the head when it reached the end of the list.
 			p.sweep = next
@@ -366,8 +366,8 @@ func (p *Poller) warn(ctx context.Context, jobs []buildkite.ScheduledJob) {
 
 	p.logger.WarnContext(ctx, "the queue is longer than one read, and jobs behind the head of "+
 		"the queue wait for the sweep to reach them",
-		slog.Int("pages", MaxPages), slog.Int("pageSize", PageSize),
-		slog.String("pipeline", pipeline), slog.Int("pipelineJobs", most))
+		slog.Int(telemetry.LogPages, MaxPages), slog.Int(telemetry.LogPageSize, PageSize),
+		slog.String(telemetry.LogPipeline, pipeline), slog.Int(telemetry.LogPipelineJobs, most))
 
 	if p.metrics != nil {
 		p.metrics.QueueTruncated(ctx)

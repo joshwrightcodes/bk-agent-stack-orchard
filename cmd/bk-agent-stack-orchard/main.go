@@ -261,7 +261,7 @@ func serveProbes(ctx context.Context, server *grpc.Server, listener net.Listener
 ) {
 	if err := server.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 		logger.ErrorContext(ctx, "the probe server stopped, so the platform cannot probe the "+
-			"controller", "error", err.Error())
+			"controller", telemetry.LogError, err)
 	}
 }
 

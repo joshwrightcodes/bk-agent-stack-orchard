@@ -483,7 +483,7 @@ func (l *Launcher) skip(ctx context.Context, decision admission.Result) {
 	if failed > 0 {
 		l.logger.WarnContext(ctx, "the controller could not write some notifications of the "+
 			"jobs that it skips, and it tries again at the next tick",
-			"failedCalls", failed, "error", first)
+			telemetry.LogFailedCalls, failed, telemetry.LogError, first)
 	}
 
 	if !decision.Truncated {
@@ -556,8 +556,8 @@ func (l *Launcher) tell(ctx context.Context, fresh []admission.Unmatched) error 
 		}
 
 		l.logger.WarnContext(ctx, "buildkite refused some notifications of the jobs that "+
-			"the controller skips", "refused", len(partial.Indexes), "jobs", len(fresh),
-			"reason", partial.Reason)
+			"the controller skips", telemetry.LogRefusedLines, len(partial.Indexes), telemetry.LogJobs, len(fresh),
+			telemetry.LogDetail, partial.Reason)
 
 		// A refusal with no index is a refusal of every line.
 		if len(partial.Indexes) == 0 {
@@ -753,7 +753,7 @@ func (l *Launcher) create(ctx context.Context, wanted []admission.Candidate,
 	if left > 0 {
 		l.logger.WarnContext(ctx, "the controller asked for no machine for some reserved jobs, "+
 			"because Orchard did not answer or the step ran out of time, and their reservations "+
-			"lapse", "jobs", left)
+			"lapse", telemetry.LogJobs, left)
 	}
 
 	if len(lines) == 0 {
@@ -764,7 +764,7 @@ func (l *Launcher) create(ctx context.Context, wanted []admission.Candidate,
 	// log record and nothing more.
 	if err := l.stacks.Notify(ctx, lines); err != nil {
 		l.logger.WarnContext(ctx, "the controller could not write to the job pages",
-			"error", err)
+			telemetry.LogError, err)
 	}
 }
 
@@ -780,7 +780,7 @@ func (l *Launcher) start(ctx context.Context, candidate admission.Candidate,
 		telemetry.Fail(span, err)
 		l.logger.ErrorContext(ctx, "the controller could not start a machine",
 			telemetry.LogJob, string(candidate.Job.ID),
-			telemetry.LogProfile, candidate.Profile.Name, "error", err)
+			telemetry.LogProfile, candidate.Profile.Name, telemetry.LogError, err)
 
 		return err
 	}

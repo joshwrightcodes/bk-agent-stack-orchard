@@ -49,8 +49,11 @@ small.
 `bk_agent_stack_orchard.pool` is the `pool` label of the worker, or `none`. On the two failure
 counters, `bk_agent_stack_orchard.worker.name` is the Mac host of the VM, or `none` for a VM that no
 host took, and the profile is `unknown` for a VM of no profile of the configuration. A bad image
-shows as failures of one profile, and a broken host as failures on one host. The HTTP clients also
-give `http.client.request.duration`.
+shows as failures of one profile, and a broken host as failures on one host.
+
+The HTTP clients also give the metrics of `otelhttp`, with the attributes of the HTTP conventions:
+`http.client.request.duration` (`s`) and `http.client.request.body.size` (`By`). Each try of a
+call is one request, so a retry shows there and not in `cicd.system.errors`.
 
 Each series exists from the start of the process, with 0 where nothing is counted. A pool is
 known only from the workers, so its series start with the first read of Orchard. A series that
@@ -133,7 +136,16 @@ The phases of `bk_agent_stack_orchard.job.phase.duration`:
 | `total` | the job is scheduled | the agent takes the job |
 
 The controller sees a change at each read, so each phase is accurate to about `jobStatesInterval`
-(5 s).
+(5 s). The histogram counts what this process saw, and not jobs:
+
+* `scheduled_to_reserved` counts each reservation. A job whose reservation lapses, and that the
+  controller reserves again, counts again, from the scheduled time that the queue gives it then.
+* The phases after it count only the jobs that this process reserved. A restart loses the times
+  of the jobs that the process before it started, so those jobs have no `total`.
+* `finished_to_deleted` starts again after a restart, at the first tick that sees the ended job.
+
+Build a ratio on `bk_agent_stack_orchard.vm.starts` for the starts, and on this histogram for the
+times of the starts that this process saw.
 
 The reasons of `bk_agent_stack_orchard.vm.delete.reason`:
 
@@ -178,14 +190,39 @@ work failed has the status Error and an `exception` event.
 
 ## Logs
 
-Each record goes to the collector and to standard output, in the same shape. When they are known, a
-record has the job (`cicd.pipeline.task.run.id`), the pipeline (`cicd.pipeline.name`), the build
-(`cicd.pipeline.run.id`), the VM (`bk_agent_stack_orchard.vm.name`), the profile, and the host
-(`bk_agent_stack_orchard.worker.name`), and the trace and span when one is active. Each time the
-controller acts on a VM, it writes one record with the reason.
+Each record goes to the collector and to standard output, in the same shape, which is the log data
+model of OpenTelemetry. A record carries the trace and the span when one is active. A record about
+one job carries the trace of that job, also when one call covered several jobs. Each time the
+controller acts on a VM, it writes one record with the row and the reason.
 
-A record about admission has the reason in `bk_agent_stack_orchard.admission.reason`. A record
-that says more in a sentence has it in `bk_agent_stack_orchard.detail`.
+The resource of each signal has `service.name`, `service.instance.id` (the `controllerID`), and
+`service.version` when the build has a version. A release build has the version of the release,
+and a build from the source has the version that Go stamps from the commit.
+
+A record has these keys when they are known:
+
+| Key | What it holds |
+|---|---|
+| `cicd.pipeline.task.run.id` | The Buildkite job |
+| `cicd.pipeline.name` | The pipeline |
+| `cicd.pipeline.run.id` | The build |
+| `bk_agent_stack_orchard.vm.name` | The VM |
+| `bk_agent_stack_orchard.profile` | The profile |
+| `bk_agent_stack_orchard.worker.name` | The Mac host |
+| `exception.type`, `exception.message` | The error of the record. The type is the type of the cause, under the wrappers that say nothing of it |
+| `bk_agent_stack_orchard.reaper.row`, `bk_agent_stack_orchard.reaper.reason`, `bk_agent_stack_orchard.reaper.decision` | The row of the decision table, the reason, and the action of the reaper |
+| `bk_agent_stack_orchard.vm.phase`, `bk_agent_stack_orchard.job.state` | The phase of the VM and the state of the job, on the warning that no row of the decision table matches |
+| `bk_agent_stack_orchard.match.reason` | Why no profile carries a job that the controller skips |
+| `bk_agent_stack_orchard.admission.reason` | Why admission stopped, on the debug record of the gate |
+| `bk_agent_stack_orchard.detail` | A sentence that says more, such as why admission stopped, or the reason of a refusal of Buildkite |
+| `bk_agent_stack_orchard.tick.step` | The step of the loop that failed |
+| `bk_agent_stack_orchard.tick.interval` | The interval of the tick, when the loop starts |
+| `bk_agent_stack_orchard.registration.attempt`, `bk_agent_stack_orchard.registration.wait` | The number of a registration that failed because Buildkite did not answer, and the wait before the next one |
+| `bk_agent_stack_orchard.readiness.reasons` | Each reason that the controller is not ready |
+| `bk_agent_stack_orchard.loop.heartbeat.age`, `bk_agent_stack_orchard.loop.stall_bound` | The time since the last tick, and the bound after which liveness fails |
+| `bk_agent_stack_orchard.job.count`, `bk_agent_stack_orchard.vm.count` | The jobs or the VMs that a record is about, such as the reserved jobs that got no VM in a tick |
+| `bk_agent_stack_orchard.notification.count`, `bk_agent_stack_orchard.notification.refused_count`, `bk_agent_stack_orchard.notification.failed_calls` | The lines of a request to the job pages, the lines that Buildkite refused, and the requests that failed |
+| `bk_agent_stack_orchard.queue.pages`, `bk_agent_stack_orchard.queue.page_size`, `bk_agent_stack_orchard.queue.pipeline_jobs` | On the warning that the queue is longer than one read: the pages of a read, the jobs of a page, and the jobs of the read of the pipeline that `cicd.pipeline.name` names |
 
 ## Host signals from Orchard
 

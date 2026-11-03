@@ -157,7 +157,7 @@ func (t *Tracker) write(ctx context.Context, lines []buildkite.Notification) {
 		err := t.stacks.Notify(ctx, batch)
 		if err != nil {
 			t.logger.WarnContext(ctx, "the controller could not write the steps of its machines",
-				"lines", len(batch), "error", err)
+				telemetry.LogLines, len(batch), telemetry.LogError, err)
 		}
 
 		if retry.Unavailable(err) {

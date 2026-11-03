@@ -73,8 +73,48 @@ const (
 	// LogAdmissionReason is why the gate of admission is closed, as an AdmissionBlock.
 	LogAdmissionReason = attributeAdmission
 
-	// LogDetail is a sentence for a person that says more about the record.
+	// LogDetail is a sentence for a person that says more about the record, such as the reason
+	// that Buildkite gave for a refusal.
 	LogDetail = prefix + "detail"
+
+	// LogError is the error of a record. The logger turns it into exception.type and
+	// exception.message, the attributes of the conventions.
+	LogError = "error"
+
+	// LogStep is the step of the loop, as on tick.duration.
+	LogStep = attributeStep
+
+	// LogInterval is the interval of the tick.
+	LogInterval = prefix + "tick.interval"
+
+	// LogAttempt and LogWait are the number of a registration that failed, and the wait before
+	// the next one.
+	LogAttempt = prefix + "registration.attempt"
+	LogWait    = prefix + "registration.wait"
+
+	// LogReasons is the list of the reasons that the controller is not ready.
+	LogReasons = prefix + "readiness.reasons"
+
+	// LogHeartbeatAge and LogStallBound are the time since the loop last finished a tick, and the
+	// time after which liveness fails.
+	LogHeartbeatAge = prefix + "loop.heartbeat.age"
+	LogStallBound   = prefix + "loop.stall_bound"
+
+	// LogJobs is the number of jobs that a record is about, and LogVMs the number of machines.
+	LogJobs = prefix + "job.count"
+	LogVMs  = prefix + "vm.count"
+
+	// LogLines is the number of lines of a request to the job pages, LogRefusedLines the lines
+	// that Buildkite refused, and LogFailedCalls the requests that failed.
+	LogLines        = prefix + "notification.count"
+	LogRefusedLines = prefix + "notification.refused_count"
+	LogFailedCalls  = prefix + "notification.failed_calls"
+
+	// LogPages and LogPageSize are the pages of one read of the queue and the jobs of a page, and
+	// LogPipelineJobs is the jobs of the read that one pipeline has.
+	LogPages        = prefix + "queue.pages"
+	LogPageSize     = prefix + "queue.page_size"
+	LogPipelineJobs = prefix + "queue.pipeline_jobs"
 )
 
 // DefaultServiceName names this controller when nothing else does.

@@ -209,7 +209,7 @@ func (c *Checks) Update(ctx context.Context) {
 		return
 	}
 
-	c.logger.WarnContext(ctx, "the controller is not ready", "reasons", reasons)
+	c.logger.WarnContext(ctx, "the controller is not ready", telemetry.LogReasons, reasons)
 }
 
 // updateLiveness fails liveness while the loop has made no progress inside the stall bound.
@@ -236,7 +236,8 @@ func (c *Checks) updateLiveness(ctx context.Context) {
 	if stalled {
 		c.logger.ErrorContext(ctx, "the loop has not finished a tick inside the stall bound, so "+
 			"liveness fails and the platform restarts the process",
-			"age", age.Round(time.Second).String(), "bound", c.stall.String())
+			telemetry.LogHeartbeatAge, age.Round(time.Second).String(),
+			telemetry.LogStallBound, c.stall.String())
 
 		return
 	}

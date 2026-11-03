@@ -25,6 +25,10 @@ linters:
     - unconvert
     - usestdlibvars
   settings:
+    # Each log key is a constant of internal/telemetry, which carries the prefix of the project or
+    # the name of a semantic convention, and which docs/user/telemetry.md names.
+    sloglint:
+      no-raw-keys: true
     forbidigo:
       analyze-types: true
       forbid:
@@ -45,6 +49,7 @@ linters:
       - path: _test\.go
         linters:
           - forbidigo
+          - sloglint
       - path: ^test/
         linters:
           - forbidigo

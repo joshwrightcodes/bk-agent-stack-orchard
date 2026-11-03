@@ -300,7 +300,7 @@ func (c *Controller) Run(ctx context.Context) error {
 	c.observe()
 
 	c.logger.InfoContext(ctx, "the controller registered its stack and starts its loop",
-		"interval", c.interval.String())
+		telemetry.LogInterval, c.interval.String())
 
 	// The first beat comes before the first tick, so that a first tick that never ends fails
 	// liveness like any other.
@@ -346,8 +346,8 @@ func (c *Controller) register(ctx context.Context) error {
 		wait := backoff.Backoff(attempt, err)
 
 		c.logger.WarnContext(ctx, "the controller could not register its stack, because "+
-			"Buildkite did not answer, and tries again", "attempt", attempt,
-			"wait", wait.Round(time.Millisecond).String(), "error", err)
+			"Buildkite did not answer, and tries again", telemetry.LogAttempt, attempt,
+			telemetry.LogWait, wait.Round(time.Millisecond).String(), telemetry.LogError, err)
 
 		if slept := c.sleep(ctx, wait); slept != nil {
 			return errors.Join(err, slept)
@@ -493,7 +493,8 @@ func (c *Controller) run(ctx context.Context, name string, work func(context.Con
 
 	if err != nil {
 		telemetry.Fail(span, err)
-		c.logger.ErrorContext(ctx, "a step of the tick failed", "step", name, "error", err)
+		c.logger.ErrorContext(ctx, "a step of the tick failed", telemetry.LogStep, name,
+			telemetry.LogError, err)
 	}
 }
 

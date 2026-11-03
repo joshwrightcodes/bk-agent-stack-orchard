@@ -42,7 +42,7 @@ func (h exceptionTyped) Handle(ctx context.Context, record slog.Record) error {
 
 	if failure != nil {
 		record = record.Clone()
-		record.AddAttrs(slog.String(string(semconv.ExceptionTypeKey), exceptionType(failure)))
+		record.AddAttrs(slog.String(exceptionTypeKey, exceptionType(failure)))
 	}
 
 	return h.Handler.Handle(ctx, record)
@@ -55,6 +55,9 @@ func (h exceptionTyped) WithAttrs(attrs []slog.Attr) slog.Handler {
 func (h exceptionTyped) WithGroup(name string) slog.Handler {
 	return exceptionTyped{h.Handler.WithGroup(name)}
 }
+
+// exceptionTypeKey is the key of the attribute of the conventions that names the type of an error.
+const exceptionTypeKey = string(semconv.ExceptionTypeKey)
 
 // wrapped is the type of an error that fmt.Errorf gives with one %w.
 var wrapped = reflect.TypeOf(fmt.Errorf("wrapped: %w", errors.New("cause")))

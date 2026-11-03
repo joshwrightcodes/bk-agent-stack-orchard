@@ -298,7 +298,7 @@ func (r *Reaper) Reap(ctx context.Context) error {
 		failures++
 
 		r.logger.ErrorContext(ctx, "the reaper could not extend the reservations of the machines "+
-			"that start", "jobs", len(extend), "error", err)
+			"that start", telemetry.LogJobs, len(extend), telemetry.LogError, err)
 	}
 
 	step, cancel := context.WithTimeout(ctx, r.budget)
@@ -328,7 +328,7 @@ func (r *Reaper) Reap(ctx context.Context) error {
 
 	if left > 0 {
 		r.logger.WarnContext(ctx, "the reaper stopped its pass early, because an API did not "+
-			"answer or the step ran out of time, and the next tick decides again", "machines", left)
+			"answer or the step ran out of time, and the next tick decides again", telemetry.LogVMs, left)
 	}
 
 	r.write(ctx, lines)
@@ -479,7 +479,7 @@ func (r *Reaper) carry(ctx context.Context, t task) result {
 			// this finish read. The last one runs a build, so the machine stays in this pass,
 			// and the next state decides: an agent keeps it, and a job that ended loses it.
 			r.logger.InfoContext(ctx, "buildkite refused to end a job, and the next job state "+
-				"decides what happens to its machine", append(fields, "error", err)...)
+				"decides what happens to its machine", append(fields, telemetry.LogError, err)...)
 
 			done.refused = true
 
@@ -487,7 +487,7 @@ func (r *Reaper) carry(ctx context.Context, t task) result {
 		default:
 			telemetry.Fail(span, err)
 			r.logger.ErrorContext(ctx, "the reaper could not end a job",
-				append(fields, "error", err)...)
+				append(fields, telemetry.LogError, err)...)
 
 			done.err = err
 
@@ -498,7 +498,7 @@ func (r *Reaper) carry(ctx context.Context, t task) result {
 	if err := r.delete(ctx, machine); err != nil {
 		telemetry.Fail(span, err)
 		r.logger.ErrorContext(ctx, "the reaper could not delete a machine",
-			append(fields, "error", err)...)
+			append(fields, telemetry.LogError, err)...)
 
 		done.err = err
 
@@ -590,7 +590,7 @@ func (r *Reaper) script(ctx context.Context, machine Machine, decision Decision)
 	if err != nil {
 		telemetry.Fail(span, err)
 		r.logger.WarnContext(ctx, "the reaper could not read the startup script of a machine",
-			telemetry.LogJob, string(machine.Job), telemetry.LogVM, machine.VM.Name, "error", err)
+			telemetry.LogJob, string(machine.Job), telemetry.LogVM, machine.VM.Name, telemetry.LogError, err)
 
 		return nil
 	}
@@ -625,10 +625,10 @@ func (r *Reaper) write(ctx context.Context, lines []buildkite.Notification) {
 		case err == nil:
 		case errors.Is(err, buildkite.ErrRefused):
 			r.logger.DebugContext(ctx, "buildkite refused some lines of the reaper",
-				"lines", len(batch), "error", err)
+				telemetry.LogLines, len(batch), telemetry.LogError, err)
 		default:
 			r.logger.WarnContext(ctx, "the reaper could not write to the job pages",
-				"lines", len(batch), "error", err)
+				telemetry.LogLines, len(batch), telemetry.LogError, err)
 		}
 
 		// A Buildkite that does not answer would hold each later request for its whole time

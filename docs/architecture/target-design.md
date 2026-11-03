@@ -1397,7 +1397,11 @@ Metric attributes MUST NOT contain job UUIDs or VM names. The `bkaso.pool` attri
 of the worker `pool` label. If the worker has no `pool` label, the value is `none`.
 
 The controller observes phase changes at poll intervals. Because of this, phase durations have a
-tolerance of ±`jobStatesInterval`. Outgoing HTTP clients MUST use `otelhttp`.
+tolerance of ±`jobStatesInterval`. The histogram counts what one process saw, and not jobs:
+`scheduled_to_reserved` counts each reservation, so a job whose reservation lapsed counts again,
+and a restart loses the start times of the jobs of the process before it, so those jobs have no
+`total`. Outgoing HTTP clients MUST use `otelhttp`, which gives `http.client.request.duration` and
+`http.client.request.body.size`, one record for each try of a call.
 
 **Cold or warm start: `UNKNOWN`.** The target of QA-01 is for an image that is on the host, but the
 controller cannot say if a start pulled the image. The events of a VM from Orchard 0.58.0 have one
@@ -1455,7 +1459,14 @@ contain `cicd.pipeline.task.run.id` (the Buildkite job), `cicd.pipeline.name`,
 `cicd.pipeline.run.id`, `bkaso.vm.name`, `bkaso.profile`, and `bkaso.worker.name` when these
 values are known. Buildkite has the shape that the CI/CD conventions describe, so a person with a
 backend of several CI systems can ask one question of all of them. Each Reaper
-action MUST write exactly one decision record with its table row and its `reason`.
+action MUST write exactly one decision record with its table row and its `reason`. A record about
+one job of a call for several jobs MUST carry the trace of that job (§10.2).
+
+Each other key of a record MUST be a constant of `internal/telemetry`, with the prefix of this
+project, or the name of a semantic convention, such as `exception.type`. A lint rule refuses a key
+that is not a constant. An error of a record becomes `exception.type` and `exception.message`, and
+`exception.type` names the type of the cause, under the wrappers of `fmt.Errorf` and of the retry
+policy. The user guide lists each key.
 
 ### 10.4 Agent telemetry (optional for each profile)
 
