@@ -202,6 +202,11 @@ type fleet struct {
 	jobs       int
 	violations []string
 
+	// asked holds the names of the machines that the controller asked for in the current tick.
+	// The fake Orchard calls created under its lock, so the creates of the launcher add to it one
+	// at a time.
+	asked []string
+
 	// foreign holds the names of the machines that another tool or controller owns. This
 	// controller must never delete one.
 	foreign []string
@@ -283,11 +288,13 @@ func (f *fleet) start(rt fataler) {
 	f.loop = loop
 }
 
-// tick moves the clock one second, lets Orchard do its work, and runs one tick.
+// tick moves the clock one second, lets Orchard do its work, runs one tick, and checks the room of
+// the machines that the tick asked for.
 func (f *fleet) tick() {
 	f.now = f.now.Add(time.Second)
 	f.orchard.sync()
 	f.loop.Tick(f.ctx, f.now)
+	f.checkRoom()
 }
 
 // created checks each machine that the controller asks for, before Orchard holds it.
@@ -335,26 +342,43 @@ func (f *fleet) created(spec orchard.VM) {
 		f.violate("I-2: %d machines, and maxInFlight is %d", count, f.maxInFlight)
 	}
 
-	if !f.roomFor(spec) {
-		f.violate("I-2: no worker that is online has room for %s beside the machines of Orchard", spec.Name)
+	// The room of the machine is a check of the whole tick, after its last create (checkRoom).
+	f.asked = append(f.asked, spec.Name)
+}
+
+// checkRoom checks the room part of I-2 at the end of a tick: Orchard can place each machine that
+// the tick asked for beside the machines that it holds.
+//
+// The launcher sends the creates of one tick at the same time, so they reach Orchard in any order.
+// The check runs after the last of them, on the whole tick, because first-fit placement is not
+// monotone: a part of a tick can fit nowhere where the whole tick fits. A verdict on a part would
+// depend on the order of the goroutines, and rapid could not replay it.
+func (f *fleet) checkRoom() {
+	asked := f.asked
+	f.asked = nil
+
+	for _, name := range f.unplaced(asked) {
+		f.violate("I-2: no worker that is online has room for %s beside the machines of Orchard", name)
 	}
 }
 
-// roomFor reports whether Orchard can place a new machine beside the machines that it holds. It
-// places the machines that wait, oldest first, on the first worker with room, as Orchard does,
-// with the new one among them. It does its own sums and not orchard.Fits, because the function
-// under test must not mark its own work.
+// unplaced gives the machines of a tick that Orchard cannot place beside the machines that it
+// holds. It places the machines that wait, oldest first, on the first worker with room, as Orchard
+// does. It does its own sums and not orchard.Fits, because the function under test must not mark
+// its own work.
 //
-// The launcher sends the creates of one tick at the same time, so they reach Orchard in any order.
 // The machines of one tick share their creation time, and the fake places them, as its scheduler
-// does, in the order of their names, which is the order of admission. The new machine goes in its
-// place in that order, and it and every machine of the same tick must fit. A machine of an earlier
-// tick that fits nowhere holds no room, and the machines after it still go to a worker with room
-// (target design, section 6.3, step 5).
+// does, in the order of their names, which is the order of admission. Every machine of the tick
+// must fit in that order. A machine of an earlier tick that fits nowhere holds no room, and the
+// machines after it still go to a worker with room (target design, section 6.3, step 5).
 //
 // A failed machine takes no room, because Orchard frees its resources. A worker that is not
 // online, or that is paused, takes no machine.
-func (f *fleet) roomFor(spec orchard.VM) bool {
+func (f *fleet) unplaced(tick []string) []string {
+	if len(tick) == 0 {
+		return nil
+	}
+
 	free := map[string]map[string]uint64{}
 
 	for _, h := range f.orchard.hosts {
@@ -365,9 +389,7 @@ func (f *fleet) roomFor(spec orchard.VM) bool {
 		free[h.worker.Name] = maps.Clone(h.worker.Resources)
 	}
 
-	// The fake gives a new machine the time of the suite as its creation time.
-	spec.CreatedAt = f.now
-	waiting := []orchard.VM{spec}
+	var waiting []orchard.VM
 
 	for _, vm := range f.orchard.vms {
 		switch {
@@ -387,13 +409,15 @@ func (f *fleet) roomFor(spec orchard.VM) bool {
 		return cmp.Or(a.CreatedAt.Compare(b.CreatedAt), strings.Compare(a.Name, b.Name))
 	})
 
+	var left []string
+
 	for _, vm := range waiting {
-		if !f.place(free, vm) && vm.CreatedAt.Equal(spec.CreatedAt) {
-			return false
+		if !f.place(free, vm) && slices.Contains(tick, vm.Name) {
+			left = append(left, vm.Name)
 		}
 	}
 
-	return true
+	return left
 }
 
 // place takes the room of a machine on the first worker that has it, and reports whether one had.
