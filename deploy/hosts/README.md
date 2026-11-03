@@ -44,7 +44,9 @@ This directory makes each Mac host an Orchard worker (target design, section 11)
    This is the Orchard workaround for the Local Network permission of macOS. A change that
    restarts the worker drains the host first. The section [Changes that restart the
    worker](#changes-that-restart-the-worker) explains how.
-6. It pulls the image of each profile that the host can take.
+6. It pulls the image of each profile that the host can take. It removes each cached image that no
+   profile of the host names and no VM of the worker uses, so that old images do not fill the
+   disk.
 
 ## Before the playbook
 
@@ -81,9 +83,11 @@ standard input. The source is `/usr/local/etc/orchard-worker/bootstrap-token` (r
 this reason, the token is in no process listing.
 
 The host pulls the image of each profile whose `workerLabels` the labels of the worker contain. It
-pulls no other image, because a 1 TB host holds only a few Xcode images. A profile names
-its image by digest. The image in the cache is therefore always the image of the profile. When the
-registry needs credentials, give `orchard_worker_registry_username` and
+pulls no other image, because a 1 TB host holds only a few Xcode images. For the same reason, it
+removes each cached image that no profile of the host names, unless the controller lists a VM of
+the worker with that image. A profile names its image by digest. The image in the cache is
+therefore always the image of the profile. When the registry needs credentials, give
+`orchard_worker_registry_username` and
 `orchard_worker_registry_password`. The role gives the password to `tart login` on its standard
 input, and it logs out after the pull. The keychain of the host therefore keeps no credentials.
 
@@ -163,14 +167,16 @@ Other settings of the drain:
 |---|---|---|
 | `orchard_worker_drain_poll` | `30` | How often the play counts the VMs of the worker during the drain, in seconds |
 | `orchard_worker_drain_only` | `false` | `true` drains the host and leaves the worker paused, with no change that restarts it. The next run without it makes the change and resumes the worker |
-| `orchard_worker_drain` | `true` | `false` changes the host without the API of Orchard: no drain, and no wait for the worker to report. A restart then deletes the VMs on the host. Use it only when the controller cannot answer |
+| `orchard_worker_drain` | `true` | `false` changes the host without the API of Orchard: no drain, no wait for the worker to report, and no removal of cached images. A restart then deletes the VMs on the host. Use it only when the controller cannot answer |
+| `orchard_worker_prune_images` | `true` | `false` keeps every cached image, for example while you change the image of a profile |
 
 ## Tests
 
 `mise run check-hosts` lints the role, and checks the images that a host pulls for different
 labels. It also checks that the role refuses a `softnetAllow` entry outside the private ranges,
 and a wide entry inside the networks of the VMs. It renders the pf rules, checks their order, and
-parses them with `pfctl -n` on a Mac. It checks which VMs hold a drain. CI runs it.
+parses them with `pfctl -n` on a Mac. It checks which VMs hold a drain, and which cached images a
+host removes. CI runs it.
 
 `mise run hosts-test` runs the playbook against a Tart VM on an Apple silicon Mac. An Orchard
 controller is on the Mac, and the certificate comes from a test CA. The test checks these points:
@@ -180,6 +186,7 @@ controller is on the Mac, and the certificate comes from a test CA. The test che
 - Softnet has the setuid bit.
 - pf has the rules.
 - A second run changes nothing.
+- The host removes a cached image that no profile names, and keeps the image of its profile.
 - The worker and the rules return after a restart.
 - A change of the labels drains the host first. While a VM is pending on the worker, the play
   reaches the drain time limit, resumes the worker, and names the host. When no VM is left, the

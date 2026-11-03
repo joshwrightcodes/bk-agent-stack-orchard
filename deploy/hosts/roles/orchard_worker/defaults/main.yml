@@ -42,8 +42,8 @@ orchard_worker_registry_password: ""
 # labels, or controller URL) deletes every VM on the host, so the play drains the host first
 # (tasks/drain.yml): it pauses the worker in Orchard, and waits until no VM of the worker is pending
 # or running. A run that restarts nothing drains nothing. false changes the host without the API of
-# Orchard: no drain, and no wait for the worker to report. A restart then deletes the VMs on the
-# host, so use false only when the controller cannot answer.
+# Orchard: no drain, no wait for the worker to report, and no removal of cached images. A restart
+# then deletes the VMs on the host, so use false only when the controller cannot answer.
 orchard_worker_drain: true
 # The drain time limit, in seconds. A VM placed just before the pause can take the boot and acquire
 # timeouts of its profile (15 and 5 minutes by default), and its job then runs. The design expects
@@ -61,6 +61,9 @@ orchard_worker_drain_only: false
 # How long the worker has to report to the controller after the play starts it, in seconds. The
 # worker writes its record each 15 seconds.
 orchard_worker_register_timeout: 300
+# Remove each cached image that no profile of the host names and no VM of the worker uses
+# (tasks/prune.yml).
+orchard_worker_prune_images: true
 
 # The job VMs run macOS 27.2, and a macOS guest needs a host of the same version or later
 # (CO-07). The owner decided on 2026-11-01 that the hosts run macOS 27.2.

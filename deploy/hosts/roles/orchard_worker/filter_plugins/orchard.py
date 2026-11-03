@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Filters for the VMs that the Orchard controller lists.
 
-The play reads the VMs of its own worker before a change that restarts the worker
-(tasks/drain.yml).
+The play reads the VMs of its own worker before a change that restarts the worker, and before it
+removes cached images (tasks/drain.yml and tasks/prune.yml).
 """
 
 from __future__ import annotations
@@ -28,10 +28,16 @@ def orchard_active_vms(vms, worker):
     )
 
 
+def orchard_vm_images(vms, worker):
+    """Give the images of every VM of the worker, a failed VM included."""
+    return sorted({vm["image"] for vm in _on_worker(vms, worker) if vm.get("image")})
+
+
 class FilterModule:
     """The filters of the orchard_worker role for the VMs of Orchard."""
 
     def filters(self):
         return {
             "orchard_active_vms": orchard_active_vms,
+            "orchard_vm_images": orchard_vm_images,
         }

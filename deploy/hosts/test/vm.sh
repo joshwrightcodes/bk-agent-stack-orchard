@@ -10,6 +10,7 @@
 #   - the launchd job of the pf rules enables pf and loads the rules again after a person
 #     disables pf and removes the rules;
 #   - a second run of the playbook changes nothing, and so drains nothing;
+#   - the host removes a cached image that no profile names, and keeps the image of its profile;
 #   - the worker registers again after a restart of the host;
 #   - a change that restarts the worker drains the host first: while a VM is pending on the worker,
 #     the play pauses the worker, reaches the drain time limit, resumes the worker, changes nothing,
@@ -207,6 +208,22 @@ echo '$(cat "$WORK/id.pub")' >> ~/.ssh/authorized_keys
 chmod 600 ~/.ssh/authorized_keys
 EOF
 
+# Two images in the cache of Tart, in the layout that a pull by digest leaves: the image of the
+# profile of the host (testdata/config.yaml), which the host keeps and does not pull, and an image
+# that no profile names, which the host removes.
+KEPT="registry.test/hosts-test@sha256:4444444444444444444444444444444444444444444444444444444444444444"
+STALE="registry.test/old@sha256:5555555555555555555555555555555555555555555555555555555555555555"
+guest <<EOF
+for image in "$KEPT" "$STALE"; do
+	dir="\$HOME/.tart/cache/OCIs/\${image/@//}"
+	mkdir -p "\$dir"
+	echo '{}' >"\$dir/config.json"
+	: >"\$dir/disk.img"
+	: >"\$dir/nvram.bin"
+	: >"\$dir/.explicitly-pulled"
+done
+EOF
+
 cat >"$WORK/inventory.yml" <<EOF
 workers:
   hosts:
@@ -263,6 +280,11 @@ grep -Eqx "pf_block=[1-9][0-9]*" <<<"$check" || die "pf has no rule that keeps t
 grep -qx "pf_enabled=1" <<<"$check" || die "pf is not enabled"
 grep -qx "sleep=disksleep=0 sleep=0 " <<<"$check" || die "the host can sleep"
 grep -q "worker_user=.*admin" <<<"$check" || die "no worker process runs as admin"
+
+cached=$(guest <<<'/usr/local/bin/tart list --source oci --quiet')
+echo "$cached"
+grep -qx "$KEPT" <<<"$cached" || die "the host removed the image of its profile from the cache"
+! grep -qx "$STALE" <<<"$cached" || die "the host kept an image that no profile names"
 
 say "running the playbook again, which must change nothing"
 playbook
@@ -433,4 +455,4 @@ grep -qx "stage_label=0" <<<"$after" || die "the run after the drain-only run di
 grep -qx "mark=none" <<<"$after" || die "the run after the drain-only run left the mark of the drain"
 say "the drain-only run left the worker paused, and the next run changed the host and resumed it"
 
-say "PASS: the worker registers, the token stays secret, the playbook is idempotent, the worker and the pf rules survive a restart, the launchd job keeps the pf rules in force, and a change that restarts the worker drains the host first"
+say "PASS: the worker registers, the token stays secret, the playbook is idempotent, old images go, the worker and the pf rules survive a restart, the launchd job keeps the pf rules in force, and a change that restarts the worker drains the host first"

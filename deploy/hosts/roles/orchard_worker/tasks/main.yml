@@ -33,3 +33,6 @@
 
 - name: Pull the images of the profiles
   ansible.builtin.import_tasks: images.yml
+
+- name: Remove the images that no profile uses
+  ansible.builtin.import_tasks: prune.yml

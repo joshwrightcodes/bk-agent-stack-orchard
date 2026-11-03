@@ -77,8 +77,8 @@ orchard_worker_softnet_pools:
 orchard_worker_private_range: >-
   (?i)^(10(\.\d{1,3}){3}(/([89]|[12]\d|3[0-2]))?|172\.(1[6-9]|2\d|3[01])(\.\d{1,3}){2}(/(1[2-9]|2\d|3[0-2]))?|(192\.168|169\.254)(\.\d{1,3}){2}(/(1[6-9]|2\d|3[0-2]))?|(f[cd][0-9a-f]{2}|fe[89ab][0-9a-f]):[0-9a-f:]*(/(1\d|[2-9]\d|1[01]\d|12[0-8]))?)$
 
-# The calls of the play to the API of Orchard (tasks/drain.yml and service.yml), as the account of
-# the host. Orchard takes the name and the token of an account as HTTP basic
+# The calls of the play to the API of Orchard (tasks/drain.yml, service.yml, and prune.yml), as the
+# account of the host. Orchard takes the name and the token of an account as HTTP basic
 # authentication. The uri module keeps the password out of its output, and each task that uses
 # these values has no_log as well. The calls run on the host, which reaches the controller, and
 # trust only the CA of the controller.

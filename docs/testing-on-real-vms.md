@@ -94,7 +94,8 @@ deploy/hosts/test/pf.sh unload
 `mise run hosts-test` needs the opposite: its test VM reaches an Orchard controller on the Mac,
 which the rules block, so remove them before it. Besides the playbook, it disables pf and removes
 the rules in its VM, and checks that the launchd job of the hosts restores them within a minute. It
-also checks that only the worker user can run Softnet.
+also checks that only the worker user can run Softnet, and that the playbook removes a cached
+image that no profile names.
 
 The test also checks the drain of a host before a change that restarts the worker. Its VM cannot
 start a job VM, so the test suspends the worker process and gives Orchard a VM, which stays pending
