@@ -41,23 +41,32 @@ var (
 // Credentials names the environment variables that hold the image credentials. The values never
 // appear in the configuration file.
 type Credentials struct {
+	// The environment variable of the controller that holds the user name of the image. It must
+	// start with VM_. Required with vmCredentials.
 	UsernameEnv string `yaml:"usernameEnv"`
+
+	// The environment variable of the controller that holds the password of the image. It must
+	// start with VM_. Required with vmCredentials.
 	PasswordEnv string `yaml:"passwordEnv"`
 }
 
 // Timeouts limits each phase between the reservation of a job and the agent that acquires it.
 // A zero value means that the profile takes the default of the configuration.
 type Timeouts struct {
-	// Unplaced limits the wait for Orchard to give the virtual machine a worker.
+	// How long a VM can wait for Orchard to give it a worker. After this, the VM is deleted, and
+	// the job goes back to the queue to start again.
 	Unplaced time.Duration `yaml:"unplaced,omitempty"`
 
-	// Boot limits the image pull, the clone, and the start of the virtual machine process.
+	// How long the image pull, the clone, and the start of the VM can take. After this, the job
+	// fails and the VM is deleted.
 	Boot time.Duration `yaml:"boot,omitempty"`
 
-	// Acquire limits the guest boot and the agent that acquires the job.
+	// How long the boot of macOS and the start of the agent can take, until the agent takes the
+	// job. After this, the job fails with the last lines of the startup script.
 	Acquire time.Duration `yaml:"acquire,omitempty"`
 
-	// MaxVMLifetime deletes a virtual machine that outlives every other limit.
+	// The longest that any VM lives, whatever the state of its job. A job that runs longer loses
+	// its VM.
 	MaxVMLifetime time.Duration `yaml:"maxVMLifetime,omitempty"`
 }
 
@@ -69,26 +78,69 @@ func (t Timeouts) StartSum() time.Duration {
 
 // OTel carries the optional telemetry of the agent inside the virtual machine.
 type OTel struct {
-	Enabled    bool   `yaml:"enabled"`
-	Endpoint   string `yaml:"endpoint,omitempty"`
+	// Turns on the OpenTelemetry tracing of the agent in each VM. The spans of the agent then
+	// join the trace of the job.
+	Enabled bool `yaml:"enabled"`
+
+	// The OTLP endpoint that the agent sends to. It must use https, except on a loopback address.
+	// Empty means the default of the agent.
+	Endpoint string `yaml:"endpoint,omitempty"`
+
+	// The environment variable of the controller that holds the OTLP headers of the agent, such
+	// as a token of the collector. It must start with VM_.
 	HeadersEnv string `yaml:"headersEnv,omitempty"`
 }
 
 // Profile is one type of job virtual machine.
 type Profile struct {
-	Name             string            `yaml:"name"`
-	Match            map[string]string `yaml:"match"`
-	Image            string            `yaml:"image"`
-	CPU              uint64            `yaml:"cpu"`
-	MemoryMiB        uint64            `yaml:"memoryMiB"`
-	DiskSizeGB       uint64            `yaml:"diskSizeGB"`
-	WorkerLabels     map[string]string `yaml:"workerLabels,omitempty"`
-	SoftnetAllow     []string          `yaml:"softnetAllow,omitempty"`
-	StartupTransport Transport         `yaml:"startupTransport,omitempty"`
-	VMCredentials    *Credentials      `yaml:"vmCredentials,omitempty"`
-	Timeouts         Timeouts          `yaml:"timeouts,omitempty"`
-	OTel             OTel              `yaml:"otel,omitempty"`
-	Agent            Agent             `yaml:"agent,omitempty"`
+	// The name of the profile: lower-case letters, digits, and dashes. Each profile has its own
+	// name. The agent of each VM has the tag profile=NAME. Required.
+	Name string `yaml:"name"`
+
+	// The tags that a job must have, besides its queue, to run on this profile. A job runs on the
+	// profile whose match map equals its tags exactly, and {} matches a job with no tag other than
+	// the queue. Two profiles cannot have the same map. A job that matches no profile is left for
+	// another runner of the queue.
+	Match map[string]string `yaml:"match"`
+
+	// The Tart image of the VMs, in an OCI registry. It must run the Tart guest agent. Use a
+	// digest (@sha256:...), or the controller warns that the image can change. Required.
+	Image string `yaml:"image"`
+
+	// The CPU cores of each VM. Required.
+	CPU uint64 `yaml:"cpu"`
+
+	// The memory of each VM, in MiB. Required.
+	MemoryMiB uint64 `yaml:"memoryMiB"`
+
+	// The disk of each VM, in GB. It must be at least the disk of the image. Required.
+	DiskSizeGB uint64 `yaml:"diskSizeGB"`
+
+	// The labels that a worker must have to run the VMs of this profile.
+	WorkerLabels map[string]string `yaml:"workerLabels,omitempty"`
+
+	// IPv4 ranges in private networks that the VMs can reach, such as a mirror or an artifact
+	// store. Each one is a range with a prefix length from /16 to /32. Every pipeline on the queue
+	// can reach them, so the controller warns at start.
+	SoftnetAllow []string `yaml:"softnetAllow,omitempty"`
+
+	// How the Orchard worker runs the startup script of a VM: tart-guest-agent, or ssh with
+	// vmCredentials.
+	StartupTransport Transport `yaml:"startupTransport,omitempty"`
+
+	// The credentials of the image, for startupTransport ssh only.
+	VMCredentials *Credentials `yaml:"vmCredentials,omitempty"`
+
+	// The timeouts of this profile. A timeout that is unset or 0 takes the value of
+	// defaults.timeouts.
+	Timeouts Timeouts `yaml:"timeouts,omitempty"`
+
+	// The telemetry of the agent in each VM.
+	OTel OTel `yaml:"otel,omitempty"`
+
+	// Where the agent of each VM comes from. A value that is unset takes the value of
+	// defaults.agent.
+	Agent Agent `yaml:"agent,omitempty"`
 }
 
 // Validate reports every rule that this profile breaks.

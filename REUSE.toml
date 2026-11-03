@@ -29,6 +29,7 @@ path = [
   "deploy/orchard/image/Dockerfile",
   "images/**",
   "internal/orchard/*.md",
+  "internal/config/testdata/*.tmpl",
   "test/**/*.yml",
   "test/**/*.yaml",
   "test/**/*.md",

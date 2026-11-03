@@ -43,31 +43,66 @@ const (
 var controllerIDFormat = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,21}[a-z0-9])?$`)
 
 // Buildkite holds the settings of the Stacks API client.
+//
+// The first paragraph of the comment of each field with a yaml name is the text of the field in
+// docs/user/configuration.md, which a test writes from this source. Notes for the code follow a
+// line with only //.
 type Buildkite struct {
+	// The self-hosted Buildkite queue that this controller serves. Use a queue that no other agent
+	// or stack serves. Required.
 	Queue string `yaml:"queue"`
+
 	// AgentToken comes from the environment, never from the file.
 	AgentToken secret.String `yaml:"-"`
-	Endpoint   string        `yaml:"endpoint,omitempty"`
-	// PlainHTTPEndpoint permits an endpoint without TLS that is not a loopback address, such as
-	// the fake Stacks API of a test cluster. The agent token then travels unencrypted.
-	PlainHTTPEndpoint      bool          `yaml:"plainHTTPEndpoint,omitempty"`
-	PollInterval           time.Duration `yaml:"pollInterval,omitempty"`
-	JobStatesInterval      time.Duration `yaml:"jobStatesInterval,omitempty"`
-	ReservationExpiry      time.Duration `yaml:"reservationExpiry,omitempty"`
+
+	// The URL of the agent API of Buildkite. It must use https, except on a loopback address.
+	Endpoint string `yaml:"endpoint,omitempty"`
+
+	// Allows an endpoint without TLS that is not a loopback address, such as a fake API in a test
+	// cluster. The agent token then travels unencrypted, and the controller warns at start.
+	PlainHTTPEndpoint bool `yaml:"plainHTTPEndpoint,omitempty"`
+
+	// How often the controller reads the scheduled jobs of the queue. It must be shorter than
+	// stateFreshness.
+	PollInterval time.Duration `yaml:"pollInterval,omitempty"`
+
+	// How often the controller reads the state of the jobs that have a VM. It must be shorter than
+	// stateFreshness.
+	JobStatesInterval time.Duration `yaml:"jobStatesInterval,omitempty"`
+
+	// How long Buildkite holds a job for this controller after it reserves the job. From 1 s to
+	// 1 h, in whole seconds.
+	ReservationExpiry time.Duration `yaml:"reservationExpiry,omitempty"`
+
+	// How long before a reservation expires the controller renews it, while the VM of the job
+	// starts. It must be shorter than reservationExpiry.
 	ReservationRenewBefore time.Duration `yaml:"reservationRenewBefore,omitempty"`
-	JobTokenLifetime       time.Duration `yaml:"jobTokenLifetime,omitempty"`
+
+	// How long the token that the controller gives each VM stays valid. The token opens one job
+	// only. From 1 s to 30 min, in whole seconds, and at least the sum of the unplaced, boot, and
+	// acquire timeouts of each profile.
+	JobTokenLifetime time.Duration `yaml:"jobTokenLifetime,omitempty"`
 }
 
 // Orchard holds the settings of the Orchard client.
 type Orchard struct {
-	URL               string        `yaml:"url"`
-	ServiceAccount    string        `yaml:"serviceAccount"`
+	// The URL of the Orchard controller. It must use https, except on a loopback address.
+	// Required.
+	URL string `yaml:"url"`
+
+	// The Orchard service account of this controller. It needs the compute:read and compute:write
+	// roles. Required.
+	ServiceAccount string `yaml:"serviceAccount"`
+
+	// How often the controller reads the workers and VMs of Orchard. It must be shorter than
+	// stateFreshness.
 	InventoryInterval time.Duration `yaml:"inventoryInterval,omitempty"`
 
-	// WorkerOfflineTimeout is how long a worker may be silent before this controller counts it
-	// as offline. It MUST match the timeout of the Orchard controller: a value that is shorter
-	// makes this controller hold back slots that Orchard still uses, and a value that is longer
-	// makes it start jobs for a worker that Orchard has already given up on.
+	// How long a worker can be silent before the controller counts it as offline. Set it to the
+	// worker offline timeout of your Orchard controller.
+	//
+	// A value that is shorter makes this controller hold back slots that Orchard still uses, and a
+	// value that is longer makes it start jobs for a worker that Orchard has already given up on.
 	WorkerOfflineTimeout time.Duration `yaml:"workerOfflineTimeout,omitempty"`
 
 	// Token and CACert come from the environment, never from the file.
@@ -77,10 +112,12 @@ type Orchard struct {
 
 // Defaults holds the values that a profile takes when it states none.
 type Defaults struct {
+	// The timeouts of each profile that sets none of its own.
 	Timeouts profile.Timeouts `yaml:"timeouts,omitempty"`
 
-	// Agent is where the agent of each virtual machine comes from. A value that the file leaves
-	// unset comes from profile.DefaultAgent.
+	// Where the agent of each VM comes from, for each profile that does not say.
+	//
+	// A value that the file leaves unset comes from profile.DefaultAgent.
 	Agent profile.Agent `yaml:"agent,omitempty"`
 }
 
@@ -96,14 +133,33 @@ const MaxJobTokenLifetime = 30 * time.Minute
 
 // Config is the whole configuration of one controller.
 type Config struct {
-	ControllerID   string            `yaml:"controllerID"`
-	Buildkite      Buildkite         `yaml:"buildkite"`
-	Orchard        Orchard           `yaml:"orchard"`
-	MaxInFlight    uint64            `yaml:"maxInFlight,omitempty"`
-	StateFreshness time.Duration     `yaml:"stateFreshness,omitempty"`
-	HealthAddress  string            `yaml:"healthAddress,omitempty"`
-	Defaults       Defaults          `yaml:"defaults,omitempty"`
-	Profiles       []profile.Profile `yaml:"profiles"`
+	// The name of this controller. It is part of the name of each VM, so it is lower-case
+	// letters, digits, and dashes, 23 characters or fewer. Required.
+	ControllerID string `yaml:"controllerID"`
+
+	// The connection to Buildkite.
+	Buildkite Buildkite `yaml:"buildkite"`
+
+	// The connection to Orchard.
+	Orchard Orchard `yaml:"orchard"`
+
+	// The most VMs that this controller runs at one time. 0 means the free VM slots of the
+	// workers that can run the profiles.
+	MaxInFlight uint64 `yaml:"maxInFlight,omitempty"`
+
+	// How old the data of Buildkite and Orchard can be before the controller stops starting VMs
+	// and reports that it is not ready.
+	StateFreshness time.Duration `yaml:"stateFreshness,omitempty"`
+
+	// The address of the gRPC health service, with the services liveness and readiness.
+	HealthAddress string `yaml:"healthAddress,omitempty"`
+
+	// The values that a profile takes when it sets none of its own.
+	Defaults Defaults `yaml:"defaults,omitempty"`
+
+	// The types of job VM. A job runs on the profile whose match map equals its tags. At least one
+	// profile is required.
+	Profiles []profile.Profile `yaml:"profiles"`
 
 	// Warnings comes from the validation, not from the file.
 	Warnings []string `yaml:"-"`

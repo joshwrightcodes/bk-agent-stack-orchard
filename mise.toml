@@ -88,6 +88,10 @@ run = "./scripts/check-c4.sh"
 description = "Write the generated files, including the Orchard wire types"
 run = "go generate ./..."
 
+[tasks.docs-reference]
+description = "Write docs/user/configuration.md from the comments of the configuration types"
+run = "go test ./internal/config -run '^TestTheConfigurationReferenceIsCurrent$' -update"
+
 [tasks.check-generate]
 description = "Fail when a generated file is behind the version that the documents pin"
 # git add -N first: a generated file that nobody added is invisible to git diff, so a new one

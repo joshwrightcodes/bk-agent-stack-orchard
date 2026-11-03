@@ -71,6 +71,12 @@ The design documents use identifiers such as `PR-001`, `T-100`, and `ADR-0006`. 
   "[here](user/install.md)".
 * Write dates as `YYYY-MM-DD`.
 
+## Generated pages
+
+`docs/user/configuration.md` is written from the comments of the configuration types. Do not edit
+it. Change the first paragraph of the comment of a field, which is the text that an operator
+reads, and run `mise run docs-reference`.
+
 ## Checks
 
 `mise run check-docs` checks the line width, that each link resolves, that each cited identifier
