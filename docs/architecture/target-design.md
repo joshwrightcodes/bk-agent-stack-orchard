@@ -1538,6 +1538,7 @@ scope, because they depend on the backend behind the collector.
 | Jobs wait too long | `bkaso.job.waiting.oldest.age` rises and stays high. | Jobs wait longer than the wait objective of the operator. The fleet is full, or no worker carries the profile. |
 | Controller is not ready | `bkaso.source.staleness` of a source rises and stays high. | The controller has no fresh answer from Buildkite or Orchard, so it starts no VM (§7.5). |
 | Admission is stopped | `bkaso.admission.blocked` stays at 1 for a reason. | The controller starts no VM. The reason names the source, or a queue that an operator paused. |
+| VMs do not start | `bkaso.vm.starts` with an outcome other than `created` keeps increasing. | The controller reserves jobs and gets no VM for them, so each job waits until its reservation ends (§7.5). |
 | Controller fails jobs | `bkaso.job.failed` keeps increasing. | VMs fail, or time out before an agent takes the job. |
 | Timeouts repeat | `bkaso.vm.deletions{bkaso.vm.delete.reason=~".*_timeout"}` keeps increasing. | VMs do not place, boot, or reach an agent within the timeouts of their profile (§7.3). |
 | VMs remain | `bkaso.vm.leftover` rises and stays high. Outages of Buildkite excluded. | The Reaper does not delete the VMs of ended jobs. A VM that stays in the count for longer than the window of §10.1 is a leak. |
