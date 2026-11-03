@@ -1383,6 +1383,17 @@ replicas can reserve more jobs than the free slots. The unplaced-VM timeout then
 jobs, and the "Timeouts repeat" alert (§10.6) shows the effect. Outside the reference deployment,
 the platform MUST run exactly one replica.
 
+**Several controllers on one Orchard.** Controllers that share one Orchard, for example one for
+each queue, MUST use disjoint worker pools. The `workerLabels` of the profiles of one controller
+MUST NOT select a worker that a profile of another controller selects, so each controller selects
+workers by its own `workerLabels`. Admission counts the free slots of the selected workers from
+one snapshot, and controllers do not coordinate (§6.3). If two controllers select the same
+worker, both count the same free slots, and together they reserve more jobs than the worker can
+run. The VM that Orchard cannot place waits until the `unplaced` timeout deletes it (row 10 of
+§7.2), and its job becomes `scheduled` again. Under steady load this repeats, and the "Timeouts
+repeat" alert (§10.6) shows it. Each controller also lists every VM and every worker of the
+Orchard at each refresh, so the load on Orchard grows with the number of controllers.
+
 **Implements.** PR-022, PR-023, PR-024, OP-03, OP-04, CO-02, CO-06.
 
 ## 12. Testing

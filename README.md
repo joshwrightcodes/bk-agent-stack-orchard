@@ -86,7 +86,9 @@ The repository also has examples that you can adapt:
 ## Limitations
 
 * One controller serves one queue, and runs as one replica. For more queues, run more
-  controllers.
+  controllers. Controllers that share one Orchard need separate pools of workers: the
+  `workerLabels` of one controller must select no worker of another, or both count the same free
+  slots.
 * The controller does not add or remove Mac hosts. You size the host pool.
 * There is no pool of warm VMs. Each job waits for its VM to boot, typically 30 to 60 seconds.
 * The hosts must be Apple silicon Macs. Apple permits at most two macOS VMs on one Mac at a time.

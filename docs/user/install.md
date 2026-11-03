@@ -17,7 +17,11 @@ You need these items:
   runners.
 * **Apple silicon Mac hosts** that run an Orchard worker and Tart 2.39.0 or later.
 * **An Orchard controller**, version 0.58.0 or later, and an Orchard service account for this
-  controller.
+  controller. Several controllers can share one Orchard, for example one for each queue. Then give
+  each controller its own pool of workers: the `workerLabels` of the profiles of one controller
+  must select no worker that another controller selects. If two controllers select the same
+  worker, both count the same free slots, they reserve more jobs than the worker can run, and VMs
+  wait unplaced until the controller deletes them.
 * **A Tart image for each profile, which you build.** The project publishes no job VM image. The
   image must run the Tart guest agent, and it must meet the image rules of the target design,
   section 9.2: no well-known credential over the network, and SSH and Screen Sharing off.
