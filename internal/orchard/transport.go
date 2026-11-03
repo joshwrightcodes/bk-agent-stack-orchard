@@ -12,7 +12,9 @@ import (
 // Transport gives the transport of the calls to Orchard. The Orchard controller makes its own
 // certificate when nobody gives it one, and no public authority signed that certificate, so the
 // controller of this project trusts the certificate or the authority that the operator gives, as
-// PEM, beside the authorities of the system. Empty PEM trusts the authorities of the system only.
+// PEM. It then trusts that PEM only, and not the authorities of the system: a public authority
+// can issue a certificate for the name of Orchard, and a client that trusts it would send the
+// Orchard token to whoever holds that certificate. Empty PEM trusts the authorities of the system.
 //
 // Only the calls to Orchard trust it. The calls to Buildkite keep the authorities of the system.
 func Transport(caPEM string) (*http.Transport, error) {
@@ -27,11 +29,7 @@ func Transport(caPEM string) (*http.Transport, error) {
 		return transport, nil
 	}
 
-	roots, err := x509.SystemCertPool()
-	if err != nil {
-		roots = x509.NewCertPool()
-	}
-
+	roots := x509.NewCertPool()
 	if !roots.AppendCertsFromPEM([]byte(caPEM)) {
 		return nil, errors.New("the Orchard certificate holds no PEM certificate")
 	}

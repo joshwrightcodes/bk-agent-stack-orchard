@@ -60,8 +60,11 @@ releases.
 
    A profile field that names an environment variable (`vmCredentials.usernameEnv`,
    `vmCredentials.passwordEnv`, and `otel.headersEnv`) must name a variable that starts with
-   `VM_`. Add the variable with `extraEnv`. Only a `VM_` variable can go into a VM, because the
-   controller pod holds other secrets.
+   `VM_`. Only a `VM_` variable can go into a VM, because the controller pod holds other secrets.
+   Such a variable holds a secret, so put it in the Secret of step 2, with the other keys. The pod
+   loads every key of that Secret. To read it from another Secret, add it to `extraEnv` with
+   `valueFrom.secretKeyRef`. Do not give it a literal `value` in `extraEnv`: that value goes into
+   the Deployment and the history of the release, and the values schema refuses it.
 
 4. Install the chart that you verified. Do not install it by `--version`. A version is a tag in
    the registry, and Helm reads the tag again when it installs, after your check. Use one of these
@@ -259,5 +262,8 @@ Until version 1.0:
   you what to change.
 * A patch release contains only fixes, and no breaking change.
 * Pin an exact version or an image digest. Do not use a version range.
+
+To upgrade, [verify the new release](#verify-a-release). Then run `helm upgrade` with the chart
+package of the release or the chart digest, in the same way as the install step.
 
 `CHANGELOG.md` lists the changes in each release. Read it before you upgrade.

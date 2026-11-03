@@ -94,6 +94,11 @@
           "name": {"type": "string", "minLength": 1},
           "value": {"type": "string"},
           "valueFrom": {"type": "object"}
+        },
+        "if": {"properties": {"name": {"pattern": "^VM_"}}},
+        "then": {
+          "description": "A VM_ variable is a secret that a profile sends to a VM. A literal value would go into the Deployment and the history of the release, so it comes from a Secret.",
+          "not": {"required": ["value"]}
         }
       }
     },
@@ -107,6 +112,7 @@
       }
     },
     "priorityClassName": {"type": "string"},
+    "terminationGracePeriodSeconds": {"type": "integer", "minimum": 20},
     "resources": {
       "type": "object",
       "additionalProperties": false,

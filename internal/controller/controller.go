@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
@@ -143,6 +144,10 @@ type Controller struct {
 	// how long after that read the source waits. Only the goroutine of the loop reads and writes
 	// it.
 	paused map[telemetry.Source]time.Duration
+
+	// lastTick is the time of the last tick that Run finished, which is when that tick began.
+	// The liveness check reads it from another goroutine.
+	lastTick atomic.Pointer[time.Time]
 }
 
 // New builds the loop.
@@ -246,9 +251,22 @@ func (c *Controller) Run(ctx context.Context) error {
 			// The value of the ticker is the time that the beat was due. After a tick that took
 			// longer than the interval, that time is in the past, and the freshness gate would
 			// measure an old answer against it. The clock gives the time of the work.
-			c.Tick(ctx, c.now())
+			at := c.now()
+			c.Tick(ctx, at)
+			c.lastTick.Store(&at)
 		}
 	}
+}
+
+// LastTick gives the time of the last tick that Run finished, which is when that tick began, and
+// the zero time before the first one. A loop that stops in a tick stops this time, and the
+// liveness check reads it.
+func (c *Controller) LastTick() time.Time {
+	if at := c.lastTick.Load(); at != nil {
+		return *at
+	}
+
+	return time.Time{}
 }
 
 // withdraw takes the stack out of Buildkite. The context of the loop has ended, so the call gets

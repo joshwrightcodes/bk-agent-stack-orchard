@@ -4,12 +4,20 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"log/slog"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	grpchealth "google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
 func TestVersionPrintsTheVersionAndTheCommit(t *testing.T) {
@@ -171,5 +179,137 @@ func TestTheClientsOfTheControllerCarryATimeout(t *testing.T) {
 
 	if httpTimeout != 30*time.Second {
 		t.Errorf("httpTimeout = %s, want 30s", httpTimeout)
+	}
+}
+
+// An unreachable collector makes each exporter retry for about a minute. The stop of telemetry
+// must end inside the termination grace of the pod, and its failure goes where run reports.
+func TestTheStopOfTelemetryHasADeadline(t *testing.T) {
+	var problems bytes.Buffer
+
+	var deadline time.Duration
+
+	stopTelemetry(t.Context(), func(ctx context.Context) error {
+		at, ok := ctx.Deadline()
+		if !ok {
+			t.Fatal("the stop of telemetry has no deadline")
+		}
+
+		deadline = time.Until(at)
+
+		return errors.New("the collector does not answer")
+	}, &problems)
+
+	if deadline <= 0 || deadline > telemetryGrace || telemetryGrace > 10*time.Second {
+		t.Errorf("the stop of telemetry has %s left of %s, want at most 10s", deadline,
+			telemetryGrace)
+	}
+
+	if !strings.Contains(problems.String(), "the collector does not answer") {
+		t.Errorf("the problems read %q, want the failure of the stop", problems.String())
+	}
+}
+
+// A signal cancels the context of the process before telemetry stops. The stop still gets its
+// whole grace, because the last records are the interesting ones.
+func TestTheStopOfTelemetryOutlivesTheSignal(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	stopTelemetry(ctx, func(ctx context.Context) error {
+		if err := ctx.Err(); err != nil {
+			t.Errorf("the stop of telemetry got a context that ended: %v", err)
+		}
+
+		return nil
+	}, &bytes.Buffer{})
+}
+
+// stoppedListener is a listener that fails at once, as a listener whose socket the system closed.
+type stoppedListener struct{ net.Listener }
+
+func (stoppedListener) Accept() (net.Conn, error) { return nil, errors.New("the socket is gone") }
+
+// A probe server that stops on its own leaves a controller that looks dead to the platform, so
+// the log must say why.
+func TestAProbeServerThatFailsIsLogged(t *testing.T) {
+	var log bytes.Buffer
+
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen() = %v", err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+
+	serveProbes(t.Context(), newProbeServer(), stoppedListener{listener},
+		slog.New(slog.NewTextHandler(&log, nil)))
+
+	if !strings.Contains(log.String(), "the socket is gone") {
+		t.Errorf("the log reads %q, want the failure of the probe server", log.String())
+	}
+}
+
+// The stop of the process stops the probe server, which is no failure.
+func TestAProbeServerThatIsStoppedLogsNothing(t *testing.T) {
+	var log bytes.Buffer
+
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen() = %v", err)
+	}
+
+	server := newProbeServer()
+	server.Stop()
+
+	serveProbes(t.Context(), server, listener, slog.New(slog.NewTextHandler(&log, nil)))
+
+	if log.Len() != 0 {
+		t.Errorf("the log reads %q, want nothing for a server that was stopped", log.String())
+	}
+}
+
+// Each Watch of the health service is a stream without an end. The probe server limits the
+// streams of one connection, so that one client cannot fill the memory of the pod with them.
+func TestTheProbeServerLimitsTheStreamsOfAConnection(t *testing.T) {
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen() = %v", err)
+	}
+
+	server := newProbeServer()
+	healthpb.RegisterHealthServer(server, grpchealth.NewServer())
+
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(server.Stop)
+
+	conn, err := grpc.NewClient(listener.Addr().String(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("NewClient() = %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	client := healthpb.NewHealthClient(conn)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+
+	for i := range probeStreams {
+		watch, err := client.Watch(ctx, &healthpb.HealthCheckRequest{})
+		if err != nil {
+			t.Fatalf("Watch() %d = %v, want a stream", i, err)
+		}
+
+		if _, err := watch.Recv(); err != nil {
+			t.Fatalf("Recv() of the stream %d = %v, want a status", i, err)
+		}
+	}
+
+	short, stop := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer stop()
+
+	if _, err := client.Check(short, &healthpb.HealthCheckRequest{}); err == nil {
+		t.Errorf("a call beyond %d open streams = nil, want it to wait for a free stream",
+			probeStreams)
 	}
 }

@@ -1,12 +1,15 @@
-# The Orchard base of deploy/orchard, as an operator deploys it, with the image that the smoke
-# test builds and loads into kind, the collector of the smoke namespace, and the namespace of the
-# controller in the NetworkPolicy. kind uses kindnet, which enforces a NetworkPolicy, so this
+# The Orchard base of deploy/orchard, as an operator deploys it for the first start, with the image
+# that the smoke test builds and loads into kind, the collector of the smoke namespace, and the
+# namespace of the controller in the NetworkPolicy. Each smoke run is a first start, so it has the
+# component first-start, which gives Orchard the token of the bootstrap admin. kind uses kindnet, which enforces a NetworkPolicy, so this
 # test proves that the controller and the Job reach Orchard, and not that others are refused.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: orchard
 resources:
   - ../../../deploy/orchard
+components:
+  - ../../../deploy/orchard-overlays/first-start
 images:
   - name: orchard
     newName: orchard

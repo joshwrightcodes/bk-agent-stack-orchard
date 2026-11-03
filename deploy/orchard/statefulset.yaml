@@ -49,19 +49,12 @@ spec:
             - --listen=:6120
             - --controller-cert=/etc/orchard/tls/tls.crt
             - --controller-key=/etc/orchard/tls/tls.key
-          env:
-            # The bootstrap admin exists for the bootstrap Job, which creates the service accounts
-            # of the controller and of the workers. While this variable is set, each start of
-            # Orchard makes the bootstrap-admin account again. After the first bootstrap the
-            # operator MUST remove the variable, so that this pod holds no admin token. The account
-            # and its token then stay only in the Secret orchard-bootstrap, which only the Job
-            # mounts, for the next change of a host (README, section "First start and after the
-            # first bootstrap").
-            - name: ORCHARD_BOOTSTRAP_ADMIN_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: orchard-bootstrap
-                  key: bootstrap-admin-token
+          # The component deploy/orchard-overlays/first-start gives this container
+          # ORCHARD_BOOTSTRAP_ADMIN_TOKEN for the first start only. The bootstrap Job needs the
+          # bootstrap-admin account that the variable makes, and each start with the variable makes
+          # the account again with all roles. With the component only in the first start, the pod
+          # holds an admin token only until the first bootstrap (README, section "First start and
+          # after the first bootstrap").
           envFrom:
             - configMapRef:
                 name: orchard-telemetry

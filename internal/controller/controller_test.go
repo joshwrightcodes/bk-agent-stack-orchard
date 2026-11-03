@@ -423,3 +423,41 @@ func TestNewRefusesAnIncompleteLoop(t *testing.T) {
 		})
 	}
 }
+
+// The liveness check reads when the loop last finished a tick, so a loop that stops in a tick
+// stops the heartbeat.
+func TestTheLoopGivesTheTimeOfItsLastTick(t *testing.T) {
+	t.Parallel()
+
+	loop, err := controller.New(options(t, &recorder{}))
+	if err != nil {
+		t.Fatalf("New() = %v, want the loop", err)
+	}
+
+	if got := loop.LastTick(); !got.IsZero() {
+		t.Fatalf("LastTick() before Run = %s, want the zero time", got)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	finished := make(chan error, 1)
+
+	go func() { finished <- loop.Run(ctx) }()
+
+	deadline := time.After(2 * time.Second)
+
+	for loop.LastTick().IsZero() {
+		select {
+		case <-deadline:
+			cancel()
+			t.Fatal("the loop gave no time of a tick inside two seconds")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+	cancel()
+
+	if err := <-finished; err != nil {
+		t.Fatalf("Run() = %v, want no error", err)
+	}
+}

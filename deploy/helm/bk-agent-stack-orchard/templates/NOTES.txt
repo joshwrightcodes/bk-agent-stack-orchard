@@ -7,3 +7,26 @@ release with the same controllerID.
 
 Readiness: the pod is ready when every source of the controller answered within `stateFreshness` and
 Buildkite accepts the agent token. When it is not ready, the log of the pod names each reason.
+{{- if .Values.networkPolicy.enabled }}
+{{- $open := list }}
+{{- range $name := list "buildkite" "orchard" "collector" }}
+{{- if not (index $.Values.networkPolicy $name).to }}
+{{- $open = append $open (printf "%s (port %v)" $name (index $.Values.networkPolicy $name).port) }}
+{{- end }}
+{{- end }}
+{{- if $open }}
+
+WARNING: these destinations have an empty "to" list, so the NetworkPolicy lets the controller reach
+any address on their port:
+
+  {{ join ", " $open }}
+
+A leaked token or a compromised pod can then send data to any host on that port. Set
+networkPolicy.<destination>.to to the peers of each destination. The README of the chart, section
+"The NetworkPolicy", has examples.
+{{- end }}
+{{- else }}
+
+WARNING: networkPolicy.enabled is false, so this chart limits no traffic of the controller. Apply a
+policy of your own that limits its egress.
+{{- end }}

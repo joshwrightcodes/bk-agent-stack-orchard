@@ -74,23 +74,43 @@ These are known, recorded, and accepted. They are not vulnerabilities in this pr
   VM, because the token is in the VM specification for the full life of the VM. The token opens
   one job only, and it expires after a maximum of 30 minutes (target design, section 9.2). The
   mitigation is to give `compute:read` to few accounts and to no build.
+* One compromised Mac host exposes the jobs of the whole fleet, and not only the jobs of that
+  host. Each worker account has `compute:read`, because an Orchard worker needs it, and that role
+  reads the specification of every VM on every host. Root on one host, for example after a VM
+  escape, or anyone who holds the Orchard token of one host, can therefore read the job
+  acquisition token of every job that has a VM. That person can then acquire a job before its VM
+  does, and run the job with its secrets on a machine of their choice. The IP allowlist of the
+  cluster agent token gives no protection here: Buildkite applies it when an agent registers with
+  a job acquisition token, and
+  [ADR-0008](docs/adrs/0008-use-a-dedicated-cluster-agent-token.md) requires it to include the
+  egress of the job VMs, which is the egress of the hosts. A request from any host therefore
+  passes. The limits are that a token opens one job, and that it expires after `jobTokenLifetime`
+  (at most 30 minutes). The controls are a token for each host, so that the operator revokes one
+  host alone (runbook
+  [`docs/user/runbooks/orchard-worker-accounts.md`](docs/user/runbooks/orchard-worker-accounts.md)),
+  and the pf isolation of each host from its VMs. Orchard has no role narrower than
+  `compute:read` for a worker. The residual risk remains while the job acquisition token is in the
+  VM specification.
 * When a profile enables agent telemetry, the credential of the OpenTelemetry collector (the
   headers) enters the VM. A hostile build can read it. The mitigation is that the collector
   uses its own ingest token, with the lowest privilege, that can send telemetry and do nothing
   else.
 * Orchard 0.58.0 makes a `bootstrap-admin` account with all roles, and prints its random token in
   its log, when it starts with an empty database and without `ORCHARD_BOOTSTRAP_ADMIN_TOKEN`. This
-  can happen after the loss of the PVC, when the operator has retired the bootstrap admin. The
-  control is the runbook
-  [`docs/user/runbooks/orchard-bootstrap-admin.md`](docs/user/runbooks/orchard-bootstrap-admin.md): put the
-  variable back before a start with an empty PVC, treat the log of the Orchard pod as a secret, and
-  delete the account if it was logged. The residual risk is that an operator forgets, and that a
-  log shipper keeps the token until the operator purges it.
+  can happen at a first start without the kustomize component
+  `deploy/orchard-overlays/first-start`, and after the loss of the PVC. The bootstrap Job then
+  fails with a message that names the component. The control is the runbook
+  [`docs/user/runbooks/orchard-bootstrap-admin.md`](docs/user/runbooks/orchard-bootstrap-admin.md): add the
+  component before a start with an empty PVC, treat the log of the Orchard pod as a secret, and
+  set the account again if its token was logged. A start with the component sets the account
+  again with the token of the Secret, so the logged token stops working. The residual risk is
+  that a log shipper keeps the token until the operator purges it.
 * The bootstrap admin of Orchard has all roles, and its token stays in the Kubernetes Secret
   `orchard-bootstrap` after the first bootstrap, because each add, rotation, migration, or
   revocation of a host runs the bootstrap Job again. The controls are that only the Job mounts
-  the Secret (the Orchard pod does not hold the token), that Kubernetes RBAC limits who can read
-  Secrets of the `orchard` namespace, and that the operator rotates the token (runbook
+  the Secret (the Orchard pod reads it only while the overlay has the component
+  `deploy/orchard-overlays/first-start`, for the first start), that Kubernetes RBAC limits who can
+  read Secrets of the `orchard` namespace, and that the operator rotates the token (runbook
   [`docs/user/runbooks/orchard-bootstrap-admin.md`](docs/user/runbooks/orchard-bootstrap-admin.md)). The
   residual risk is that a person or a workload with the right to read Secrets of the namespace,
   or a copy of the cluster state, gives full control of Orchard, and that a late rotation leaves

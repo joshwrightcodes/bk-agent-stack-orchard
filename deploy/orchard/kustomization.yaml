@@ -1,7 +1,9 @@
 # The Orchard controller on Kubernetes (target design, section 11). A base: an overlay sets the
 # namespace, the image in the registry of the operator, the namespace of the controller and the
 # CIDRs of the Mac hosts in the NetworkPolicy, an internal load balancer for the Mac hosts (the
-# example is deploy/orchard-overlays/internal-lb), and the endpoint of the collector.
+# example is deploy/orchard-overlays/internal-lb), and the endpoint of the collector. For the first
+# start only, the overlay also takes the component deploy/orchard-overlays/first-start, which gives
+# Orchard the token of the bootstrap admin.
 #
 # The StatefulSet names the image "orchard", which is a placeholder: the overlay MUST replace it
 # with an images entry whose name is orchard, as the README shows. The base renames nothing, so

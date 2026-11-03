@@ -9,9 +9,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -22,6 +24,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/grpc"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/keepalive"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/app"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
@@ -72,7 +75,7 @@ func run(args []string, out, problems io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	if err := serve(ctx, location, origin, out); err != nil {
+	if err := serve(ctx, location, origin, out, problems); err != nil {
 		_, _ = fmt.Fprintf(problems, "bk-agent-stack-orchard: %v\n", err)
 
 		return 1
@@ -102,8 +105,9 @@ func configPath(flagged string, getenv func(string) string) (path, origin string
 	return defaultConfigPath, "the default path"
 }
 
-// serve runs the controller until the context ends.
-func serve(ctx context.Context, path, origin string, out io.Writer) error {
+// serve runs the controller until the context ends. A failure after the start of telemetry that
+// no log record can carry goes to problems.
+func serve(ctx context.Context, path, origin string, out, problems io.Writer) error {
 	settings, err := config.Load(path, os.Getenv)
 	if err != nil {
 		return fmt.Errorf("%w (the path %s comes from %s)", err, path, origin)
@@ -120,12 +124,7 @@ func serve(ctx context.Context, path, origin string, out io.Writer) error {
 
 	// The records of the last seconds of a process are the interesting ones, so telemetry stops
 	// after everything that writes to it.
-	defer func() {
-		if err := recorder.Shutdown(context.WithoutCancel(ctx)); err != nil {
-			_, _ = fmt.Fprintf(os.Stderr,
-				"bk-agent-stack-orchard: stopping telemetry: %v\n", err)
-		}
-	}()
+	defer stopTelemetry(ctx, recorder.Shutdown, problems)
 
 	for _, warning := range settings.Warnings {
 		recorder.Logger.WarnContext(ctx, warning)
@@ -188,6 +187,8 @@ func serve(ctx context.Context, path, origin string, out io.Writer) error {
 		Sources:      sources,
 		Unauthorized: stacks.Unauthorized,
 		Window:       settings.StateFreshness,
+		Heartbeat:    loop.LastTick,
+		Stall:        livenessStall,
 		Now:          now,
 		Logger:       recorder.Logger,
 	})
@@ -195,7 +196,7 @@ func serve(ctx context.Context, path, origin string, out io.Writer) error {
 		return err
 	}
 
-	stopProbes, err := probe(ctx, settings.HealthAddress, checks)
+	stopProbes, err := probe(ctx, settings.HealthAddress, checks, recorder.Logger)
 	if err != nil {
 		return err
 	}
@@ -204,19 +205,75 @@ func serve(ctx context.Context, path, origin string, out io.Writer) error {
 	return loop.Run(ctx)
 }
 
+// livenessStall is how long the loop may go without a finished tick before liveness fails and the
+// platform restarts the process. Each call to an API has a timeout of 30 s, and a tick in an
+// outage of an API makes many calls, so the bound is many times the slowest tick that an outage
+// gives. A restart cures a loop that waits without an end, and not an outage.
+const livenessStall = 15 * time.Minute
+
+// telemetryGrace is how long the stop of telemetry may take. An exporter that cannot reach the
+// collector retries for about a minute, and the platform kills a process that outlives its
+// termination grace, so the stop gives up first. The chart gives the pod a termination grace of
+// 45 s, which covers the withdrawal of the stack (10 s) and this grace.
+const telemetryGrace = 10 * time.Second
+
+// stopTelemetry stops telemetry inside its grace. A signal has cancelled the context of the
+// process by then, so the stop gets a context of its own. No log record can carry its failure,
+// so the failure goes to problems.
+func stopTelemetry(ctx context.Context, shutdown func(context.Context) error, problems io.Writer) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), telemetryGrace)
+	defer cancel()
+
+	if err := shutdown(ctx); err != nil {
+		_, _ = fmt.Fprintf(problems, "bk-agent-stack-orchard: stopping telemetry: %v\n", err)
+	}
+}
+
+// probeStreams is the most streams that one connection to the probe server may hold. A probe of
+// the kubelet is one call on a new connection, and each Watch is a stream without an end, so a
+// low limit costs a probe nothing and stops one client from holding many streams.
+const probeStreams = 16
+
+// newProbeServer gives the gRPC server of the probes. Its limits protect a pod with a small
+// memory limit from a client that holds streams or connections open, or that pings without end.
+func newProbeServer() *grpc.Server {
+	return grpc.NewServer(
+		grpc.MaxConcurrentStreams(probeStreams),
+		// A health request names one service, so a large message is never a probe.
+		grpc.MaxRecvMsgSize(4096),
+		// A client may ping once a minute, and only while it has a stream. The server closes a
+		// connection that a client pings more often.
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{MinTime: time.Minute}),
+		// A connection with no stream for 5 minutes closes.
+		grpc.KeepaliveParams(keepalive.ServerParameters{MaxConnectionIdle: 5 * time.Minute}),
+	)
+}
+
+// serveProbes serves the probes until the server stops. A server that stops for another reason
+// leaves a controller whose probes nobody can reach, so the log says why.
+func serveProbes(ctx context.Context, server *grpc.Server, listener net.Listener,
+	logger *slog.Logger,
+) {
+	if err := server.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
+		logger.ErrorContext(ctx, "the probe server stopped, so the platform cannot probe the "+
+			"controller", "error", err.Error())
+	}
+}
+
 // probe serves the gRPC health service of the probes, and keeps it current, until the returned
 // function stops both. A port that another process holds fails the start, because a controller
 // whose probes nobody can reach looks dead to the platform, which then restarts it for ever.
-func probe(ctx context.Context, address string, checks *health.Checks) (func(), error) {
+func probe(ctx context.Context, address string, checks *health.Checks, logger *slog.Logger,
+) (func(), error) {
 	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", address)
 	if err != nil {
 		return nil, fmt.Errorf("serving the probes on %s: %w", address, err)
 	}
 
-	server := grpc.NewServer()
+	server := newProbeServer()
 	healthpb.RegisterHealthServer(server, checks.Server())
 
-	go func() { _ = server.Serve(listener) }()
+	go serveProbes(ctx, server, listener, logger)
 
 	updates, stop := context.WithCancel(ctx)
 	done := make(chan struct{})

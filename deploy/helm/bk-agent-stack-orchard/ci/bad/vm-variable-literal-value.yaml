@@ -1,0 +1,5 @@
+# A VM_ variable is a secret. A literal value goes into the Deployment and the history of the
+# release, so the schema refuses it, and the variable comes from a Secret.
+extraEnv:
+  - name: VM_PASSWORD
+    value: admin

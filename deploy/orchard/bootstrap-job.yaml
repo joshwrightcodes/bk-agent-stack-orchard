@@ -14,8 +14,9 @@
 # It calls the REST API of Orchard with the bootstrap admin, and gives curl the credentials and the
 # body on standard input, not on its argv, and trusts the authority of the Secret orchard-tls. The
 # bootstrap admin and its key bootstrap-admin-token stay after the first bootstrap, because each
-# change of a host runs this Job again. Only this Job mounts the key, and the Orchard pod no
-# longer holds it (README, section "First start and after the first bootstrap"). A PUT replaces an
+# change of a host runs this Job again. After the first bootstrap only this Job reads the key: the
+# Orchard pod reads it only while the overlay has the component first-start (README, section
+# "First start and after the first bootstrap"). A PUT replaces an
 # account that exists, and a POST creates one that does not, so the Job gives the same result on
 # every run.
 apiVersion: batch/v1
@@ -74,6 +75,13 @@ spec:
                   case "$code" in
                     200) echo "the service account $1 is set"; return 0 ;;
                     404) continue ;;
+                    401)
+                      echo "orchard refused the token of bootstrap-admin for $1. Either Orchard" \
+                           "started without the component first-start, or the key" \
+                           "bootstrap-admin-token is not the token of the account. See the" \
+                           "README of deploy/orchard, section \"First start and after the" \
+                           "first bootstrap\"." >&2
+                      return 1 ;;
                     *) echo "orchard answered $code for $1: $(cat /tmp/answer)" >&2; return 1 ;;
                   esac
                 done

@@ -1,4 +1,5 @@
-# The Orchard pod accepts TCP 6120 from three sources and nothing else. Egress is not limited.
+# The Orchard pod accepts TCP 6120 from three sources and nothing else, and it sends only DNS and
+# OTLP.
 #
 # 1. The controller of this project, by its namespace and its pod label. The base names the
 #    placeholder namespace bk-agent-stack-orchard. The overlay of the operator MUST patch it to
@@ -13,6 +14,12 @@
 # admits them (checked 2026-11-02). Whether kindnet follows this is not confirmed: if Orchard
 # never becomes ready in the smoke test, the CI run shows it, and the fix is a rule for the node
 # CIDR. A CNI of the operator MAY differ, so check it there.
+#
+# Egress: the Orchard controller dials nothing but DNS and the collector. The workers dial the
+# controller and keep the connection, and the controller answers on it, also for port forwarding
+# and exec (the controller code of Orchard 0.58.0 has no dialer, checked 2026-11-03). The base
+# admits any peer on 4317, because the collector differs for each fleet. The overlay SHOULD give
+# the collector as the peer, as the README shows.
 #
 # A cluster enforces a NetworkPolicy only when its CNI does. kind uses kindnet, which enforces it
 # (the kindnet manifest of kind 0.33.0 reads NetworkPolicy objects, checked 2026-11-02). The smoke
@@ -29,6 +36,7 @@ spec:
       app.kubernetes.io/name: orchard
   policyTypes:
     - Ingress
+    - Egress
   ingress:
     - from:
         - namespaceSelector:
@@ -45,3 +53,13 @@ spec:
       ports:
         - protocol: TCP
           port: 6120
+  egress:
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # OTLP over gRPC, the port of OTEL_EXPORTER_OTLP_ENDPOINT in kustomization.yaml.
+    - ports:
+        - protocol: TCP
+          port: 4317
