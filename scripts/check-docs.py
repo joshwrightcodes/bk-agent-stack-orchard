@@ -127,6 +127,17 @@ def check_identifiers(defined: dict[str, set[str]]) -> None:
                     fail(path, number, f"cites {cited}, which no document defines")
 
 
+def requirement_status(block: str) -> str | None:
+    """The value of the status field of a requirement block. The field is the bullet that starts
+    with `Status:`, or the end of the bullet that starts with `Source:`. A status that another
+    bullet quotes, such as the history, is not the field. A line break can split the field."""
+    for bullet in re.split(r"\n(?=\* )", block):
+        field = re.match(r"\* (?:Source: .*? )?Status: `([^`]+)`", " ".join(bullet.split()))
+        if field:
+            return field.group(1)
+    return None
+
+
 def out_of_scope_requirements() -> set[str]:
     """The requirements whose status is `out of scope`: the owner removed them from the scope, so
     no design implements them."""
@@ -134,7 +145,7 @@ def out_of_scope_requirements() -> set[str]:
     return {
         block[2:8]
         for block in blocks
-        if block.startswith("**PR-") and re.search(r"Status: `out of scope`", block)
+        if block.startswith("**PR-") and requirement_status(block) == "out of scope"
     }
 
 
@@ -146,6 +157,9 @@ def check_requirement_coverage(defined: dict[str, set[str]]) -> None:
     for requirement in sorted(defined["PR"] - retired):
         if requirement not in implements:
             fail(DESIGN, None, f"no Implements line claims {requirement}")
+    for requirement in sorted(retired):
+        if requirement in implements:
+            fail(DESIGN, None, f"an Implements line claims {requirement}, which is out of scope")
 
 
 def check_adr_direction() -> None:

@@ -147,15 +147,20 @@ class CheckDocsTest(unittest.TestCase):
         check_docs.check_width()
         self.assertEqual([], check_docs.errors)
 
-    def coverage(self, status: str) -> None:
+    def coverage(
+        self,
+        status: str,
+        claim: str = "**Implements.** PR-001.\n",
+        field: str = "* Source: an owner. Status: `{}`.\n",
+    ) -> None:
         requirements = self.root / "docs/product/requirements.md"
         design = self.root / "docs/architecture/target-design.md"
         self.write(
             "docs/product/requirements.md",
-            "**PR-001: One.**\n\n* Status: `accepted`.\n\n"
-            f"**PR-002: Two.**\n\n* Source: an owner. Status: `{status}`.\n",
+            "**PR-001: One.**\n\n* Status: `accepted`.\n\n**PR-002: Two.**\n\n"
+            + field.format(status),
         )
-        self.write("docs/architecture/target-design.md", "**Implements.** PR-001.\n")
+        self.write("docs/architecture/target-design.md", claim)
         saved = (check_docs.REQUIREMENTS, check_docs.DESIGN)
         check_docs.REQUIREMENTS, check_docs.DESIGN = requirements, design
         self.addCleanup(setattr, check_docs, "REQUIREMENTS", saved[0])
@@ -170,6 +175,28 @@ class CheckDocsTest(unittest.TestCase):
     def test_a_requirement_out_of_scope_needs_no_implements_line(self) -> None:
         self.coverage("out of scope")
         self.assertEqual([], check_docs.errors)
+
+    def test_an_unclaimed_requirement_still_fails_beside_an_out_of_scope_one(self) -> None:
+        self.coverage("out of scope", claim="")
+        self.assertEqual(1, len(check_docs.errors), check_docs.errors)
+        self.assertIn("PR-001", check_docs.errors[0])
+
+    def test_a_status_after_a_line_break_is_the_status(self) -> None:
+        self.coverage("out of scope", field="* Source: an owner.\n  Status:\n  `{}`.\n")
+        self.assertEqual([], check_docs.errors)
+
+    def test_a_status_that_the_history_quotes_is_not_the_status(self) -> None:
+        self.coverage(
+            "accepted",
+            field="* Status: `{}`.\n* History: it had the Status: `out of scope` once.\n",
+        )
+        self.assertEqual(1, len(check_docs.errors), check_docs.errors)
+        self.assertIn("PR-002", check_docs.errors[0])
+
+    def test_an_implements_line_that_claims_an_out_of_scope_requirement_fails(self) -> None:
+        self.coverage("out of scope", claim="**Implements.** PR-001, PR-002.\n")
+        self.assertEqual(1, len(check_docs.errors), check_docs.errors)
+        self.assertIn("PR-002", check_docs.errors[0])
 
 
 if __name__ == "__main__":
