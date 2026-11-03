@@ -101,6 +101,26 @@ func (p Policy) wait(attempt int, err error) (time.Duration, bool) {
 		return after, after <= p.Longest
 	}
 
+	return p.jitter(attempt), true
+}
+
+// Backoff gives the wait after the try number attempt failed with err, for a caller that tries
+// again itself and has no deadline for all of its tries. The wait is the one that the server
+// named, up to Longest, or else the backoff of Do: a random share of a ceiling that starts at
+// First and doubles after each try, up to Longest.
+func (p Policy) Backoff(attempt int, err error) time.Duration {
+	p = p.complete()
+
+	if after, asked := After(err); asked {
+		return min(after, p.Longest)
+	}
+
+	return p.jitter(attempt)
+}
+
+// jitter gives a random share of the ceiling of the backoff after the try number attempt (full
+// jitter).
+func (p Policy) jitter(attempt int) time.Duration {
 	ceiling := p.Longest
 	if attempt < 32 {
 		if doubled := p.First << (attempt - 1); doubled > 0 && doubled < ceiling {
@@ -108,7 +128,7 @@ func (p Policy) wait(attempt int, err error) (time.Duration, bool) {
 		}
 	}
 
-	return time.Duration(p.Random() * float64(ceiling)), true
+	return time.Duration(p.Random() * float64(ceiling))
 }
 
 // complete gives the policy with the value of Default in each zero field.

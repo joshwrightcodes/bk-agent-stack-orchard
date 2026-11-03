@@ -1,9 +1,12 @@
 # Runbook: retire and rotate the Orchard bootstrap admin
 
-This runbook takes the bootstrap admin token out of the Orchard pod after the first bootstrap, and
-it rotates the token. The `bootstrap-admin` account has all roles. Only the bootstrap Job needs it.
-The Job runs again for each add, rotation, migration, or revocation of a host, so the account and
-its token stay in the Secret `orchard-bootstrap`, and nothing else holds them.
+This runbook takes the bootstrap admin token out of the environment of the Orchard pod after the
+first bootstrap, and it rotates the token. The `bootstrap-admin` account has all roles. Only the
+bootstrap Job needs it. The Job runs again for each add, rotation, migration, or revocation of a
+host, so the account and its token stay in the Secret `orchard-bootstrap`, which only the Job
+mounts. While the account exists, the data volume of Orchard also holds the token (see "Why the
+account stays"). To take it off the data volume, delete the account (see "Delete the account
+completely").
 
 **Interim procedure.** People copy, rotate, and remove tokens by hand in this procedure. That is
 not the target state. In the target state, only an engineer who sets or rotates a key in the
@@ -18,6 +21,12 @@ While the variable is set, each start makes the account again. The source and th
 `deploy/orchard/README.md`, section "First start and after the first bootstrap". The account
 stays on purpose: a Job run for a host change needs it, and with the account in place the change
 needs no restart of Orchard.
+
+While the account exists, Orchard 0.58.0 keeps its token in its database, and at each start it
+writes the token in plain text to `/data/orchard.yml`. Both are on the PVC of Orchard, so a person
+who can run commands in the Orchard pod or read its PVC can read the token. A rotation reaches the
+file at the next start of Orchard. The source and the date are in `deploy/orchard/README.md`, in
+the same section.
 
 ## Access to the API
 
@@ -36,7 +45,8 @@ on an argv or into a file. The controller account cannot do these checks: it has
    `ORCHARD_BOOTSTRAP_ADMIN_TOKEN` out of the StatefulSet `orchard`. Apply the overlay. Wait until
    the pod is ready.
 3. Rotate the token (the section "Rotation" below), so the token of the first start does not stay.
-4. Check that only the Job uses the Secret `orchard-bootstrap`, and that the pod has no token:
+4. Check that only the Job uses the Secret `orchard-bootstrap`, and that the environment of the
+   pod has no token:
 
    ```sh
    kubectl -n orchard get pods -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.volumes[*].secret.secretName}{"\t"}{.spec.containers[*].env[*].valueFrom.secretKeyRef.name}{"\n"}{end}' |
@@ -85,8 +95,10 @@ the old token from the PUT on.
 
 ## Delete the account completely
 
-If your fleet has no planned change of a host, you can delete the account. Do the steps 1 and 2 of
-the procedure. Then delete the account, check that the token is refused, and delete the key:
+If your fleet has no planned change of a host, you can delete the account. This also takes a
+working admin token off the data volume of Orchard: the file `/data/orchard.yml` keeps the old
+token, which Orchard then refuses. Do the steps 1 and 2 of the procedure. Then delete the
+account, check that the token is refused, and delete the key:
 
 ```sh
 orchard_admin DELETE /v1/service-accounts/bootstrap-admin

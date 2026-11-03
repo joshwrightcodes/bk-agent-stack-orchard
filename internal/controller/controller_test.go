@@ -5,6 +5,7 @@ package controller_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"sync"
@@ -13,7 +14,9 @@ import (
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/controller"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/retry"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/stack"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
 )
@@ -42,14 +45,35 @@ func (r *recorder) seen() []string {
 type registrar struct {
 	recorder     *recorder
 	registerErr  error
+	registerErrs []error
+	registered   int
 	deregistered int
 	mu           sync.Mutex
 }
 
+// Register gives the answers of registerErrs first, one for each call, and then registerErr.
 func (s *registrar) Register(context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.registered++
 	s.recorder.add("register")
 
+	if len(s.registerErrs) > 0 {
+		err := s.registerErrs[0]
+		s.registerErrs = s.registerErrs[1:]
+
+		return err
+	}
+
 	return s.registerErr
+}
+
+func (s *registrar) registrations() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.registered
 }
 
 func (s *registrar) Deregister(context.Context) error {
@@ -320,6 +344,70 @@ func TestRunTimesATickWithTheClockOfTheController(t *testing.T) {
 	runOnce(t, settings, func() bool { return slices.Contains(r.seen(), "admit") })
 }
 
+// clock is a time that a test moves by hand. Run reads it from the goroutine of the loop while
+// the test reads it from its own, so it locks.
+type clock struct {
+	mu sync.Mutex
+	at time.Time
+}
+
+func (c *clock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.at
+}
+
+func (c *clock) advance(by time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.at = c.at.Add(by)
+}
+
+// The freshness gate measures the answers at the time of the decision, and not at the start of
+// the tick. The refresh and the reaper come first and can take long: a source that failed its
+// refresh keeps its last answer, and when the reaper then waits on its calls, that answer can be
+// older than the limit when admission decides. Here the answers are fresh at the start of the
+// tick, and the reap step moves the clock past the limit.
+func TestAdmissionMeasuresTheAnswersAtTheTimeOfTheDecision(t *testing.T) {
+	t.Parallel()
+
+	r := &recorder{}
+	settings := options(t, r)
+	moment := time.Date(2020, 1, 1, 9, 0, 0, 0, time.UTC)
+	wall := &clock{at: moment}
+
+	for _, s := range settings.Sources {
+		s.(*source).at = moment
+	}
+
+	settings.Now = wall.now
+	settings.Reap = func(context.Context) error {
+		r.add("reap")
+		wall.advance(settings.Freshness + time.Second)
+
+		return nil
+	}
+	settings.Admit = func(context.Context) error { r.add("admit"); return nil }
+
+	loop, err := controller.New(settings)
+	if err != nil {
+		t.Fatalf("New() = %v, want the loop", err)
+	}
+
+	loop.Tick(t.Context(), moment)
+
+	if !slices.Contains(r.seen(), "reap") {
+		t.Fatalf("the tick did %v, want it to reap", r.seen())
+	}
+
+	if slices.Contains(r.seen(), "admit") {
+		t.Errorf("the tick admitted a job on answers older than the limit at the decision: %v",
+			r.seen())
+	}
+}
+
 // Almost every failure here is one call to one API, and the next tick reads the world again. A
 // loop that stopped would need an operator for something that fixes itself.
 func TestAStepThatFailsDoesNotStopTheLoop(t *testing.T) {
@@ -358,6 +446,133 @@ func TestASourceIsNotReadAgainInsideItsInterval(t *testing.T) {
 
 	if idle.count() != 1 {
 		t.Errorf("the loop read the source %d times, want once inside its interval", idle.count())
+	}
+}
+
+// sleeper records each wait of a loop and does not sleep.
+type sleeper struct {
+	mu    sync.Mutex
+	waits []time.Duration
+}
+
+func (s *sleeper) sleep(_ context.Context, d time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.waits = append(s.waits, d)
+
+	return nil
+}
+
+func (s *sleeper) waited() []time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return slices.Clone(s.waits)
+}
+
+// A registration that fails because Buildkite does not answer is tried again inside the process.
+// A process that stopped instead would wait for the backoff of the platform, which grows to
+// minutes, and no reaper pass would run in that time. The waits grow, with jitter, up to a cap,
+// and a wait that Buildkite names counts up to that cap.
+func TestRunRegistersAgainWhileBuildkiteDoesNotAnswer(t *testing.T) {
+	t.Parallel()
+
+	r := &recorder{}
+	settings := options(t, r)
+	holder := &registrar{recorder: r, registerErrs: []error{
+		retry.Again(errors.New("connection refused"), 0),
+		fmt.Errorf("the call ran out of time: %w", context.DeadlineExceeded),
+		retry.Again(errors.New("bad gateway"), 0),
+		retry.Again(errors.New("slow down"), time.Hour),
+	}}
+	settings.Stack = holder
+	waits := &sleeper{}
+	settings.Sleep = waits.sleep
+	settings.Random = func() float64 { return 0.5 }
+	settings.Reap = func(context.Context) error { r.add("reap"); return nil }
+
+	runOnce(t, settings, func() bool { return slices.Contains(r.seen(), "reap") })
+
+	if got := holder.registrations(); got != 5 {
+		t.Errorf("the loop registered %d times, want 5: four failures and a success", got)
+	}
+
+	want := []time.Duration{500 * time.Millisecond, time.Second, 2 * time.Second, time.Minute}
+	if got := waits.waited(); !slices.Equal(got, want) {
+		t.Errorf("the loop waited %v between the registrations, want %v", got, want)
+	}
+}
+
+// A refusal is an answer, and another try gets the same one, so the process stops at once and an
+// operator reads why.
+func TestRunDoesNotRegisterAgainAfterARefusal(t *testing.T) {
+	t.Parallel()
+
+	for name, refusal := range map[string]error{
+		"a refused token":      fmt.Errorf("registering the stack: %w", buildkite.ErrUnauthorized),
+		"a refused request":    errors.New("buildkite answered 422"),
+		"an answer of no form": errors.New("the answer does not decode"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			r := &recorder{}
+			settings := options(t, r)
+			holder := &registrar{recorder: r, registerErr: refusal}
+			settings.Stack = holder
+			waits := &sleeper{}
+			settings.Sleep = waits.sleep
+
+			loop, err := controller.New(settings)
+			if err != nil {
+				t.Fatalf("New() = %v, want the loop", err)
+			}
+
+			if err := loop.Run(t.Context()); !errors.Is(err, refusal) {
+				t.Errorf("Run() = %v, want the refusal", err)
+			}
+
+			if got := holder.registrations(); got != 1 {
+				t.Errorf("the loop registered %d times, want once", got)
+			}
+
+			if got := waits.waited(); len(got) != 0 {
+				t.Errorf("the loop waited %v, want no wait", got)
+			}
+		})
+	}
+}
+
+// The end of the context ends the tries of the registration, and nothing that was not registered
+// is withdrawn.
+func TestTheEndOfTheContextEndsTheRegistration(t *testing.T) {
+	t.Parallel()
+
+	r := &recorder{}
+	settings := options(t, r)
+	holder := &registrar{recorder: r, registerErr: retry.Again(errors.New("connection refused"), 0)}
+	settings.Stack = holder
+
+	ctx, cancel := context.WithCancel(t.Context())
+	settings.Sleep = func(ctx context.Context, _ time.Duration) error {
+		cancel()
+
+		return ctx.Err()
+	}
+
+	loop, err := controller.New(settings)
+	if err != nil {
+		t.Fatalf("New() = %v, want the loop", err)
+	}
+
+	if err := loop.Run(ctx); !errors.Is(err, context.Canceled) {
+		t.Errorf("Run() = %v, want the end of the context", err)
+	}
+
+	if holder.registrations() != 1 || holder.withdrawals() != 0 {
+		t.Errorf("the loop registered %d times and withdrew %d times, want once and never",
+			holder.registrations(), holder.withdrawals())
 	}
 }
 
@@ -424,9 +639,9 @@ func TestNewRefusesAnIncompleteLoop(t *testing.T) {
 	}
 }
 
-// The liveness check reads when the loop last finished a tick, so a loop that stops in a tick
-// stops the heartbeat.
-func TestTheLoopGivesTheTimeOfItsLastTick(t *testing.T) {
+// The heartbeat is zero while the loop has not started, because the process then registers its
+// stack, and a restart cures nothing that Buildkite causes.
+func TestTheHeartbeatIsZeroBeforeTheLoopStarts(t *testing.T) {
 	t.Parallel()
 
 	loop, err := controller.New(options(t, &recorder{}))
@@ -434,8 +649,33 @@ func TestTheLoopGivesTheTimeOfItsLastTick(t *testing.T) {
 		t.Fatalf("New() = %v, want the loop", err)
 	}
 
-	if got := loop.LastTick(); !got.IsZero() {
-		t.Fatalf("LastTick() before Run = %s, want the zero time", got)
+	if got := loop.Heartbeat(); !got.IsZero() {
+		t.Fatalf("Heartbeat() before Run = %s, want the zero time", got)
+	}
+}
+
+// The loop beats when it starts, after the registration, and not first at the end of its first
+// tick. A first tick that never ends is the case that liveness exists for, and a heartbeat that
+// stayed zero through it would never fail liveness.
+func TestTheHeartbeatStartsWithTheLoop(t *testing.T) {
+	t.Parallel()
+
+	r := &recorder{}
+	settings := options(t, r)
+	moment := time.Date(2020, 1, 1, 9, 0, 0, 0, time.UTC)
+	settings.Now = (&clock{at: moment}).now
+
+	reaping := make(chan struct{})
+	settings.Reap = func(ctx context.Context) error {
+		close(reaping)
+		<-ctx.Done()
+
+		return ctx.Err()
+	}
+
+	loop, err := controller.New(settings)
+	if err != nil {
+		t.Fatalf("New() = %v, want the loop", err)
 	}
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -443,21 +683,53 @@ func TestTheLoopGivesTheTimeOfItsLastTick(t *testing.T) {
 
 	go func() { finished <- loop.Run(ctx) }()
 
-	deadline := time.After(2 * time.Second)
-
-	for loop.LastTick().IsZero() {
-		select {
-		case <-deadline:
-			cancel()
-			t.Fatal("the loop gave no time of a tick inside two seconds")
-		default:
-			time.Sleep(time.Millisecond)
-		}
+	select {
+	case <-reaping:
+	case <-time.After(2 * time.Second):
+		cancel()
+		t.Fatal("the loop did not reach its first tick inside two seconds")
 	}
+
+	got := loop.Heartbeat()
 
 	cancel()
 
 	if err := <-finished; err != nil {
 		t.Fatalf("Run() = %v, want no error", err)
+	}
+
+	if !got.Equal(moment) {
+		t.Errorf("Heartbeat() in a first tick that has not ended = %s, want %s, when the loop "+
+			"started", got, moment)
+	}
+}
+
+// The heartbeat is the time that a tick ended, and not the time that it began. A beat from the
+// start of a tick adds the length of that tick to the age that liveness measures, so two long
+// ticks in a row could fail liveness while the loop still works.
+func TestTheHeartbeatIsTheEndOfTheLastTick(t *testing.T) {
+	t.Parallel()
+
+	r := &recorder{}
+	settings := options(t, r)
+	moment := time.Date(2020, 1, 1, 9, 0, 0, 0, time.UTC)
+	wall := &clock{at: moment}
+	settings.Now = wall.now
+	settings.Reap = func(context.Context) error {
+		wall.advance(5 * time.Minute)
+
+		return nil
+	}
+
+	loop, err := controller.New(settings)
+	if err != nil {
+		t.Fatalf("New() = %v, want the loop", err)
+	}
+
+	loop.Tick(t.Context(), moment)
+
+	if got, want := loop.Heartbeat(), moment.Add(5*time.Minute); !got.Equal(want) {
+		t.Errorf("Heartbeat() after a tick of 5 minutes = %s, want %s, when the tick ended", got,
+			want)
 	}
 }

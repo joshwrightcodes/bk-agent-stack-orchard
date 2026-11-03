@@ -239,6 +239,39 @@ func TestAnEndedContextStopsTheTries(t *testing.T) {
 	}
 }
 
+// A caller that tries again itself gets the backoff of Do, and the wait that a server named up to
+// the cap, so that a wrong or a hostile value cannot hold it for long.
+func TestBackoffGivesTheWaitOfACallerThatTriesAgain(t *testing.T) {
+	t.Parallel()
+
+	policy := retry.Policy{
+		First: time.Second, Longest: time.Minute, Random: func() float64 { return 0.5 },
+	}
+	busy := retry.Again(errBusy, 0)
+
+	var got []time.Duration
+	for attempt := 1; attempt <= 8; attempt++ {
+		got = append(got, policy.Backoff(attempt, busy))
+	}
+
+	want := []time.Duration{
+		500 * time.Millisecond, time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second,
+		16 * time.Second, 30 * time.Second, 30 * time.Second,
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("Backoff() = %v, want %v", got, want)
+	}
+
+	for after, want := range map[time.Duration]time.Duration{
+		5 * time.Second: 5 * time.Second,
+		time.Hour:       time.Minute,
+	} {
+		if got := policy.Backoff(1, retry.Again(errBusy, after)); got != want {
+			t.Errorf("Backoff() after a named wait of %s = %s, want %s", after, got, want)
+		}
+	}
+}
+
 // A source of the loop waits for the time that a server named before it reads again, up to a
 // cap, so that a wrong or a hostile value cannot stop the source for long.
 func TestPauseGivesTheNamedWaitUpToTheCap(t *testing.T) {

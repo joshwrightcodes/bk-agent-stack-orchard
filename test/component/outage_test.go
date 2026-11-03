@@ -83,7 +83,7 @@ func (f *fleet) readiness(t *testing.T) *health.Checks {
 		Sources:      sources,
 		Window:       60 * time.Second, // the default of stateFreshness
 		Unauthorized: func() bool { return false },
-		Heartbeat:    f.loop.LastTick,
+		Heartbeat:    f.loop.Heartbeat,
 		Stall:        15 * time.Minute,
 		Now:          func() time.Time { return f.now },
 		Logger:       slog.New(slog.DiscardHandler),

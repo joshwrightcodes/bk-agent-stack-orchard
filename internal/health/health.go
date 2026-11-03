@@ -5,7 +5,7 @@
 //
 // Liveness says that the process serves and that its loop finishes its ticks. A failed liveness
 // probe restarts the process, which cures nothing that a slow API causes, so liveness does not
-// depend on either API. It fails only when the loop has not finished a tick for much longer than
+// depend on either API. It fails only when the loop has made no progress for much longer than
 // any tick takes, because a loop that waits without an end does nothing, and a restart cures
 // that. Readiness says
 // that the controller acts on the world as it is: every source answered inside the readiness
@@ -52,11 +52,11 @@ type Options struct {
 	// Unauthorized reports an agent token that Buildkite refused.
 	Unauthorized func() bool
 
-	// Heartbeat gives when the loop last finished a tick, and the zero time before its first
-	// tick.
+	// Heartbeat gives when the loop last made progress: when it started, and then when each
+	// tick ended. It gives the zero time while the loop has not started.
 	Heartbeat func() time.Time
 
-	// Stall is how long the loop may go without a finished tick while the process is alive. It
+	// Stall is how long the loop may go without progress while the process is alive. It
 	// MUST be much longer than the slowest tick, because a slow API makes ticks slow, and a
 	// restart does not cure a slow API. It MUST be positive.
 	Stall time.Duration
@@ -212,9 +212,9 @@ func (c *Checks) Update(ctx context.Context) {
 	c.logger.WarnContext(ctx, "the controller is not ready", "reasons", reasons)
 }
 
-// updateLiveness fails liveness while the loop has not finished a tick inside the stall bound.
-// Before the first tick the process is alive: the loop then registers its stack, a call that has
-// a timeout of its own.
+// updateLiveness fails liveness while the loop has made no progress inside the stall bound.
+// Before the loop starts, the process is alive: it then registers its stack, and it waits only
+// while Buildkite does not answer, which a restart does not cure.
 func (c *Checks) updateLiveness(ctx context.Context) {
 	beat := c.heartbeat()
 	age := c.now().Sub(beat)

@@ -32,6 +32,17 @@ import (
 // context of the loop is already cancelled then, so the withdrawal needs one of its own.
 const shutdownGrace = 10 * time.Second
 
+// registerFirst and registerLongest shape the waits between two registrations that failed
+// because Buildkite did not answer: the ceiling of the first wait, and the cap of every wait.
+//
+// Nothing else runs before the registration, so a wait there holds no other work. The cap keeps
+// the process close behind a Buildkite that recovers, and it is far below the backoff of the
+// platform, which grows to 5 minutes for a process that stops.
+const (
+	registerFirst   = time.Second
+	registerLongest = time.Minute
+)
+
 // Registrar announces this controller to Buildkite and withdraws it.
 type Registrar interface {
 	Register(ctx context.Context) error
@@ -127,6 +138,15 @@ type Options struct {
 	// Now is the clock that times each tick. internal/app gives every part the same one.
 	Now func() time.Time
 
+	// Sleep waits between two registrations that failed because Buildkite did not answer, and
+	// ends early with the error of the context when the context ends. A nil value uses
+	// retry.Sleep. A test gives one that records the wait and does not sleep.
+	Sleep func(ctx context.Context, d time.Duration) error
+
+	// Random gives the jitter of those waits, a number from 0 up to, but not including, 1. A nil
+	// value takes it from math/rand/v2.
+	Random func() float64
+
 	// Metrics, Logger, and Tracer record what the loop did. A nil Tracer records no span.
 	Metrics *telemetry.Metrics
 	Logger  *slog.Logger
@@ -144,6 +164,8 @@ type Controller struct {
 	interval  time.Duration
 	freshness time.Duration
 	now       func() time.Time
+	sleep     func(ctx context.Context, d time.Duration) error
+	random    func() float64
 	metrics   *telemetry.Metrics
 	logger    *slog.Logger
 	tracer    trace.Tracer
@@ -157,9 +179,9 @@ type Controller struct {
 	// it.
 	paused map[telemetry.Source]time.Duration
 
-	// lastTick is the time of the last tick that Run finished, which is when that tick began.
-	// The liveness check reads it from another goroutine.
-	lastTick atomic.Pointer[time.Time]
+	// heartbeat is the last time that the loop made progress: when Run started its loop, and
+	// then when each tick ended. The liveness check reads it from another goroutine.
+	heartbeat atomic.Pointer[time.Time]
 }
 
 // New builds the loop.
@@ -216,6 +238,11 @@ func New(options Options) (*Controller, error) {
 		tracer = noop.NewTracerProvider().Tracer("")
 	}
 
+	sleep := options.Sleep
+	if sleep == nil {
+		sleep = retry.Sleep
+	}
+
 	return &Controller{
 		stack:     options.Stack,
 		sources:   options.Sources,
@@ -226,6 +253,8 @@ func New(options Options) (*Controller, error) {
 		interval:  options.Interval,
 		freshness: options.Freshness,
 		now:       options.Now,
+		sleep:     sleep,
+		random:    options.Random,
 		metrics:   options.Metrics,
 		logger:    options.Logger,
 		tracer:    tracer,
@@ -245,12 +274,16 @@ func (c *Controller) Sources() []Source {
 // A tick that fails does not stop the loop, because almost every failure here is one call to one
 // API, and the next tick reads the world again. The loop stops only when the context ends.
 func (c *Controller) Run(ctx context.Context) error {
-	if err := c.stack.Register(ctx); err != nil {
+	if err := c.register(ctx); err != nil {
 		return err
 	}
 
 	c.logger.InfoContext(ctx, "the controller registered its stack and starts its loop",
 		"interval", c.interval.String())
+
+	// The first beat comes before the first tick, so that a first tick that never ends fails
+	// liveness like any other.
+	c.beat()
 
 	ticker := time.NewTicker(c.interval)
 	defer ticker.Stop()
@@ -263,22 +296,63 @@ func (c *Controller) Run(ctx context.Context) error {
 			// The value of the ticker is the time that the beat was due. After a tick that took
 			// longer than the interval, that time is in the past, and the freshness gate would
 			// measure an old answer against it. The clock gives the time of the work.
-			at := c.now()
-			c.Tick(ctx, at)
-			c.lastTick.Store(&at)
+			c.Tick(ctx, c.now())
 		}
 	}
 }
 
-// LastTick gives the time of the last tick that Run finished, which is when that tick began, and
-// the zero time before the first one. A loop that stops in a tick stops this time, and the
-// liveness check reads it.
-func (c *Controller) LastTick() time.Time {
-	if at := c.lastTick.Load(); at != nil {
+// register registers the stack, and tries again while Buildkite does not answer, until the
+// context ends.
+//
+// A process that stopped instead would start again only after the backoff of the platform, and
+// no reaper pass would run in that time, so the process waits itself. A failure that
+// retry.Unavailable reports (a failure in transport, a 5xx status, 429, or the end of the time
+// limit of the call) waits and tries again. A refusal is an answer that another try gets again,
+// so it ends the start at once, and an operator reads why.
+func (c *Controller) register(ctx context.Context) error {
+	backoff := retry.Policy{First: registerFirst, Longest: registerLongest, Random: c.random}
+
+	for attempt := 1; ; attempt++ {
+		err := c.stack.Register(ctx)
+		if err == nil {
+			return nil
+		}
+
+		if !retry.Unavailable(err) || ctx.Err() != nil {
+			return err
+		}
+
+		wait := backoff.Backoff(attempt, err)
+
+		c.logger.WarnContext(ctx, "the controller could not register its stack, because "+
+			"Buildkite did not answer, and tries again", "attempt", attempt,
+			"wait", wait.Round(time.Millisecond).String(), "error", err)
+
+		if slept := c.sleep(ctx, wait); slept != nil {
+			return errors.Join(err, slept)
+		}
+	}
+}
+
+// Heartbeat gives the last time that the loop made progress: when Run started its loop after the
+// registration, and then when each tick ended. It gives the zero time while the loop has not
+// started. A loop that stops in a tick stops this time, and the liveness check reads it.
+//
+// The time is the end of a tick, and not its start, so that the age that liveness measures is the
+// time that the loop has spent in the current tick, and not that time plus the length of the tick
+// before it.
+func (c *Controller) Heartbeat() time.Time {
+	if at := c.heartbeat.Load(); at != nil {
 		return *at
 	}
 
 	return time.Time{}
+}
+
+// beat records that the loop made progress now.
+func (c *Controller) beat() {
+	now := c.now()
+	c.heartbeat.Store(&now)
 }
 
 // withdraw takes the stack out of Buildkite. The context of the loop has ended, so the call gets
@@ -297,7 +371,9 @@ func (c *Controller) withdraw(ctx context.Context) error {
 	return nil
 }
 
-// Tick runs the steps of one tick, in order. At is the time of the tick.
+// Tick runs the steps of one tick, in order. At is the time of the tick, which decides the
+// sources that are due. The gate of admission reads the clock of the controller again, because
+// the steps before it take time.
 //
 // Run calls it at each beat of its ticker, with the time of the clock of the controller. The
 // component suite calls it directly, with the time of its own clock, so that it runs the loop one
@@ -305,14 +381,18 @@ func (c *Controller) withdraw(ctx context.Context) error {
 // Run runs.
 func (c *Controller) Tick(ctx context.Context, at time.Time) {
 	// The observation comes last, so that it reports the fleet as this tick left it and not as
-	// this tick found it.
+	// this tick found it. The beat comes after it, because a tick ends there.
+	defer c.beat()
 	defer c.observe()
 
 	c.refresh(ctx, at)
 
 	c.run(ctx, "reap", c.reap)
 
-	if reason, ok := c.mayAdmit(at); !ok {
+	// The gate measures the answers at the time of the decision, and not at the time of the
+	// tick: the refresh and the reaper can take long, and a source whose refresh failed keeps an
+	// answer that ages while they run.
+	if reason, ok := c.mayAdmit(c.now()); !ok {
 		c.logger.DebugContext(ctx, "the controller admitted no job", "reason", reason)
 
 		return
@@ -411,7 +491,8 @@ func (c *Controller) observe() {
 	c.metrics.Observe(observation)
 }
 
-// mayAdmit reports whether the tick at may start jobs, and why not when it may not.
+// mayAdmit reports whether the controller may start jobs at the time at, and why not when it may
+// not.
 //
 // The controller starts no job while it has not read the queue, because an empty queue and an
 // unread queue look the same, and because a paused queue is an instruction from an operator. It
