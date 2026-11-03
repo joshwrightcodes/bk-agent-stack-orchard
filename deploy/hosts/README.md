@@ -170,6 +170,10 @@ Other settings of the drain:
 | `orchard_worker_drain` | `true` | `false` changes the host without the API of Orchard: no drain, no wait for the worker to report, and no removal of cached images. A restart then deletes the VMs on the host. Use it only when the controller cannot answer |
 | `orchard_worker_prune_images` | `true` | `false` keeps every cached image, for example while you change the image of a profile |
 
+The runbook [Change the Mac hosts](../../docs/user/runbooks/mac-host-changes.md) gives the steps for
+an upgrade, a rollback, a new image, and a new token. The runbook [Remove a Mac
+host](../../docs/user/runbooks/mac-host-removal.md) takes a host out of service.
+
 ## Tests
 
 `mise run check-hosts` lints the role, and checks the images that a host pulls for different

@@ -280,3 +280,19 @@ To upgrade, [verify the new release](#verify-a-release). Then run `helm upgrade`
 package of the release or the chart digest, in the same way as the install step.
 
 `CHANGELOG.md` lists the changes in each release. Read it before you upgrade.
+
+## Change the image of a profile
+
+Each Mac host pulls the images of its profiles before the controller uses them, so that no job
+waits for the pull of a large image and fails on its boot timeout. The playbook of the hosts reads
+the profiles from the configuration of the controller, and it removes the cached images that no
+profile of a host names. Change an image in this order:
+
+1. Change the profile in the configuration that the playbook reads, but not yet in the controller.
+2. Run the playbook with `-e orchard_worker_prune_images=false`. Each host pulls the new image, and
+   keeps the old one.
+3. Apply the configuration to the controller.
+4. Run the playbook again. Each host removes the old image.
+
+To remove a profile, change the controller first, then run the playbook. The runbook [Change the
+Mac hosts](runbooks/mac-host-changes.md) gives the details, and the order for `softnetAllow`.

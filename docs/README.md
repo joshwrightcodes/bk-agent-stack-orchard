@@ -49,6 +49,8 @@ a number, such as the demand model or a quality target.
 | [Runbook: replace the agent token](user/runbooks/token-replacement.md) | How does an operator replace the cluster agent token? |
 | [Runbook: retire and rotate the Orchard bootstrap admin](user/runbooks/orchard-bootstrap-admin.md) | How does an operator take the `bootstrap-admin` token out of the Orchard pod and rotate it? |
 | [Runbook: Orchard worker accounts](user/runbooks/orchard-worker-accounts.md) | How does an operator add, rotate, and revoke the account of one Mac host? |
+| [Runbook: change the Mac hosts](user/runbooks/mac-host-changes.md) | How does an operator upgrade, roll back, and change the Mac hosts, and the images of the profiles, while jobs run? |
+| [Runbook: remove a Mac host](user/runbooks/mac-host-removal.md) | How does an operator take a Mac host out of service, or replace its hardware? |
 
 The direction of the set is from the requirements to the design, the tests, and the plan.
 `mise run check-docs` checks that each cited identifier exists, and that each link resolves.
