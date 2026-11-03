@@ -78,9 +78,10 @@ type Buildkite struct {
 	// starts. It must be shorter than reservationExpiry.
 	ReservationRenewBefore time.Duration `yaml:"reservationRenewBefore,omitempty"`
 
-	// How long the token that the controller gives each VM stays valid. The token opens one job
-	// only. From 1 s to 30 min, in whole seconds, and at least the sum of the unplaced, boot, and
-	// acquire timeouts of each profile.
+	// The longest that the token that the controller gives each VM stays valid. The token opens one
+	// job only. Each token stays valid for the unplaced, boot, and acquire timeouts of the profile
+	// of its job and one minute more, up to this value. From 1 s to 30 min, in whole seconds, and
+	// at least the sum of the unplaced, boot, and acquire timeouts of each profile.
 	JobTokenLifetime time.Duration `yaml:"jobTokenLifetime,omitempty"`
 }
 

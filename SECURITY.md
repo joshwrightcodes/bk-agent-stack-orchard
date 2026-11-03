@@ -84,9 +84,10 @@ These are known, recorded, and accepted. They are not vulnerabilities in this pr
   a job acquisition token, and
   [ADR-0008](docs/adrs/0008-use-a-dedicated-cluster-agent-token.md) requires it to include the
   egress of the job VMs, which is the egress of the hosts. A request from any host therefore
-  passes. The limits are that a token opens one job, and that it expires after `jobTokenLifetime`
-  (at most 30 minutes). The controls are a token for each host, so that the operator revokes one
-  host alone (runbook
+  passes. The limits are that a token opens one job, and that it expires one minute after the
+  start timeouts of its profile (23 minutes with the defaults, and never more than
+  `jobTokenLifetime`, at most 30 minutes). The controls are a token for each host, so that the
+  operator revokes one host alone (runbook
   [`docs/user/runbooks/orchard-worker-accounts.md`](docs/user/runbooks/orchard-worker-accounts.md)),
   and the pf isolation of each host from its VMs. Orchard has no role narrower than
   `compute:read` for a worker. The residual risk remains while the job acquisition token is in the

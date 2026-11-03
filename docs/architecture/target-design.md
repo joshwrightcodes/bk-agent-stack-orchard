@@ -615,9 +615,13 @@ For the admitted jobs, the Launcher MUST do these steps:
    from the time that the call left. The reservation starts when Buildkite handles the call, which
    is after the call left, so this end is never later than the true end, and the renewal of row 13
    comes early and never late.
-2. Send `POST job-acquisition-tokens` for the reserved jobs with
-   `token_lifetime_seconds = jobTokenLifetime` (1800). Skip the jobs in `not_issued`. Their
-   reservations expire.
+2. Send `POST job-acquisition-tokens` for the reserved jobs, in one call for each lifetime. The
+   lifetime of the token of a job MUST be `unplaced + boot + acquire` of its profile and one
+   minute, and MUST NOT be more than `jobTokenLifetime` (1800 s by default). With the default
+   timeouts it is 23 min. A token that outlived the start of its VM would be of no use to the VM,
+   and could still take the job when the job went back to the queue (§9.1). Skip the jobs in
+   `not_issued`. Their reservations expire. A call that fails ends the calls of the tick: the
+   jobs of the calls before it keep their tokens and get their VMs.
 3. Send `POST /v1/vms` for each job, with the specification below. The creates run at most 8 at
    a time, inside a budget of 3 call limits, and a create that finds Orchard not answering stops
    the creates that have not started (§4). The job of a create that did not start keeps its
@@ -825,7 +829,8 @@ one `batch-reserve` call, before the other actions of the Reaper (§4).
 ### 7.3 Timeout consistency
 
 The sum `unplaced + boot + acquire` MUST NOT be more than `jobTokenLifetime`. If the sum is
-more, a slow but healthy VM can start with an expired token.
+more, a slow but healthy VM can start with an expired token. Each token lasts the sum of its
+profile and one minute, up to `jobTokenLifetime` (§7.2).
 
 With the default values, the sum is 2 min + 15 min + 5 min = 22 min. This is less than 30 min.
 The controller MUST validate this sum for each profile at start-up. The validation MUST include
@@ -1046,9 +1051,11 @@ The controller MUST treat all builds as untrusted (PR-030). Each VM MUST have th
   controller and its own profiles. ADR-0004 (accepted, so it stays unchanged) treats all builds
   as untrusted, and this rule follows from it.
 * The VM has no host directory mounts. Profiles cannot configure them.
-* The VM gets only a job acquisition token for its own job. The token lifetime is a maximum of 30
-  minutes (1800 s), and the controller refuses a longer `jobTokenLifetime` at start-up (§8). After
-  the agent acquires the job, the token has no use.
+* The VM gets only a job acquisition token for its own job. The token lasts the start timeouts of
+  its profile and one minute (23 min with the defaults), and never more than 30 minutes (1800 s):
+  the controller refuses a longer `jobTokenLifetime` at start-up (§8). After the agent acquires
+  the job, the token has no use, and after the reaper gives up on the start of the VM, the token
+  expires within a minute.
 
 The cluster agent token and the Orchard credentials MUST NOT go into a VM.
 

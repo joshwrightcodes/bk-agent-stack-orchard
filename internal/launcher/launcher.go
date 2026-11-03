@@ -32,6 +32,7 @@ import (
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/match"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/parallel"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/profile"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/retry"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/secret"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
@@ -77,8 +78,14 @@ type Options struct {
 	// that stops between the reservation and the machine leaves the job held for this long.
 	ReservationExpiry time.Duration
 
-	// TokenLifetime is how long a job acquisition token works.
+	// TokenLifetime is the longest that a job acquisition token works (buildkite.jobTokenLifetime).
+	// Each token works for the start timeouts of the profile of its job and tokenMargin, inside
+	// this limit.
 	TokenLifetime time.Duration
+
+	// DefaultTimeouts are the timeouts of a profile that states none (defaults.timeouts). The
+	// lifetime of a token reads the timeouts of its profile through them.
+	DefaultTimeouts profile.Timeouts
 
 	// CallTimeout is the time limit of one call to either API. The creates of one tick share a
 	// time budget of a few of these limits, and a tick reserves only the jobs that the budget can
@@ -105,6 +112,7 @@ type Launcher struct {
 	queue        string
 	expiry       time.Duration
 	lifetime     time.Duration
+	defaults     profile.Timeouts
 	budget       time.Duration
 	environment  func(name string) string
 	metrics      *telemetry.Metrics
@@ -166,6 +174,11 @@ func New(options Options) (*Launcher, error) {
 			"must both be more than zero"))
 	}
 
+	if options.DefaultTimeouts.StartSum() <= 0 {
+		problems = append(problems, errors.New("the launcher needs the default timeouts, which "+
+			"set the lifetime of a token"))
+	}
+
 	if options.CallTimeout <= 0 {
 		problems = append(problems, errors.New("the launcher needs the time limit of a call, "+
 			"which sets the time budget of its creates"))
@@ -194,6 +207,7 @@ func New(options Options) (*Launcher, error) {
 		queue:        options.Queue,
 		expiry:       options.ReservationExpiry,
 		lifetime:     options.TokenLifetime,
+		defaults:     options.DefaultTimeouts,
 		budget:       parallel.Budget(options.CallTimeout),
 		environment:  environment,
 		metrics:      options.Metrics,
@@ -291,14 +305,12 @@ func (l *Launcher) Launch(ctx context.Context, decision admission.Result,
 		return nil
 	}
 
+	// A token call that fails leaves the tokens of the calls before it, and their jobs still get
+	// their machines.
 	tokens, err := l.tokens(ctx, wanted)
-	if err != nil {
-		return err
-	}
-
 	l.create(ctx, wanted, tokens)
 
-	return nil
+	return err
 }
 
 // Extend holds the reservations of jobs whose machines are still starting, in one call, and
@@ -541,33 +553,60 @@ func (l *Launcher) tell(ctx context.Context, fresh []admission.Unmatched) error 
 	return nil
 }
 
-// tokens gets one job acquisition token for each reserved job.
+// tokenMargin is how long a token outlives the start timeouts of its profile. The token is issued
+// before the create, and the unplaced timeout counts from the create on the clock of Orchard, so
+// the margin covers the budget of the step and a skew of the clocks.
+const tokenMargin = time.Minute
+
+// lifetimeOf is how long the token of a job of the profile works: the time that the reaper gives
+// its machine to start, and tokenMargin, inside the configured limit. A token that outlived the
+// start would be of no use to its machine, and could still take the job when the job went back to
+// the queue.
+func (l *Launcher) lifetimeOf(carrier profile.Profile) time.Duration {
+	return min(carrier.EffectiveTimeouts(l.defaults).StartSum()+tokenMargin, l.lifetime)
+}
+
+// tokens gets one job acquisition token for each reserved job, in one call for each lifetime. A
+// call that fails ends the calls, and the tokens of the calls before it stay.
 func (l *Launcher) tokens(ctx context.Context, wanted []admission.Candidate) (map[job.ID]secret.String, error) {
 	ctx, span := l.tracer.Start(ctx, "stacks.issue_token")
 	defer span.End()
 
-	ids := make([]job.ID, 0, len(wanted))
+	var lifetimes []time.Duration
+
+	groups := map[time.Duration][]job.ID{}
+
 	for _, candidate := range wanted {
-		ids = append(ids, candidate.Job.ID)
+		lifetime := l.lifetimeOf(candidate.Profile)
+		if _, seen := groups[lifetime]; !seen {
+			lifetimes = append(lifetimes, lifetime)
+		}
+
+		groups[lifetime] = append(groups[lifetime], candidate.Job.ID)
 	}
 
-	answer, err := l.stacks.Tokens(ctx, ids, l.lifetime)
-	if err != nil {
-		span.RecordError(err)
+	issued := make(map[job.ID]secret.String, len(wanted))
 
-		return nil, fmt.Errorf("getting the tokens of %d jobs: %w", len(ids), err)
-	}
+	for _, lifetime := range lifetimes {
+		ids := groups[lifetime]
 
-	issued := make(map[job.ID]secret.String, len(answer.Issued))
-	for _, token := range answer.Issued {
-		issued[token.JobID] = token.Token
-	}
+		answer, err := l.stacks.Tokens(ctx, ids, lifetime)
+		if err != nil {
+			span.RecordError(err)
 
-	// A job with no token gets no machine. Its reservation expires by itself, and admission
-	// meets the job again at a later tick.
-	for _, id := range answer.NotIssued {
-		l.logger.WarnContext(ctx, "buildkite issued no token for this job",
-			telemetry.LogJob, string(id))
+			return issued, fmt.Errorf("getting the tokens of %d jobs: %w", len(ids), err)
+		}
+
+		for _, token := range answer.Issued {
+			issued[token.JobID] = token.Token
+		}
+
+		// A job with no token gets no machine. Its reservation expires by itself, and admission
+		// meets the job again at a later tick.
+		for _, id := range answer.NotIssued {
+			l.logger.WarnContext(ctx, "buildkite issued no token for this job",
+				telemetry.LogJob, string(id))
+		}
 	}
 
 	return issued, nil
