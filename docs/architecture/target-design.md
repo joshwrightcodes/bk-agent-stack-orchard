@@ -873,7 +873,7 @@ The Reaper MUST examine each owned VM at each tick. The first row that matches a
 | 3 | Any | Not causally fresh, or stale | No action. | — |
 | 4 | Any | Terminal: `finished`, `canceled`, `expired`, `timed_out`, `skipped`, `broken` | Delete the VM. | `job_terminal` |
 | 5 | Any | Unknown to Buildkite: two get-states answers in a row leave it out (rule 4) | Delete the VM. Ignore the job. After one such answer, no action. | `job_unknown` |
-| 6 | Any | `scheduled` (the reservation expired) | Delete the VM. | `reservation_lapsed` |
+| 6 | Any | `scheduled` (the reservation expired), or `reserved` after Buildkite answered `not_reserved` to an extension of row 13 | Delete the VM. Do not finish the job. | `reservation_lapsed` |
 | 7 | `failed` | An agent owns the job: `assigned`, `accepted`, `running`, `canceling`, `timing_out` | Send a notification with `status_message`. Delete the VM. | `vm_failed` |
 | 8 | Not `failed` | An agent owns the job | No action. | — |
 | 9 | `failed` | `reserved`, asked for in this tick (rule 3) | Finish the job (`-1`, `status_message`, and the last 50 startup-script log lines when the script wrote any). Delete the VM. | `vm_failed` |
@@ -881,6 +881,14 @@ The Reaper MUST examine each owned VM at each tick. The first row that matches a
 | 11 | `pending`, a worker is set, and the age since the first answer that showed a worker is more than `boot` (15 min) | `reserved`, asked for in this tick (rule 3) | Finish the job (`-1`, `status_message`). Delete the VM. | `boot_timeout` |
 | 12 | `running`, and the age since the first answer that showed it `running` is more than `acquire` (5 min) | `reserved`, asked for in this tick (rule 3) | Finish the job (`-1`, the last 50 startup-script log lines from `GET /v1/vms/{name}/events`). Delete the VM. | `acquire_timeout` |
 | 13 | `pending` or `running` | `reserved` | Extend the reservation when `reservedUntil − now` is less than `reservationRenewBefore` (120 s). If `reservedUntil` is unknown, extend it immediately. | — |
+
+Row 6 also applies when Buildkite answered `not_reserved` to an extension. Another stack can hold
+the job, so this VM cannot acquire it, and a finish of rows 9, 11, or 12 would end a job that this
+stack does not hold. An agent can also acquire the job just before the extension, and Buildkite
+refuses that extension too. Because of this, row 6 waits for a job state that the controller asked
+for after it sent the refused extension: a `reserved` state deletes the VM, and an acquired state
+goes to rows 7 and 8. A reservation that Buildkite grants again ends the refusal. A restart loses
+it, and the first extension after the restart then gets the same answer.
 
 A row that finishes a job and whose job state is from an earlier tick does not apply. A failed VM
 then waits with no action, and row 13 applies to a `pending` or `running` VM. After Buildkite

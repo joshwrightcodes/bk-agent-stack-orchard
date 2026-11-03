@@ -35,11 +35,13 @@ type Stacks interface {
 	Notify(ctx context.Context, notifications []buildkite.Notification) error
 }
 
-// Reservations gives when the reservation of a job ends, and extends reservations. The launcher
-// holds both, because it makes the reservations and knows their expiry.
+// Reservations gives when the reservation of a job ends, extends reservations, and gives when
+// Buildkite refused an extension. The launcher holds all three, because it makes the reservations
+// and knows their expiry.
 type Reservations interface {
 	ReservedUntil(id job.ID) (time.Time, bool)
 	Extend(ctx context.Context, ids []job.ID) error
+	RefusedAt(id job.ID) time.Time
 }
 
 // States gives what Buildkite said about a job, and when the controller asked.
@@ -393,6 +395,8 @@ func (r *Reaper) collect(snapshot inventory.Snapshot) []Machine {
 		if until, known := r.reservations.ReservedUntil(owned.Job); known {
 			machine.ReservedUntil = until
 		}
+
+		machine.RefusedAt = r.reservations.RefusedAt(owned.Job)
 
 		// A job that the controller has not asked about has no state, and not an empty one.
 		if observation, asked := r.states.Observed(owned.Job); asked {

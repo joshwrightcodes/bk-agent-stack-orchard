@@ -141,6 +141,12 @@ type Machine struct {
 	// controller does not know, which is every job after a restart.
 	ReservedUntil time.Time
 
+	// RefusedAt is when this process sent an extension of the reservation of the job that
+	// Buildkite answered with not_reserved, on the clock of the controller, and the zero time
+	// when no extension was refused since the last reservation that Buildkite granted. Another
+	// stack can then hold the job, so this stack no longer holds it.
+	RefusedAt time.Time
+
 	// Timeouts are the limits of the profile of the machine.
 	Timeouts profile.Timeouts
 }
@@ -255,8 +261,18 @@ func Decide(m Machine, now time.Time, rules Rules) Decision {
 	return reserved(m, now, rules, failed)
 }
 
-// reserved reads rows 9 to 13, for a machine whose job is reserved.
+// reserved reads row 6 for a refused extension, and rows 9 to 13, for a machine whose job is
+// reserved.
 func reserved(m Machine, now time.Time, rules Rules, failed bool) Decision {
+	// Row 6, for a reservation that Buildkite refused to extend. Another stack can hold the job,
+	// so this machine can no longer acquire it, and a finish would end a job that this stack does
+	// not hold. The row waits for a state that the controller asked for after the refusal: an
+	// agent can acquire the job just before the extension, and Buildkite refuses that extension
+	// too. Rows 7 and 8 keep the machine of such a job.
+	if !m.RefusedAt.IsZero() && m.ObservedAt.After(m.RefusedAt) {
+		return Decision{Row: 6, Action: Delete, Reason: ReasonReservationLapsed}
+	}
+
 	// Row 9. The machine failed before any agent acquired the job, so the job fails too, and the
 	// job page says why. Like every row that finishes a job, it waits for a state of this tick,
 	// and like every row that acts on the phase, for a fresh snapshot.

@@ -327,8 +327,9 @@ func (l *Launcher) Launch(ctx context.Context, decision admission.Result,
 //
 // One call for every job of a tick, because one call for each machine would spend the rate limit
 // of the organisation on a busy fleet (target design, section 7.2). A job that the call does not
-// extend keeps the end that it had: its reservation lapses, Buildkite schedules the job again, and
-// the reaper removes its machine by the row for a lapsed reservation.
+// extend keeps the end that it had, and the launcher records the refusal. Another stack can hold
+// such a job, so the reaper removes its machine by row 6 once a later job state shows it still
+// reserved, and it sends no finish.
 func (l *Launcher) Extend(ctx context.Context, ids []job.ID) error {
 	if len(ids) == 0 {
 		return nil
@@ -354,11 +355,20 @@ func (l *Launcher) Extend(ctx context.Context, ids []job.ID) error {
 	}
 
 	for _, id := range answer.NotReserved {
-		l.logger.WarnContext(ctx, "buildkite did not extend the reservation of this job",
+		l.held.refused(id, sent)
+		l.logger.WarnContext(ctx, "buildkite did not extend the reservation of this job, so "+
+			"the reaper removes its machine without a finish",
 			telemetry.LogJob, string(id))
 	}
 
 	return nil
+}
+
+// RefusedAt gives when this process sent an extension of the reservation of a job that Buildkite
+// answered with not_reserved, on the clock of the controller. It gives the zero time when no
+// extension was refused since the last reservation that Buildkite granted, and after a restart.
+func (l *Launcher) RefusedAt(id job.ID) time.Time {
+	return l.held.refusal(id)
 }
 
 // reserve holds every admitted job, in one call.

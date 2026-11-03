@@ -1514,12 +1514,29 @@ func TestAJobThatWasNotExtendedKeepsItsEnd(t *testing.T) {
 	before, _ := started.ReservedUntil(first)
 
 	api.reservation = buildkite.Reservation{NotReserved: []job.ID{first}}
+	extended := clock
+
 	if err := started.Extend(t.Context(), []job.ID{first}); err != nil {
 		t.Fatalf("Extend() = %v, want no error", err)
 	}
 
 	if after, _ := started.ReservedUntil(first); !after.Equal(before) {
 		t.Errorf("the reservation now ends at %s, want the end it had, %s", after, before)
+	}
+
+	// The reaper reads the refusal as row 6, once a job state from after it arrives.
+	if at := started.RefusedAt(first); !at.Equal(extended) {
+		t.Errorf("RefusedAt() = %s, want the send of the refused extension, %s", at, extended)
+	}
+
+	// A reservation that Buildkite grants again ends the refusal.
+	api.reservation = buildkite.Reservation{Reserved: []job.ID{first}}
+	if err := started.Extend(t.Context(), []job.ID{first}); err != nil {
+		t.Fatalf("Extend() = %v, want no error", err)
+	}
+
+	if at := started.RefusedAt(first); !at.IsZero() {
+		t.Errorf("RefusedAt() = %s after a granted extension, want the zero time", at)
 	}
 }
 

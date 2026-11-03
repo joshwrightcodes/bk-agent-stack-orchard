@@ -30,6 +30,10 @@ type held struct {
 	// tokenAt is when this process sent the token call that got the token of the job, on the
 	// clock of the controller. The unplaced timeout of the machine of the job counts from it.
 	tokenAt time.Time
+
+	// refusedAt is when this process sent an extension that Buildkite answered with
+	// not_reserved, and the zero time after a reservation that Buildkite granted.
+	refusedAt time.Time
 }
 
 // memory holds what only this process knows about the jobs that it started.
@@ -58,7 +62,28 @@ func (m *memory) reserved(id job.ID, until, at time.Time) {
 	entry := m.jobs[id]
 	entry.until = until
 	entry.at = at
+	entry.refusedAt = time.Time{}
 	m.jobs[id] = entry
+}
+
+// refused records that Buildkite refused an extension of the reservation of a job, which this
+// process sent at a time. The job keeps the end that it had.
+func (m *memory) refused(id job.ID, sent time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	entry := m.jobs[id]
+	entry.refusedAt = sent
+	m.jobs[id] = entry
+}
+
+// refusal gives when this process sent an extension of the reservation of a job that Buildkite
+// refused, and the zero time when it sent none since the last one that Buildkite granted.
+func (m *memory) refusal(id job.ID) time.Time {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return m.jobs[id].refusedAt
 }
 
 // admitted records when a job that admission started was scheduled, and when this process

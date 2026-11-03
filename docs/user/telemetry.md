@@ -64,7 +64,7 @@ The reasons of `bk_agent_stack_orchard.vm.delete.reason`:
 |---|---|
 | `job_terminal` | The job ended. This is the normal reason. |
 | `job_unknown` | Buildkite does not know the job. |
-| `reservation_lapsed` | The reservation expired before the agent took the job, so the job is back in the queue. |
+| `reservation_lapsed` | The reservation expired before the agent took the job, so the job is back in the queue. Or Buildkite refused to extend the reservation, so another stack can hold the job. The controller does not fail the job in either case. |
 | `vm_failed` | Orchard reports the VM as failed. |
 | `unplaced_timeout` | No host took the VM in time. The job goes back to the queue. |
 | `boot_timeout` | The VM did not start in time. The job failed. |

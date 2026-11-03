@@ -91,8 +91,13 @@ func (p *pages) Notify(_ context.Context, lines []buildkite.Notification) error 
 // held answers as the launcher: when each reservation ends, and the calls that extend them.
 type held struct {
 	until     map[job.ID]time.Time
+	refused   map[job.ID]time.Time
 	calls     [][]job.ID
 	extendErr error
+}
+
+func (h *held) RefusedAt(id job.ID) time.Time {
+	return h.refused[id]
 }
 
 func (h *held) ReservedUntil(id job.ID) (time.Time, bool) {
@@ -1037,6 +1042,38 @@ func TestAnExtensionIsLeftToTheRenewal(t *testing.T) {
 
 	if len(machines.deleted) != 0 || len(jobPages.finished) != 0 || len(jobPages.notified) != 0 {
 		t.Error("the executor acted on a machine whose reservation only needs an extension")
+	}
+}
+
+// Row 6 for a refused extension. Another stack can hold the job, so the machine goes, and the
+// reaper sends no finish for a job that it does not hold, even for a machine that failed.
+func TestAMachineGoesWithoutAFinishWhenBuildkiteRefusedItsExtension(t *testing.T) {
+	t.Parallel()
+
+	api := &observed{states: map[job.ID]string{ended: "reserved"}}
+	machines := &fleet{read: true, snapshot: inventory.Snapshot{
+		Owned: []inventory.Owned{failing(ended)},
+	}}
+	jobPages := &pages{}
+	reservations := &held{refused: map[job.ID]time.Time{ended: now.Add(-10 * time.Second)}}
+
+	reaping := buildHolding(t, api, machines, &decisions{}, jobPages, reservations)
+	if err := reaping.Reap(t.Context()); err != nil {
+		t.Fatalf("Reap() = %v, want no error", err)
+	}
+
+	if len(jobPages.finished) != 0 {
+		t.Errorf("buildkite finished %v, want no finish of a job that another stack can hold",
+			jobPages.finished)
+	}
+
+	if len(machines.deleted) != 1 {
+		t.Errorf("orchard deleted %v, want the machine of the refused extension", machines.deleted)
+	}
+
+	if len(jobPages.notified) != 1 ||
+		jobPages.notified[0].Detail != reaper.Deleted(reaper.ReasonReservationLapsed) {
+		t.Errorf("the job page reads %v, want the line of a lapsed reservation", jobPages.notified)
 	}
 }
 
