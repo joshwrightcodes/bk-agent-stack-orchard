@@ -424,7 +424,7 @@ notifications for unmatched jobs.
   `192.168.100.0`–`192.168.255.255`, can be up to /16.
 * When `profile.otel.enabled` is true, `profile.otel.endpoint` uses `https`. Plain HTTP is
   acceptable only on a loopback address (§10.4).
-* For each profile, `unplaced + boot + acquire ≤ jobTokenLifetime` (§7.3).
+* For each profile, `unplaced + boot + acquire + 1 min ≤ jobTokenLifetime` (§7.3).
 
 If a profile `image` has no digest, the controller MUST write a warning. The controller then
 starts.
@@ -784,7 +784,7 @@ above, and for `download` also `BKASO_AGENT_URL` and `BKASO_AGENT_SHA256`. When
 1. **Observed state only.** Decisions MUST use Inventory data and JobStates data. Decisions
    MUST NOT use counters. The start timeouts of rows 10 to 12 MUST measure their age on the clock
    of the controller. Row 10 MUST measure from the time that this process sent the token call of
-   the job (§7.4, step 2). If this process sent no token call for the job, as after a restart, or
+   the job (§6.4, step 2). If this process sent no token call for the job, as after a restart, or
    sent it after the first Inventory answer of this process that listed the VM, row 10 MUST
    measure from that first answer. Row 11 MUST measure from the first Inventory answer of this
    process that showed the VM on a worker, and row 12 from the first one that showed the VM
