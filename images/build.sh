@@ -75,8 +75,8 @@ PILOT_SIMULATOR="${PILOT_SIMULATOR:-iPhone 17}"
 AGENT_TAGS_PATH="/usr/local/etc/bk-agent-stack-orchard/agent-tags"
 
 # Homebrew, from the package of its release, and the SHA-256 that GitHub gives for it.
-HOMEBREW_VERSION="7.0.11"
-HOMEBREW_SHA256="c780771227420177a6b19bd778e351976c2b5064d114f499ca94c0f01e31e8e8"
+HOMEBREW_VERSION="7.0.12"
+HOMEBREW_SHA256="a9825310dce8d94bc97f70140700089183c3a894b1048501d933865d7c2441bd"
 
 # The disk of the pilot: Xcode, its iOS simulator runtime, and the formulae need about 50 GB beside
 # macOS, and a job needs room for its build. Tart rounds a disk up to whole 4 KiB blocks, and then
