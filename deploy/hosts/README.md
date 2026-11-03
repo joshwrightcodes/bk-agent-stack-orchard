@@ -41,7 +41,9 @@ This directory makes each Mac host an Orchard worker (target design, section 11)
    loads rules that were missing, or fails. Outside a start of the host, such a line means that
    the VMs could reach the host until then.
 5. It runs `orchard worker run` from launchd, as root, and the worker drops to the worker user.
-   This is the Orchard workaround for the Local Network permission of macOS.
+   This is the Orchard workaround for the Local Network permission of macOS. A change that
+   restarts the worker drains the host first. The section [Changes that restart the
+   worker](#changes-that-restart-the-worker) explains how.
 6. It pulls the image of each profile that the host can take.
 
 ## Before the playbook
@@ -70,6 +72,7 @@ Copy `inventory.example.yml`, and give the values of the fleet:
 | `orchard_worker_labels` | The labels of the worker, for example `{pool: general}` |
 | `orchard_worker_otlp_endpoint` | The OTLP endpoint of the collector. Orchard exports its metrics to it |
 | `orchard_worker_config_file` | The configuration file of the controller, or the values of its Helm release |
+| `orchard_worker_drain_timeout` | Optional. The drain time limit, in seconds. The default is `5400` (90 minutes). See [Changes that restart the worker](#changes-that-restart-the-worker) |
 
 The role makes the bootstrap token of Orchard from the account, the token, and the CA. The worker
 trusts only the certificate of the token. A host therefore needs no change of its trust settings.
@@ -102,6 +105,11 @@ ansible-playbook -i inventory.yml site.yml --limit mac-01.hosts.internal
 ansible-playbook -i inventory.yml site.yml
 ```
 
+The play changes one host at a time. To change more hosts at a time, add
+`-e orchard_worker_serial=<number or percentage>`, for example `-e orchard_worker_serial=10%`. The
+hosts of one batch drain together, so their capacity is out together. When a host fails, the play
+stops, so a change that breaks the worker does not reach the next host.
+
 The check of the names and the tokens before the playbook covers the hosts of the run only. A run
 with `--limit mac-01.hosts.internal` does not compare that host with the other hosts of the
 inventory, so two hosts that share a name or a token pass when the operator runs them one at a
@@ -111,12 +119,58 @@ change of a name or a token.
 The worker writes its log to `/var/log/orchard-worker.log`, and launchd writes the output of a
 failed start to `/var/log/orchard-worker.stdout.log`.
 
+## Changes that restart the worker
+
+These changes restart the worker:
+
+- a new version of Orchard, Tart, or Softnet;
+- a new token of the host;
+- new labels, or a new address of the controller.
+
+When the worker stops, it stops and deletes every VM on the host, and the jobs in those VMs fail.
+For this reason, the play drains the host before such a change:
+
+1. It pauses the worker in Orchard. Orchard places no new VM on a paused worker, and the
+   controller counts no room on it.
+2. It waits until no VM of the worker is pending or running. A failed VM runs no job, so it does not
+   hold the drain.
+3. It makes the change, and restarts the worker.
+4. It waits until the worker reports to the controller again. If the worker does not report within
+   `orchard_worker_register_timeout` (300 seconds), the play stops, and the worker stays paused.
+5. It resumes the worker. A worker that you paused before the run stays paused.
+
+A run that restarts nothing drains nothing. This includes a run that only pulls images or changes
+the pf rules.
+
+The drain waits up to `orchard_worker_drain_timeout`, 90 minutes by default. That covers a VM that
+Orchard placed immediately before the pause: the boot and acquire timeouts of its profile, 15 and 5
+minutes by default, then a job of up to 60 minutes, and 10 minutes to spare. If your jobs take
+longer, raise the limit. If a VM still runs at the limit, the play resumes the worker, changes
+nothing that restarts it, and goes on with the next host. At the end, the play names each such
+host and fails. Run the play for those hosts again later.
+
+The play writes `/usr/local/etc/orchard-worker/drain` when it pauses the worker, and removes it when
+it resumes the worker. If a run stops between the two, for example on a failed check, the worker
+stays paused. Fix the cause and run the play for the host again: it restarts and resumes the worker.
+
+The play calls the API of Orchard from the host, with the account and the token of the host, and
+trusts only the CA of the inventory. The token goes only to the `uri` module, and `no_log` keeps it
+and the answers of the controller out of the output. It is in no command line.
+
+Other settings of the drain:
+
+| Variable | Default | Effect |
+|---|---|---|
+| `orchard_worker_drain_poll` | `30` | How often the play counts the VMs of the worker during the drain, in seconds |
+| `orchard_worker_drain_only` | `false` | `true` drains the host and leaves the worker paused, with no change that restarts it. The next run without it makes the change and resumes the worker |
+| `orchard_worker_drain` | `true` | `false` changes the host without the API of Orchard: no drain, and no wait for the worker to report. A restart then deletes the VMs on the host. Use it only when the controller cannot answer |
+
 ## Tests
 
 `mise run check-hosts` lints the role, and checks the images that a host pulls for different
 labels. It also checks that the role refuses a `softnetAllow` entry outside the private ranges,
 and a wide entry inside the networks of the VMs. It renders the pf rules, checks their order, and
-parses them with `pfctl -n` on a Mac. CI runs it.
+parses them with `pfctl -n` on a Mac. It checks which VMs hold a drain. CI runs it.
 
 `mise run hosts-test` runs the playbook against a Tart VM on an Apple silicon Mac. An Orchard
 controller is on the Mac, and the certificate comes from a test CA. The test checks these points:
@@ -127,6 +181,10 @@ controller is on the Mac, and the certificate comes from a test CA. The test che
 - pf has the rules.
 - A second run changes nothing.
 - The worker and the rules return after a restart.
+- A change of the labels drains the host first. While a VM is pending on the worker, the play
+  reaches the drain time limit, resumes the worker, and names the host. When no VM is left, the
+  play makes the change, and resumes the worker after it reports.
+- A drain-only run leaves the worker paused, and the next run makes the change and resumes it.
 
 A macOS VM cannot run a second macOS VM. The test therefore does not check the hypervisor, and it
 cannot start a VM of the pilot image. A real host does that.

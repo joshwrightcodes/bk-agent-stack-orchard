@@ -227,3 +227,24 @@
       ansible.builtin.file:
         path: "{{ job_dir.path }}"
         state: absent
+
+# Checks the filter of the drain, with no host and no controller.
+- name: The VMs that hold a drain
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    no_vms: []
+    vms:
+      - {name: running, worker: mac-01, status: running, image: registry.test/a@sha256:1}
+      - {name: pending, worker: mac-01, status: pending, image: registry.test/b@sha256:2}
+      - {name: failed, worker: mac-01, status: failed, image: registry.test/c@sha256:3}
+      - {name: elsewhere, worker: mac-02, status: running, image: registry.test/d@sha256:4}
+      - {name: unplaced, status: pending, image: registry.test/e@sha256:5}
+  tasks:
+    - name: Check that a pending or running VM of the worker holds the drain, and a failed one does not
+      ansible.builtin.assert:
+        that:
+          - vms | orchard_active_vms('mac-01') == ['pending', 'running']
+          - vms | orchard_active_vms('mac-03') == []
+          - no_vms | orchard_active_vms('mac-01') == []

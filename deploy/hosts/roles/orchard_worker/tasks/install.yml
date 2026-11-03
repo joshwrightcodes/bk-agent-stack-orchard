@@ -1,8 +1,10 @@
 # Each tool goes into a directory of its version, from its release archive, checked against its
 # SHA-256. The unarchive module needs GNU tar, which macOS does not have, so tar runs directly.
+# A new version goes into a new directory, and the worker keeps the commands of the old one until
+# worker.yml links the new one, so these tasks never restart the worker.
 #
 # Root runs programs from these directories (launchd, and this playbook), so only root may change
-# them. ownership.yml checks that at the end of the play. This task makes /usr/local/bin when it is
+# them. ownership.yml checks that before the worker starts. This task makes /usr/local/bin when it is
 # missing, and leaves the owner and the mode of one that exists, so that the check shows a wrong
 # owner instead of a silent change.
 - name: Make the directory of the commands # noqa: risky-file-permissions (ownership.yml checks it)
@@ -73,85 +75,3 @@
   loop: "{{ orchard_worker_tools }}"
   loop_control:
     label: "{{ item.name }} {{ item.version }}"
-
-- name: Link orchard
-  ansible.builtin.file:
-    src: "{{ orchard_worker_prefix }}/orchard-{{ orchard_worker_orchard_version }}/orchard"
-    dest: /usr/local/bin/orchard
-    state: link
-    force: true
-  become: true
-  notify: Restart the worker
-
-# Tart runs from its application bundle, which carries its entitlements, as the Homebrew formula
-# runs it.
-- name: Install the tart command
-  ansible.builtin.copy:
-    dest: /usr/local/bin/tart
-    content: |
-      #!/bin/sh
-      exec "{{ orchard_worker_prefix }}/tart-{{ orchard_worker_tart_version }}/tart.app/Contents/MacOS/tart" "$@"
-    owner: root
-    group: wheel
-    mode: "0755"
-  become: true
-  notify: Restart the worker
-
-# Tart starts Softnet for each VM, and Softnet needs root. Without the setuid bit, Tart asks for
-# a sudo password on a terminal, which a worker does not have. Tart checks only that root owns
-# softnet and that the bit is set.
-#
-# Only root and the worker user may run it. Orchard drops to the worker user with setregid and
-# setreuid, and keeps the groups of root (chacha privdrop, which Orchard 0.58.0 uses), so a group
-# of the worker user would not let Tart run softnet. An access control entry for the user matches
-# the effective user ID, so the mode leaves out other users, and the entry lets the worker user in.
-- name: Install softnet with the setuid bit
-  ansible.builtin.copy:
-    src: "{{ orchard_worker_prefix }}/softnet-{{ orchard_worker_softnet_version }}/softnet"
-    dest: /usr/local/bin/softnet
-    remote_src: true
-    owner: root
-    group: wheel
-    mode: "04750"
-  become: true
-  notify: Restart the worker
-
-- name: Read the access control list of softnet
-  ansible.builtin.command: ls -le /usr/local/bin/softnet
-  register: orchard_worker_softnet_acl
-  changed_when: false
-  become: true
-
-# A new copy of softnet has no entry, so this runs after each copy.
-- name: Let the worker user run softnet
-  ansible.builtin.command:
-    argv: [/bin/chmod, +a, "user:{{ orchard_worker_user }} allow execute", /usr/local/bin/softnet]
-  when: orchard_worker_softnet_acl.stdout is not search(' user:' ~ orchard_worker_user ~ ' allow execute$', multiline=True)
-  changed_when: true
-  become: true
-
-- name: Check that the worker user can run softnet
-  ansible.builtin.command: /usr/local/bin/softnet --version
-  changed_when: false
-  become: true
-  become_user: "{{ orchard_worker_user }}"
-
-- name: Read the installed versions
-  ansible.builtin.command: "{{ item }} --version"
-  register: orchard_worker_versions
-  changed_when: false
-  loop:
-    - /usr/local/bin/orchard
-    - /usr/local/bin/tart
-  become: true
-
-- name: Check the installed versions
-  ansible.builtin.assert:
-    quiet: true
-    that:
-      - orchard_worker_versions.results[0].stdout is search(orchard_worker_orchard_version)
-      - orchard_worker_versions.results[1].stdout is search(orchard_worker_tart_version)
-    fail_msg: >-
-      orchard gives "{{ orchard_worker_versions.results[0].stdout }}" and tart gives
-      "{{ orchard_worker_versions.results[1].stdout }}", not {{ orchard_worker_orchard_version }} and
-      {{ orchard_worker_tart_version }}.

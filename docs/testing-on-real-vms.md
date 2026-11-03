@@ -95,3 +95,19 @@ deploy/hosts/test/pf.sh unload
 which the rules block, so remove them before it. Besides the playbook, it disables pf and removes
 the rules in its VM, and checks that the launchd job of the hosts restores them within a minute. It
 also checks that only the worker user can run Softnet.
+
+The test also checks the drain of a host before a change that restarts the worker. Its VM cannot
+start a job VM, so the test suspends the worker process and gives Orchard a VM, which stays pending
+on the worker, as the VM of a starting job does. A change of the labels then runs into the drain
+time limit: the playbook must resume the worker, change nothing, and fail with the name of the
+host. When the test removes the VM, the same change must pause the worker, restart it with the new
+labels, and resume it. Last, a drain-only run must leave the worker paused, and the next run must
+resume it. Run the test from the repository root:
+
+```sh
+deploy/hosts/test/pf.sh unload   # only when the rules of the hosts are loaded on this Mac
+mise run hosts-test
+```
+
+Run it after a change of the role, the playbook, or the pinned versions of Orchard, Tart, or
+Softnet. CI cannot run it, because it needs a Tart VM.

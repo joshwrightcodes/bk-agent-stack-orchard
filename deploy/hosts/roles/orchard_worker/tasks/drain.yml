@@ -1,0 +1,166 @@
+# Empties the host before a change restarts its worker. The play pauses the worker in Orchard, as
+# "orchard pause worker" does: the Orchard scheduler then places no VM on it, and the controller of
+# this project counts no room on it. The play then waits until no VM of the worker is pending or
+# running, the test of "orchard pause worker --wait" (Orchard 0.58.0). A failed VM runs nothing, so
+# it does not hold the drain. When the time limit comes first, the play resumes the worker, changes
+# nothing that restarts it, and goes on with the next host. The last play of site.yml names each
+# such host.
+#
+# The calls go from the host to the address of the controller in the inventory, with the account of
+# the host, which has compute:write, the role that a pause needs. The token is only in the arguments
+# of the uri module. no_log keeps it, and the VMs that the controller lists, out of the output: a VM
+# carries the job token in its startup script.
+- name: Check that a drain-only run can drain
+  ansible.builtin.assert:
+    quiet: true
+    that: orchard_worker_drain | bool or not orchard_worker_drain_only | bool
+    fail_msg: >-
+      orchard_worker_drain_only needs the drain, so orchard_worker_drain cannot be false in the
+      same run.
+
+- name: Drain the worker
+  when:
+    - orchard_worker_drain | bool
+    - orchard_worker_restart | bool or orchard_worker_mark.stat.exists or orchard_worker_drain_only | bool
+  become: true
+  module_defaults:
+    ansible.builtin.uri: "{{ orchard_worker_api }}"
+  block:
+    - name: Read the worker record
+      ansible.builtin.uri:
+        url: "{{ orchard_worker_controller_url }}/v1/workers/{{ orchard_worker_name }}"
+        status_code: [200, 404]
+      register: orchard_worker_record
+      failed_when: false
+      no_log: true
+
+    - name: Check that the controller gave the worker record
+      ansible.builtin.assert:
+        quiet: true
+        that: orchard_worker_record.status in [200, 404]
+        fail_msg: >-
+          The controller at {{ orchard_worker_controller_url }} did not give the record of the worker
+          {{ orchard_worker_name }}: {{ orchard_worker_record.status }} {{ orchard_worker_record.msg | default('') }}.
+          The play changed nothing that restarts the worker. To change the host without a drain,
+          which deletes every VM on it, set orchard_worker_drain to false.
+
+    # A worker that has no record has no VM to protect. A worker that an operator paused before
+    # this run stays paused at the end, unless the mark of an earlier run says otherwise.
+    - name: Decide whether to resume the worker at the end
+      ansible.builtin.set_fact:
+        orchard_worker_drained: "{{ orchard_worker_record.status == 200 }}"
+        orchard_worker_resume: >-
+          {{ orchard_worker_mark_says_resume | bool if orchard_worker_mark.stat.exists
+          else not (orchard_worker_record.json.scheduling_paused | default(false)) }}
+
+    - name: Name the reasons for the drain
+      ansible.builtin.debug:
+        msg: "The play drains {{ orchard_worker_name }}: {{ orchard_worker_reasons | join(', ') }}."
+      when: orchard_worker_drained | bool
+      vars:
+        orchard_worker_reasons: >-
+          {{ (orchard_worker_changes | map('regex_replace', '^', 'a change of ') | list)
+          + (['a drain that did not finish'] if orchard_worker_mark.stat.exists else [])
+          + (['a drain-only run, which leaves the worker paused'] if orchard_worker_drain_only | bool else []) }}
+
+    - name: Write the mark of the drain
+      ansible.builtin.copy:
+        dest: "{{ orchard_worker_drain_mark }}"
+        content: "{{ 'resume' if orchard_worker_resume | bool else 'keep paused' }}\n"
+        owner: root
+        group: wheel
+        mode: "0600"
+      when: orchard_worker_drained | bool
+
+    - name: Wait until no VM of the worker is pending or running
+      when: orchard_worker_drained | bool
+      block:
+        - name: Pause the worker
+          ansible.builtin.uri:
+            url: "{{ orchard_worker_controller_url }}/v1/workers/{{ orchard_worker_name }}"
+            method: PUT
+            body: {name: "{{ orchard_worker_name }}", scheduling_paused: true}
+          changed_when: true
+          no_log: true
+
+        - name: Wait for the VMs of the worker to end
+          ansible.builtin.uri:
+            url: "{{ orchard_worker_vms_url }}"
+          register: orchard_worker_vms
+          until: >-
+            orchard_worker_vms.status == 200 and
+            orchard_worker_vms.json | orchard_active_vms(orchard_worker_name) | length == 0
+          retries: "{{ (orchard_worker_drain_timeout | int) // (orchard_worker_drain_poll | int) }}"
+          delay: "{{ orchard_worker_drain_poll | int }}"
+          no_log: true
+
+        # The worker writes its record each 15 seconds: it reads the record and writes it back,
+        # so a pause that lands between the two is lost. The second pause and count close that
+        # gap.
+        - name: Pause the worker again
+          ansible.builtin.uri:
+            url: "{{ orchard_worker_controller_url }}/v1/workers/{{ orchard_worker_name }}"
+            method: PUT
+            body: {name: "{{ orchard_worker_name }}", scheduling_paused: true}
+          changed_when: true
+          no_log: true
+
+        - name: Count the VMs of the worker again
+          ansible.builtin.uri:
+            url: "{{ orchard_worker_vms_url }}"
+          register: orchard_worker_vms
+          no_log: true
+
+        - name: Check that the worker runs no VM
+          ansible.builtin.assert:
+            quiet: true
+            that: orchard_worker_vms.json | orchard_active_vms(orchard_worker_name) | length == 0
+            fail_msg: A VM started on the worker before the pause took effect.
+
+      rescue:
+        - name: Resume the worker, because the drain did not finish
+          ansible.builtin.uri:
+            url: "{{ orchard_worker_controller_url }}/v1/workers/{{ orchard_worker_name }}"
+            method: PUT
+            body: {name: "{{ orchard_worker_name }}", scheduling_paused: false}
+          changed_when: true
+          when: orchard_worker_resume | bool
+          no_log: true
+
+        - name: Remove the mark of the drain
+          ansible.builtin.file:
+            path: "{{ orchard_worker_drain_mark }}"
+            state: absent
+
+        - name: Remember that the host kept its old state
+          ansible.builtin.set_fact:
+            orchard_worker_skipped: >-
+              {{ orchard_worker_name }}: {{ orchard_worker_counted if orchard_worker_vms.status | default(0) == 200
+              else orchard_worker_no_answer }}
+          vars:
+            orchard_worker_counted: >-
+              {{ orchard_worker_vms.json | default([]) | orchard_active_vms(orchard_worker_name) | length }} VM(s)
+              still pending or running at the drain time limit of {{ orchard_worker_drain_timeout }} s
+            orchard_worker_no_answer: >-
+              the controller did not answer during the drain ({{ orchard_worker_vms.status | default('no call') }})
+
+        - name: Report that the play skips the host
+          ansible.builtin.debug:
+            msg: >-
+              The play did not change {{ orchard_worker_skipped }}. The worker is
+              {{ 'resumed' if orchard_worker_resume | bool else 'still paused, as it was before the run' }}.
+              Run the play for this host again later.
+
+        - name: Skip the rest of the play for this host
+          ansible.builtin.meta: end_host
+
+    # For a token rotation or the removal of a host: the worker stays paused with no VM, and the
+    # mark stays, so that the next run restarts and resumes the worker.
+    - name: Remember that the worker stays drained
+      ansible.builtin.set_fact:
+        orchard_worker_left_drained: "{{ orchard_worker_name }}"
+      when: orchard_worker_drain_only | bool
+
+    - name: Stop here, with the worker drained and paused
+      ansible.builtin.meta: end_host
+      when: orchard_worker_drain_only | bool

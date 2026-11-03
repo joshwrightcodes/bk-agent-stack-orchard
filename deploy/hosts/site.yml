@@ -1,9 +1,49 @@
 # Makes each Mac host an Orchard worker. The play gathers no facts at first, because a host without
 # the Command Line Tools has no Python, and the role checks that before anything else.
+#
+# The play changes one host at a time, so that a change that restarts the worker takes at most one
+# host out of service while it drains (roles/orchard_worker/tasks/drain.yml). -e
+# orchard_worker_serial=<number or percentage> changes more hosts at a time, and takes their
+# capacity out together. A failed host stops the play, so a change that breaks the worker does not
+# reach the next host.
 - name: Orchard workers
   hosts: workers
   gather_facts: false
+  serial: "{{ orchard_worker_serial | default(1) }}"
+  max_fail_percentage: 0
   vars:
     ansible_python_interpreter: /usr/bin/python3
   roles:
     - orchard_worker
+
+# A host whose drain did not finish within the time limit kept its old state, and the play went on
+# with the next host. This play names those hosts at the end, and fails, so that the operator runs
+# the play for them again later. It reaches no host, and runs each task once, for the whole play.
+- name: Report the hosts that the play did not change
+  hosts: workers
+  gather_facts: false
+  tasks:
+    - name: Name the hosts that stay drained and paused # noqa: run-once (the play keeps the linear strategy)
+      ansible.builtin.debug:
+        msg: >-
+          These workers are drained and paused, with no change that restarts them:
+          {{ orchard_worker_drained_hosts | join(', ') }}. Run the play without
+          orchard_worker_drain_only to change and resume them.
+      run_once: true
+      when: orchard_worker_drained_hosts | length > 0
+      vars:
+        orchard_worker_drained_hosts: >-
+          {{ ansible_play_hosts_all | map('extract', hostvars) | selectattr('orchard_worker_left_drained', 'defined')
+          | map(attribute='orchard_worker_left_drained') | list }}
+
+    - name: Stop when a drain did not finish # noqa: run-once (the play keeps the linear strategy)
+      ansible.builtin.fail:
+        msg: >-
+          The play did not change these hosts, because their drain did not finish:
+          {{ orchard_worker_skipped_hosts | join('; ') }}. Run the play for them again later.
+      run_once: true
+      when: orchard_worker_skipped_hosts | length > 0
+      vars:
+        orchard_worker_skipped_hosts: >-
+          {{ ansible_play_hosts_all | map('extract', hostvars) | selectattr('orchard_worker_skipped', 'defined')
+          | map(attribute='orchard_worker_skipped') | list }}

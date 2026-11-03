@@ -1,0 +1,71 @@
+# The files that the worker reads when it starts. A change of one of them takes effect only when the
+# worker starts again, and a restart deletes every VM on the host. plan.yml runs this file in check
+# mode first, to find such a change before it happens, and main.yml runs it again to make the
+# change. The plan and the change therefore come from the same tasks. Each task registers its
+# result, which plan.yml and service.yml read.
+- name: Link orchard
+  ansible.builtin.file:
+    src: "{{ orchard_worker_prefix }}/orchard-{{ orchard_worker_orchard_version }}/orchard"
+    dest: /usr/local/bin/orchard
+    state: link
+    force: true
+  become: true
+  register: orchard_worker_orchard_link
+
+# Tart runs from its application bundle, which carries its entitlements, as the Homebrew formula
+# runs it.
+- name: Install the tart command
+  ansible.builtin.copy:
+    dest: /usr/local/bin/tart
+    content: |
+      #!/bin/sh
+      exec "{{ orchard_worker_prefix }}/tart-{{ orchard_worker_tart_version }}/tart.app/Contents/MacOS/tart" "$@"
+    owner: root
+    group: wheel
+    mode: "0755"
+  become: true
+  register: orchard_worker_tart_command
+
+# Tart starts Softnet for each VM, and Softnet needs root. Without the setuid bit, Tart asks for
+# a sudo password on a terminal, which a worker does not have. Tart checks only that root owns
+# softnet and that the bit is set.
+#
+# Only root and the worker user may run it. Orchard drops to the worker user with setregid and
+# setreuid, and keeps the groups of root (chacha privdrop, which Orchard 0.58.0 uses), so a group
+# of the worker user would not let Tart run softnet. An access control entry for the user matches
+# the effective user ID, so the mode leaves out other users, and the entry (commands.yml) lets the
+# worker user in.
+- name: Install softnet with the setuid bit
+  ansible.builtin.copy:
+    src: "{{ orchard_worker_prefix }}/softnet-{{ orchard_worker_softnet_version }}/softnet"
+    dest: /usr/local/bin/softnet
+    remote_src: true
+    owner: root
+    group: wheel
+    mode: "04750"
+  become: true
+  register: orchard_worker_softnet_file
+
+# launchd gives the token to the worker on its standard input, so the token is in no plist, no
+# argument list, and no process listing.
+- name: Write the bootstrap token
+  ansible.builtin.copy:
+    dest: "{{ orchard_worker_etc }}/bootstrap-token"
+    content: "{{ orchard_worker_bootstrap_token }}"
+    owner: root
+    group: wheel
+    mode: "0600"
+  become: true
+  no_log: true
+  register: orchard_worker_token_file
+
+- name: Write the launchd job
+  ansible.builtin.template:
+    src: orchard-worker.plist.j2
+    dest: "{{ orchard_worker_plist }}"
+    owner: root
+    group: wheel
+    mode: "0644"
+    validate: plutil -lint %s
+  become: true
+  register: orchard_worker_plist_file

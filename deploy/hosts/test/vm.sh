@@ -9,11 +9,18 @@
 #   - only the worker user and root can run softnet, and root owns the programs that it runs;
 #   - the launchd job of the pf rules enables pf and loads the rules again after a person
 #     disables pf and removes the rules;
-#   - a second run of the playbook changes nothing;
-#   - the worker registers again after a restart of the host.
+#   - a second run of the playbook changes nothing, and so drains nothing;
+#   - the worker registers again after a restart of the host;
+#   - a change that restarts the worker drains the host first: while a VM is pending on the worker,
+#     the play pauses the worker, reaches the drain time limit, resumes the worker, changes nothing,
+#     and fails at the end with the name of the host; when no VM is left, it pauses the worker,
+#     makes the change, waits for the worker to report, and resumes it;
+#   - a drain-only run leaves the worker paused, and the next run makes the change and resumes it.
 #
 # A VM cannot run a macOS VM, so the test turns off the check of the hypervisor, and it cannot
-# check that a VM of the pilot image starts. A real host checks that.
+# check that a VM of the pilot image starts. A real host checks that. For the drain, the test
+# suspends the worker process, so that a VM that Orchard places on the worker stays pending, as a VM
+# that starts a job does, and the controller of the test keeps the worker online for 30 minutes.
 #
 # It needs an Apple silicon Mac with tart, orchard, ansible-playbook, jq, and about 50 GB of disk.
 #
@@ -53,8 +60,10 @@ WORK="$(mktemp -d)"
 ADMIN_TOKEN="$(openssl rand -hex 24)"
 WORKER_TOKEN="$(openssl rand -hex 24)"
 controller=""
+watcher=""
 
 clean_up() {
+	[[ -n "$watcher" ]] && kill "$watcher" 2>/dev/null
 	[[ -n "$controller" ]] && kill "$controller" 2>/dev/null
 	if [[ "${KEEP:-}" != "1" && -d "$TART_DIR/vms/$VM" ]]; then
 		tart stop "$VM" >/dev/null 2>&1 || true
@@ -170,9 +179,12 @@ openssl x509 -req -in "$WORK/tls.csr" -CA "$WORK/ca.crt" -CAkey "$WORK/ca.key" -
 	-days 1 -extfile "$WORK/leaf.ext" -out "$WORK/tls.crt" 2>/dev/null
 
 say "starting the Orchard controller on port $PORT"
+# The drain test suspends the worker for a few minutes. A longer offline timeout than the default
+# 3 minutes keeps the worker online, so that the controller does not fail the VM that the drain
+# waits for.
 ORCHARD_BOOTSTRAP_ADMIN_TOKEN="$ADMIN_TOKEN" orchard controller run --data-dir "$WORK/data" \
 	--listen ":$PORT" --controller-cert "$WORK/tls.crt" --controller-key "$WORK/tls.key" \
-	>"$WORK/controller.log" 2>&1 &
+	--worker-offline-timeout 30m >"$WORK/controller.log" 2>&1 &
 controller=$!
 for _ in $(seq 1 30); do
 	api GET /v1/workers >/dev/null 2>&1 && break
@@ -213,8 +225,9 @@ workers:
     orchard_worker_config_file: $HOSTS/test/testdata/config.yaml
     orchard_worker_require_hypervisor: false
 EOF
+# playbook [<argument>...]: a run of the playbook, with more arguments of ansible-playbook.
 playbook() {
-	ANSIBLE_CONFIG="$HOSTS/ansible.cfg" ansible-playbook -i "$WORK/inventory.yml" "$HOSTS/site.yml" |
+	ANSIBLE_CONFIG="$HOSTS/ansible.cfg" ansible-playbook -i "$WORK/inventory.yml" "$HOSTS/site.yml" "$@" |
 		tee "$WORK/playbook.log"
 }
 
@@ -317,4 +330,107 @@ now=$(guest <<<'grep -c "pf is not enabled" /var/log/bkaso-vm-isolation.log || t
 ((now > logged)) || die "the launchd job enabled pf, and its log does not say so"
 say "the launchd job enabled pf and loaded the rules again"
 
-say "PASS: the worker registers, the token stays secret, the playbook is idempotent, the worker and the pf rules survive a restart, and the launchd job keeps the pf rules in force"
+# The value of scheduling_paused in the record of the worker: true or false.
+paused() { api GET "/v1/workers/$VM" | jq -r '.scheduling_paused // false'; }
+
+# watch_pause: writes the value of scheduling_paused to $WORK/paused.log each second, until
+# stop_watch, so that the test sees the pause during a run of the playbook.
+watch_pause() {
+	: >"$WORK/paused.log"
+	while :; do
+		paused >>"$WORK/paused.log" 2>/dev/null || true
+		sleep 1
+	done &
+	watcher=$!
+}
+stop_watch() {
+	kill "$watcher" 2>/dev/null || true
+	wait "$watcher" 2>/dev/null || true
+	watcher=""
+}
+
+# host_state: the labels in the launchd job, the mark of the drain, and the PID of the worker.
+host_state() {
+	guest <<'EOF'
+echo "stage_label=$(grep -c 'stage=drain' /Library/LaunchDaemons/io.github.joshwrightcodes.orchard-worker.plist)"
+echo "mark=$(sudo cat /usr/local/etc/orchard-worker/drain 2>/dev/null || echo none)"
+echo "worker_pid=$(pgrep -f '[o]rchard worker run' | head -1)"
+EOF
+}
+
+# A change of the labels restarts the worker. The drain counts the VMs each 5 seconds.
+DRAIN=(-e '{"orchard_worker_labels": {"pool": "test", "stage": "drain"}}' -e orchard_worker_drain_poll=5)
+
+say "suspending the worker, and giving it a VM that stays pending"
+guest <<<"sudo pkill -STOP -f '[o]rchard worker run'" || die "no worker process to suspend"
+api POST /v1/vms "$(jq -nc '{name: "drain-test", image: "registry.test/drain@sha256:6666666666666666666666666666666666666666666666666666666666666666", cpu: 1, memory: 512}')" >/dev/null
+placed=""
+vm=""
+for _ in $(seq 1 30); do
+	vm=$(api GET /v1/vms/drain-test)
+	if [[ "$(jq -r '.worker // ""' <<<"$vm")" == "$VM" && "$(jq -r .status <<<"$vm")" == "pending" ]]; then
+		placed=1
+		break
+	fi
+	sleep 2
+done
+[[ -n "$placed" ]] || die "Orchard did not place the VM drain-test on the worker: $vm"
+
+say "changing the labels while the VM is pending, which the drain time limit must stop"
+before=$(host_state)
+watch_pause
+if playbook "${DRAIN[@]}" -e orchard_worker_drain_timeout=20; then
+	stop_watch
+	die "the playbook passed while a VM was pending on the worker, so it did not report the skipped host"
+fi
+stop_watch
+grep -q "because their drain did not finish: $VM: 1 VM(s) still pending or running" "$WORK/playbook.log" ||
+	die "the playbook failed, but not because of the drain time limit"
+grep -qx true "$WORK/paused.log" || die "the play did not pause the worker during the drain"
+[[ "$(paused)" == false ]] || die "the play left the worker paused after the drain time limit"
+after=$(host_state)
+echo "$after"
+grep -qx "stage_label=0" <<<"$after" || die "the play changed the labels of a host whose drain did not finish"
+grep -qx "mark=none" <<<"$after" || die "the play left the mark of the drain after the drain time limit"
+[[ "$(grep worker_pid <<<"$after")" == "$(grep worker_pid <<<"$before")" ]] ||
+	die "the play restarted the worker of a host whose drain did not finish"
+say "the play skipped the host, resumed the worker, and named the host"
+
+say "removing the VM, and changing the labels again"
+api DELETE /v1/vms/drain-test >/dev/null
+resumed=$(date +%s)
+guest <<<"sudo pkill -CONT -f '[o]rchard worker run'" || die "no worker process to continue"
+wait_for_worker "$resumed"
+watch_pause
+playbook "${DRAIN[@]}" -e orchard_worker_drain_timeout=120
+stop_watch
+grep -qx true "$WORK/paused.log" || die "the play did not pause the worker before it restarted it"
+[[ "$(paused)" == false ]] || die "the play did not resume the worker after the change"
+[[ "$(api GET "/v1/workers/$VM" | jq -r '.labels.stage // ""')" == drain ]] ||
+	die "the worker did not report the new labels after the drain"
+after=$(host_state)
+echo "$after"
+grep -qx "stage_label=1" <<<"$after" || die "the play did not change the labels after the drain"
+grep -qx "mark=none" <<<"$after" || die "the play left the mark of the drain after the resume"
+[[ "$(grep worker_pid <<<"$after")" != "$(grep worker_pid <<<"$before")" ]] ||
+	die "the play changed the labels without a restart of the worker"
+say "the play drained the host, restarted the worker with the new labels, and resumed it"
+
+say "draining only, before the labels change back"
+playbook -e orchard_worker_drain_only=true
+grep -q "These workers are drained and paused, with no change that restarts them: $VM" "$WORK/playbook.log" ||
+	die "the drain-only run did not name the drained worker"
+[[ "$(paused)" == true ]] || die "the drain-only run did not leave the worker paused"
+after=$(host_state)
+echo "$after"
+grep -qx "stage_label=1" <<<"$after" || die "the drain-only run changed the labels"
+grep -qx "mark=resume" <<<"$after" || die "the drain-only run did not leave the mark that resumes the worker"
+playbook
+[[ "$(paused)" == false ]] || die "the run after the drain-only run did not resume the worker"
+after=$(host_state)
+echo "$after"
+grep -qx "stage_label=0" <<<"$after" || die "the run after the drain-only run did not change the labels back"
+grep -qx "mark=none" <<<"$after" || die "the run after the drain-only run left the mark of the drain"
+say "the drain-only run left the worker paused, and the next run changed the host and resumed it"
+
+say "PASS: the worker registers, the token stays secret, the playbook is idempotent, the worker and the pf rules survive a restart, the launchd job keeps the pf rules in force, and a change that restarts the worker drains the host first"
