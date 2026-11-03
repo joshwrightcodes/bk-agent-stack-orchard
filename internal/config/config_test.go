@@ -3,6 +3,7 @@
 package config_test
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -230,6 +231,29 @@ func TestLoadKeepsTheMinuteOfTheTokenMargin(t *testing.T) {
 				!strings.Contains(err.Error(), "one minute")) {
 				t.Errorf("Load() with boot %s = %v, want an error that names the token and the "+
 					"minute", test.boot, err)
+			}
+		})
+	}
+}
+
+// The start timeouts set the lifetime of each token, so their sum must not wrap. Two timeouts near
+// the largest duration add up to a negative sum, and a negative timeout makes the sum small. Each
+// sum would pass the check against the token, and the launcher would ask for a token that has
+// already expired.
+func TestLoadRefusesStartTimeoutsThatBreakTheSum(t *testing.T) {
+	largest := time.Duration(math.MaxInt64).String()
+
+	for name, timeouts := range map[string]string{
+		"a sum that wraps":   "    boot: " + largest + "\n    acquire: " + largest + "\n",
+		"a negative timeout": "    boot: -1h\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			body := strings.Replace(minimal, "profiles:", "defaults:\n  timeouts:\n"+timeouts+
+				"profiles:", 1)
+
+			_, err := load(t, body, secrets())
+			if err == nil || !strings.Contains(err.Error(), "xcode-27") {
+				t.Errorf("Load() with %s = %v, want an error that names the profile", name, err)
 			}
 		})
 	}

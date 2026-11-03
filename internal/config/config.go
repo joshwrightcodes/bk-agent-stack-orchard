@@ -465,8 +465,28 @@ func (c *Config) validateProfiles() []error {
 // validateProfileTimeouts keeps a healthy but slow virtual machine inside the life of its job
 // acquisition token, with the margin that the token keeps after the start timeouts. A token that
 // expires first fails a job that would have run.
+//
+// Each start timeout must lie from zero to the token lifetime before the sum. A negative timeout
+// makes the sum small, and timeouts near the largest duration make it wrap to a negative value.
+// Either sum would pass, and the launcher would ask for a token that has already expired.
 func (c *Config) validateProfileTimeouts(p profile.Profile) error {
-	sum := p.EffectiveTimeouts(c.Defaults.Timeouts).StartSum()
+	timeouts := p.EffectiveTimeouts(c.Defaults.Timeouts)
+	for _, timeout := range []struct {
+		name  string
+		value time.Duration
+	}{
+		{"unplaced", timeouts.Unplaced},
+		{"boot", timeouts.Boot},
+		{"acquire", timeouts.Acquire},
+	} {
+		if timeout.value < 0 || timeout.value > c.Buildkite.JobTokenLifetime {
+			return fmt.Errorf("profile %q: %s is %s, and it must be from 0 to "+
+				"buildkite.jobTokenLifetime (%s)",
+				p.Name, timeout.name, timeout.value, c.Buildkite.JobTokenLifetime)
+		}
+	}
+
+	sum := timeouts.StartSum()
 	if sum+profile.TokenMargin <= c.Buildkite.JobTokenLifetime {
 		return nil
 	}
