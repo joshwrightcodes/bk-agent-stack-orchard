@@ -22,6 +22,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/retry"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/stack"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
 )
@@ -137,6 +138,11 @@ type Controller struct {
 	// refreshed holds the tick at which each source was last read. Only the goroutine of the
 	// loop reads and writes it.
 	refreshed map[telemetry.Source]time.Time
+
+	// paused holds, for each source whose last read failed with a wait that the server named,
+	// how long after that read the source waits. Only the goroutine of the loop reads and writes
+	// it.
+	paused map[telemetry.Source]time.Duration
 }
 
 // New builds the loop.
@@ -207,6 +213,7 @@ func New(options Options) (*Controller, error) {
 		logger:    options.Logger,
 		tracer:    tracer,
 		refreshed: map[telemetry.Source]time.Time{},
+		paused:    map[telemetry.Source]time.Duration{},
 	}, nil
 }
 
@@ -297,7 +304,13 @@ func (c *Controller) refresh(ctx context.Context, at time.Time) {
 		c.refreshed[source.Source()] = at
 
 		c.run(ctx, step[source.Source()], func(ctx context.Context) error {
-			return source.Refresh(ctx)
+			err := source.Refresh(ctx)
+
+			// A server that named a wait in Retry-After gets it here, as a time before which
+			// the source is not due, and not as a sleep inside the tick (internal/retry).
+			c.paused[source.Source()] = retry.Pause(err)
+
+			return err
 		})
 	}
 }
@@ -309,13 +322,19 @@ func (c *Controller) refresh(ctx context.Context, at time.Time) {
 // it in the same tick, so a comparison of answers skips every other tick when the two intervals
 // are equal. Ticks arrive one tick interval apart, so half of that interval is room for the jitter
 // of the ticker, and it can never let a source be read a whole tick early.
+//
+// A source whose last read failed with a wait that the server named is not due before that wait
+// ends, measured from the tick of that read. The wait has no room for jitter, because the server
+// asked for it.
 func (c *Controller) due(source Source, at time.Time) bool {
 	last, read := c.refreshed[source.Source()]
 	if !read {
 		return true
 	}
 
-	return at.Sub(last) >= source.Interval()-c.interval/2
+	since := at.Sub(last)
+
+	return since >= source.Interval()-c.interval/2 && since >= c.paused[source.Source()]
 }
 
 // run carries out one step, and records what it cost. A step that fails is a log record and a

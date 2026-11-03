@@ -94,7 +94,9 @@ not ready. VMs that run keep running. When the answers come back, it carries on.
 Each call to Buildkite or Orchard has a time limit of 10 seconds. An API that stops answering
 therefore cannot stop the controller. While Buildkite does not answer, the controller still deletes
 a VM whose name has its prefix but no job, and a VM older than `maxVMLifetime`. While Orchard does
-not answer, the controller still keeps the reservations of the jobs whose VMs start.
+not answer, the controller still keeps the reservations of the jobs whose VMs start. When
+Buildkite or Orchard asks the controller to wait, it waits up to 30 seconds before it reads the
+same data again.
 
 ## Isolation
 

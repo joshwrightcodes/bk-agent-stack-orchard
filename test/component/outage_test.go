@@ -12,9 +12,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/health"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/retry"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/vmspec"
 )
 
@@ -264,6 +266,52 @@ func TestAJobStatesOutageStopsAdmission(t *testing.T) {
 
 	if vm, exists := s.machine(late); !exists || vm.Status != orchard.StatusRunning {
 		t.Error("the job that arrived while the job states failed has no running machine after it")
+	}
+
+	s.budget()
+}
+
+// Buildkite applies a rate limit and names a wait of 20 s. The poll and the job states wait for it
+// before they ask again, although their own intervals are 1 s and 5 s, and they ask again once
+// the wait ends. The tick does not sleep for the wait.
+func TestARateLimitWithRetryAfterPausesTheBuildkiteSources(t *testing.T) {
+	s := newScenario(t)
+
+	waiting := s.arrive()
+	s.run(15)
+
+	limited := retry.Again(
+		fmt.Errorf("%w: answered 429 Too Many Requests", buildkite.ErrRateLimited), 20*time.Second)
+	s.stacks.down = limited
+	start := s.now
+
+	s.run(19)
+
+	asked := map[string]int{}
+
+	for _, c := range s.stacks.calls {
+		if c.at.After(start) {
+			asked[c.endpoint]++
+		}
+	}
+
+	for _, endpoint := range []string{"list", "states"} {
+		if asked[endpoint] != 1 {
+			t.Errorf("the controller asked %s %d times inside the wait that Buildkite named, "+
+				"want once", endpoint, asked[endpoint])
+		}
+	}
+
+	s.stacks.down = nil
+	s.run(10)
+
+	if !s.ready() {
+		t.Errorf("the controller is not ready after the wait: %v", s.checks.Unready())
+	}
+
+	if _, exists := s.machine(waiting); !exists || s.stacks.jobs[waiting].state != stateReserved {
+		t.Errorf("the reserved job is %s with a machine %t, want it reserved and on its machine",
+			s.stacks.jobs[waiting].state, exists)
 	}
 
 	s.budget()

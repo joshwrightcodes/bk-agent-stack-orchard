@@ -206,6 +206,12 @@ for a source that waits for the ones before it in the same tick, so a comparison
 a source whose interval equals the tick interval at only every other tick. A source that failed
 MUST wait for its interval like one that answered.
 
+If the read of a source failed with a wait that the server named in `Retry-After`, the loop MUST
+NOT read that source again before the wait ends, measured from the tick of the failed read. The
+loop MUST NOT sleep inside the tick for the wait, so the other steps continue. The wait MUST have
+a maximum of 30 s (`MaxPause`), so that a wrong value cannot stop a source for long. This maximum
+is half of the default `stateFreshness`: a source that waits once and then answers stays fresh.
+
 Every call to Buildkite or to Orchard MUST have a time limit, which covers all of its tries and
 waits (§15). The limit is 10 s (`callTimeout`). A call that hangs holds every step after it in the
 tick, the extensions and the deletions of the Reaper included, so the limit MUST keep a tick in
@@ -1320,7 +1326,8 @@ goroutine, so a call that waits holds the whole loop (§4). These rules apply:
   after the first try, and it doubles after each try, up to 2 s.
 * If the server names a wait in `Retry-After`, as a whole number of seconds, the wait is that
   value. If the value is more than 2 s, the call MUST end at once, and the error MUST carry the
-  value, so that the caller waits and not the call.
+  value, so that the caller waits and not the call. A source of the loop then waits for the
+  value, up to 30 s, before it reads again (§4).
 * The context of the call ends a wait, so the deadline of the call bounds the tries and the waits.
 
 The next tick is the real retry of a call that fails.

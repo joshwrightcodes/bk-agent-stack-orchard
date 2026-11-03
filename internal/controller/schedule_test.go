@@ -13,6 +13,7 @@ import (
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/retry"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/stack"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
 )
@@ -136,5 +137,60 @@ func TestASourceThatFailedWaitsForItsInterval(t *testing.T) {
 
 	if source.reads != 1 {
 		t.Errorf("the loop read a failing source %d times in its interval, want 1", source.reads)
+	}
+}
+
+// seconds gives the offsets of a tick each second, from 0 s to the last second given.
+func seconds(last int) []time.Duration {
+	offsets := make([]time.Duration, 0, last+1)
+	for i := range last + 1 {
+		offsets = append(offsets, time.Duration(i)*time.Second)
+	}
+
+	return offsets
+}
+
+// A server that names a wait in Retry-After gets it: the source is not read again until the wait
+// ends, although its own interval is shorter. The tick does not sleep for the wait, so the steps
+// after the source go on.
+func TestASourceWaitsForTheTimeThatTheServerNamed(t *testing.T) {
+	t.Parallel()
+
+	source := &counted{
+		interval: time.Second,
+		err:      retry.Again(errors.New("answered 429 Too Many Requests"), 10*time.Second),
+	}
+	c := loop(t, source)
+
+	ticks(t, c, seconds(9)...)
+
+	if source.reads != 1 {
+		t.Errorf("the loop read the source %d times inside the named wait, want 1", source.reads)
+	}
+
+	source.err = nil
+	ticks(t, c, 10*time.Second, 11*time.Second)
+
+	if source.reads != 3 {
+		t.Errorf("the loop read the source %d times, want it read again when the wait ended "+
+			"and at its own interval after an answer", source.reads)
+	}
+}
+
+// A wait longer than the cap waits only for the cap, so that a wrong or a hostile value cannot
+// stop a source for long.
+func TestTheNamedWaitHasACap(t *testing.T) {
+	t.Parallel()
+
+	source := &counted{
+		interval: time.Second,
+		err:      retry.Again(errors.New("answered 429 Too Many Requests"), 2*time.Hour),
+	}
+
+	ticks(t, loop(t, source), seconds(int(retry.MaxPause.Seconds()))...)
+
+	if source.reads != 2 {
+		t.Errorf("the loop read the source %d times, want once at the start and once at the cap",
+			source.reads)
 	}
 }
