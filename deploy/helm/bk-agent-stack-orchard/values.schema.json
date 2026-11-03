@@ -107,6 +107,7 @@
       }
     },
     "priorityClassName": {"type": "string"},
+    "terminationGracePeriodSeconds": {"type": "integer", "minimum": 20},
     "resources": {
       "type": "object",
       "additionalProperties": false,

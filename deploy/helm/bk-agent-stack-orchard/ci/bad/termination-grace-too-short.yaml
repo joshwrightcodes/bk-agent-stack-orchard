@@ -1,0 +1,3 @@
+# The controller withdraws its stack and then stops its telemetry, each in 10 s or less, so a grace
+# below 20 s lets the kubelet kill it first.
+terminationGracePeriodSeconds: 5

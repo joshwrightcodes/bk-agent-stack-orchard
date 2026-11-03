@@ -75,7 +75,7 @@ func run(args []string, out, problems io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	if err := serve(ctx, location, origin, out); err != nil {
+	if err := serve(ctx, location, origin, out, problems); err != nil {
 		_, _ = fmt.Fprintf(problems, "bk-agent-stack-orchard: %v\n", err)
 
 		return 1
@@ -105,8 +105,9 @@ func configPath(flagged string, getenv func(string) string) (path, origin string
 	return defaultConfigPath, "the default path"
 }
 
-// serve runs the controller until the context ends.
-func serve(ctx context.Context, path, origin string, out io.Writer) error {
+// serve runs the controller until the context ends. A failure after the start of telemetry that
+// no log record can carry goes to problems.
+func serve(ctx context.Context, path, origin string, out, problems io.Writer) error {
 	settings, err := config.Load(path, os.Getenv)
 	if err != nil {
 		return fmt.Errorf("%w (the path %s comes from %s)", err, path, origin)
@@ -123,12 +124,7 @@ func serve(ctx context.Context, path, origin string, out io.Writer) error {
 
 	// The records of the last seconds of a process are the interesting ones, so telemetry stops
 	// after everything that writes to it.
-	defer func() {
-		if err := recorder.Shutdown(context.WithoutCancel(ctx)); err != nil {
-			_, _ = fmt.Fprintf(os.Stderr,
-				"bk-agent-stack-orchard: stopping telemetry: %v\n", err)
-		}
-	}()
+	defer stopTelemetry(ctx, recorder.Shutdown, problems)
 
 	for _, warning := range settings.Warnings {
 		recorder.Logger.WarnContext(ctx, warning)
@@ -214,6 +210,24 @@ func serve(ctx context.Context, path, origin string, out io.Writer) error {
 // outage of an API makes many calls, so the bound is many times the slowest tick that an outage
 // gives. A restart cures a loop that waits without an end, and not an outage.
 const livenessStall = 15 * time.Minute
+
+// telemetryGrace is how long the stop of telemetry may take. An exporter that cannot reach the
+// collector retries for about a minute, and the platform kills a process that outlives its
+// termination grace, so the stop gives up first. The chart gives the pod a termination grace of
+// 45 s, which covers the withdrawal of the stack (10 s) and this grace.
+const telemetryGrace = 10 * time.Second
+
+// stopTelemetry stops telemetry inside its grace. A signal has cancelled the context of the
+// process by then, so the stop gets a context of its own. No log record can carry its failure,
+// so the failure goes to problems.
+func stopTelemetry(ctx context.Context, shutdown func(context.Context) error, problems io.Writer) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), telemetryGrace)
+	defer cancel()
+
+	if err := shutdown(ctx); err != nil {
+		_, _ = fmt.Fprintf(problems, "bk-agent-stack-orchard: stopping telemetry: %v\n", err)
+	}
+}
 
 // probeStreams is the most streams that one connection to the probe server may hold. A probe of
 // the kubelet is one call on a new connection, and each Watch is a stream without an end, so a

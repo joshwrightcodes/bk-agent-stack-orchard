@@ -40,6 +40,9 @@ spec:
       priorityClassName: {{ . | quote }}
       {{- end }}
       automountServiceAccountToken: false
+      # The controller withdraws its stack and then stops its telemetry, each inside 10 s, and the
+      # kubelet kills a pod that outlives this grace.
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       # The image runs as the nonroot user of distroless. Kubernetes can check runAsNonRoot only
       # against a number, so the chart names the user by its number.
       securityContext:

@@ -50,6 +50,10 @@ imagePullSecrets: []
 # priorityClassName names the PriorityClass of the pod. Empty means the default class.
 priorityClassName: ""
 
+# terminationGracePeriodSeconds is how long the pod may take to stop. The controller withdraws its
+# stack (at most 10 s) and then stops its telemetry (at most 10 s), so keep it above 20.
+terminationGracePeriodSeconds: 45
+
 resources:
   requests:
     cpu: 50m

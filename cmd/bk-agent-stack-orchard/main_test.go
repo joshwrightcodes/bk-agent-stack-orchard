@@ -182,6 +182,49 @@ func TestTheClientsOfTheControllerCarryATimeout(t *testing.T) {
 	}
 }
 
+// An unreachable collector makes each exporter retry for about a minute. The stop of telemetry
+// must end inside the termination grace of the pod, and its failure goes where run reports.
+func TestTheStopOfTelemetryHasADeadline(t *testing.T) {
+	var problems bytes.Buffer
+
+	var deadline time.Duration
+
+	stopTelemetry(t.Context(), func(ctx context.Context) error {
+		at, ok := ctx.Deadline()
+		if !ok {
+			t.Fatal("the stop of telemetry has no deadline")
+		}
+
+		deadline = time.Until(at)
+
+		return errors.New("the collector does not answer")
+	}, &problems)
+
+	if deadline <= 0 || deadline > telemetryGrace || telemetryGrace > 10*time.Second {
+		t.Errorf("the stop of telemetry has %s left of %s, want at most 10s", deadline,
+			telemetryGrace)
+	}
+
+	if !strings.Contains(problems.String(), "the collector does not answer") {
+		t.Errorf("the problems read %q, want the failure of the stop", problems.String())
+	}
+}
+
+// A signal cancels the context of the process before telemetry stops. The stop still gets its
+// whole grace, because the last records are the interesting ones.
+func TestTheStopOfTelemetryOutlivesTheSignal(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	stopTelemetry(ctx, func(ctx context.Context) error {
+		if err := ctx.Err(); err != nil {
+			t.Errorf("the stop of telemetry got a context that ended: %v", err)
+		}
+
+		return nil
+	}, &bytes.Buffer{})
+}
+
 // stoppedListener is a listener that fails at once, as a listener whose socket the system closed.
 type stoppedListener struct{ net.Listener }
 

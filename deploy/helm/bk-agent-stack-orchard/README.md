@@ -20,6 +20,7 @@ file, and a Secret that the operator creates before the install.
 | `networkPolicy` | The egress destinations. See the section "The NetworkPolicy". |
 | `deploymentAnnotations`, `podAnnotations`, `podLabels` | Annotations of the Deployment, and annotations and labels of the pod. The selector labels of the chart win over a label of `podLabels` with the same key. |
 | `priorityClassName` | The PriorityClass of the pod. Empty means the default class. |
+| `terminationGracePeriodSeconds` | How long the pod may take to stop. The default is 45. The controller withdraws its stack and then stops its telemetry, each in 10 s or less, so the schema refuses a value below 20. |
 | `nodeSelector`, `tolerations`, `affinity` | The placement of the pod. |
 
 ### The values schema
