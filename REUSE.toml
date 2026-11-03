@@ -41,6 +41,8 @@ path = [
   ".release-please-manifest.json",
   "release-please-config.json",
   "mise.toml",
+  "mise.lock",
+  ".mise/locks/**",
   "REUSE.toml",
   "go.mod",
   "go.sum",

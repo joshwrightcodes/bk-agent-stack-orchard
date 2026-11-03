@@ -2,6 +2,19 @@
 #
 # One file gives a developer and CI the same versions (target design, section 15).
 
+# mise.lock records, for each tool and platform, the download URL and the checksum of the file
+# that the version resolved to on the day of the lock. Without it, mise resolves each install again
+# and trusts whatever the release or the registry publishes at that time. For each PyPI tool, the
+# lock points to a uv.lock in .mise/locks that holds the hash of every wheel in its environment.
+# lockfile = true keeps the lock current when a person changes a version here and runs mise
+# install. The platforms are the Linux runners of CI (linux-x64), a Linux container or VM on an
+# Apple silicon Mac (linux-arm64), and an Apple silicon Mac or macOS runner (macos-arm64). mise lock
+# also adds the platform that it runs on. mise run check-lock fails when the lock is behind this
+# file.
+[settings]
+lockfile = true
+lockfile_platforms = ["linux-x64", "linux-arm64", "macos-arm64"]
+
 [tools]
 go = "1.27.3"
 golangci-lint = "2.15.0"
@@ -29,14 +42,15 @@ ko = "0.19.1"
 kubectl = "1.37.1"
 # The Mac hosts are set up with Ansible (deploy/hosts). The pypi backend installs each one in its
 # own environment with uv, and ansible-lint gets the same ansible-core. ansible-core 2.21 needs
-# Python 3.12 or later on this side, and 3.9 or later on a host. The environments use the Python of
-# mise, not one that uv downloads: uv keeps its own outside the directory of mise, so a CI cache
-# would restore an environment without its interpreter, and uv takes the oldest Python that a tool
-# allows, which is 3.10 for ansible-lint.
+# Python 3.12 or later on this side, and 3.9 or later on a host. mise locks the whole dependency
+# tree of each tool (a uv.lock in .mise/locks, with the hash of each wheel) and installs it with uv
+# sync --frozen, so a cache miss gets the same packages as a cache hit. A locked environment uses
+# the Python of mise, not one that uv downloads, so a CI cache restores the environment with its
+# interpreter. Renovate moves both ansible-core pins below in one pull request.
 python = "3.13.15"
 uv = "0.12.19"
-"pypi:ansible-core" = { version = "2.21.4", uvx_args = "--python 3.13 --python-preference only-system" }
-"pypi:ansible-lint" = { version = "26.9.0", with = ["ansible-core==2.21.4"], uvx_args = "--python 3.13 --python-preference only-system" }
+"pypi:ansible-core" = "2.21.4"
+"pypi:ansible-lint" = { version = "26.9.0", with = ["ansible-core==2.21.4"] }
 
 # Orchard runs the skeleton journey in synthetic mode, with no Mac and no Tart. The version MUST be
 # the minimum Orchard version of the target design, which scripts/check-deps.py confirms. Each
@@ -77,6 +91,26 @@ run = ["python3 scripts/check-docs.py", "vale --glob='!{build,dist}/**' ."]
 [tasks.check-commits]
 description = "Check the commit messages of this branch"
 run = "python3 scripts/check-commits.py"
+
+# jdx/mise-action runs mise install --locked when the repository has a mise.lock, so a CI install
+# takes each URL and checksum from the lock, and fails on a tool that the lock does not cover. This
+# task catches the other failure: a version in mise.toml that the lock does not follow. mise lock
+# rewrites the lock from mise.toml and keeps every entry that is still current, so any change that
+# it makes, a new sidecar in .mise/locks included, means that the committed lock was behind.
+# It reads the GitHub API, so set GITHUB_TOKEN to avoid its rate limit.
+[tasks.check-lock]
+description = "Fail when mise.lock or a PyPI lock in .mise/locks is behind mise.toml"
+run = '''
+set -eu
+mise lock
+if [ -n "$(git status --porcelain -- mise.lock .mise/locks)" ]; then
+  echo "check-lock: mise.lock is behind mise.toml. Run mise lock and commit the result." >&2
+  git status --short -- mise.lock .mise/locks >&2
+  git --no-pager diff -- mise.lock >&2
+  exit 1
+fi
+echo "check-lock: mise.lock is current"
+'''
 
 [tasks.test-scripts]
 description = "Test the check scripts"
