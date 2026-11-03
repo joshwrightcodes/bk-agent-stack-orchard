@@ -21,7 +21,11 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"
 REAL_HOME="$HOME"
 
 QUEUE=""
-IMAGE="ghcr.io/cirruslabs/macos-golden-gate-base:latest"
+# The default image, pinned by digest, because the VM gets the agent token and the secrets of the
+# job. It is the tag latest of ghcr.io/cirruslabs/macos-golden-gate-base, uploaded 2026-10-31. To
+# move it to a newer upload, read the digest of the tag and replace the one below:
+#   mise x crane@latest -- crane digest ghcr.io/cirruslabs/macos-golden-gate-base:latest
+IMAGE="ghcr.io/cirruslabs/macos-golden-gate-base@sha256:14f4fc32a778763ccae1a4d543ea0f177720c570dd7f859eda10b9e0020c7d05"
 CPU=4
 MEMORY=8192
 DISK=50
@@ -245,9 +249,11 @@ fi
 
 # install_release downloads one release of the controller, and runs nothing from it until its
 # signature and its checksum pass. The signature must come from the release workflow of this
-# repository at that tag, as scripts/verify-release.sh requires.
+# repository at that tag, for the commit of the tag, and main must contain that commit, as
+# scripts/verify-release.sh requires. The workflow runs from the tagged commit, so only a check
+# outside it, here, can refuse a tag on a commit that is not on main.
 install_release() {
-	local tag="$VERSION" dir="$WORK/release" archive
+	local tag="$VERSION" dir="$WORK/release" archive commit status
 	if [[ -z "$tag" ]]; then
 		# Every 0.x release is a GitHub pre-release, so the latest release of the API skips it.
 		tag="$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=30" |
@@ -264,12 +270,27 @@ install_release() {
 			die "could not download $file of the release $tag: check that the release exists"
 	done
 
+	say "checking that $tag is on main"
+	commit="$(curl -fsSL --retry 3 -H 'Accept: application/vnd.github.sha' \
+		"https://api.github.com/repos/$REPO/commits/refs/tags/$tag")" ||
+		die "could not get the commit of $tag from GitHub: stopping"
+	[[ "$commit" =~ ^[0-9a-f]{40}$ ]] || die "GitHub gave no commit SHA for $tag: stopping"
+	# "behind" or "identical": main contains the commit. "ahead" or "diverged": it does not.
+	status="$(curl -fsSL --retry 3 "https://api.github.com/repos/$REPO/compare/main...$commit?per_page=1" |
+		jq -r '.status // empty')" || status=""
+	case "$status" in
+	behind | identical) ;;
+	"") die "could not ask GitHub whether main contains $commit, the commit of $tag: stopping" ;;
+	*) die "$tag is the commit $commit, which is not on main ($status): stopping" ;;
+	esac
+
 	say "verifying the signature and the checksum of $tag"
 	cosign verify-blob \
 		--certificate-identity "https://github.com/$REPO/.github/workflows/release.yml@refs/tags/$tag" \
 		--certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+		--certificate-github-workflow-sha "$commit" \
 		--bundle "$dir/checksums.txt.sigstore.json" "$dir/checksums.txt" >/dev/null 2>&1 ||
-		die "the signature of checksums.txt of $tag is not one of the release workflow of $REPO: stopping"
+		die "the signature of checksums.txt of $tag is not one of the release workflow of $REPO at $commit: stopping"
 	(cd "$dir" && grep "  $archive\$" checksums.txt | shasum -a 256 -c - >/dev/null 2>&1) ||
 		die "$archive does not match checksums.txt of $tag: stopping"
 

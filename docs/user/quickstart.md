@@ -45,11 +45,13 @@ mise run quickstart -- --queue macos-quickstart
 The command:
 
 1. Checks the Mac, Tart, Softnet, and the token, and stops with a message if one is missing.
-2. Pulls the image `ghcr.io/cirruslabs/macos-golden-gate-base:latest` into the Tart cache.
+2. Pulls the image `ghcr.io/cirruslabs/macos-golden-gate-base` into the Tart cache. It pulls the
+   image by its digest, which [Options](#options) shows, so the image cannot change under you.
 3. Starts a local Orchard controller and one Orchard worker, which uses the Tart of your Mac.
-4. Downloads the newest release of the controller for macOS. It checks the signature of the
-   release, which must come from the release workflow of this repository, and the checksum of the
-   archive. It stops if either check fails.
+4. Downloads the newest release of the controller for macOS. It checks that the release was
+   built from a commit on the `main` branch of this repository. It checks the signature of the
+   release, which must come from the release workflow of this repository for that commit, and the
+   checksum of the archive. It stops if one of these checks fails.
 5. Starts the controller, with one profile for the queue.
 6. Prints a pipeline step, then the log of the controller.
 
@@ -81,7 +83,7 @@ Press Ctrl-C. The command deletes each VM that it started, stops the controller 
 deletes its work directory. The image stays in the Tart cache. To delete it:
 
 ```sh
-tart delete ghcr.io/cirruslabs/macos-golden-gate-base:latest
+tart delete ghcr.io/cirruslabs/macos-golden-gate-base@sha256:14f4fc32a778763ccae1a4d543ea0f177720c570dd7f859eda10b9e0020c7d05
 ```
 
 ## Options
@@ -89,7 +91,7 @@ tart delete ghcr.io/cirruslabs/macos-golden-gate-base:latest
 | Option | Default | What it does |
 |---|---|---|
 | `--queue NAME` | (required) | The self-hosted queue of the token |
-| `--image REF` | `ghcr.io/cirruslabs/macos-golden-gate-base:latest` | The Tart image of the VMs. It must run the Tart guest agent |
+| `--image REF` | `ghcr.io/cirruslabs/macos-golden-gate-base@sha256:14f4fc32a778763ccae1a4d543ea0f177720c570dd7f859eda10b9e0020c7d05` | The Tart image of the VMs. It must run the Tart guest agent. The default is one fixed version of the upstream image, pinned by its digest |
 | `--cpu N` | `4` | The CPU cores of each VM |
 | `--memory MIB` | `8192` | The memory of each VM, in MiB |
 | `--disk GB` | `50` | The disk of each VM, in GB. It must be at least the disk of the image |
