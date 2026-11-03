@@ -188,7 +188,8 @@ gh release download v0.1.0 --repo joshwrightcodes/bk-agent-stack-orchard --dir d
 ```
 
 Then run this command from a clone of this repository. It needs cosign, docker with buildx, jq,
-and curl.
+curl, and the GitHub CLI (`gh`). `gh` reads the provenance attestations through the GitHub API,
+so it needs a login: run `gh auth login`, or set `GH_TOKEN`.
 
 ```sh
 scripts/verify-release.sh v0.1.0 ./downloads
@@ -201,12 +202,14 @@ The command:
    signatures are good.
 2. Checks each signature. Each one must come from the release workflow of this repository at the
    tag, and for that commit.
-3. Checks the checksum of each archive that is in the directory.
-4. Prints the digest of the chart in the registry that the signature covers. Use this digest to
+3. Checks the provenance of `checksums.txt`, the image, and the chart. Each attestation must come
+   from the same workflow, tag, and commit.
+4. Checks the checksum of each archive that is in the directory.
+5. Prints the digest of the chart in the registry that the signature covers. Use this digest to
    install the chart.
 
-If you set `GH_TOKEN`, the command uses it for its calls to GitHub, which gives a higher rate
-limit. The command works without a token.
+If you set `GH_TOKEN`, the command also uses it for its other calls to GitHub, which gives a
+higher rate limit.
 
 To verify one artifact, require the identity of the release workflow at the tag. This command
 does not check that the commit is on `main`. The script does.
@@ -217,6 +220,32 @@ cosign verify \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
   ghcr.io/joshwrightcodes/bk-agent-stack-orchard:v0.1.0
 ```
+
+### Verify the provenance
+
+Each release also has SLSA build provenance, as
+[GitHub artifact attestations](https://docs.github.com/en/actions/concepts/security/artifact-attestations).
+The provenance is a signed record of how the release workflow built the release: the workflow
+file, the tag, the commit, and the runner. The release workflow attests `checksums.txt`, which
+names each archive and each SBOM, the image, and the chart in the registry. The attestations of
+the image and the chart are also in the registry, next to them.
+
+`scripts/verify-release.sh` checks the provenance. To check it yourself, get the commit of the tag,
+and give it to `gh attestation verify` with the release workflow and the tag. Like the cosign
+command above, this does not check that the commit is on `main`.
+
+```sh
+commit="$(gh api repos/joshwrightcodes/bk-agent-stack-orchard/commits/refs/tags/v0.1.0 --jq .sha)"
+gh attestation verify downloads/checksums.txt \
+  --repo joshwrightcodes/bk-agent-stack-orchard \
+  --signer-workflow joshwrightcodes/bk-agent-stack-orchard/.github/workflows/release.yml \
+  --source-ref refs/tags/v0.1.0 --source-digest "$commit"
+```
+
+Then check your archive against `checksums.txt`, for example with `shasum -a 256 --check
+--ignore-missing checksums.txt` in the directory. For the image or the chart, give its digest
+instead of a file, for example
+`oci://ghcr.io/joshwrightcodes/bk-agent-stack-orchard@sha256:<digest>`.
 
 ## Versions and upgrades
 

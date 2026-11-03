@@ -51,7 +51,9 @@ The command:
 4. Downloads the newest release of the controller for macOS. It checks that the release was
    built from a commit on the `main` branch of this repository. It checks the signature of the
    release, which must come from the release workflow of this repository for that commit, and the
-   checksum of the archive. It stops if one of these checks fails.
+   checksum of the archive. If the GitHub CLI (`gh`) is installed and logged in, it also checks the
+   provenance attestation of the release, from the same workflow and commit. It stops if one of
+   these checks fails.
 5. Starts the controller, with one profile for the queue.
 6. Prints a pipeline step, then the log of the controller.
 
@@ -107,6 +109,7 @@ tart delete ghcr.io/cirruslabs/macos-golden-gate-base@sha256:14f4fc32a778763ccae
 |---|---|
 | `has published no release yet` | No release of the controller exists yet. Use `--from-source`. |
 | `the signature of checksums.txt … is not one of the release workflow` | The download is not a release of this project. Do not use it. Report it as [SECURITY.md](../../SECURITY.md) says. |
+| `has no valid provenance attestation` | The provenance of the download is not from the release workflow of this project. Do not use it. Report it as [SECURITY.md](../../SECURITY.md) says. |
 | `something already answers on port 6120` | Another Orchard runs on this Mac. Stop it, or give its address with `--orchard-url`. |
 | `Softnet needs the set-user-ID bit` | Run the two commands that the message shows. |
 | The controller stops with `buildkite did not accept the agent token` | The token is not a cluster agent token. Create one for the cluster of the queue. |

@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Verify the signatures of a release: the checksums and the archives, the chart package, the image,
-# the SBOM of each platform image, and the chart in the registry.
+# the SBOM of each platform image, and the chart in the registry. Also verify the SLSA build
+# provenance of checksums.txt, the image, and the chart, which GitHub artifact attestations hold.
 #
 # The release workflow runs this before it publishes the draft release, and an operator can run it
-# before a deployment. It needs cosign, docker with buildx, jq, and curl. Each check requires a
-# certificate for the release workflow of this repository at this exact tag, from the OIDC issuer
-# of GitHub Actions, for the commit of the tag. That commit must be on main.
+# before a deployment. It needs cosign, docker with buildx, jq, curl, and gh with a login (gh auth
+# login, or GH_TOKEN), because gh reads the attestations through the GitHub API. Each check
+# requires a certificate for the release workflow of this repository at this exact tag, from the
+# OIDC issuer of GitHub Actions, for the commit of the tag. That commit must be on main.
 #
 # The workflow file and its own "is the tag on main" check come from the tagged commit, so a tag on
 # another commit would give signatures that pass the identity checks. The certificate also names
@@ -18,7 +20,8 @@
 # IMAGE_DIGEST and CHART_DIGEST, when set, are the digests that the release signed. The registry
 # tags must then give these digests. The release workflow sets them from build/release.env.
 # GH_TOKEN or GITHUB_TOKEN, when set, authenticates the calls to the GitHub API, which raises its
-# rate limit. Without a token the calls are anonymous, which works for this public repository.
+# rate limit. Without a token the calls of curl are anonymous, which works for this public
+# repository. gh uses the token too, or its own login.
 set -euo pipefail
 
 tag="${1:?usage: verify-release.sh <tag> [<directory>]}"
@@ -32,6 +35,8 @@ die() {
   echo "verify-release: $*" >&2
   exit 1
 }
+
+command -v gh > /dev/null || die "gh is necessary to verify the provenance attestations"
 
 # github_api PATH ACCEPT: one call to the GitHub API. A token travels in the configuration of curl
 # on standard input, never on its command line.
@@ -66,9 +71,29 @@ identity=(
   --certificate-github-workflow-sha "$commit"
 )
 
+# The same identity for an attestation: the release workflow of this repository, which ran for the
+# tag on its commit, on a runner that GitHub hosts. Without --bundle, gh reads the attestations
+# from the GitHub API of this repository.
+provenance=(
+  --repo "$repo"
+  --signer-workflow "$repo/.github/workflows/release.yml"
+  --source-ref "refs/tags/$tag"
+  --source-digest "$commit"
+  --signer-digest "$commit"
+  --deny-self-hosted-runners
+)
+
+# attested SUBJECT: SUBJECT (a file, or oci://<name>@<digest>) has a valid SLSA provenance
+# attestation of the release workflow at the tag.
+attested() {
+  gh attestation verify "$1" "${provenance[@]}" > /dev/null ||
+    die "$1 has no valid provenance attestation of the release workflow of $repo at $tag"
+}
+
 if [ -n "$dir" ]; then
   cosign verify-blob "${identity[@]}" \
     --bundle "$dir/checksums.txt.sigstore.json" "$dir/checksums.txt"
+  attested "$dir/checksums.txt"
   # Only the files that are present: an operator often downloads one archive. At least one file
   # must be present, because a check of nothing passes. macOS has shasum, and not sha256sum.
   present=0
@@ -99,6 +124,7 @@ if [ -n "${IMAGE_DIGEST:-}" ] && [ "$index" != "$IMAGE_DIGEST" ]; then
   exit 1
 fi
 cosign verify "${identity[@]}" "$image@$index" > /dev/null
+attested "oci://$image@$index"
 # Exactly the two platforms of the release, because a loop over no platform checks nothing and
 # passes. No mapfile: an operator can run this with the bash of macOS (3.2).
 platforms='[.manifests[] | select(.platform.os == "linux")] | sort_by(.platform.architecture)
@@ -123,6 +149,7 @@ if [ -n "${CHART_DIGEST:-}" ] && [ "$chart_digest" != "$CHART_DIGEST" ]; then
   exit 1
 fi
 [[ "$chart_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die "the signature of $chart:$version names no digest"
+attested "oci://$chart@$chart_digest"
 
-echo "verify-release: $tag is commit $commit on main, signed by the release workflow of $repo"
+echo "verify-release: $tag is commit $commit on main, signed and attested by the release workflow"
 echo "verify-release: install the chart by its digest: oci://$chart@$chart_digest"
