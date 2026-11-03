@@ -74,6 +74,23 @@ These are known, recorded, and accepted. They are not vulnerabilities in this pr
   VM, because the token is in the VM specification for the full life of the VM. The token opens
   one job only, and it expires after a maximum of 30 minutes (target design, section 9.2). The
   mitigation is to give `compute:read` to few accounts and to no build.
+* One compromised Mac host exposes the jobs of the whole fleet, and not only the jobs of that
+  host. Each worker account has `compute:read`, because an Orchard worker needs it, and that role
+  reads the specification of every VM on every host. Root on one host, for example after a VM
+  escape, or anyone who holds the Orchard token of one host, can therefore read the job
+  acquisition token of every job that has a VM. That person can then acquire a job before its VM
+  does, and run the job with its secrets on a machine of their choice. The IP allowlist of the
+  cluster agent token gives no protection here: Buildkite applies it when an agent registers with
+  a job acquisition token, and
+  [ADR-0008](docs/adrs/0008-use-a-dedicated-cluster-agent-token.md) requires it to include the
+  egress of the job VMs, which is the egress of the hosts. A request from any host therefore
+  passes. The limits are that a token opens one job, and that it expires after `jobTokenLifetime`
+  (at most 30 minutes). The controls are a token for each host, so that the operator revokes one
+  host alone (runbook
+  [`docs/user/runbooks/orchard-worker-accounts.md`](docs/user/runbooks/orchard-worker-accounts.md)),
+  and the pf isolation of each host from its VMs. Orchard has no role narrower than
+  `compute:read` for a worker. The residual risk remains while the job acquisition token is in the
+  VM specification.
 * When a profile enables agent telemetry, the credential of the OpenTelemetry collector (the
   headers) enters the VM. A hostile build can read it. The mitigation is that the collector
   uses its own ingest token, with the lowest privilege, that can send telemetry and do nothing
