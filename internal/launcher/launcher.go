@@ -562,8 +562,16 @@ func (l *Launcher) tell(ctx context.Context, fresh []admission.Unmatched) error 
 // when the controller holds a reservation longer than the start of the machine needs, such as while
 // its snapshot of Orchard is stale, and for a Buildkite that did not end the token with the
 // reservation.
+//
+// The configuration refuses start timeouts whose sum is negative or wraps. A sum that is not
+// positive still gives the configured limit, and never a token that has expired.
 func (l *Launcher) lifetimeOf(carrier profile.Profile) time.Duration {
-	return min(carrier.EffectiveTimeouts(l.defaults).StartSum()+profile.TokenMargin, l.lifetime)
+	lifetime := carrier.EffectiveTimeouts(l.defaults).StartSum() + profile.TokenMargin
+	if lifetime <= 0 {
+		return l.lifetime
+	}
+
+	return min(lifetime, l.lifetime)
 }
 
 // tokens gets one job acquisition token for each reserved job, in one call for each lifetime. A

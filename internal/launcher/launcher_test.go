@@ -1578,6 +1578,32 @@ func TestEachTokenLastsTheStartOfItsProfile(t *testing.T) {
 	}
 }
 
+// The configuration refuses start timeouts whose sum is negative, but the launcher does not trust
+// that alone. A profile whose sum is not positive gets a token of the configured limit, and not
+// one that has already expired.
+func TestATokenNeverHasALifetimeBelowZero(t *testing.T) {
+	t.Parallel()
+
+	broken := pilot
+	broken.Name = "broken"
+	broken.Timeouts = profile.Timeouts{Boot: -time.Hour}
+
+	api, fleet := &stacks{}, &machines{}
+	started := build(t, api, fleet)
+
+	admit := []admission.Candidate{{Job: buildkite.ScheduledJob{ID: first}, Profile: broken}}
+
+	err := started.Launch(t.Context(), admission.Result{Admit: admit}, inventory.Snapshot{})
+	if err != nil {
+		t.Fatalf("Launch() = %v, want no error", err)
+	}
+
+	if !slices.Equal(api.lifetimes, []time.Duration{30 * time.Minute}) {
+		t.Errorf("the token calls asked for %v, want one token of the configured limit, 30m",
+			api.lifetimes)
+	}
+}
+
 // A token call that fails ends the token calls of the tick. The jobs whose tokens came in the
 // calls before it still get their machines, and the others keep reservations that lapse.
 func TestAFailedTokenCallKeepsTheTokensBeforeIt(t *testing.T) {
