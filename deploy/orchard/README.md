@@ -225,18 +225,27 @@ the orchard 0.58.0 binary that mise installs, `mise x -- orchard delete --help`)
   again with that token and all roles, also when other accounts exist.
 - When the variable is not set and the database holds service accounts, Orchard does no bootstrap
   and starts. It does not delete `bootstrap-admin`. The account and its token stay in the database.
+- At each start, while `bootstrap-admin` exists, Orchard writes the name and the token of the
+  account in plain text to the context `bootstrap-context` of `$ORCHARD_HOME/orchard.yml`. The
+  image sets `ORCHARD_HOME` to `/data`, so the file is on the PVC (`createBootstrapContext` in
+  `internal/command/controller/run.go`, tag `0.58.0`, read on 2026-11-03). Orchard does not
+  remove the file when the account is deleted, but the token in it then stops working.
 - When the variable is not set and the database holds no service account, Orchard makes
   `bootstrap-admin` with a random token and prints that token in its log.
 - Orchard does not refuse to start in any of these cases.
 
-The bootstrap admin is retired in this sense: the Orchard pod does not hold its token, and the
-token stays in one place, the Secret `orchard-bootstrap`, which only the bootstrap Job mounts.
-The account stays in Orchard, because every change of a host (add, rotate, migrate, revoke) runs
-the Job again, and the Job needs it. Each of these changes then works with no restart of Orchard.
+The bootstrap admin is retired in this sense: the environment of the Orchard pod does not hold
+its token, and no workload except the bootstrap Job mounts the Secret `orchard-bootstrap`. The
+data volume of Orchard still holds the token while the account exists: in the database, and in
+`/data/orchard.yml`. A person who can run commands in the Orchard pod or read its PVC can
+therefore read the token. The account stays in Orchard, because every change of a host (add,
+rotate, migrate, revoke) runs the Job again, and the Job needs it. Each of these changes then
+works with no restart of Orchard. To take the token off the data volume as well, delete the
+account (see "Delete the account completely").
 
 Only the kustomize component `deploy/orchard-overlays/first-start` gives Orchard the variable, and
-only the first start uses the component. With this order, the safe state is the default: the pod
-of an overlay without the component holds no admin token.
+only the first start uses the component. With this order, the safe state is the default: the
+environment of the pod of an overlay without the component holds no admin token.
 
 1. For the first start, add the component to the overlay, as the overlay example shows. Apply the
    overlay, and wait for the bootstrap Job to complete.
@@ -257,9 +266,9 @@ of an overlay without the component holds no admin token.
 
    Kubernetes RBAC then decides who can read the Secret. Give `get`, `list`, and `watch` on
    Secrets of the namespace to few people, and to no service account of a workload.
-5. Check that the account works and that the Orchard pod has no token. The first command lists
-   the accounts with the bootstrap admin (see "Reach the API as an operator"). The second prints
-   nothing:
+5. Check that the account works and that the environment of the Orchard pod has no token. The
+   first command lists the accounts with the bootstrap admin (see "Reach the API as an
+   operator"). The second prints nothing:
 
    ```sh
    orchard_admin GET /v1/service-accounts
@@ -278,7 +287,7 @@ as a secret, and purge it where the logging system allows it.
 ### Delete the account completely
 
 If your fleet has no planned change of a host, you can delete `bootstrap-admin` and its Secret key
-instead.
+instead. This also takes a working admin token off the data volume of Orchard.
 First do steps 1 and 2. Then delete the account, check that the token of the Secret is refused
 (the answer ends with `HTTP 401`), and only then delete the key:
 

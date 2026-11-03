@@ -112,9 +112,13 @@ These are known, recorded, and accepted. They are not vulnerabilities in this pr
   `deploy/orchard-overlays/first-start`, for the first start), that Kubernetes RBAC limits who can
   read Secrets of the `orchard` namespace, and that the operator rotates the token (runbook
   [`docs/user/runbooks/orchard-bootstrap-admin.md`](docs/user/runbooks/orchard-bootstrap-admin.md)). The
-  residual risk is that a person or a workload with the right to read Secrets of the namespace,
-  or a copy of the cluster state, gives full control of Orchard, and that a late rotation leaves
-  an old token valid. A fleet with no planned host change MAY delete the account.
+  environment of the Orchard pod holds no admin token after the first start. The data volume of
+  Orchard does, while the account exists: Orchard 0.58.0 keeps the token in its database, and
+  writes it in plain text to `/data/orchard.yml` at each start. The residual risk is that a
+  person or a workload with the right to read Secrets of the namespace, to run commands in the
+  Orchard pod, or to read its PVC, or a copy of the cluster state or of the PVC, gives full
+  control of Orchard, and that a late rotation leaves an old token valid. A fleet with no planned
+  host change MAY delete the account, which also takes a working token off the data volume.
 * Releases have one maintainer as the only reviewer, and the rules of the main branch have an
   administrator bypass. No second person reviews a release. The mitigation is that the release
   gate (T-100 to T-105) and the pipeline checks run before every release.
