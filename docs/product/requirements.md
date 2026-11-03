@@ -274,11 +274,11 @@ requirements. The target design describes the job lifecycle and the failure proc
 **PR-021: Reject a configuration that is not valid.**
 
 * Requirement: The controller MUST NOT start if a profile rule fails. The rules forbid duplicate
-  names, equal `match` maps, and empty or `queue` match keys. They also forbid start timeouts
-  that, with a margin of one minute, are longer than the job token lifetime. The controller MUST
-  also refuse a reservation expiry that is not a whole number of seconds from 1 to 3600, which are
-  the limits of the Stacks API. It MUST refuse
-  a job token lifetime that is not a whole number of seconds from 1 to 1800, because the token
+  names, equal `match` maps, and empty or `queue` match keys. They also forbid a negative
+  start timeout, and start timeouts that, with a margin of one minute, are longer than the job
+  token lifetime. The controller MUST also refuse a reservation expiry that is not a whole number
+  of seconds from 1 to 3600, which are the limits of the Stacks API. It MUST refuse a job token
+  lifetime that is not a whole number of seconds from 1 to 1800, because the token
   goes into a VM that runs untrusted code. A profile MUST NOT use `queue`, `profile`, or
   `agent-stack` as a `match` key. No `match` value and no `buildkite.queue` MAY have a comma, a
   quote, a newline, or white space at an end. A `softnetAllow` entry MUST be an IPv4 CIDR range
