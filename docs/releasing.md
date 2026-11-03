@@ -55,8 +55,8 @@ version in `Chart.yaml`. The pull request collects all changes until the maintai
    1. Check that the SHA of the tag is the merge commit of the release pull request. Then approve
       the `build` job. It builds the archives and the image, and pushes the image and the chart.
    2. When the `build` job passes, approve the `sign and publish` job. It signs the artifacts,
-      uploads them to the draft release, verifies the signatures and the assets, and then
-      publishes the release.
+      uploads them to the draft release, and attests their build provenance. It then verifies the
+      signatures, the attestations, and the assets, and publishes the release.
 
    release-please creates the draft release when the release pull request merges, before the
    workflow waits for the approval. For version 0.1.0, edit the notes of the draft release before

@@ -53,8 +53,9 @@ Non-goals:
 * Signatures on the job VM images. The fleet builds them (ADR-0012), and they are not release
   artifacts.
 * Signed commits, which the repository rules require on `main`. The tags are not signed.
-* A SLSA level. The workflow gives provenance through the certificate identity, and a later
-  decision can add a SLSA provenance attestation.
+* A SLSA build level. The workflow gives provenance through the certificate identity, and it also
+  attests SLSA build provenance (see the Decision). A claim of a level, and the reusable workflow
+  that a higher level needs, are for a later decision.
 
 ## Options considered
 
@@ -104,6 +105,16 @@ an SPDX SBOM for each archive and each platform image.
   of the draft are the files that it verified. The repository makes a published release
   immutable.
 
+The cosign signatures stay the main control, because more admission controllers read them. The
+release workflow also attests SLSA build provenance as GitHub artifact attestations, with
+`actions/attest-build-provenance` (v4.2.2, 2026-11-03), so that `gh attestation verify` and the
+policy tools that read these attestations can check the release. The attested subjects are
+`checksums.txt`, which names each archive and each SBOM, the image index by digest, and the chart
+in `ghcr.io/joshwrightcodes/charts` by digest. The attestations of the image and the chart also go
+to the registry, next to the artifact. A verification of an attestation MUST require the release
+workflow of this repository, the release tag as the source ref, and the commit of the tag as the
+source digest.
+
 ## Consequences
 
 Good:
@@ -122,14 +133,17 @@ Bad:
   nothing new.
 * The workflow file name is part of the identity. A rename of `release.yml` changes the identity
   that operators check.
-* The release workflow has `id-token: write`, `packages: write`, and `contents: write`. It runs only
-  for a `v*` tag, in an environment that needs the approval of the maintainers.
+* The release workflow has `id-token: write`, `packages: write`, `contents: write`, and
+  `attestations: write`. It runs only for a `v*` tag, in an environment that needs the approval of
+  the maintainers.
 
 ## Confirmation
 
 * `scripts/verify-release.sh <tag> dist` passes in the release workflow before the release is
   published. It verifies the checksum bundle, each image signature, each SBOM attestation, and the
-  chart signature against the identity of the release workflow at that tag.
+  chart signature against the identity of the release workflow at that tag. With `gh attestation
+  verify`, it also verifies the provenance attestations of `checksums.txt`, the image, and the
+  chart against the same workflow, tag, and commit.
 * The snapshot gate in CI builds an SBOM for each archive and a checksum file that names them.
 * `scripts/release-finish.sh` publishes the draft only when its assets are the verified files, by
   name and SHA-256.
