@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
 )
 
 // T-027. The job states answer, and the answer names no job, or it leaves some jobs out. Neither
@@ -66,6 +67,42 @@ func TestAnEmptyOrPartialStatesAnswerDeletesNoMachineOfARunningBuild(t *testing.
 
 	if _, exists := s.machine(kept); !exists {
 		t.Error("the machine of the running job is gone, want it kept")
+	}
+
+	s.budget()
+}
+
+// T-028. An agent acquires a job after the state that a finish read, and just before the finish
+// arrives, at the end of the acquire timeout. Buildkite refuses the finish. The refusal does not
+// delete the machine of the running build (I-9): the next state shows the agent, and the machine
+// stays until the job ends.
+func TestAFinishThatMeetsAnAgentDeletesNoMachine(t *testing.T) {
+	s := newScenario(t)
+
+	late := s.arrive()
+	s.run(5)
+
+	vm, exists := s.machine(late)
+	if !exists || vm.Status != orchard.StatusRunning {
+		t.Fatal("the job has no running machine")
+	}
+
+	s.stacks.takenAtFinish[late] = true
+	s.run(int(s.settings.Defaults.Timeouts.Acquire.Seconds()) + 30)
+
+	if w := s.stacks.jobs[late]; !w.acquired || w.state != stateRunning {
+		t.Fatalf("the job is %s, acquired %t, want the agent to run it", w.state, w.acquired)
+	}
+
+	if _, exists := s.machine(late); !exists {
+		t.Fatal("the machine of the running job is gone after a refused finish")
+	}
+
+	s.stacks.jobs[late].state = stateFinished
+	s.run(10)
+
+	if _, exists := s.machine(late); exists {
+		t.Error("the machine of the job that ended remains, want row 4 to delete it")
 	}
 
 	s.budget()

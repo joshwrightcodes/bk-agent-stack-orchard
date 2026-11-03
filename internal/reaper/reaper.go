@@ -114,10 +114,21 @@ type Reaper struct {
 	tracer       trace.Tracer
 	now          func() time.Time
 
-	// ignored holds the jobs that Buildkite refused with a 404 or a 422. Every further call about
-	// such a job gives the same refusal, so the controller makes none (target design, section 7.1,
-	// rule 4). Only the goroutine of the loop reads and writes it.
+	// ignored holds the jobs that Buildkite does not know (row 5). Every further call about such a
+	// job gives the same refusal, so the controller makes none (target design, section 7.1, rule
+	// 4). Only the goroutine of the loop reads and writes it.
 	ignored map[job.ID]bool
+
+	// refused holds the jobs whose finish Buildkite refused with a 404 or a 422. A refusal can
+	// mean that the job ended, and also that an agent acquired it after the state that the finish
+	// acted on, so the machine stays in that pass and the next state decides. A second finish
+	// would get the same refusal, so the controller sends none. Only the goroutine of the loop
+	// reads and writes it.
+	refused map[job.ID]bool
+
+	// passed is when the last pass began. A job state that the controller asked for after it is
+	// a state of this tick, because the refresh of a tick comes before its pass.
+	passed time.Time
 
 	// warned holds the state that the last warning named for a job whose state matches no row, so
 	// that a job stuck in one such state gives one record and not one at every tick.
@@ -213,6 +224,7 @@ func New(options Options) (*Reaper, error) {
 		tracer:       tracer,
 		now:          now,
 		ignored:      map[job.ID]bool{},
+		refused:      map[job.ID]bool{},
 		warned:       map[job.ID]string{},
 		ended:        map[job.ID]time.Time{},
 		listed:       map[string]sighting{},
@@ -239,13 +251,16 @@ func (r *Reaper) Reap(ctx context.Context) error {
 	now := r.now()
 	rules := Rules{Freshness: r.freshness, RenewBefore: r.renewBefore}
 
+	machines := r.collect(snapshot)
+	r.passed = now
+
 	var (
 		failures int
 		extend   []job.ID
 		tasks    []task
 	)
 
-	for _, machine := range r.collect(snapshot) {
+	for _, machine := range machines {
 		decision := Decide(machine, now, rules)
 
 		switch decision.Action {
@@ -258,6 +273,7 @@ func (r *Reaper) Reap(ctx context.Context) error {
 		case Delete, FinishAndDelete, NotifyAndDelete:
 			tasks = append(tasks, task{
 				machine: machine, decision: decision, ignored: r.ignored[machine.Job],
+				refused: r.refused[machine.Job],
 			})
 		}
 	}
@@ -314,16 +330,19 @@ type task struct {
 	machine  Machine
 	decision Decision
 
-	// ignored is a job that Buildkite refused before: the action makes no call about it.
+	// ignored is a job that Buildkite does not know: the action makes no call about it.
 	ignored bool
+
+	// refused is a job whose finish Buildkite refused before: the action sends no second finish.
+	refused bool
 }
 
 // result is what carrying out one task did. The goroutine of the loop applies it after every
 // action of the pass ended, so that the maps of the reaper keep one writer.
 type result struct {
-	// finished is a job that Buildkite ended, and terminal is a job that Buildkite refused to
-	// end because it ended already or never existed.
-	finished, terminal bool
+	// finished is a job that Buildkite ended, and refused is a job whose finish Buildkite
+	// refused.
+	finished, refused bool
 
 	// deleted is a machine whose deletion Orchard accepted.
 	deleted bool
@@ -363,6 +382,7 @@ func (r *Reaper) collect(snapshot inventory.Snapshot) []Machine {
 			machine.Absent = observation.Absent
 			machine.Observed = true
 			machine.ObservedAt = observation.At
+			machine.Current = observation.At.After(r.passed)
 
 			if _, counted := r.ended[owned.Job]; !counted && buildkite.Terminal(observation.State) {
 				r.ended[owned.Job] = r.now()
@@ -414,17 +434,23 @@ func (r *Reaper) carry(ctx context.Context, t task) result {
 
 	// A machine whose job did not finish stays, so that the next tick finishes the job before the
 	// machine goes. Without that, a failed job would wait for its lost-agent timeout.
-	if decision.Action == FinishAndDelete && !t.ignored {
+	if decision.Action == FinishAndDelete && !t.ignored && !t.refused {
 		err := r.finish(ctx, machine, decision)
 
 		switch {
 		case err == nil:
 			done.finished = true
 		case errors.Is(err, buildkite.ErrTerminal):
-			// Buildkite refuses a finish of a job that already ended or that it does not know.
-			// A second finish after a restart is the common case. The job is done either way,
-			// and every further call would give the same refusal.
-			done.terminal = true
+			// Buildkite refuses a finish of a job that ended, of a job that it does not know,
+			// and, as far as anyone knows, of a job that an agent acquired after the state that
+			// this finish read. The last one runs a build, so the machine stays in this pass,
+			// and the next state decides: an agent keeps it, and a job that ended loses it.
+			r.logger.InfoContext(ctx, "buildkite refused to end a job, and the next job state "+
+				"decides what happens to its machine", append(fields, "error", err)...)
+
+			done.refused = true
+
+			return done
 		default:
 			span.RecordError(err)
 			r.logger.ErrorContext(ctx, "the reaper could not end a job",
@@ -461,8 +487,8 @@ func (r *Reaper) settle(ctx context.Context, t task, done result,
 ) []buildkite.Notification {
 	machine, decision := t.machine, t.decision
 
-	if done.terminal {
-		r.ignored[machine.Job] = true
+	if done.refused {
+		r.refused[machine.Job] = true
 	}
 
 	if done.finished {
@@ -600,6 +626,12 @@ func (r *Reaper) forget(snapshot inventory.Snapshot) {
 	for id := range r.ignored {
 		if !owned[id] {
 			delete(r.ignored, id)
+		}
+	}
+
+	for id := range r.refused {
+		if !owned[id] {
+			delete(r.refused, id)
 		}
 	}
 

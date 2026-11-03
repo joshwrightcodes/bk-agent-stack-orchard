@@ -772,11 +772,24 @@ above, and for `download` also `BKASO_AGENT_URL` and `BKASO_AGENT_SHA256`. When
    describe. A time taken from the answer makes a state look newer than it is, and this rule and
    the next one would then trust it too soon.
 3. **Fresh data or no action.** If the job state of a VM is older than `stateFreshness` (60 s),
-   the Reaper MUST do only the orphan action and the maximum-lifetime action.
-4. **Permanent errors are terminal.** If finish or delete returns 404 or 422, the controller
-   MUST mark the job as ignored in memory. The controller MUST NOT send the call again in a
-   loop. The get-states call asks about many jobs at once, so a 404 or 422 on it is a failure
-   of the call and not an answer about one job. The controller MUST count it in
+   the Reaper MUST do only the orphan action and the maximum-lifetime action. A row that finishes
+   a job (rows 9, 11, and 12) MUST use only a job state that JobStates asked for in the same
+   tick, after the last pass of the Reaper. An agent can acquire a job at any moment, so a
+   `reserved` state from an earlier tick can describe a job that an agent runs now. The refresh
+   of a tick comes before its pass, so the state is a few seconds old at most, and a finish waits
+   at most `jobStatesInterval` (5 s) for it. The Stacks API has no call that reads the state of
+   one job (`GetJob` of `buildkite/stacksapi` v1.2.0 gives the environment and the command only,
+   read 2026-11-03), so the Reaper cannot read the state again just before the finish.
+4. **Permanent errors are not proof.** If a finish returns 404 or 422, the job may have ended,
+   Buildkite may not know it, or an agent may have acquired it after the state that the finish
+   read (the real answer for an acquired job is `UNKNOWN`, O-6 of the test strategy). The
+   controller MUST NOT delete the VM in the same pass, because the VM can carry a running build.
+   It MUST mark the job in memory and MUST NOT send the finish again. The next job state of a
+   later tick decides: an agent keeps the VM (row 8, or row 7 if the VM failed), a terminal job
+   or a lapsed reservation deletes it (rows 4 and 6), and a job that is still `reserved` loses
+   its VM without a second finish. A delete that returns 404 is a success. The get-states call
+   asks about many jobs at once, so a 404 or 422 on it is a failure of the call and not an
+   answer about one job. The controller MUST count it in
    `cicd.system.errors` (§10.1). An answer of get-states that names none of the jobs of a request
    is also a failed call, because a renamed field, a filter of the server, or a fault gives the
    same empty map (§3). The JobStates data then becomes stale, and the rules for stale data
@@ -804,11 +817,15 @@ The Reaper MUST examine each owned VM at each tick. The first row that matches a
 | 6 | Any | `scheduled` (the reservation expired) | Delete the VM. | `reservation_lapsed` |
 | 7 | `failed` | An agent owns the job: `assigned`, `accepted`, `running`, `canceling`, `timing_out` | Send a notification with `status_message`. Delete the VM. | `vm_failed` |
 | 8 | Not `failed` | An agent owns the job | No action. | — |
-| 9 | `failed` | `reserved` | Finish the job (`-1`, `status_message`, and the last 50 startup-script log lines when the script wrote any). Delete the VM. | `vm_failed` |
+| 9 | `failed` | `reserved`, asked for in this tick (rule 3) | Finish the job (`-1`, `status_message`, and the last 50 startup-script log lines when the script wrote any). Delete the VM. | `vm_failed` |
 | 10 | `pending`, no worker, and the age since `createdAt` is more than `unplaced` (2 min) | `reserved` | Delete the VM. Do not extend the reservation. The job becomes `scheduled` again, and Admission starts it again. | `unplaced_timeout` |
-| 11 | `pending`, a worker is set, and the age since `scheduled_at` is more than `boot` (15 min) | `reserved` | Finish the job (`-1`, `status_message`). Delete the VM. | `boot_timeout` |
-| 12 | `running`, and the age since `started_at` is more than `acquire` (5 min) | `reserved` | Finish the job (`-1`, the last 50 startup-script log lines from `GET /v1/vms/{name}/events`). Delete the VM. | `acquire_timeout` |
+| 11 | `pending`, a worker is set, and the age since `scheduled_at` is more than `boot` (15 min) | `reserved`, asked for in this tick (rule 3) | Finish the job (`-1`, `status_message`). Delete the VM. | `boot_timeout` |
+| 12 | `running`, and the age since `started_at` is more than `acquire` (5 min) | `reserved`, asked for in this tick (rule 3) | Finish the job (`-1`, the last 50 startup-script log lines from `GET /v1/vms/{name}/events`). Delete the VM. | `acquire_timeout` |
 | 13 | `pending` or `running` | `reserved` | Extend the reservation when `reservedUntil − now` is less than `reservationRenewBefore` (120 s). If `reservedUntil` is unknown, extend it immediately. | — |
+
+A row that finishes a job and whose job state is from an earlier tick does not apply. A failed VM
+then waits with no action, and row 13 applies to a `pending` or `running` VM. After Buildkite
+refused a finish of the job (rule 4), rows 9, 11, and 12 delete the VM and send no finish.
 
 The timeouts of a VM are the effective timeouts of its profile. A VM does not carry the name of
 its profile (§6.1), so after a restart the controller cannot name the profile of a VM that it did
@@ -873,7 +890,7 @@ At start-up, before the first Admission, the controller MUST do these steps:
 |---|---|
 | After the reservation, before the VM creation | No VM exists, so the controller cannot see the job. The reservation expires in a maximum of `reservationExpiry` (300 s). Admission then starts the job again. The accepted cost is a delay of up to 5 minutes for these jobs. |
 | After the VM creation | The controller finds the VM by its name. The Reaper then controls the VM. |
-| Between the finish call and the delete call | The controller sends the delete call again at the next tick. A second finish call returns 422. The controller treats 422 as complete. |
+| Between the finish call and the delete call | The new process reads the job as terminal, and row 4 deletes the VM. If it still reads `reserved` and finishes the job again, the second finish returns 422. The controller keeps the VM in that pass and sends no third finish, and the next state deletes the VM by row 4, or by the row of the timeout without a finish (§7.1, rule 4). |
 
 ### 7.5 Dependency outages
 

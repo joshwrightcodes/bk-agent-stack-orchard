@@ -27,7 +27,7 @@ var (
 const carried = job.ID("018f3b2c-1c4a-7e5b-9a3d-2f1e4c5b6a7d")
 
 // machine gives a machine created an hour ago that runs on a worker, whose job state the
-// controller asked for a second ago and Buildkite named. A case changes what it needs.
+// controller asked for a second ago, in this tick, and Buildkite named. A case changes what it needs.
 func machine(state string, change ...func(*reaper.Machine)) reaper.Machine {
 	m := reaper.Machine{
 		VM: orchard.VM{
@@ -42,6 +42,7 @@ func machine(state string, change ...func(*reaper.Machine)) reaper.Machine {
 		State:         state,
 		Named:         true,
 		Observed:      true,
+		Current:       true,
 		ObservedAt:    now.Add(-time.Second),
 		ReservedUntil: now.Add(4 * time.Minute),
 		Timeouts:      limits,
@@ -77,6 +78,9 @@ func unplaced(m *reaper.Machine) { m.VM.Worker = ""; m.VM.ScheduledAt = time.Tim
 func unknown(answers int) func(*reaper.Machine) {
 	return func(m *reaper.Machine) { m.Named = false; m.Absent = answers }
 }
+
+// earlier is a job state that the controller asked for before the last pass of the reaper.
+func earlier(m *reaper.Machine) { m.Current = false }
 
 func reservedFor(left time.Duration) func(*reaper.Machine) {
 	return func(m *reaper.Machine) { m.ReservedUntil = now.Add(left) }
@@ -180,6 +184,10 @@ func TestTheDecisionTable(t *testing.T) {
 			9, reaper.FinishAndDelete, reaper.ReasonVMFailed,
 		},
 
+		"a failed machine waits for a state of this tick before it fails the job": {
+			machine("reserved", status(orchard.StatusFailed), earlier), 9, reaper.Keep, "",
+		},
+
 		// Row 10.
 		"a machine that no worker took in time goes and the job waits again": {
 			machine("reserved", status(orchard.StatusPending), unplaced, created(3*time.Minute)),
@@ -195,6 +203,11 @@ func TestTheDecisionTable(t *testing.T) {
 			machine("reserved", status(orchard.StatusPending), placed(16*time.Minute)),
 			11, reaper.FinishAndDelete, reaper.ReasonBootTimeout,
 		},
+		"a boot timeout waits for a state of this tick and extends meanwhile": {
+			machine("reserved", status(orchard.StatusPending), placed(16*time.Minute), earlier,
+				reservedFor(time.Minute)),
+			13, reaper.Extend, "",
+		},
 		"the boot limit counts from the placement and not from the creation": {
 			machine("reserved", status(orchard.StatusPending), created(20*time.Minute),
 				placed(time.Minute)),
@@ -205,6 +218,9 @@ func TestTheDecisionTable(t *testing.T) {
 		"a running machine whose agent did not acquire in time fails the job": {
 			machine("reserved", started(6*time.Minute)), 12, reaper.FinishAndDelete,
 			reaper.ReasonAcquireTimeout,
+		},
+		"an acquire timeout waits for a state of this tick": {
+			machine("reserved", started(6*time.Minute), earlier), 13, reaper.Keep, "",
 		},
 		"a running machine inside the acquire limit stays": {
 			machine("reserved", started(4*time.Minute)), 13, reaper.Keep, "",

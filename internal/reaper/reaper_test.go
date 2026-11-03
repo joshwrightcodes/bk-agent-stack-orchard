@@ -424,6 +424,16 @@ func joined(t *testing.T, api *stacks, machines *fleet, c *clock) (*jobstates.St
 ) {
 	t.Helper()
 
+	return joinedWith(t, api, machines, c, &pages{})
+}
+
+// joinedWith builds the real job states and a reaper that reads them, on one clock, with the job
+// pages that the caller gives.
+func joinedWith(t *testing.T, api *stacks, machines *fleet, c *clock, jobPages *pages) (
+	*jobstates.States, *reaper.Reaper,
+) {
+	t.Helper()
+
 	states, err := jobstates.New(jobstates.Options{
 		Stacks: api, Fleet: machines, Interval: 5 * time.Second, Now: c.now,
 	})
@@ -440,7 +450,7 @@ func joined(t *testing.T, api *stacks, machines *fleet, c *clock) (*jobstates.St
 	}
 
 	built, err := reaper.New(reaper.Options{
-		Stacks:       &pages{},
+		Stacks:       jobPages,
 		States:       states,
 		Reservations: &held{},
 		RenewBefore:  120 * time.Second,
@@ -673,39 +683,120 @@ func TestAMachineStaysWhenItsJobDidNotFinish(t *testing.T) {
 	}
 }
 
-// Rule 4 of the design. A job that Buildkite refuses with a 422 already ended, which a second
-// finish after a restart meets. It counts as done, and the controller sends no further call
-// about it, even when the machine is still there at the next tick.
-func TestARefusedFinishCountsAsDoneAndIsNotSentAgain(t *testing.T) {
+// pass runs one tick of the parts under test: a refresh of the job states when the tick asks
+// for one, then the pass of the reaper.
+func pass(t *testing.T, c *clock, states *jobstates.States, reaping *reaper.Reaper, refresh bool) {
+	t.Helper()
+
+	c.at = c.at.Add(time.Second)
+
+	if refresh {
+		if err := states.Refresh(t.Context()); err != nil {
+			t.Fatalf("Refresh() = %v, want no error", err)
+		}
+	}
+
+	_ = reaping.Reap(t.Context())
+}
+
+// timedOut gives a machine whose agent did not acquire the job inside the acquire limit.
+func timedOut(id job.ID) inventory.Owned {
+	machine := owned(id, time.Hour)
+	machine.VM.StartedAt = now.Add(-10 * time.Minute)
+
+	return machine
+}
+
+// A finish acts only on a state of this tick. A state from an earlier tick can be the reserved
+// state of a job that an agent has acquired since, and a finish of it would fail a running build.
+// A tick that did not ask again leaves the job and its machine alone, and the next tick that asks
+// finishes the job.
+func TestAFinishWaitsForAStateOfThisTick(t *testing.T) {
 	t.Parallel()
 
-	api := &observed{states: map[job.ID]string{ended: "reserved"}}
-	machine := failing(ended)
-	machines := &fleet{
-		read:     true,
-		refuse:   map[string]bool{machine.VM.Name: true},
-		snapshot: inventory.Snapshot{Owned: []inventory.Owned{machine}},
-	}
-	jobPages := &pages{finishErr: fmt.Errorf("finish: %w", buildkite.ErrTerminal)}
-	reaping := buildWith(t, api, machines, &decisions{}, jobPages)
+	c := &clock{at: now}
+	api := &stacks{states: map[job.ID]string{ended: "reserved"}}
+	machines := &fleet{read: true, snapshot: inventory.Snapshot{
+		Owned: []inventory.Owned{timedOut(ended)}, At: now,
+	}}
+	jobPages := &pages{finishErr: errors.New("buildkite is not available")}
+	states, reaping := joinedWith(t, api, machines, c, jobPages)
 
-	// The first tick: the finish is refused, and Orchard refuses the deletion too.
-	_ = reaping.Reap(t.Context())
-
-	// The second tick: the machine is still there, and the decision is the same.
-	machines.refuse = nil
-	if err := reaping.Reap(t.Context()); err != nil {
-		t.Fatalf("Reap() = %v, want no error", err)
-	}
+	// The tick asks, and the finish fails.
+	pass(t, c, states, reaping, true)
 
 	if len(jobPages.finished) != 1 {
-		t.Errorf("buildkite saw %d finishes, want 1: a refused job gets no second call",
-			len(jobPages.finished))
+		t.Fatalf("buildkite saw %d finishes, want 1 on a state of this tick", len(jobPages.finished))
 	}
 
-	if len(machines.deleted) != 1 {
-		t.Errorf("orchard deleted %v, want the machine once the job counted as done",
-			machines.deleted)
+	// The next tick does not ask, so the state is from an earlier tick.
+	jobPages.finishErr = nil
+	pass(t, c, states, reaping, false)
+
+	if len(jobPages.finished) != 1 || len(machines.deleted) != 0 {
+		t.Fatalf("buildkite saw %d finishes and orchard deleted %v on a state of an earlier "+
+			"tick, want neither", len(jobPages.finished), machines.deleted)
+	}
+
+	pass(t, c, states, reaping, true)
+
+	if len(jobPages.finished) != 2 || len(machines.deleted) != 1 {
+		t.Errorf("buildkite saw %d finishes and orchard deleted %v, want the finish and the "+
+			"deletion on a state of this tick", len(jobPages.finished), machines.deleted)
+	}
+}
+
+// Rule 4 of the design. Buildkite refuses a finish with a 422 or a 404, which can mean that the
+// job ended, and also that an agent acquired it after the state that the finish acted on. The
+// refusal is not a reason to delete the machine, so the pass keeps it, and the next state
+// decides: an agent that owns the job keeps the machine (row 8), and a job that ended loses it
+// (row 4). A job that is still reserved loses its machine without a second finish, which
+// Buildkite would refuse the same way, so a second finish after a restart costs one tick and no
+// loop of refusals.
+func TestARefusedFinishKeepsTheMachineUntilTheNextState(t *testing.T) {
+	t.Parallel()
+
+	for name, test := range map[string]struct {
+		next    string
+		deleted int
+	}{
+		"an agent acquired the job": {next: "running", deleted: 0},
+		"the job ended":             {next: "finished", deleted: 1},
+		"the job is still reserved": {next: "reserved", deleted: 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			c := &clock{at: now}
+			api := &stacks{states: map[job.ID]string{ended: "reserved"}}
+			machines := &fleet{read: true, snapshot: inventory.Snapshot{
+				Owned: []inventory.Owned{timedOut(ended)}, At: now,
+			}}
+			jobPages := &pages{finishErr: fmt.Errorf("finish: %w", buildkite.ErrTerminal)}
+			states, reaping := joinedWith(t, api, machines, c, jobPages)
+
+			pass(t, c, states, reaping, true)
+
+			if len(jobPages.finished) != 1 || len(machines.deleted) != 0 {
+				t.Fatalf("buildkite saw %d finishes and orchard deleted %v, want one refused "+
+					"finish and the machine kept", len(jobPages.finished), machines.deleted)
+			}
+
+			// A tick that does not ask again changes nothing.
+			pass(t, c, states, reaping, false)
+
+			api.states[ended] = test.next
+			pass(t, c, states, reaping, true)
+
+			if len(jobPages.finished) != 1 {
+				t.Errorf("buildkite saw %d finishes, want 1: a refused job gets no second call",
+					len(jobPages.finished))
+			}
+
+			if len(machines.deleted) != test.deleted {
+				t.Errorf("orchard deleted %v, want %d machines", machines.deleted, test.deleted)
+			}
+		})
 	}
 }
 

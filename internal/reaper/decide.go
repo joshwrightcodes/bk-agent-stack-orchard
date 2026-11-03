@@ -103,6 +103,11 @@ type Machine struct {
 	// ObservedAt is when the controller asked for the state.
 	ObservedAt time.Time
 
+	// Current reports a state that the controller asked for in this tick, after the last pass of
+	// the reaper. A finish acts only on such a state: an agent can acquire a job at any moment,
+	// and a reserved state from an earlier tick may describe a job that an agent runs now.
+	Current bool
+
 	// ListedAt is when a snapshot of the controller first listed the machine. It is on the clock
 	// of the controller, as ObservedAt is, so the two compare without the clock of Orchard.
 	ListedAt time.Time
@@ -214,8 +219,12 @@ func Decide(m Machine, now time.Time, rules Rules) Decision {
 // reserved reads rows 9 to 13, for a machine whose job is reserved.
 func reserved(m Machine, now time.Time, rules Rules, failed bool) Decision {
 	// Row 9. The machine failed before any agent acquired the job, so the job fails too, and the
-	// job page says why.
+	// job page says why. Like every row that finishes a job, it waits for a state of this tick.
 	if failed {
+		if !m.Current {
+			return Decision{Row: 9, Action: Keep}
+		}
+
 		return Decision{Row: 9, Action: FinishAndDelete, Reason: ReasonVMFailed}
 	}
 
@@ -230,7 +239,9 @@ func reserved(m Machine, now time.Time, rules Rules, failed bool) Decision {
 
 	// Row 11. A worker took the machine and it did not start in time. The limit counts from the
 	// placement, because a machine that waited for a worker has not had its chance to boot yet.
-	if pending && m.VM.Placed() && older(now, m.VM.ScheduledAt, m.Timeouts.Boot) {
+	// Rows 11 and 12 finish the job, so they wait for a state of this tick, and row 13 holds the
+	// job meanwhile.
+	if pending && m.VM.Placed() && older(now, m.VM.ScheduledAt, m.Timeouts.Boot) && m.Current {
 		return Decision{Row: 11, Action: FinishAndDelete, Reason: ReasonBootTimeout}
 	}
 
@@ -238,7 +249,7 @@ func reserved(m Machine, now time.Time, rules Rules, failed bool) Decision {
 
 	// Row 12. The machine runs and no agent acquired the job in time. The limit counts from the
 	// start of the machine process, which is when macOS begins to boot.
-	if running && older(now, m.VM.StartedAt, m.Timeouts.Acquire) {
+	if running && older(now, m.VM.StartedAt, m.Timeouts.Acquire) && m.Current {
 		return Decision{Row: 12, Action: FinishAndDelete, Reason: ReasonAcquireTimeout}
 	}
 

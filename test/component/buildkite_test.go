@@ -72,6 +72,10 @@ type stacksFake struct {
 	nameless bool
 	omit     map[job.ID]int
 
+	// takenAtFinish holds the jobs that an agent acquires just before a finish of the controller
+	// arrives, after the state that the finish read.
+	takenAtFinish map[job.ID]bool
+
 	// calls holds each call, with the endpoint and the time of the suite, for the request
 	// budget. finished holds each job that a finish call ended, and lines each line of a job page.
 	calls    []call
@@ -87,12 +91,14 @@ type stacksFake struct {
 
 func newStacks(now func() time.Time, violations *[]string) *stacksFake {
 	return &stacksFake{
-		now:        now,
-		jobs:       map[job.ID]*work{},
-		reported:   map[job.ID]string{},
-		omit:       map[job.ID]int{},
-		failing:    map[string]error{},
-		violations: violations,
+		now:      now,
+		jobs:     map[job.ID]*work{},
+		reported: map[job.ID]string{},
+		omit:     map[job.ID]int{},
+
+		takenAtFinish: map[job.ID]bool{},
+		failing:       map[string]error{},
+		violations:    violations,
 	}
 }
 
@@ -325,6 +331,11 @@ func (s *stacksFake) Finish(ctx context.Context, id job.ID, _ int, _ string) err
 	}
 
 	w, known := s.jobs[id]
+
+	if known && s.takenAtFinish[id] {
+		w.acquired, w.state = true, stateRunning
+	}
+
 	if !known || w.acquired || w.state != stateReserved {
 		return buildkite.ErrTerminal
 	}
