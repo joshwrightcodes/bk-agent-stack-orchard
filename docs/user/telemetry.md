@@ -32,7 +32,8 @@ small.
 | `bk_agent_stack_orchard.job.skipped` | counter, `{job}` | | Jobs that match no profile, and that the controller leaves for another runner |
 | `bk_agent_stack_orchard.queue.truncated` | counter, `{read}` | | Reads of the queue that did not list it whole, so that jobs behind the head of the queue wait for a later read |
 | `bk_agent_stack_orchard.job.failed` | counter, `{job}` | `bk_agent_stack_orchard.profile`, `bk_agent_stack_orchard.worker.name`, `error.type` (`vm_failed`, `boot_timeout`, `acquire_timeout`) | Jobs that the controller failed before an agent took them. The causes are the reasons of the same name (below) |
-| `bk_agent_stack_orchard.slot.count` | up-down counter, `{slot}` | `bk_agent_stack_orchard.pool`, `bk_agent_stack_orchard.slot.state` (`total`, `used`, `free`) | VM slots of the Mac hosts |
+| `bk_agent_stack_orchard.slot.count` | up-down counter, `{slot}` | `bk_agent_stack_orchard.pool`, `bk_agent_stack_orchard.slot.state` (`total`, `used`, `reserved`, `unavailable`, `free`) | VM slots of the online Mac hosts (below) |
+| `bk_agent_stack_orchard.host.count` | up-down counter, `{host}` | `bk_agent_stack_orchard.pool`, `bk_agent_stack_orchard.host.state` (`online`, `offline`, `paused`) | Mac hosts that Orchard lists. A host that stopped answering is `offline`, and a host whose scheduling an operator paused is `paused` |
 | `bk_agent_stack_orchard.vm.count` | up-down counter, `{vm}` | `bk_agent_stack_orchard.profile`, `bk_agent_stack_orchard.vm.phase` (`unplaced`, `booting`, `running`, `failed`) | VMs of this controller, by phase |
 | `cicd.worker.count` | up-down counter, `{worker}` | `cicd.worker.state` (`busy`, `offline`) | Job VMs, by the status that Orchard gives them: `busy` while the VM runs, and `offline` when it failed. A VM carries one job, so no VM is `available` |
 | `bk_agent_stack_orchard.job.phase.duration` | histogram, `s` | `bk_agent_stack_orchard.profile`, `bk_agent_stack_orchard.job.phase` | How long each phase of a start took (below) |
@@ -73,6 +74,23 @@ not a failure of the system. The calls of `bk_agent_stack_orchard.operation`:
 |---|---|
 | `buildkite` | `register`, `deregister`, `scheduled_jobs`, `reserve`, `tokens`, `states`, `finish`, `notify` |
 | `orchard` | `create_vm`, `list_vms`, `delete_vm`, `list_workers`, `events` |
+
+The states of `bk_agent_stack_orchard.slot.state` count the slots of the online hosts of a pool
+as admission counts them. `total` is `used` plus `reserved`, `unavailable`, and `free`, while no
+host carries more VMs than it advertises:
+
+| State | The slots |
+|---|---|
+| `total` | Every slot of the online hosts. |
+| `used` | Slots that a VM of any owner holds. |
+| `reserved` | Open slots that a VM will take: a VM that Orchard holds and no host runs yet, or a VM that the controller asked for and has not seen yet. |
+| `unavailable` | Open slots of a host that admission does not use: an operator paused it, or no profile has its labels. |
+| `free` | Open slots that admission can give a new VM, when the host also has the cores and the memory of the profile. |
+
+A host that stopped answering has no slots. `bk_agent_stack_orchard.host.count` with the state
+`offline` shows it. The first signs of a full fleet are `bk_agent_stack_orchard.vm.count` with the
+phase `unplaced`, `bk_agent_stack_orchard.job.waiting.count`, and
+`bk_agent_stack_orchard.vm.deletions` with the reason `unplaced_timeout`.
 
 The outcomes of `bk_agent_stack_orchard.vm.start.outcome`. Each outcome but `created` leaves the
 job reserved with no VM, and Buildkite schedules the job again when the reservation ends
@@ -169,6 +187,16 @@ controller acts on a VM, it writes one record with the reason.
 A record about admission has the reason in `bk_agent_stack_orchard.admission.reason`. A record
 that says more in a sentence has it in `bk_agent_stack_orchard.detail`.
 
+## Host signals from Orchard
+
+The controller sees each Mac host only through the Orchard API, which gives the slots, the cores,
+and the memory of a host, and not its disk. Each Orchard worker sends its own metrics to the
+collector that `orchard_worker_otlp_endpoint` names, such as the pull time of an image
+(`org.cirruslabs.orchard.worker.vm.pull_time`), and the Orchard controller sends the resources of
+each worker (`org.cirruslabs.orchard.controller.worker_resource`). Watch the disk of each host with
+an agent of your own on the host. A host with a full disk fails each VM, which shows as failures
+on one host (`bk_agent_stack_orchard.worker.name`).
+
 ## The agent in each VM
 
 When a profile sets `otel.enabled: true`, the agent in each VM sends its own traces to
@@ -192,6 +220,7 @@ fleet. These conditions are a good start:
 | Timeouts repeat | `bk_agent_stack_orchard.vm.deletions` with a reason that ends in `_timeout` keeps going up. | VMs do not reach a host, boot, or start an agent in time. | [A job fails before it runs](troubleshooting.md#a-job-fails-before-it-runs) |
 | VMs remain | `bk_agent_stack_orchard.vm.leftover` rises and stays high. Ignore it while Buildkite is down. | The controller does not delete the VMs of ended jobs. | [VMs remain after their jobs](troubleshooting.md#vms-remain-after-their-jobs) |
 | Orphans exist | `bk_agent_stack_orchard.vm.deletions` with the reason `orphan` goes up. | A VM with the name prefix of this controller has no job. Two controllers can have the same `controllerID`. | [VMs remain after their jobs](troubleshooting.md#vms-remain-after-their-jobs) |
-| The fleet is full | `bk_agent_stack_orchard.slot.count` with the state `free` stays at 0. | Every slot is in use, so new jobs wait. | [A job stays scheduled](troubleshooting.md#a-job-stays-scheduled) |
+| The fleet is full | `bk_agent_stack_orchard.slot.count` with the state `free` stays at 0. | Admission has no slot for a new VM, so new jobs wait. The states `reserved` and `unavailable` say whether VMs are on their way or hosts are paused. | [A job stays scheduled](troubleshooting.md#a-job-stays-scheduled) |
+| Hosts are lost | `bk_agent_stack_orchard.host.count` with the state `offline` goes up. | A Mac host stopped answering Orchard, and its slots are gone. | Check the host and its Orchard worker. |
 | The queue is longer than one read | `bk_agent_stack_orchard.queue.truncated` keeps going up. | Jobs that never leave the queue fill its head, so jobs behind them wait longer. | [A job stays scheduled](troubleshooting.md#a-job-stays-scheduled) |
 | Unknown worker | The Orchard metric `org.cirruslabs.orchard.controller.worker_resource` shows a `worker` value that is not in your list of hosts. | A worker registered with a name that no host of your fleet has, for example with a stolen host token. Orchard does not tie a worker name to an account, so this is the only sign of such a worker. It does not show a known name that another host uses. The project has not yet seen this series in a collector, so check that your collector receives it. | [Revoke one host](runbooks/orchard-worker-accounts.md#revoke-one-host) |

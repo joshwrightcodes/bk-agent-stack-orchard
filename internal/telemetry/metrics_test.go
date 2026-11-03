@@ -26,6 +26,7 @@ func observation() telemetry.Observation {
 		Waiting:       map[string]int64{"xcode-27": 4},
 		OldestWaiting: map[string]time.Duration{"xcode-27": 90 * time.Second},
 		Slots:         map[telemetry.Slot]int64{{Pool: "pilot", State: telemetry.SlotsFree}: 3},
+		Hosts:         map[telemetry.Host]int64{{Pool: "pilot", State: telemetry.HostOnline}: 2},
 		VMs:           map[telemetry.VM]int64{{Profile: "xcode-27", Phase: telemetry.VMRunning}: 2},
 		Workers:       map[telemetry.WorkerState]int64{telemetry.WorkerBusy: 2},
 		Leftover:      1,
@@ -164,6 +165,11 @@ var design = []struct {
 	{
 		"bk_agent_stack_orchard.slot.count", "{slot}",
 		[]string{"bk_agent_stack_orchard.pool", "bk_agent_stack_orchard.slot.state"},
+		true,
+	},
+	{
+		"bk_agent_stack_orchard.host.count", "{host}",
+		[]string{"bk_agent_stack_orchard.host.state", "bk_agent_stack_orchard.pool"},
 		true,
 	},
 	{

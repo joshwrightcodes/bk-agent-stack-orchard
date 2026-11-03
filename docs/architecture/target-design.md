@@ -1283,7 +1283,8 @@ The name that an operator queries has the full prefix.
 | Counter | `bkaso.job.skipped` (`{job}`) | — |
 | Counter | `bkaso.queue.truncated` (`{read}`) | — |
 | Counter | `bkaso.job.failed` (`{job}`) | `bkaso.profile`, `bkaso.worker.name`, `error.type` = `vm_failed`/`boot_timeout`/`acquire_timeout` |
-| UpDownCounter | `bkaso.slot.count` (`{slot}`) | `bkaso.pool`, `bkaso.slot.state` = `total`/`used`/`free` |
+| UpDownCounter | `bkaso.slot.count` (`{slot}`) | `bkaso.pool`, `bkaso.slot.state` = `total`/`used`/`reserved`/`unavailable`/`free` |
+| UpDownCounter | `bkaso.host.count` (`{host}`) | `bkaso.pool`, `bkaso.host.state` = `online`/`offline`/`paused` |
 | UpDownCounter | `bkaso.vm.count` (`{vm}`) | `bkaso.profile`, `bkaso.vm.phase` = `unplaced`/`booting`/`running`/`failed` |
 | UpDownCounter | `cicd.worker.count` (`{worker}`) | `cicd.worker.state` = `busy`/`offline` |
 | Histogram | `bkaso.job.phase.duration` (`s`) | `bkaso.profile`, `bkaso.job.phase` = `scheduled_to_reserved`/`reserved_to_placed`/`placed_to_running`/`running_to_accepted`/`finished_to_deleted`/`total` |
@@ -1349,6 +1350,16 @@ These rules come from the conventions and MUST hold:
   `bkaso.stack.registered` is 0 while the controller registers its stack (§7.4, step 1) and after
   it withdrew it, and 1 between.
 
+* **`bkaso.slot.count` counts the slots as admission counts them.** For the online workers of a
+  pool, `total` is every slot and `used` is the slots that a VM of any owner holds. Admission
+  counts the open slots (§6.3): `reserved` is the room that the hypothetical placement gives to
+  unplaced VMs and to the VMs that this process requested, `unavailable` is the open slots of a
+  worker that is paused or that no profile has the labels of, and `free` is the rest. While no
+  worker carries more VMs than it advertises, `total` = `used` + `reserved` + `unavailable` +
+  `free`. A free slot also needs the cores and the memory of a profile, which the count does not
+  show. `bkaso.host.count` counts the workers that Orchard lists, by pool and state, so a worker
+  that goes offline stays visible after its slots leave `total`. The controller cannot see the
+  disk of a worker, because the Orchard API does not give it.
 * **`bkaso.vm.starts` counts each start of a reserved job.** The Launcher counts one outcome for
   each reserved job of a tick: `created` when Orchard accepted the VM, `create_failed` when the
   create failed, `no_token` when Buildkite issued no token, and `not_sent` when the step did not
@@ -1520,7 +1531,8 @@ scope, because they depend on the backend behind the collector.
 | Timeouts repeat | `bkaso.vm.deletions{bkaso.vm.delete.reason=~".*_timeout"}` keeps increasing. | VMs do not place, boot, or reach an agent within the timeouts of their profile (§7.3). |
 | VMs remain | `bkaso.vm.leftover` rises and stays high. Outages of Buildkite excluded. | The Reaper does not delete the VMs of ended jobs. A VM that stays in the count for longer than the window of §10.1 is a leak. |
 | Orphans exist | `bkaso.vm.deletions{bkaso.vm.delete.reason="orphan"}` increases. | A VM with the name prefix of this controller has no job. Two controllers can share a `controllerID` (§11). |
-| Fleet is full | `bkaso.slot.count{bkaso.slot.state="free"}` stays at 0. | Every slot is in use, so new jobs wait. |
+| Fleet is full | `bkaso.slot.count{bkaso.slot.state="free"}` stays at 0. | Admission has no slot for a new VM, so new jobs wait. `reserved` and `unavailable` say whether VMs are on their way or workers are paused. |
+| Workers are lost | `bkaso.host.count{bkaso.host.state="offline"}` increases. | A worker stopped answering Orchard, and its slots are gone. |
 | Queue is longer than one read | `bkaso.queue.truncated` keeps increasing. | Jobs behind the head of the queue wait for the sweep (§6.3). The usual cause is a flood of jobs that no profile carries. The warning of the read names the pipeline that has the most jobs of the read. |
 | Unknown worker | The Orchard metric `org.cirruslabs.orchard.controller.worker_resource` shows a `worker` value that is not in the list of hosts of the operator. | Orchard 0.58.0 does not tie a worker name to an account (§9.2), so this is the only signal of a stolen token that registers an unknown name. The metric has the attributes `worker`, `resource`, and `type`, and no account, so the alert does not see a host that registers a name that the operator knows, for example a stolen token that takes over the record of `mac-01`. That impersonation is not detected (residual risk, SECURITY.md). The operator keeps the list of host names in the alert rule, for example as a comparison that matches every `worker` value that is not one of `mac-01` and `mac-02`. The list MUST agree with the Secret. The metric is in `internal/controller/controller.go` (tag 0.58.0, read on 2026-11-02). Nobody has yet seen it in a running collector (test strategy, O-8). |
 

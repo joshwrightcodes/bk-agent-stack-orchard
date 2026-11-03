@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"maps"
 	"sync"
 	"time"
 
@@ -381,6 +382,15 @@ func (a *admitter) observe() telemetry.Observation {
 	if held, read := a.fleet.Latest(); read {
 		held.Observe(&observation, a.fleet.Online, a.profileOf)
 		held.Leftover(&observation, a.ended)
+
+		open := admission.Slots(admission.Request{
+			Profiles: a.settings.Profiles,
+			Fleet:    held,
+			Held:     a.starter.Held(held),
+			Eligible: a.fleet.Eligible,
+		}, a.fleet.Online)
+
+		maps.Copy(observation.Slots, open)
 	}
 
 	profiles := make([]string, 0, len(a.settings.Profiles))

@@ -29,6 +29,7 @@ const (
 	attributeProfile      = prefix + "profile"
 	attributePool         = prefix + "pool"
 	attributeSlotState    = prefix + "slot.state"
+	attributeHostState    = prefix + "host.state"
 	attributeVMPhase      = prefix + "vm.phase"
 	attributeDeleteReason = prefix + "vm.delete.reason"
 	attributeJobPhase     = prefix + "job.phase"
@@ -78,12 +79,44 @@ const (
 // SlotState is what a slot of the fleet does.
 type SlotState string
 
-// The states of a slot. They add up: total is used plus free.
+// The states of a slot, for the online hosts of a pool. They add up: total is used, reserved,
+// unavailable, and free, while no host carries more machines than it advertises.
 const (
+	// SlotsTotal is every slot of the online hosts.
 	SlotsTotal SlotState = "total"
-	SlotsUsed  SlotState = "used"
-	SlotsFree  SlotState = "free"
+
+	// SlotsUsed is a slot that a machine of any owner holds.
+	SlotsUsed SlotState = "used"
+
+	// SlotsReserved is an open slot that admission counts as promised: to a machine that Orchard
+	// holds and no host runs yet, or to a machine that this process asked for and the inventory
+	// does not show yet.
+	SlotsReserved SlotState = "reserved"
+
+	// SlotsUnavailable is an open slot of a host that admission does not use: an operator paused
+	// it, or no profile can put a machine on it.
+	SlotsUnavailable SlotState = "unavailable"
+
+	// SlotsFree is an open slot that admission can give a new machine, if the host also has the
+	// cores and the memory of the profile.
+	SlotsFree SlotState = "free"
 )
+
+// HostState is the state of a Mac host of the fleet.
+type HostState string
+
+// The states of a host. A host that stopped answering is offline, whatever else it is.
+const (
+	HostOnline  HostState = "online"
+	HostOffline HostState = "offline"
+	HostPaused  HostState = "paused"
+)
+
+// Host names one series of the host count.
+type Host struct {
+	Pool  string
+	State HostState
+}
 
 // VMPhase is how far a virtual machine has come.
 type VMPhase string
@@ -274,6 +307,9 @@ type Observation struct {
 	// Slots is the slots of each pool in each state.
 	Slots map[Slot]int64
 
+	// Hosts is the Mac hosts of each pool in each state.
+	Hosts map[Host]int64
+
 	// VMs is the machines of each profile in each phase.
 	VMs map[VM]int64
 
@@ -346,6 +382,7 @@ type Metrics struct {
 	waiting     metric.Int64ObservableUpDownCounter
 	oldest      metric.Float64ObservableGauge
 	slots       metric.Int64ObservableUpDownCounter
+	hosts       metric.Int64ObservableUpDownCounter
 	vms         metric.Int64ObservableUpDownCounter
 	workers     metric.Int64ObservableUpDownCounter
 	leftover    metric.Int64ObservableGauge
@@ -389,7 +426,7 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 	}
 
 	callback, err := meter.RegisterCallback(m.report,
-		m.waiting, m.oldest, m.slots, m.vms, m.workers, m.leftover, m.staleness, m.heartbeat,
+		m.waiting, m.oldest, m.slots, m.hosts, m.vms, m.workers, m.leftover, m.staleness, m.heartbeat,
 		m.registered, m.blocked)
 	if err != nil {
 		return nil, fmt.Errorf("registering the callback of the fleet levels: %w", err)
@@ -423,6 +460,13 @@ func (m *Metrics) observable(meter metric.Meter) error {
 		metric.WithDescription("Virtual machine slots of a pool, by state."))
 	if err != nil {
 		return fmt.Errorf("building the instrument of the slots: %w", err)
+	}
+
+	m.hosts, err = meter.Int64ObservableUpDownCounter(prefix+"host.count",
+		metric.WithUnit("{host}"),
+		metric.WithDescription("Mac hosts of a pool, by state."))
+	if err != nil {
+		return fmt.Errorf("building the instrument of the hosts: %w", err)
 	}
 
 	m.vms, err = meter.Int64ObservableUpDownCounter(prefix+"vm.count",
@@ -606,6 +650,13 @@ func (m *Metrics) report(_ context.Context, observer metric.Observer) error {
 		levels.int64(m.slots, count, attribute.NewSet(
 			attribute.String(attributePool, pool(slot.Pool)),
 			attribute.String(attributeSlotState, string(slot.State)),
+		))
+	}
+
+	for host, count := range observation.Hosts {
+		levels.int64(m.hosts, count, attribute.NewSet(
+			attribute.String(attributePool, pool(host.Pool)),
+			attribute.String(attributeHostState, string(host.State)),
 		))
 	}
 
