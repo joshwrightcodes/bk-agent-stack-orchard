@@ -1290,10 +1290,27 @@ These rules apply:
   read the events of a VM.
 * The client MUST define its own types for the fields of §6.4, and it MUST ignore the fields that
   the design does not use.
-* The client MUST obey the same retry rules as the Buildkite client, and it MUST use `otelhttp`.
+* The client MUST use the retry policy of the Buildkite client (below), and it MUST use
+  `otelhttp`.
 
 The minimum Orchard version of §9.2 applies to the server that the fleet runs, not to a Go
 dependency.
+
+**Retry policy.** Both clients MUST use one retry policy, in `internal/retry`. The `stacksapi`
+library MUST try each request once (`stacksapi.WithNoRetry`). The library alone tries a request
+five times, and it waits for any `Retry-After` value with no maximum. The control loop runs on one
+goroutine, so a call that waits holds the whole loop (§4). These rules apply:
+
+* A client MUST try a call again only after a failure in transport, a 5xx status, or 429.
+* A call MUST have at most 3 tries. The wait before a try is a random share of a ceiling (full
+  jitter), so that callers that failed together do not try again together. The ceiling is 0.5 s
+  after the first try, and it doubles after each try, up to 2 s.
+* If the server names a wait in `Retry-After`, as a whole number of seconds, the wait is that
+  value. If the value is more than 2 s, the call MUST end at once, and the error MUST carry the
+  value, so that the caller waits and not the call.
+* The context of the call ends a wait, so the deadline of the call bounds the tries and the waits.
+
+The next tick is the real retry of a call that fails.
 
 **Wire types.** `tools/orchardgen` writes the wire types from the Orchard resource types of the
 pinned commit, and `go generate ./internal/orchard/` runs it (ADR-0015). The directive MUST carry

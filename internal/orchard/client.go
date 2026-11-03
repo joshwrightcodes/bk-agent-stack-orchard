@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/retry"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/secret"
 )
 
@@ -80,9 +81,9 @@ type Options struct {
 	// HTTPClient carries the transport. The controller gives one with telemetry.
 	HTTPClient *http.Client
 
-	// Attempts and RetryWait control what the client does with an error that can pass.
-	Attempts  int
-	RetryWait time.Duration
+	// Retry says how the client tries a call again after an error that can pass. The zero value
+	// is retry.Default, the policy of the Buildkite client too.
+	Retry retry.Policy
 }
 
 // Client calls the Orchard API for one controller.
@@ -91,8 +92,7 @@ type Client struct {
 	serviceAccount string
 	token          secret.String
 	http           *http.Client
-	attempts       int
-	retryWait      time.Duration
+	retry          retry.Policy
 }
 
 // New checks the options and gives a client.
@@ -118,18 +118,11 @@ func New(options Options) (*Client, error) {
 		serviceAccount: options.ServiceAccount,
 		token:          options.Token,
 		http:           options.HTTPClient,
-		attempts:       options.Attempts,
-		retryWait:      options.RetryWait,
+		retry:          options.Retry,
 	}
 
 	if client.http == nil {
 		client.http = &http.Client{Timeout: 30 * time.Second}
-	}
-	if client.attempts <= 0 {
-		client.attempts = 3
-	}
-	if client.retryWait <= 0 {
-		client.retryWait = time.Second
 	}
 
 	return client, nil
@@ -191,29 +184,20 @@ func (c *Client) Events(ctx context.Context, name string) ([]Event, error) {
 	return events, nil
 }
 
-// do sends one request, and sends it again while the error can pass and the attempts remain.
+// do sends one request, and sends it again by the retry policy while the error can pass.
+//
+// A create is safe to send again after a failure in transport, because the name of a machine is
+// fixed: a create that arrived the first time gives ErrAlreadyExists the second time, which the
+// launcher takes as a success.
 func (c *Client) do(ctx context.Context, method, path string, body []byte, out any) error {
-	var last error
-
-	for attempt := 1; attempt <= c.attempts; attempt++ {
-		err := c.attempt(ctx, method, path, body, out)
-		if err == nil {
-			return nil
-		}
-
-		last = err
-		if !retryable(err) {
-			return err
-		}
-
-		select {
-		case <-ctx.Done():
-			return errors.Join(ctx.Err(), last)
-		case <-time.After(c.retryWait):
-		}
+	err := c.retry.Do(ctx, func(ctx context.Context) error {
+		return c.attempt(ctx, method, path, body, out)
+	})
+	if retry.Retryable(err) {
+		return fmt.Errorf("orchard %s %s: %w", method, path, err)
 	}
 
-	return fmt.Errorf("orchard %s %s after %d attempts: %w", method, path, c.attempts, last)
+	return err
 }
 
 func (c *Client) attempt(ctx context.Context, method, path string, body []byte, out any) error {
@@ -229,7 +213,7 @@ func (c *Client) attempt(ctx context.Context, method, path string, body []byte, 
 
 	response, err := c.http.Do(request)
 	if err != nil {
-		return retry{err}
+		return retry.Again(err, 0)
 	}
 	defer func() { _ = response.Body.Close() }()
 
@@ -295,10 +279,11 @@ func statusError(response *http.Response) error {
 	message := apiMessage(response)
 	err := fmt.Errorf("orchard answered %s: %s", response.Status, message)
 
-	// A server error, or a limit, can pass. A refusal of the request does not.
+	// A server error, or a limit, can pass. A refusal of the request does not. A server that
+	// names a wait gets it.
 	if response.StatusCode >= http.StatusInternalServerError ||
 		response.StatusCode == http.StatusTooManyRequests {
-		return retry{err}
+		return retry.Again(err, retry.ParseAfter(response.Header.Get("Retry-After")))
 	}
 
 	return err
@@ -337,16 +322,4 @@ func readLimited(body io.Reader, limit int64) ([]byte, error) {
 	}
 
 	return data, nil
-}
-
-// retry marks an error that another attempt can pass.
-type retry struct{ err error }
-
-func (r retry) Error() string { return r.err.Error() }
-func (r retry) Unwrap() error { return r.err }
-
-func retryable(err error) bool {
-	var marker retry
-
-	return errors.As(err, &marker)
 }

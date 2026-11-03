@@ -4,6 +4,7 @@ package buildkite_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/retry"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/secret"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/test/fakestacks"
 )
@@ -540,7 +542,7 @@ func TestARateLimitWaitsForTheTimeThatBuildkiteGives(t *testing.T) {
 	}
 }
 
-// A rate limit that outlives the retries of the library reaches the caller as itself, so that a
+// A rate limit that outlives the tries of the retry policy reaches the caller as itself, so that a
 // caller can tell it from a failure that a second call cannot fix.
 func TestARateLimitThatDoesNotEndReachesTheCaller(t *testing.T) {
 	client, fake := start(t)
@@ -557,6 +559,132 @@ func TestARateLimitThatDoesNotEndReachesTheCaller(t *testing.T) {
 	if len(fake.ScheduledJobsCalls) < 2 {
 		t.Errorf("the server saw %d calls, want the client to try again after a rate limit",
 			len(fake.ScheduledJobsCalls))
+	}
+}
+
+// startWaits gives a client that talks to a fake server, and the waits of its retries, which it
+// records and does not sleep. The share of each wait is half of its ceiling.
+func startWaits(t *testing.T, transport http.RoundTripper) (*buildkite.Client, *fakestacks.Server,
+	*[]time.Duration,
+) {
+	t.Helper()
+
+	fake := fakestacks.New()
+	fake.StackKey = "bk-macos-prod"
+	t.Cleanup(fake.Close)
+
+	var (
+		mu    sync.Mutex
+		waits []time.Duration
+	)
+
+	client, err := buildkite.New(buildkite.Options{
+		Token:      secret.String("bkct_a-cluster-agent-token"),
+		Endpoint:   fake.URL(),
+		StackKey:   fake.StackKey,
+		Queue:      "macos-prod",
+		HTTPClient: &http.Client{Transport: transport},
+		Retry: retry.Policy{
+			Random: func() float64 { return 0.5 },
+			Sleep: func(_ context.Context, d time.Duration) error {
+				mu.Lock()
+				defer mu.Unlock()
+
+				waits = append(waits, d)
+
+				return nil
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() = %v, want a client", err)
+	}
+
+	return client, fake, &waits
+}
+
+// The library alone would try a failed request five times, with waits of seconds, and a call
+// holds the one goroutine of the loop while it waits. The client follows the policy that it
+// shares with the Orchard client instead: a few tries, with waits that are a random share of a
+// ceiling that doubles. The next tick is the real retry.
+func TestAServerErrorFollowsTheSharedRetryPolicy(t *testing.T) {
+	client, fake, waits := startWaits(t, nil)
+
+	fake.ScheduledJobsStatusCode = http.StatusServiceUnavailable
+	fake.ScheduledJobsError = "down for maintenance"
+
+	if _, err := client.ScheduledJobs(t.Context(), "", 0); err == nil {
+		t.Fatal("ScheduledJobs() = nil, want the error of the last try")
+	}
+
+	if calls := len(fake.ScheduledJobsCalls); calls != retry.Default.Attempts {
+		t.Errorf("the server saw %d calls, want the %d tries of the policy", calls,
+			retry.Default.Attempts)
+	}
+
+	want := []time.Duration{retry.Default.First / 2, retry.Default.First}
+	if !slices.Equal(*waits, want) {
+		t.Errorf("the client waited %v, want %v", *waits, want)
+	}
+}
+
+// A rate limit that names a longer wait than a call may hold the loop ends the call at once. The
+// error keeps the wait, so that the source that made the call waits for it before it reads again,
+// and the library does not sleep through it inside the tick.
+func TestALongRetryAfterEndsTheCallAndKeepsTheWait(t *testing.T) {
+	client, fake, waits := startWaits(t, nil)
+
+	fake.ScheduledJobsStatusCode = http.StatusTooManyRequests
+	fake.ScheduledJobsError = "slow down"
+	fake.Headers = http.Header{"Retry-After": []string{"60"}}
+
+	_, err := client.ScheduledJobs(t.Context(), "", 0)
+	if !errors.Is(err, buildkite.ErrRateLimited) {
+		t.Fatalf("ScheduledJobs() = %v, want ErrRateLimited", err)
+	}
+
+	if calls := len(fake.ScheduledJobsCalls); calls != 1 || len(*waits) != 0 {
+		t.Errorf("the server saw %d calls and the client waited %v, want one call and no wait",
+			calls, *waits)
+	}
+
+	if after, asked := retry.After(err); !asked || after != time.Minute {
+		t.Errorf("After(%v) = %s, %t, want the minute that Buildkite named", err, after, asked)
+	}
+}
+
+// lostOnce fails the first request in transport, and passes the rest to the default transport.
+type lostOnce struct {
+	mu    sync.Mutex
+	tries int
+}
+
+func (l *lostOnce) RoundTrip(request *http.Request) (*http.Response, error) {
+	l.mu.Lock()
+	l.tries++
+	first := l.tries == 1
+	l.mu.Unlock()
+
+	if first {
+		return nil, errors.New("the connection closed before Buildkite answered")
+	}
+
+	return http.DefaultTransport.RoundTrip(request)
+}
+
+// A failure in transport can pass, so the client tries the request again.
+func TestAFailureInTransportIsTriedAgain(t *testing.T) {
+	transport := &lostOnce{}
+	client, fake, waits := startWaits(t, transport)
+	fake.JobStates = map[string]string{string(first): "running"}
+
+	states, err := client.States(t.Context(), []job.ID{first})
+	if err != nil || states[first] != "running" {
+		t.Fatalf("States() = %v, %v, want the answer of the second try", states, err)
+	}
+
+	if len(*waits) != 1 {
+		t.Errorf("the client waited %v, want one wait before the second try", *waits)
 	}
 }
 

@@ -9,33 +9,63 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/retry"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/secret"
 )
 
-// server gives a client that talks to a handler, with the retry wait removed so that a test of
-// a retry does not wait for it.
+// server gives a client that talks to a handler, with the retry waits removed so that a test of
+// a retry does not wait for them.
 func server(t *testing.T, handler http.HandlerFunc) (*orchard.Client, *httptest.Server) {
+	t.Helper()
+
+	client, s, _ := serverWaits(t, handler)
+
+	return client, s
+}
+
+// serverWaits gives a client that talks to a handler, and the waits of its retries, which it
+// records and does not sleep. The share of each wait is half of its ceiling.
+func serverWaits(t *testing.T, handler http.HandlerFunc) (*orchard.Client, *httptest.Server,
+	*[]time.Duration,
+) {
 	t.Helper()
 
 	s := httptest.NewServer(handler)
 	t.Cleanup(s.Close)
 
+	var (
+		mu    sync.Mutex
+		waits []time.Duration
+	)
+
 	client, err := orchard.New(orchard.Options{
 		URL:            s.URL,
 		ServiceAccount: "bk-agent-stack-orchard",
 		Token:          secret.String("orchard-token"),
-		RetryWait:      time.Nanosecond,
+		Retry: retry.Policy{
+			Random: func() float64 { return 0.5 },
+			Sleep: func(_ context.Context, d time.Duration) error {
+				mu.Lock()
+				defer mu.Unlock()
+
+				waits = append(waits, d)
+
+				return nil
+			},
+		},
 	})
 	if err != nil {
 		t.Fatalf("New() = %v", err)
 	}
 
-	return client, s
+	return client, s, &waits
 }
 
 func TestNewRejectsOptionsThatCannotWork(t *testing.T) {
@@ -256,6 +286,113 @@ func TestTheClientRetriesAServerError(t *testing.T) {
 	}
 	if calls != 3 {
 		t.Errorf("the client made %d calls, want 3", calls)
+	}
+}
+
+// The client follows the retry policy of the Buildkite client (target design, section 15): a wait
+// that is a random share of a ceiling that doubles, so that the calls of a restarted fleet do not
+// return to an overloaded Orchard together.
+func TestTheClientWaitsWithABackoffThatDoubles(t *testing.T) {
+	var calls int
+
+	client, _, waits := serverWaits(t, func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		if calls < 3 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+
+			return
+		}
+		writeJSON(t, w, []orchard.VM{})
+	})
+
+	if _, err := client.ListVMs(context.Background()); err != nil {
+		t.Fatalf("ListVMs() = %v, want the third try to succeed", err)
+	}
+
+	want := []time.Duration{retry.Default.First / 2, retry.Default.First}
+	if !slices.Equal(*waits, want) {
+		t.Errorf("the client waited %v, want %v", *waits, want)
+	}
+}
+
+// Orchard names a wait with a rate limit. The client waits for it, in place of the backoff.
+func TestTheClientObeysRetryAfter(t *testing.T) {
+	var calls int
+
+	client, _, waits := serverWaits(t, func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		if calls == 1 {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+
+			return
+		}
+		writeJSON(t, w, []orchard.Worker{})
+	})
+
+	if _, err := client.ListWorkers(context.Background()); err != nil {
+		t.Fatalf("ListWorkers() = %v, want the second try to succeed", err)
+	}
+
+	if !slices.Equal(*waits, []time.Duration{time.Second}) {
+		t.Errorf("the client waited %v, want the 1s that Orchard named", *waits)
+	}
+}
+
+// A wait longer than a call may hold the loop ends the call, and the error keeps the wait, so that
+// the inventory waits for it before it reads again.
+func TestALongRetryAfterEndsTheCallAndKeepsTheWait(t *testing.T) {
+	var calls int
+
+	client, _, waits := serverWaits(t, func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.Header().Set("Retry-After", "60")
+		w.WriteHeader(http.StatusTooManyRequests)
+	})
+
+	_, err := client.ListVMs(context.Background())
+	if err == nil {
+		t.Fatal("ListVMs() = nil, want the rate limit")
+	}
+
+	if calls != 1 || len(*waits) != 0 {
+		t.Errorf("the client made %d calls and waited %v, want one call and no wait", calls, *waits)
+	}
+
+	if after, asked := retry.After(err); !asked || after != time.Minute {
+		t.Errorf("After(%v) = %s, %t, want the minute that Orchard named", err, after, asked)
+	}
+}
+
+// A create whose answer the connection lost may have arrived. The client sends it again, and a
+// conflict then means that the first one arrived, which the launcher takes as a success.
+func TestACreateWhoseAnswerWasLostIsSentAgainAndGivesTheConflict(t *testing.T) {
+	var calls int
+
+	client, _ := server(t, func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		if calls == 1 {
+			// The server takes the request, and the connection closes before an answer.
+			connection, _, err := http.NewResponseController(w).Hijack()
+			if err != nil {
+				t.Errorf("Hijack() = %v", err)
+
+				return
+			}
+			_ = connection.Close()
+
+			return
+		}
+		w.WriteHeader(http.StatusConflict)
+	})
+
+	err := client.CreateVM(context.Background(), orchard.VM{Name: "bk-a-b"})
+	if !errors.Is(err, orchard.ErrAlreadyExists) {
+		t.Errorf("CreateVM() = %v, want ErrAlreadyExists from the second try", err)
+	}
+
+	if calls != 2 {
+		t.Errorf("the server saw %d calls, want 2", calls)
 	}
 }
 

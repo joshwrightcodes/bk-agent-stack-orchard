@@ -6,15 +6,18 @@
 // components of the controller depend on the calls that they make and not on the whole library,
 // and so that a test of a component uses an in-memory fake of a few methods.
 //
-// The library retries a request that failed in transport, and a request that the API answered
-// with a 5xx status or with 429. It obeys Retry-After. This package therefore adds no retry of
-// its own. It decides what a status means to this controller:
+// The library tries each request once. The client tries a request again by the retry policy that
+// it shares with the Orchard client (internal/retry): after a failure in transport, a 5xx status,
+// or 429, with a short wait, and with the wait that Buildkite names in Retry-After when that wait
+// is short. A longer wait ends the call, and the error keeps it for the caller. The library alone
+// would try five times and sleep through any Retry-After, which holds the one goroutine of the
+// control loop for minutes. The client decides what a status means to this controller:
 //
 //   - 401 means that Buildkite did not accept the agent token. The readiness check of the
 //     controller fails until an operator supplies another token and restarts it.
 //   - 404 and 422 on a call about one job mean that the job is terminal. The caller marks the job
 //     as ignored and sends no second call.
-//   - 429 after the retries of the library means that the controller must wait.
+//   - 429 after the tries of the policy means that the controller must wait.
 //
 // The types of this package carry job.ID and secret.String, so that a job acquisition token
 // cannot reach a log, and so that the compiler sees the difference between a job and a name.
@@ -37,6 +40,7 @@ import (
 	"github.com/buildkite/stacksapi"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/retry"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/secret"
 )
 
@@ -51,7 +55,7 @@ var (
 	// the caller marks the job as ignored and stops.
 	ErrTerminal = errors.New("buildkite will not accept this call for this job again")
 
-	// ErrRateLimited is a rate limit that outlived the retries of the library.
+	// ErrRateLimited is a rate limit that outlived the tries of the retry policy.
 	ErrRateLimited = errors.New("buildkite applied a rate limit")
 
 	// ErrRefused is a line that Buildkite did not put on a job page, such as a line for a job
@@ -109,11 +113,16 @@ type Options struct {
 
 	// HTTPClient is for a test. A nil client gives the default of the library.
 	HTTPClient *http.Client
+
+	// Retry says how the client tries a call again. The zero value is retry.Default, the policy
+	// of the Orchard client too.
+	Retry retry.Policy
 }
 
 // Client calls the Stacks API for one stack and one queue.
 type Client struct {
 	api      *stacksapi.Client
+	retry    retry.Policy
 	stackKey string
 	queue    string
 
@@ -164,7 +173,38 @@ func New(options Options) (*Client, error) {
 		return nil, fmt.Errorf("building the Buildkite client: %w", err)
 	}
 
-	return &Client{api: api, stackKey: options.StackKey, queue: options.Queue}, nil
+	return &Client{
+		api: api, retry: options.Retry, stackKey: options.StackKey, queue: options.Queue,
+	}, nil
+}
+
+// try runs one request of the library by the retry policy of the client. The request gets
+// stacksapi.WithNoRetry, so that the policy alone decides the tries and the waits.
+func (c *Client) try(ctx context.Context, request func(context.Context) error) error {
+	return c.retry.Do(ctx, func(ctx context.Context) error {
+		return again(request(ctx))
+	})
+}
+
+// again marks an answer of the library that another try can pass: a failure in transport, or a
+// status that the library itself would retry (a 5xx status or 429), with the wait that Buildkite
+// named. A refusal, and an answer that does not decode, cannot pass.
+func again(err error) error {
+	var answer *stacksapi.ErrorResponse
+	if errors.As(err, &answer) {
+		if answer.Response == nil || !answer.IsRetryableStatus() {
+			return err
+		}
+
+		return retry.Again(err, retry.ParseAfter(answer.Response.Header.Get("Retry-After")))
+	}
+
+	var transport *url.Error
+	if errors.As(err, &transport) {
+		return retry.Again(err, 0)
+	}
+
+	return err
 }
 
 // Unauthorized reports an agent token that Buildkite refused. The readiness check of the
@@ -176,11 +216,15 @@ func (c *Client) Unauthorized() bool {
 
 // Register announces the stack to Buildkite.
 func (c *Client) Register(ctx context.Context) error {
-	_, _, err := c.api.RegisterStack(ctx, stacksapi.RegisterStackRequest{
-		Key:      c.stackKey,
-		Type:     stacksapi.StackTypeCustom,
-		QueueKey: c.queue,
-		Metadata: map[string]string{},
+	err := c.try(ctx, func(ctx context.Context) error {
+		_, _, err := c.api.RegisterStack(ctx, stacksapi.RegisterStackRequest{
+			Key:      c.stackKey,
+			Type:     stacksapi.StackTypeCustom,
+			QueueKey: c.queue,
+			Metadata: map[string]string{},
+		}, stacksapi.WithNoRetry())
+
+		return err
 	})
 
 	return c.classify(err)
@@ -188,18 +232,30 @@ func (c *Client) Register(ctx context.Context) error {
 
 // Deregister announces that the stack stops.
 func (c *Client) Deregister(ctx context.Context) error {
-	_, err := c.api.DeregisterStack(ctx, c.stackKey)
+	err := c.try(ctx, func(ctx context.Context) error {
+		_, err := c.api.DeregisterStack(ctx, c.stackKey, stacksapi.WithNoRetry())
+
+		return err
+	})
 
 	return c.classify(err)
 }
 
 // ScheduledJobs gives one page of the jobs that wait in the queue.
 func (c *Client) ScheduledJobs(ctx context.Context, cursor string, size int) (Page, error) {
-	answer, _, err := c.api.ListScheduledJobs(ctx, stacksapi.ListScheduledJobsRequest{
-		StackKey:        c.stackKey,
-		ClusterQueueKey: c.queue,
-		PageSize:        size,
-		StartCursor:     cursor,
+	var answer *stacksapi.ListScheduledJobsResponse
+
+	err := c.try(ctx, func(ctx context.Context) error {
+		var err error
+
+		answer, _, err = c.api.ListScheduledJobs(ctx, stacksapi.ListScheduledJobsRequest{
+			StackKey:        c.stackKey,
+			ClusterQueueKey: c.queue,
+			PageSize:        size,
+			StartCursor:     cursor,
+		}, stacksapi.WithNoRetry())
+
+		return err
 	})
 	if err != nil {
 		return Page{}, c.classify(err)
@@ -240,10 +296,18 @@ func (c *Client) Reserve(ctx context.Context, ids []job.ID, expiry time.Duration
 		return Reservation{}, nil
 	}
 
-	answer, _, err := c.api.BatchReserveJobs(ctx, stacksapi.BatchReserveJobsRequest{
-		StackKey:                 c.stackKey,
-		JobUUIDs:                 texts(ids),
-		ReservationExpirySeconds: int(expiry.Seconds()),
+	var answer *stacksapi.BatchReserveJobsResponse
+
+	err := c.try(ctx, func(ctx context.Context) error {
+		var err error
+
+		answer, _, err = c.api.BatchReserveJobs(ctx, stacksapi.BatchReserveJobsRequest{
+			StackKey:                 c.stackKey,
+			JobUUIDs:                 texts(ids),
+			ReservationExpirySeconds: int(expiry.Seconds()),
+		}, stacksapi.WithNoRetry())
+
+		return err
 	})
 	if err != nil {
 		return Reservation{}, c.classify(err)
@@ -268,10 +332,19 @@ func (c *Client) Tokens(ctx context.Context, ids []job.ID, lifetime time.Duratio
 		return Tokens{}, nil
 	}
 
-	answer, _, err := c.api.IssueJobAcquisitionTokens(ctx, stacksapi.IssueJobAcquisitionTokensRequest{
-		StackKey:             c.stackKey,
-		JobUUIDs:             texts(ids),
-		TokenLifetimeSeconds: int(lifetime.Seconds()),
+	var answer *stacksapi.IssueJobAcquisitionTokensResponse
+
+	err := c.try(ctx, func(ctx context.Context) error {
+		var err error
+
+		answer, _, err = c.api.IssueJobAcquisitionTokens(ctx,
+			stacksapi.IssueJobAcquisitionTokensRequest{
+				StackKey:             c.stackKey,
+				JobUUIDs:             texts(ids),
+				TokenLifetimeSeconds: int(lifetime.Seconds()),
+			}, stacksapi.WithNoRetry())
+
+		return err
 	})
 	if err != nil {
 		return Tokens{}, c.classify(err)
@@ -311,9 +384,17 @@ func (c *Client) States(ctx context.Context, ids []job.ID) (map[job.ID]string, e
 		return map[job.ID]string{}, nil
 	}
 
-	answer, _, err := c.api.GetJobStates(ctx, stacksapi.GetJobStatesRequest{
-		StackKey: c.stackKey,
-		JobUUIDs: texts(ids),
+	var answer *stacksapi.GetJobStatesResponse
+
+	err := c.try(ctx, func(ctx context.Context) error {
+		var err error
+
+		answer, _, err = c.api.GetJobStates(ctx, stacksapi.GetJobStatesRequest{
+			StackKey: c.stackKey,
+			JobUUIDs: texts(ids),
+		}, stacksapi.WithNoRetry())
+
+		return err
 	})
 	if err != nil {
 		return nil, c.classify(err)
@@ -351,11 +432,15 @@ const DetailBudget = 4*1024 - len("… (Message was cropped because it exceeded 
 //
 // The library cuts a detail over 4 KB, at a rune boundary, and says so at its end.
 func (c *Client) Finish(ctx context.Context, id job.ID, exitStatus int, detail string) error {
-	_, err := c.api.FinishJob(ctx, stacksapi.FinishJobRequest{
-		StackKey:   c.stackKey,
-		JobUUID:    string(id),
-		ExitStatus: exitStatus,
-		Detail:     detail,
+	err := c.try(ctx, func(ctx context.Context) error {
+		_, err := c.api.FinishJob(ctx, stacksapi.FinishJobRequest{
+			StackKey:   c.stackKey,
+			JobUUID:    string(id),
+			ExitStatus: exitStatus,
+			Detail:     detail,
+		}, stacksapi.WithNoRetry())
+
+		return err
 	})
 
 	return c.classifyJob(err)
@@ -439,9 +524,18 @@ func (c *Client) Notify(ctx context.Context, notifications []Notification) error
 		})
 	}
 
-	answer, _, err := c.api.CreateStackNotifications(ctx, stacksapi.CreateStackNotificationsRequest{
-		StackKey:      c.stackKey,
-		Notifications: lines,
+	var answer *stacksapi.CreateStackNotificationsResponse
+
+	err := c.try(ctx, func(ctx context.Context) error {
+		var err error
+
+		answer, _, err = c.api.CreateStackNotifications(ctx,
+			stacksapi.CreateStackNotificationsRequest{
+				StackKey:      c.stackKey,
+				Notifications: lines,
+			}, stacksapi.WithNoRetry())
+
+		return err
 	})
 	if err != nil {
 		return c.classify(err)
@@ -462,12 +556,26 @@ func (c *Client) Notify(ctx context.Context, notifications []Notification) error
 	return nil
 }
 
-// classify turns the answer of the library into the errors that a caller decides about.
+// classify turns the answer of the library into the errors that a caller decides about. The wait
+// that Buildkite named travels with the error, so that a source of the loop waits for it before
+// it reads again.
 func (c *Client) classify(err error) error {
 	if err == nil {
 		return nil
 	}
 
+	// A status that keeps the answer in its chain keeps the mark too. One that gives an error
+	// of its own, such as ErrRateLimited, gets the mark again.
+	classified := c.status(err)
+	if after, asked := retry.After(err); asked && !retry.Retryable(classified) {
+		return retry.Again(classified, after)
+	}
+
+	return classified
+}
+
+// status gives the error that a status of the API means to a caller.
+func (c *Client) status(err error) error {
 	var answer *stacksapi.ErrorResponse
 	if !errors.As(err, &answer) || answer.Response == nil {
 		return err

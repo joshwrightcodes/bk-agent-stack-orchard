@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/retry"
 )
 
 // orchardWithItsOwnCertificate is an Orchard controller whose certificate no public authority
@@ -40,7 +41,7 @@ func client(t *testing.T, url, caPEM string) *orchard.Client {
 
 	c, err := orchard.New(orchard.Options{
 		URL: url, ServiceAccount: "bk-agent-stack-orchard", Token: "token",
-		HTTPClient: &http.Client{Transport: transport}, Attempts: 1,
+		HTTPClient: &http.Client{Transport: transport}, Retry: retry.Policy{Attempts: 1},
 	})
 	if err != nil {
 		t.Fatalf("New() = %v, want a client", err)
