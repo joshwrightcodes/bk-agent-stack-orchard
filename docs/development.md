@@ -163,7 +163,7 @@ test/smoke/                     the kind smoke deployment: the fake Stacks serve
 deploy/helm/                    the controller chart
 deploy/orchard/                 the Orchard StatefulSet and its bootstrap job
 deploy/hosts/                   Ansible for the Mac hosts
-images/                         the builds of the job VM images (agent and pilot: tart and the guest agent)
+images/                         the reference build of the job VM images (agent and pilot: tart and the guest agent)
 tools/orchardgen/               the generator of the Orchard wire types (ADR-0015)
 scripts/                        the gate scripts, and the smoke and release scripts
 ```

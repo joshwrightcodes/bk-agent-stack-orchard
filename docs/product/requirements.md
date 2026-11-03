@@ -24,6 +24,8 @@ Each requirement has one of these status values:
   not accepted the requirement yet.
 * `accepted`: the owner accepted the requirement.
 * `open`: a decision is necessary before the requirement is complete.
+* `out of scope`: the owner removed the requirement from the scope of the project. The text stays
+  as a record, and no design or test implements it.
 
 `UNKNOWN` shows a value that no source gives yet. Section 8 lists the questions.
 
@@ -45,7 +47,9 @@ The intended outcome has five parts:
 * Source code stays on owner infrastructure, in the operating country.
 
 The horizon has four phases. Development uses one Mac, and the pilot uses 2 to 4 Macs. Adoption
-uses up to 10 Macs, and scale uses 10 to 50 Macs. The dates of the phases are `UNKNOWN`
+uses up to 10 Macs, and scale uses 10 to 50 Macs. The project runs no pilot of its own (owner
+decision, 2026-11-03, ADR-0020): the phases after development describe the fleet of an operator,
+and the operator runs its own first fleet. The dates of the phases are `UNKNOWN`
 (checked 2026-11-01). The maintainers own the dates. They become known when a Buildkite
 test cluster and the Mac hosts are ready. The plan of 2026-09-14 estimated that the pilot starts
 in approximately 1 month, and that adoption and scale follow in approximately 3 months.
@@ -66,11 +70,15 @@ In scope:
 * Selection of a VM profile from the agent tags of a job.
 * Visible failure of jobs whose VM cannot start, and a visible skip of jobs that no profile carries.
 * Configuration, credentials, readiness, and telemetry for the fleet operator.
-* The build of the job VM images. This was a non-goal until the owner decided on 2026-10-10 that
-  the project builds them (ADR-0012).
+* The image requirements that a job VM image meets (target design, sections 5 and 9.2), and a
+  reference build of such an image in `images/`.
 
 Non-goals:
 
+* Job VM images for a fleet. The fleet operator builds the images of its fleet, and the project
+  publishes no image (owner decision, 2026-11-03, ADR-0020). From 2026-10-10 to 2026-11-03 the
+  project built them (ADR-0012).
+* A pilot run by the project, and a pilot profile (PR-026).
 * Pools of started, idle VMs.
 * The addition or removal of Mac hosts. The host pool is fixed.
 * The purchase and the budget of the hosts.
@@ -318,7 +326,11 @@ requirements. The target design describes the job lifecycle and the failure proc
 
 * Requirement: The pilot MUST have a profile with Xcode 27 on macOS 27 (Golden Gate), for iOS app
   builds.
-* Source: owner answer Q-P4 (2026-09-14); owner comment (2026-09-19). Status: `accepted`.
+* Source: owner answer Q-P4 (2026-09-14); owner comment (2026-09-19). Status: `out of scope`.
+* History: the owner accepted this requirement on 2026-09-20. On 2026-11-03 the owner decided that
+  the project publishes no VM image and runs no pilot, so the requirement left the scope of the
+  project (ADR-0020). An operator who needs Xcode builds its own image. The Xcode 27 image of
+  `images/` stays as a reference build.
 * Facts (as of 2026-09-19): Apple released macOS 27 (Golden Gate) and Xcode 27 (build 27A266a) on
   2026-09-14. Xcode 27 needs macOS Tahoe 26.6 or later and an Apple silicon Mac, and it contains
   the iOS 27 SDK. No published Tart image had Xcode 27 on that date. Since 2026-10-10, the project
@@ -370,7 +382,7 @@ The target design describes the configuration, the credentials, and the observab
 * History: until 2026-11-02, this requirement stated that build artifacts MUST go to storage that
   the owner manages, in the operating country. The owner statement of 2026-11-02 replaced that
   rule and closed the open question about artifact credentials.
-* Acceptance: Given a pilot pipeline that uploads artifacts. When a job runs. Then the artifact
+* Acceptance: Given a pipeline that uploads artifacts. When a job runs. Then the artifact
   upload succeeds, and the artifact is visible on the job page. Checkouts and build data do not
   leave the host of the VM, except through the log and artifact services of Buildkite.
 
@@ -397,20 +409,25 @@ repeat them.
 Functional acceptance (section 5) shows that the product behaves as specified. The measures in
 this section show whether the product gives the intended business effect.
 
+The project runs no pilot (ADR-0020). The targets below are product goals. The release gate gives
+the first evidence, and the fleet of an operator gives the rest when the operator shares its
+measurements. They are not alert thresholds: the operator sets the thresholds of its alerts
+(target design, section 10.6).
+
 | Measure | Baseline | Target | Window | Evidence source |
 |---|---|---|---|---|
-| VMs that remain after their job ends | None, new product | 0 | Pilot, 2 weeks | Telemetry `bk_agent_stack_orchard.vm.leftover`; pilot exit criteria of the target design (E-1) |
-| Jobs that the controller fails incorrectly | None, new product | 0 | Pilot, 2 weeks | Telemetry `bk_agent_stack_orchard.job.failed`; pilot exit criteria of the target design (E-1) |
-| Time from `scheduled` to `accepted`, with the image on the host | None | 60 s | From the pilot | Telemetry `bk_agent_stack_orchard.job.phase.duration` |
-| Wait time of the oldest job when all slots are in use | None | 15 min at planned capacity | From the pilot | Telemetry `bk_agent_stack_orchard.job.waiting.oldest.age` |
-| Cost of one job minute, compared with Buildkite hosted macOS | Hosted Medium: 0.12 USD (A$0.17); hosted Large: 0.24 USD (A$0.34). Rate: 1 USD = 1.39842141 AUD (xe.com, 2026-09-14 04:37 UTC). Host: AU$5,099.00 each. | `UNKNOWN` | From adoption | Buildkite pricing; host cost |
-| Duration of the same job, compared with Buildkite hosted macOS | `UNKNOWN` | `UNKNOWN` | Pilot | Buildkite job durations for both |
+| VMs that remain after their job ends | None, new product | 0 | Each release gate; 2 weeks of an operator fleet | Telemetry `bk_agent_stack_orchard.vm.leftover`; fleet evidence of the test strategy (E-1) |
+| Jobs that the controller fails incorrectly | None, new product | 0 | Each release gate; 2 weeks of an operator fleet | Telemetry `bk_agent_stack_orchard.job.failed`; fleet evidence of the test strategy (E-1) |
+| Time from `scheduled` to `accepted`, with the image on the host | None | 60 s | Each release gate; an operator fleet | Telemetry `bk_agent_stack_orchard.job.phase.duration` |
+| Wait time of the oldest job when all slots are in use | None | 15 min at planned capacity | An operator fleet | Telemetry `bk_agent_stack_orchard.job.waiting.oldest.age` |
+| Cost of one job minute, compared with Buildkite hosted macOS | Hosted Medium: 0.12 USD (A$0.17); hosted Large: 0.24 USD (A$0.34). Rate: 1 USD = 1.39842141 AUD (xe.com, 2026-09-14 04:37 UTC). Host: AU$5,099.00 each. | `UNKNOWN` | An operator fleet | Buildkite pricing; host cost |
+| Duration of the same job, compared with Buildkite hosted macOS | `UNKNOWN` | `UNKNOWN` | An operator fleet | Buildkite job durations for both |
 
 The gauge `bk_agent_stack_orchard.vm.leftover` counts the VMs of this controller whose job is
 in a terminal state. It is 0, except for the short window before the reaper deletes a VM, which
 the target design defines. A deletion counter cannot show a VM that remains, because a VM that
 remains is not deleted. The counter `bk_agent_stack_orchard.job.failed` counts every job that the
-controller failed, so the pilot checks each increase against its job to decide whether the failure
+controller failed, so a person checks each increase against its job to decide whether the failure
 was wrong.
 
 ## 7. Dependencies and assumptions
@@ -428,17 +445,18 @@ Dependencies:
 * Orchard 0.58.0 or later is in use (Orchard release 0.58.0, 2026-10-19; target design, section
   9.2). Release 0.57.0 contains pull requests #465 and #470 (2026-09-15), and release 0.58.0
   contains them too.
-* The Mac mini with M5 Pro ships from 2026-09-22 (Apple, as of 2026-09-14). The pilot needs the
-  hosts. The date at which the hosts are ready is `UNKNOWN` (checked 2026-11-01). The owner is the
-  maintainer. The date becomes known when the Mac hosts are ready. The plan of 2026-09-14 estimated
-  that the pilot needs the hosts before 2026-10-14.
+* The Mac mini with M5 Pro ships from 2026-09-22 (Apple, as of 2026-09-14). The first fleet needs
+  the hosts. The date at which the hosts are ready is `UNKNOWN` (checked 2026-11-01). The owner is
+  the maintainer. The date becomes known when the Mac hosts are ready. The plan of 2026-09-14
+  estimated that the pilot needs the hosts before 2026-10-14.
 * The fleet operator supplies each Tart image, and stores it in an OCI registry. The project
   publishes no image (owner decision, 2026-11-03). The operator uses an upstream Tart image, or
   builds an image of its own, and the image meets the image requirements of the target design,
   section 5: the Tart guest agent, and the `buildkite-agent` v4 binary when the profile uses the
   agent of the image. `images/` is a reference
-  build of such an image, from `ghcr.io/cirruslabs/macos-golden-gate-vanilla`, with Xcode 27 for
-  the pilot profile (PR-026, ADR-0012).
+  build of such an image, from `ghcr.io/cirruslabs/macos-golden-gate-vanilla`, with an optional
+  Xcode 27 variant (ADR-0012, ADR-0020). A production image also meets the image rules of the
+  target design, section 9.2.
 * The fleet operator pulls each profile image to each host before use.
 * Buildkite-managed artifact storage is available to the organisation (PR-032; owner statement,
   2026-11-02).
@@ -446,7 +464,8 @@ Dependencies:
 Assumptions:
 
 * One person operates the fleet (ADR-0001).
-* The pilot uses only non-critical pipelines that opt in (target design, rollout phase 1).
+* The first fleet of an operator uses only non-critical pipelines that opt in (target design,
+  rollout phase 1).
 * Each host is a Mac mini with an M5 Pro chip, 64 GB memory, 1 TB storage, and 10 Gb Ethernet. The
   pre-order price is AU$5,099.00 (owner answer Q-P1).
 
@@ -470,7 +489,7 @@ Answered questions (2026-09-14):
 | Q-P6 | Start point of the phase dates | Not applicable. The dates are approximate. |
 | Q-P7 | Pilot profile | Xcode 27. The owner selected Xcode 26.6 on 2026-09-14 and changed this to Xcode 27 on 2026-09-19, after its release. |
 
-No product question needs an owner decision. Three values stay `UNKNOWN` until the pilot measures
+No product question needs an owner decision. Three values stay `UNKNOWN` until a fleet measures
 them: the maximum time from the job end to the VM deletion (PR-002, QA-06), the cost of one job
 minute, and the duration of the same job (section 6). Two more values stay `UNKNOWN` until a
 trigger occurs: the dates of the phases (section 1; trigger: a Buildkite test cluster and the Mac

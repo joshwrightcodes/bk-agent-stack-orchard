@@ -18,8 +18,12 @@ You need these items:
 * **Apple silicon Mac hosts** that run an Orchard worker and Tart 2.39.0 or later.
 * **An Orchard controller**, version 0.58.0 or later, and an Orchard service account for this
   controller.
-* **A Tart image for each profile.** The image must run the Tart guest agent. The upstream
-  `ghcr.io/cirruslabs/macos-golden-gate-base` image does. By default, each VM downloads a pinned
+* **A Tart image for each profile, which you build.** The project publishes no job VM image. The
+  image must run the Tart guest agent, and it must meet the image rules of the target design,
+  section 9.2: no well-known credential over the network, and SSH and Screen Sharing off.
+  [`images/`](../../images/README.md) is a reference build. The upstream
+  `ghcr.io/cirruslabs/macos-golden-gate-base` image of the quick start runs the guest agent, but it
+  does not meet those rules, so use it for evaluation only. By default, each VM downloads a pinned
   `buildkite-agent` release when it starts, so the image needs no agent, and the VMs must reach
   GitHub or a mirror that you set (see [The agent in each VM](#the-agent-in-each-vm)).
 * **An OpenTelemetry collector** that receives OTLP, if you want metrics, traces, and logs.
@@ -31,7 +35,7 @@ have to use them:
 
 * [`deploy/orchard`](../../deploy/orchard/README.md): an Orchard controller on Kubernetes.
 * [`deploy/hosts`](../../deploy/hosts/README.md): an Ansible playbook for the Mac hosts.
-* [`images/`](../../images/README.md): a build of the job VM images.
+* [`images/`](../../images/README.md): a reference build of the job VM images.
 
 ## Install with Helm
 

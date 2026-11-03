@@ -6,6 +6,17 @@ and most of that is the first download of the macOS image.
 
 The quick start is for a trial. To run a fleet, read [Install the controller](install.md).
 
+**The default image is for evaluation only.** The quick start uses the upstream image
+`ghcr.io/cirruslabs/macos-golden-gate-base`. That image does not meet the production image rules
+of the target design, section 9.2:
+
+* It keeps the well-known account `admin` with the password `admin`.
+* It accepts that password over SSH (Remote Login).
+* It gives `admin` passwordless `sudo`.
+
+The project publishes no job VM image. For a fleet, build your own image that meets those rules.
+[`images/`](../../images/README.md) is a reference build of such an image.
+
 ## Before you start
 
 You need:
@@ -100,7 +111,7 @@ tart delete ghcr.io/cirruslabs/macos-golden-gate-base@sha256:14f4fc32a778763ccae
 | Option | Default | What it does |
 |---|---|---|
 | `--queue NAME` | (required) | The self-hosted queue of the token |
-| `--image REF` | `ghcr.io/cirruslabs/macos-golden-gate-base@sha256:14f4fc32a778763ccae1a4d543ea0f177720c570dd7f859eda10b9e0020c7d05` | The Tart image of the VMs. It must run the Tart guest agent. The default is one fixed version of the upstream image, pinned by its digest |
+| `--image REF` | `ghcr.io/cirruslabs/macos-golden-gate-base@sha256:14f4fc32a778763ccae1a4d543ea0f177720c570dd7f859eda10b9e0020c7d05` | The Tart image of the VMs. It must run the Tart guest agent. The default is one fixed version of the upstream image, pinned by its digest. The default is for evaluation only (see the top of this page) |
 | `--cpu N` | `4` | The CPU cores of each VM |
 | `--memory MIB` | `8192` | The memory of each VM, in MiB |
 | `--disk GB` | `50` | The disk of each VM, in GB. It must be at least the disk of the image |

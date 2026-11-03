@@ -7,7 +7,7 @@
   * [Product requirements](../product/requirements.md): requirement identifiers such as `PR-005`
   * [System design baseline](system-design-baseline.md): driver identifiers such
     as `QA-01`
-  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0019
+  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0020
 
 ## Conventions
 
@@ -278,7 +278,7 @@ A profile describes one type of VM:
 profiles:
   - name: xcode-27
     match: {xcode: "27"}
-    image: ghcr.io/acme/bkaso-pilot@sha256:<digest>
+    image: ghcr.io/acme/bkaso-xcode@sha256:<digest>
     cpu: 8
     memoryMiB: 28672
     diskSizeGB: 150
@@ -297,9 +297,9 @@ profiles:
     startupTransport: tart-guest-agent
 ```
 
-The CPU and memory values are examples. Pilot measurements set the real VM size (SC-08). Two VMs
-run on each host, so the two VMs together MUST NOT need more than the host has (SC-02, SC-04). The
-pilot profile uses Xcode 27 (PR-026).
+The CPU and memory values are examples. Measurements of a fleet set the real VM size (SC-08). Two
+VMs run on each host, so the two VMs together MUST NOT need more than the host has (SC-02, SC-04).
+The fleet operator builds each image, and the project publishes none (ADR-0020).
 
 **Match rule.** The Matcher MUST use exact match:
 
@@ -423,15 +423,16 @@ address that Softnet can give the host as the gateway of a VM, the controller MU
 warning that names the address, because the pf rules of the hosts refuse a connection to that
 address on a port on which the host listens (§9.1).
 
-The fleet operator MUST set `diskSizeGB` to at least the disk size of the profile image. The pilot
-image has a 104 GB disk, and other Xcode images up to 140 GB (SC-07). Tart refuses a disk that is
-smaller than the disk of the image, in bytes. A macOS 27 guest grows its APFS container to the disk
-at boot (2026-10-10), so a larger `diskSizeGB` gives a job more space.
+The fleet operator MUST set `diskSizeGB` to at least the disk size of the profile image. The Xcode
+27 reference image of `images/` has a 104 GB disk, and other Xcode images up to 140 GB (SC-07). Tart
+refuses a disk that is smaller than the disk of the image, in bytes. A macOS 27 guest grows its APFS
+container to the disk at boot (2026-10-10), so a larger `diskSizeGB` gives a job more space.
 
 **Image contents.** An image for the guest-agent transport MUST run the Tart guest agent. The
-image build of this project installs it and its launchd jobs (ADR-0012, 2026-11-01). The upstream
+reference build of `images/` installs it and its launchd jobs (ADR-0012, 2026-11-01). The upstream
 image `ghcr.io/cirruslabs/macos-golden-gate-base` runs it too, and the upstream vanilla image does
-not (checked 2026-11-03).
+not (checked 2026-11-03). A production image MUST also meet the image rules of §9.2 (ADR-0020).
+The upstream base image does not meet them, so only the quick start uses it, for evaluation.
 
 **Agent source.** `agent.source` selects where the agent of a VM comes from (CO-06):
 
@@ -451,7 +452,7 @@ the same pin as `images/build.sh`). The controller MUST refuse an `agent.url` th
 and an `agent.sha256` that is not 64 lower-case hexadecimal characters. YAML reads a value of
 digits as a number, so the examples put the SHA-256 in quotes.
 
-**Implements.** PR-003, PR-004, PR-020, PR-021, PR-026, QA-05, SC-07, SC-08.
+**Implements.** PR-003, PR-004, PR-020, PR-021, QA-05, SC-07, SC-08.
 
 ## 6. Job lifecycle
 
@@ -1070,6 +1071,15 @@ The cluster agent token and the Orchard credentials MUST NOT go into a VM.
 | VM image SSH credentials | Controller environment; VM specification | Only for a profile with `startupTransport: ssh`. The Orchard worker then uses the username and password in the VM specification to run the startup script. An image MUST NOT accept a well-known credential, such as `admin/admin`, over the network. The Tart guest agent needs the automatic login of `admin`, and macOS 27 does not log in automatically after a change of the password (2026-09-27), so an image for the guest-agent transport keeps the local password and turns off SSH (Remote Login) and Screen Sharing. An image for the `ssh` transport MUST change the password, and the profile gives the new one. Softnet limits the exposure to the worker host. The guest-agent transport (ADR-0009) removes this credential. |
 | Orchard bootstrap admin token | Key `bootstrap-admin-token` of the Kubernetes Secret `orchard-bootstrap`. The Orchard StatefulSet holds it only for the first bootstrap, through the kustomize component `deploy/orchard-overlays/first-start` | Role `admin:write` is the need of the bootstrap Job, which creates and sets the service accounts, and the account has all roles until the operator rotates it to `admin:read` and `admin:write`. The base StatefulSet does not carry `ORCHARD_BOOTSTRAP_ADMIN_TOKEN`. The component adds it for the first start, and after the first bootstrap the operator removes the component, so the environment of the Orchard pod holds no token. While the account exists, Orchard 0.58.0 keeps its token in the database and writes it in plain text to `/data/orchard.yml` at each start (`createBootstrapContext`, `internal/command/controller/run.go`, tag 0.58.0, read on 2026-11-03), so the PVC holds the token until the operator deletes the account. If an overlay forgets the component at the first start, Orchard writes a random admin token to its log, and the bootstrap Job fails with a message that names the component. When the operator adds the component, Orchard sets the account again with the token of the Secret, and the logged token stops working. The account and its token stay in the Secret, which only the Job mounts, because each add, rotation, migration, or revocation of a host runs the Job again. Kubernetes RBAC limits who reads Secrets of the namespace. The operator rotates the token (runbook `orchard-bootstrap-admin`). |
 
+**Production images.** The fleet operator builds the image of each profile (ADR-0020). A
+production image MUST meet the image requirements of §5. It MUST NOT accept a well-known
+credential, such as `admin/admin`, over the network. An image for the guest-agent transport MUST
+turn off SSH (Remote Login) and Screen Sharing (row "VM image SSH credentials" above). The
+upstream image `ghcr.io/cirruslabs/macos-golden-gate-base`, which the quick start uses, keeps the
+account `admin` with the password `admin`, accepts it over SSH, and gives `admin` passwordless
+`sudo` (owner statement, 2026-11-03). It is for evaluation only. The reference build of `images/`
+turns off SSH and Screen Sharing, and checks the image against an explicit list (ADR-0012).
+
 **Worker accounts.** The Secret `orchard-worker-tokens` holds one key `worker-<host>` for each Mac
 host. The bootstrap Job reads the keys, checks that each host is a DNS label, and sets one account
 for each host. The Job never deletes an account. Orchard 0.58.0 keeps no mark that tells an account
@@ -1344,7 +1354,7 @@ APIs.
 |---|---|---|
 | bk-agent-stack-orchard | Kubernetes | A Helm chart that ArgoCD deploys. A `Deployment` with 1 replica and `strategy: Recreate`. A termination grace of 45 s, because at a stop the controller withdraws its stack in at most 10 s and then stops its telemetry in at most 10 s. A ConfigMap for the configuration. Secrets as environment variables. gRPC probes of the health service on `healthAddress`: `liveness` (the process is alive and its loop finishes its ticks) and `readiness` (all sources synchronized within `stateFreshness`). `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME=bk-agent-stack-orchard`, and `OTEL_RESOURCE_ATTRIBUTES` (`controller.id`, and `k8s.*` from the downward API). A NetworkPolicy that permits egress only to `agent.buildkite.com:443`, Orchard `:6120`, and the collector. The image comes from §15. |
 | Orchard controller | Kubernetes | `deploy/orchard`, a kustomize base. The image is the Orchard release at the version of §9.2, built by `deploy/orchard/image` for the registry of the fleet, because `ghcr.io/openai/orchard` does not answer a pull without credentials (2026-09-26, [openai/orchard#501](https://github.com/openai/orchard/issues/501)). A 1-replica StatefulSet with a PVC at `/data`, a headless governing Service, and the certificate and key of a Secret that an authority of the operator signs. A StatefulSet, because Orchard keeps its state in an embedded database with one scheduler and no leader election, so at most one pod may write to `/data`, and a StatefulSet starts no replacement until the old pod is gone. A deletion of the StatefulSet leaves the PVC. A ClusterIP Service on port 6120 in the base, so the API of Orchard stays inside the cluster by default, and a NetworkPolicy that admits TCP 6120 only from the controller, the bootstrap Job, and the CIDRs of the Mac hosts, and egress only to DNS and to OTLP on TCP 4317, because the Orchard controller dials nothing else (the workers dial it). An operator reaches the API through `kubectl port-forward`, which the policy admits. An overlay (`deploy/orchard-overlays/internal-lb` is the example) adds an internal LoadBalancer with `externalTrafficPolicy: Local`, so that the policy sees the address of a Mac host. `ORCHARD_BOOTSTRAP_ADMIN_TOKEN` from a Secret, for the first bootstrap only, through the component `deploy/orchard-overlays/first-start`, which the base does not include: the operator then removes the component, so Orchard 0.58.0 does not make the account again at each start and the environment of the pod holds no admin token. The `bootstrap-admin` account stays, with its token in the Secret `orchard-bootstrap`, which only the bootstrap Job mounts, so a change of a host needs the Job and no restart of Orchard. While the account exists, the PVC also holds its token: in the database, and in `/data/orchard.yml`, which Orchard writes at each start. The operator rotates the token, and MAY delete the account for a fleet with no planned change of a host (runbook `orchard-bootstrap-admin`). A bootstrap Job that sets the `bk-agent-stack-orchard` service account and one `worker-<host>` service account for each key of the Secret `orchard-worker-tokens`, through the REST API, on every run, with the credentials on standard input of `curl`. The Job never deletes an account (§9.2). An explicit `OTEL_EXPORTER_OTLP_ENDPOINT`. The loss of the PVC is recoverable, because workers register again and the controller removes in-flight VMs. A backup is not necessary. |
-| Mac hosts | Mac mini with M5 Pro, 64 GB memory, and 1 TB storage (SC-04) | Ansible and launchd (`deploy/hosts`). Install Tart, Softnet, and Orchard at pinned versions, from their release archives, checked against their SHA-256. Softnet has the setuid bit, because Tart starts it with root for each VM (§9.1), and without the bit Tart asks for a password on a terminal. Only root and the worker user MAY run Softnet: its mode is `04750` and an access control entry permits the worker user. A group of the worker user would not work, because Orchard drops to the worker user with `setregid` and `setreuid` and keeps the groups of root (`cirruslabs/chacha` `pkg/privdrop` v0.16.3, which Orchard 0.58.0 uses, read 2026-11-03). Each program that root runs, each file that root reads, and each directory above them up to `/usr/local` MUST be owned by root and the group wheel, with no write permission for a group or other users, because a VM escape lands as the worker user. The release archives of Tart and Softnet give their files uid 501, the first user of a Mac, so the playbook unpacks them with `--no-same-owner`. Turn off the sleep of the system and the disks, and start the host again after a power failure (`pmset`): Orchard fails the VMs of a worker that does not report for its offline timeout, so a host that sleeps fails its jobs. Load a pf anchor at each start of the host, at each change of the network, and every 30 seconds, that blocks traffic from the VM networks to the host, except DHCP and DNS, and to the private ranges, except the `softnetAllow` CIDRs of the profiles of the host (§9.1). The same launchd job enables pf again, and logs it, when pf is not enabled. The anchor is under `com.apple/`, which `/etc/pf.conf` evaluates, so the host keeps the `/etc/pf.conf` of macOS. Run `orchard worker run --bootstrap-token-stdin --labels pool=<pool>` as root with `--user`. Each host has its own worker name and its own account `worker-<name>` (§9.2). The bootstrap token carries the CA of the controller certificate, so a host trusts that CA with no change of its trust settings, and a new certificate of the same CA needs no new token. The token is in a file that only root can read, not in an argument. The automatic login of the worker user unlocks the login keychain. On macOS 27, `sysadminctl -autologin set` failed and a written `/etc/kcpassword` was ignored (2026-09-27), so the operator turns it on in System Settings, and the playbook checks it. Set `OTEL_EXPORTER_OTLP_ENDPOINT`. Run `tart pull` for the image of each profile whose `workerLabels` the worker labels contain. Read the image list from the controller configuration file. Because of this, the pulled images always agree with the profiles. The pilot image has a 104 GB disk, of which the host stores 59 GB, and other Xcode images up to 140 GB, so a 1 TB host holds only a few images (SC-09). The images build from a vanilla macOS image with only the software of an explicit list, and the build fails on anything else (ADR-0012). The pilot image is `images/build.sh pilot`: Xcode 27 from an archive that the owner downloads with an Apple ID, so that no build signs in to Apple, its iOS simulator runtime, and the Homebrew formulae of its list (PR-026). The image contains `buildkite-agent` v4 and the Tart guest agent (§5). Each host MUST run macOS 27.2 or later, because the job VMs run macOS 27.2 and a macOS guest needs a host of the same version or later (CO-07). The playbook refuses an older host. |
+| Mac hosts | Mac mini with M5 Pro, 64 GB memory, and 1 TB storage (SC-04) | Ansible and launchd (`deploy/hosts`). Install Tart, Softnet, and Orchard at pinned versions, from their release archives, checked against their SHA-256. Softnet has the setuid bit, because Tart starts it with root for each VM (§9.1), and without the bit Tart asks for a password on a terminal. Only root and the worker user MAY run Softnet: its mode is `04750` and an access control entry permits the worker user. A group of the worker user would not work, because Orchard drops to the worker user with `setregid` and `setreuid` and keeps the groups of root (`cirruslabs/chacha` `pkg/privdrop` v0.16.3, which Orchard 0.58.0 uses, read 2026-11-03). Each program that root runs, each file that root reads, and each directory above them up to `/usr/local` MUST be owned by root and the group wheel, with no write permission for a group or other users, because a VM escape lands as the worker user. The release archives of Tart and Softnet give their files uid 501, the first user of a Mac, so the playbook unpacks them with `--no-same-owner`. Turn off the sleep of the system and the disks, and start the host again after a power failure (`pmset`): Orchard fails the VMs of a worker that does not report for its offline timeout, so a host that sleeps fails its jobs. Load a pf anchor at each start of the host, at each change of the network, and every 30 seconds, that blocks traffic from the VM networks to the host, except DHCP and DNS, and to the private ranges, except the `softnetAllow` CIDRs of the profiles of the host (§9.1). The same launchd job enables pf again, and logs it, when pf is not enabled. The anchor is under `com.apple/`, which `/etc/pf.conf` evaluates, so the host keeps the `/etc/pf.conf` of macOS. Run `orchard worker run --bootstrap-token-stdin --labels pool=<pool>` as root with `--user`. Each host has its own worker name and its own account `worker-<name>` (§9.2). The bootstrap token carries the CA of the controller certificate, so a host trusts that CA with no change of its trust settings, and a new certificate of the same CA needs no new token. The token is in a file that only root can read, not in an argument. The automatic login of the worker user unlocks the login keychain. On macOS 27, `sysadminctl -autologin set` failed and a written `/etc/kcpassword` was ignored (2026-09-27), so the operator turns it on in System Settings, and the playbook checks it. Set `OTEL_EXPORTER_OTLP_ENDPOINT`. Run `tart pull` for the image of each profile whose `workerLabels` the worker labels contain. Read the image list from the controller configuration file. Because of this, the pulled images always agree with the profiles. The fleet operator builds the images (ADR-0020), and each image MUST meet the image requirements of §5 and the image rules of §9.2. The Xcode 27 reference image of `images/` has a 104 GB disk, of which the host stores 59 GB, and other Xcode images up to 140 GB, so a 1 TB host holds only a few images (SC-09). The reference build starts from a vanilla macOS image with only the software of an explicit list, and it fails on anything else (ADR-0012). Its Xcode variant is `images/build.sh pilot`: Xcode 27 from an archive that the operator downloads with an Apple ID, so that no build signs in to Apple, its iOS simulator runtime, and the Homebrew formulae of its list. Each host MUST run macOS 27.2 or later, because the job VMs run macOS 27.2 and a macOS guest needs a host of the same version or later (CO-07). The playbook refuses an older host. |
 | Local development | One Mac | `orchard dev` and `bk-agent-stack-orchard` with a configuration file. A separate Buildkite test cluster and queue. |
 
 The chart is `deploy/helm/bk-agent-stack-orchard`. A standard Kubernetes NetworkPolicy matches
@@ -1388,12 +1398,12 @@ Development MUST use TDD. Each change of behavior MUST start with a failing test
 
 | Phase | Scope | Exit criteria |
 |---|---|---|
-| 0 — Development | One Mac, `orchard dev`, a Buildkite test cluster | The end-to-end scenarios and the synthetic load test pass. |
-| 1 — Pilot | Orchard on Kubernetes, 2 to 4 Macs, one queue, 1 or 2 profiles. Only non-critical pipelines that opt in. Telemetry and alerts are active. The pilot profile uses Xcode 27 (PR-026). The pilot start date is `UNKNOWN` (SC-03; owner: the maintainers; trigger: a Buildkite test cluster and the Mac hosts are ready). On 2026-09-14, the plan estimated approximately 1 month. | Two weeks with `bkaso.vm.leftover` at 0 outside its window (§10.1), and zero jobs that the controller failed incorrectly (E-1 to E-5 of the test strategy). The start time and the wait time are measured against QA-01 and QA-02. |
+| 0 — Development | One Mac, `orchard dev`, a Buildkite test cluster | The end-to-end scenarios and the synthetic load test pass. The release gate runs the end-to-end scenarios before each release. |
+| 1 — First fleet (the operator) | The project runs no pilot (ADR-0020). The fleet operator starts its first fleet: Orchard on Kubernetes, 2 to 4 Macs, one queue, 1 or 2 profiles, and images that the operator builds (§9.2). Only non-critical pipelines that opt in. Telemetry is active, and the operator sets its alerts and their thresholds (§10.6). The operator decides the start date. | The operator decides. The fleet evidence of the test strategy (E-1 to E-5) gives the measures: two weeks with `bkaso.vm.leftover` at 0 outside its window (§10.1), zero jobs that the controller failed incorrectly, and the start time and the wait time against the product goals QA-01 and QA-02. |
 | 2 — Adoption | Increase to 10 Macs and more profiles. Move pipelines to the queue. Adjust timeouts from telemetry. The date of adoption and scale is `UNKNOWN` (SC-03; same owner and trigger). On 2026-09-14, the plan estimated approximately 3 months. | The warm-pool decision is examined again with measured `job.phase.duration` data. |
 | 3 — Scale | 10 to 50 Macs | The load test agrees with production behavior. High availability and controller placement are decided only if telemetry shows a need. |
 
-**Implements.** PR-026, SC-01, SC-03, QA-01, QA-02.
+**Implements.** SC-01, SC-03, QA-01, QA-02.
 
 ## 14. Out of scope and roadmap
 

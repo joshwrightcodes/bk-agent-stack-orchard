@@ -147,6 +147,30 @@ class CheckDocsTest(unittest.TestCase):
         check_docs.check_width()
         self.assertEqual([], check_docs.errors)
 
+    def coverage(self, status: str) -> None:
+        requirements = self.root / "docs/product/requirements.md"
+        design = self.root / "docs/architecture/target-design.md"
+        self.write(
+            "docs/product/requirements.md",
+            "**PR-001: One.**\n\n* Status: `accepted`.\n\n"
+            f"**PR-002: Two.**\n\n* Source: an owner. Status: `{status}`.\n",
+        )
+        self.write("docs/architecture/target-design.md", "**Implements.** PR-001.\n")
+        saved = (check_docs.REQUIREMENTS, check_docs.DESIGN)
+        check_docs.REQUIREMENTS, check_docs.DESIGN = requirements, design
+        self.addCleanup(setattr, check_docs, "REQUIREMENTS", saved[0])
+        self.addCleanup(setattr, check_docs, "DESIGN", saved[1])
+        check_docs.check_requirement_coverage({"PR": {"PR-001", "PR-002"}})
+
+    def test_a_requirement_that_no_implements_line_claims_fails(self) -> None:
+        self.coverage("accepted")
+        self.assertEqual(1, len(check_docs.errors), check_docs.errors)
+        self.assertIn("PR-002", check_docs.errors[0])
+
+    def test_a_requirement_out_of_scope_needs_no_implements_line(self) -> None:
+        self.coverage("out of scope")
+        self.assertEqual([], check_docs.errors)
+
 
 if __name__ == "__main__":
     unittest.main()

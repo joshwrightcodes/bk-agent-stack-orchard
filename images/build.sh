@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Builds a job VM image of the fleet into a local Tart VM, and pushes it when a registry is given.
+# It is a reference build for an operator who builds its own images: the project publishes no job
+# VM image (ADR-0020).
 #
 #   images/build.sh agent   macOS Golden Gate without Xcode: every scenario but the iOS build
-#   images/build.sh pilot   macOS Golden Gate with Xcode 27: the image of the pilot (PR-026)
+#   images/build.sh pilot   macOS Golden Gate with Xcode 27: the reference image for an Xcode profile
 #
 # Both start from the vanilla macOS image (ADR-0012), add the Tart guest agent, buildkite-agent v4,
 # and the environment hook, close SSH and Screen Sharing, and check the result in a second boot
