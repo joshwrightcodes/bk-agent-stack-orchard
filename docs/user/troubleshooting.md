@@ -53,8 +53,10 @@ after each job, and longer while Buildkite does not answer, because the controll
 only when it knows that the job ended. If it stays above 0, read the log of the controller for a
 delete that Orchard refused.
 
-A VM with the name prefix of this controller and no job in its name is an orphan, and the
-controller deletes it.
+A VM with the name prefix of this controller and no job UUID at the end of its name is an
+orphan, and the controller deletes it. A VM whose name ends in a job UUID belongs to the
+controller that the name shows, so a controller never deletes it as an orphan, even when the
+`controllerID` of that other controller starts with this one.
 
 ## Git checkout fails with "cannot overwrite multiple values"
 

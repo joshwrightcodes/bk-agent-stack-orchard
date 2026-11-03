@@ -395,7 +395,10 @@ digits as a number, so the examples put the SHA-256 in quotes.
   `^[a-z0-9]([a-z0-9-]{0,21}[a-z0-9])?$` (maximum 23 characters). Because of this, the VM name
   has a maximum of 63 characters.
 * **Owner:** the controller owns a VM if, and only if, the VM name starts with
-  `bk-<controllerID>-`. The remaining text is the job UUID.
+  `bk-<controllerID>-` and the remaining text is a job UUID. A name that ends in a dash and a
+  job UUID belongs to the controller whose identifier is the text between `bk-` and that UUID,
+  so the controller MUST NOT treat it as an orphan unless that text is its own `controllerID`.
+  A name that starts with `bk-<controllerID>-` and does not end in a job UUID is an orphan.
 * **VM labels:** only the profile `workerLabels`.
 * **Profile of an owned VM:** not necessary. Capacity accounting uses the `resources` and
   `labels` of the VM.
@@ -661,7 +664,7 @@ The Reaper MUST examine each owned VM at each tick. The first row that matches a
 
 | # | VM (Orchard) | Job (Buildkite) | Action | `reason` |
 |---|---|---|---|---|
-| 1 | The name has the owned prefix but no valid UUID | — | Delete the VM. | `orphan` |
+| 1 | The name has the owned prefix and does not end in a valid UUID | — | Delete the VM. | `orphan` |
 | 2 | The age since `createdAt` is more than `maxVMLifetime` (25 h) | Any | Delete the VM. | `lifetime` |
 | 3 | Any | Not causally fresh, or stale | No action. | — |
 | 4 | Any | Terminal: `finished`, `canceled`, `expired`, `timed_out`, `skipped`, `broken` | Delete the VM. | `job_terminal` |

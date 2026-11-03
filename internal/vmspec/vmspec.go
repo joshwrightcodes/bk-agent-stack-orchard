@@ -59,11 +59,46 @@ func Name(controllerID string, id job.ID) string {
 	return namePrefix + controllerID + "-" + id.String()
 }
 
-// Prefix is what every machine name of this controller starts with. A caller that must tell an
-// orphan from a machine of somebody else needs this, because a name with the prefix and no
-// identifier belongs to this controller and nothing else will remove it.
+// Prefix is what every machine name of this controller starts with. A name that starts with it
+// is not always a machine of this controller: the controller whose identifier extends this one
+// (macos and macos-prod) shares it. IsOrphan tells the two apart.
 func Prefix(controllerID string) string {
 	return namePrefix + controllerID + "-"
+}
+
+// IsOrphan reports a machine that this controller named and that carries no job: the name has the
+// prefix of this controller, and it does not end in a job UUID. Nothing else will remove such a
+// machine, so the reaper deletes it.
+//
+// A name that ends in a dash and a job UUID is the machine of the controller whose identifier is
+// the text between bk- and that UUID. When that text is not this controller, the machine belongs
+// to another controller, and it is never an orphan of this one, however much the text looks like
+// part of a UUID. A name that has this prefix and does not end in a job UUID could belong to any
+// controller whose identifier extends this one, and each of them treats it as its own orphan.
+func IsOrphan(name, controllerID string) bool {
+	text, found := strings.CutPrefix(name, Prefix(controllerID))
+	if !found {
+		return false
+	}
+
+	return !endsInJob(text)
+}
+
+// jobIDLength is the length of the text form of a job UUID.
+const jobIDLength = 36
+
+// endsInJob reports that the text is a job UUID, or that it ends in a dash and a job UUID.
+func endsInJob(text string) bool {
+	if job.ID(text).Valid() {
+		return true
+	}
+
+	start := len(text) - jobIDLength - 1
+	if start < 0 || text[start] != '-' {
+		return false
+	}
+
+	return job.ID(text[start+1:]).Valid()
 }
 
 // OwnedJob reports the job of a machine that this controller created. A machine of another

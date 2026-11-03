@@ -431,6 +431,50 @@ func TestOwnedJobIgnoresAVMOfAnotherOwner(t *testing.T) {
 	}
 }
 
+// A name with the prefix of this controller that does not end in a job UUID carries no job, and
+// nothing else removes the machine, so it is an orphan. A UUID with text after it, with text
+// before it and no dash, or in upper case is not a job UUID.
+func TestIsOrphanCatchesANameWithThePrefixAndNoJob(t *testing.T) {
+	for _, name := range []string{
+		"bk-macos-",
+		"bk-macos-not-a-uuid",
+		"bk-macos-" + jobUUID.String() + "-extra",
+		"bk-macos-x" + jobUUID.String(),
+		"bk-macos-" + strings.ToUpper(jobUUID.String()),
+	} {
+		if !vmspec.IsOrphan(name, "macos") {
+			t.Errorf("IsOrphan(%q) = false, want true", name)
+		}
+	}
+}
+
+// A name that ends in a job UUID is the machine of the controller that wrote the text between
+// bk- and the UUID. When that text is not this controller, the machine is not an orphan of this
+// one, whatever the text looks like.
+func TestIsOrphanLeavesTheMachineOfAnotherControllerAlone(t *testing.T) {
+	for _, other := range []string{"macos-prod", "macos-1a2b3c4d", "macos-1a2b3c4d-5e6f", "macos-a-b-c-d-e"} {
+		name := vmspec.Name(other, jobUUID)
+
+		if vmspec.IsOrphan(name, "macos") {
+			t.Errorf("IsOrphan(%q, macos) = true, want false: the machine belongs to %q", name, other)
+		}
+
+		if _, owned := vmspec.OwnedJob(name, "macos"); owned {
+			t.Errorf("OwnedJob(%q, macos) claimed the machine of %q", name, other)
+		}
+	}
+}
+
+// A machine that this controller owns has a job, and a name without the prefix belongs to another
+// tool. Neither is an orphan.
+func TestIsOrphanIsFalseForAnOwnedMachineAndAForeignName(t *testing.T) {
+	for _, name := range []string{vmspec.Name("macos", jobUUID), "some-other-vm", "macos-1"} {
+		if vmspec.IsOrphan(name, "macos") {
+			t.Errorf("IsOrphan(%q, macos) = true, want false", name)
+		}
+	}
+}
+
 // A specification carries the token of its job and, with the ssh transport, the password of the
 // image. A log line must carry neither.
 func TestVMDoesNotPrintItsSecrets(t *testing.T) {
