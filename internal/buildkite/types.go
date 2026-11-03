@@ -81,33 +81,24 @@ type Notification struct {
 	At time.Time
 }
 
-// acquired holds the states of a job that an agent owns. From here the lost-agent procedure of
-// Buildkite decides the result of the job, and the controller only removes the machine.
-var acquired = map[string]bool{
-	"assigned":   true,
-	"accepted":   true,
-	"running":    true,
-	"canceling":  true,
-	"timing_out": true,
-}
-
-// Acquired reports a job state in which an agent owns the job.
+// Acquired reports a job state in which an agent owns the job. From here the lost-agent procedure
+// of Buildkite decides the result of the job, and the controller only removes the machine.
 func Acquired(state string) bool {
-	return acquired[state]
+	switch state {
+	case "assigned", "accepted", "running", "canceling", "timing_out":
+		return true
+	default:
+		return false
+	}
 }
 
-// terminal holds the states of a job from which it never returns. A machine of such a job has
+// Terminal reports a job state from which the job never returns. A machine of such a job has
 // nothing left to do.
-var terminal = map[string]bool{
-	"finished":  true,
-	"canceled":  true,
-	"expired":   true,
-	"timed_out": true,
-	"skipped":   true,
-	"broken":    true,
-}
-
-// Terminal reports a job state from which the job never returns.
 func Terminal(state string) bool {
-	return terminal[state]
+	switch state {
+	case "finished", "canceled", "expired", "timed_out", "skipped", "broken":
+		return true
+	default:
+		return false
+	}
 }
