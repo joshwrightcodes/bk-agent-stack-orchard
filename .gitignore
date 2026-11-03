@@ -232,5 +232,6 @@ test/component/testdata/rapid/
 # Licence texts that scripts/licenses.sh copies for ko at build time (never committed).
 /cmd/bk-agent-stack-orchard/kodata/
 
-# Python bytecode that the script tests write.
+# Python bytecode that the script tests write, and that Ansible writes for the filters of the role.
 scripts/__pycache__/
+deploy/hosts/roles/orchard_worker/filter_plugins/__pycache__/
