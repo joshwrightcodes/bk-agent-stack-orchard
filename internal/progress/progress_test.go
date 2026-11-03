@@ -5,6 +5,7 @@ package progress_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"testing"
@@ -36,10 +37,27 @@ type world struct {
 	state     string
 	timeline  *launcher.Timeline
 	lines     []string
+	batches   []int
 	notifyErr error
+	// fleet, when it is more than zero, is a number of placed machines, each with its own job,
+	// in place of vm.
+	fleet int
 }
 
 func (w *world) Latest() (inventory.Snapshot, bool) {
+	if w.fleet > 0 {
+		owned := make([]inventory.Owned, 0, w.fleet)
+		for i := range w.fleet {
+			id := job.ID(fmt.Sprintf("018f3b2c-1c4a-7e5b-9a3d-%012d", i))
+			owned = append(owned, inventory.Owned{
+				VM:  orchard.VM{Name: "bk-macos-" + string(id), Worker: "mac-01"},
+				Job: id,
+			})
+		}
+
+		return inventory.Snapshot{Owned: owned, At: w.now}, true
+	}
+
 	if w.vm == nil {
 		return inventory.Snapshot{At: w.now}, true
 	}
@@ -64,6 +82,8 @@ func (w *world) Timeline(job.ID) (launcher.Timeline, bool) {
 }
 
 func (w *world) Notify(_ context.Context, lines []buildkite.Notification) error {
+	w.batches = append(w.batches, len(lines))
+
 	for _, line := range lines {
 		w.lines = append(w.lines, line.Detail)
 	}
@@ -240,6 +260,24 @@ func TestALineThatDoesNotArriveDoesNotStopTheTick(t *testing.T) {
 	r := track(t, w)
 
 	r.tick(t, w, 1, func() { w.vm = &orchard.VM{Worker: "mac-03"} })
+}
+
+// The lines of one tick go in requests of at most the limit of a request, so a fleet with more
+// new steps than that still gets every line on its job pages.
+func TestTheLinesOfATickFitTheLimitOfARequest(t *testing.T) {
+	t.Parallel()
+
+	w := &world{
+		now: start, timeline: &launcher.Timeline{ReservedAt: start},
+		fleet: buildkite.NotificationsPerRequest + 1,
+	}
+	r := track(t, w)
+
+	r.tick(t, w, 1, func() {})
+
+	if want := []int{buildkite.NotificationsPerRequest, 1}; !slices.Equal(w.batches, want) {
+		t.Errorf("the tracker sent requests of %v lines, want %v", w.batches, want)
+	}
 }
 
 func TestNewRefusesAnIncompleteTracker(t *testing.T) {
