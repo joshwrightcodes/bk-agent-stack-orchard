@@ -24,14 +24,16 @@ import (
 
 // scriptRun is what one run of the startup script did.
 type scriptRun struct {
-	sudo   []string // the commands that the script gave sudo, one for each line
-	tags   string   // BUILDKITE_AGENT_TAGS as the agent got it, or "" when no agent started
-	agent  string   // which agent started: "downloaded", "image", or "" for none
-	paths  string   // the build, hooks, and plugins paths that the agent got, joined by "|"
-	url    string   // the URL that curl got, or "" when the script did not download
-	home   string   // HOME of the run
-	stderr string
-	exit   int
+	sudo  []string // the commands that the script gave sudo, one for each line
+	tags  string   // BUILDKITE_AGENT_TAGS as the agent got it, or "" when no agent started
+	agent string   // which agent started: "downloaded", "image", or "" for none
+	paths string   // the build, hooks, and plugins paths that the agent got, joined by "|"
+	url   string   // the URL that curl got, or "" when the script did not download
+	home  string   // HOME of the run
+	// helpers are the credential.helper values of ~/.gitconfig after the run, one for each line.
+	helpers []string
+	stderr  string
+	exit    int
 }
 
 // scriptCase is one run of the startup script.
@@ -39,9 +41,10 @@ type scriptCase struct {
 	source       profile.AgentSource // the default is a download
 	imageTags    *string             // the tag file of the image, and nil for no file
 	sudoFails    bool
-	agentExit    string // the exit status of the agent that starts
-	download     string // "" for a good archive, "fails", "wrong-sha", or "no-agent"
-	imageVersion string // what the agent of the image prints for --version
+	agentExit    string  // the exit status of the agent that starts
+	download     string  // "" for a good archive, "fails", "wrong-sha", or "no-agent"
+	imageVersion string  // what the agent of the image prints for --version
+	gitconfig    *string // ~/.gitconfig of the image, and nil for no file
 }
 
 // fakeAgent records what it got, so a test can tell which agent started and with what.
@@ -133,6 +136,10 @@ func runScript(t *testing.T, shell string, c scriptCase) scriptRun {
 		sum = fmt.Sprintf("%x", sha256.Sum256([]byte("another archive")))
 	}
 
+	if c.gitconfig != nil {
+		write(filepath.Join("home", ".gitconfig"), *c.gitconfig, 0o644)
+	}
+
 	tagFile := filepath.Join(dir, "agent-tags")
 	if c.imageTags != nil {
 		write("agent-tags", *c.imageTags, 0o644)
@@ -194,6 +201,14 @@ func runScript(t *testing.T, shell string, c scriptCase) scriptRun {
 	run.stderr = stderr.String()
 	if log, err := readFake(dir, "sudo.log"); err == nil {
 		run.sudo = strings.Split(strings.TrimSuffix(string(log), "\n"), "\n")
+	}
+	if c.gitconfig != nil {
+		//nolint:gosec // G204: the test reads the file of the run with the real git.
+		out, err := exec.CommandContext(t.Context(), "git", "config", "--file",
+			filepath.Join(run.home, ".gitconfig"), "--get-all", "credential.helper").Output()
+		if err == nil {
+			run.helpers = strings.Split(strings.TrimSuffix(string(out), "\n"), "\n")
+		}
 	}
 	for field, name := range map[*string]string{&run.tags: "tags", &run.agent: "agent", &run.paths: "paths", &run.url: "url"} {
 		if value, err := readFake(dir, name); err == nil {
@@ -404,6 +419,70 @@ func TestTheScriptRefusesAnImageAgentThatIsNotV4(t *testing.T) {
 			if !strings.Contains(run.stderr, version) || !strings.Contains(run.stderr, "agent.source") {
 				t.Errorf("%s, %s: stderr = %q, want the version and the way out", shell, version, run.stderr)
 			}
+		}
+	}
+}
+
+// requireGit skips a test where no git exists. The macOS gate has git.
+func requireGit(t *testing.T) {
+	t.Helper()
+
+	if _, err := exec.LookPath("git"); err != nil {
+		if runtime.GOOS == "darwin" && os.Getenv("CI") != "" {
+			t.Fatal("this macOS runner has no git")
+		}
+		t.Skip("no git on this computer")
+	}
+}
+
+// Git Credential Manager writes an empty helper that resets the list, then itself. Agent 4.9.0
+// cannot replace two helpers, so its checkout would fail. The script removes them for both
+// sources, and says so.
+func TestTheScriptRemovesTheCredentialHelpersThatTheAgentCannotReplace(t *testing.T) {
+	requireGit(t)
+	gcm := "[credential]\n\thelper =\n\thelper = /usr/local/share/gcm-core/git-credential-manager\n" +
+		"[credential \"https://dev.azure.com\"]\n\tuseHttpPath = true\n"
+	v4 := "buildkite-agent version 4.9.0+15270.735f98f3de5a29a9b3b60a36bbcef4f4e1d9ba17"
+
+	for _, shell := range shells(t) {
+		for _, source := range []profile.AgentSource{profile.AgentDownload, profile.AgentImage} {
+			run := runScript(t, shell, scriptCase{source: source, imageVersion: v4, gitconfig: text(gcm)})
+
+			if run.exit != 0 || run.agent == "" {
+				t.Errorf("%s, %s: the script exited %d and started %q, want 0 and an agent; stderr: %s",
+					shell, source, run.exit, run.agent, run.stderr)
+			}
+			if len(run.helpers) != 0 {
+				t.Errorf("%s, %s: ~/.gitconfig still has the helpers %q, want none", shell, source, run.helpers)
+			}
+			if !strings.Contains(run.stderr, "removed the 2 credential.helper lines") {
+				t.Errorf("%s, %s: stderr = %q, want the line that says what the script removed",
+					shell, source, run.stderr)
+			}
+		}
+	}
+}
+
+// One helper is what the agent can replace, so the script leaves it, and an image with no
+// ~/.gitconfig stays without one.
+func TestTheScriptLeavesOneCredentialHelper(t *testing.T) {
+	requireGit(t)
+
+	for _, shell := range shells(t) {
+		run := runScript(t, shell, scriptCase{gitconfig: text("[credential]\n\thelper = osxkeychain\n")})
+		if run.exit != 0 || len(run.helpers) != 1 || run.helpers[0] != "osxkeychain" ||
+			strings.Contains(run.stderr, "credential.helper") {
+			t.Errorf("%s: exit %d, helpers %q, stderr %q, want 0, [osxkeychain], and no line",
+				shell, run.exit, run.helpers, run.stderr)
+		}
+
+		run = runScript(t, shell, scriptCase{})
+		if run.exit != 0 || strings.Contains(run.stderr, "credential.helper") {
+			t.Errorf("%s: with no ~/.gitconfig, exit %d and stderr %q, want 0 and no line",
+				shell, run.exit, run.stderr)
+		}
+		if _, err := os.Stat(filepath.Join(run.home, ".gitconfig")); err == nil {
+			t.Errorf("%s: the script made a ~/.gitconfig, want none", shell)
 		}
 	}
 }

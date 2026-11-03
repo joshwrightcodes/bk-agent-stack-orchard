@@ -598,7 +598,15 @@ The startup script is the same text for each VM, so no value of a job is in it
    so a tag of the controller or of the job always stays as the controller set it. `images/build.sh`
    writes the name and the tag of the image, the version and build of macOS, and, for an image
    with Xcode, the version and build of Xcode.
-3. It finds the agent, as `agent.source` says (§5):
+3. If the global git configuration of the image has more than one `credential.helper` value, it
+   removes them all with `git config --global --unset-all credential.helper`, and writes a line to
+   the event log. Git Credential Manager writes two values: an empty one that resets the list, and
+   itself. `buildkite-agent` v4.9.0 sets its own helper with `git config --global` and no
+   `--replace-all` (`internal/job/checkout_ssh.go`, read 2026-11-03), and git refuses to replace
+   two values with one, so the checkout would fail. After this step the VM has the helper of the
+   system, as an image without the manager has, and the agent adds its own. The VM serves one job,
+   so the change ends with the VM.
+4. It finds the agent, as `agent.source` says (§5):
    * `download`: it makes a new temporary directory, downloads `BKASO_AGENT_URL` there with
      `curl` (three retries, a 120 s limit), checks the file against `BKASO_AGENT_SHA256` with
      `shasum -a 256`, and extracts only `buildkite-agent`. It sets `BUILDKITE_BUILD_PATH`,
@@ -608,10 +616,10 @@ The startup script is the same text for each VM, so no value of a job is in it
      check, or the extraction fails, the script writes which step failed and exits 1.
    * `image`: it reads the version of `buildkite-agent` on the `PATH`. If the major version is not
      4, the script writes the version that it found and exits 1.
-4. It starts the agent with `exec`, so the exit status of the agent is the exit status of the
+5. It starts the agent with `exec`, so the exit status of the agent is the exit status of the
    script.
 
-A failure of step 3 ends the script before an agent starts. The VM then fails, and row 9 of §7.2
+A failure of step 4 ends the script before an agent starts. The VM then fails, and row 9 of §7.2
 finishes the job with the last lines of the script, which name the step that failed.
 
 The image is trusted: it holds the hooks, and for `image` also the agent. The pinned SHA-256 is

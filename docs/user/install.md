@@ -101,18 +101,16 @@ that names the version.
 
 Each download is about 31 MB. If your fleet runs many jobs a day, use a mirror.
 
-### Known issue: two credential helpers in the image
+### Git credential helpers in the image
 
-The upstream `macos-golden-gate-base` image configures Git Credential Manager in
-`~/.gitconfig` with two `credential.helper` lines: an empty one, then the manager. When a pipeline
-uses the repository credentials of Buildkite, `buildkite-agent` v4.9.0 runs
-`git config --global credential.helper` before the checkout, and git refuses to replace two
-values with one. The job then fails before the checkout with
-`cannot overwrite multiple values with a single value`.
+Git Credential Manager writes two `credential.helper` lines in `~/.gitconfig`: an empty one, then
+the manager. The upstream `macos-golden-gate-base` image has them. `buildkite-agent` v4.9.0 cannot
+replace two helpers with its own, so a checkout with the repository credentials of Buildkite would
+fail with `cannot overwrite multiple values with a single value`.
 
-The agent starts and acquires the job, so the download works. To check out with the credentials
-of Buildkite on this image, use an image without the two lines, such as one that `images/` builds,
-or remove them in an image of your own (`git config --global --unset-all credential.helper`).
+When the image has more than one helper, the startup script removes them before the agent starts,
+and the event log of the VM says so. Git Credential Manager then does not run in the VM. A VM serves
+one job, so the change does not outlast the job.
 
 ## Run the binary
 
