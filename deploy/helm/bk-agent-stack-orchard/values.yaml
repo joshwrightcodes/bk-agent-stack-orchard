@@ -38,9 +38,12 @@ otel:
   # and the NetworkPolicy use the port of gRPC, 4317, so the chart names the protocol of that port.
   protocol: grpc
 
-# extraEnv adds environment variables to the controller. A profile can send only a variable whose
-# name starts with VM_ (vmCredentials.usernameEnv, vmCredentials.passwordEnv, otel.headersEnv) to
-# a VM, so give such a variable that name here.
+# extraEnv adds environment variables to the controller, such as OpenTelemetry SDK settings. A
+# profile can send only a variable whose name starts with VM_ (vmCredentials.usernameEnv,
+# vmCredentials.passwordEnv, otel.headersEnv) to a VM. Such a variable is a secret: put it in the
+# Secret above, which the pod loads whole, or give it here with valueFrom.secretKeyRef. Never give
+# a secret here as a literal value, because that value goes into the Deployment and the history of
+# the release.
 extraEnv: []
 
 # imagePullSecrets names the Secrets of type kubernetes.io/dockerconfigjson that the kubelet uses to

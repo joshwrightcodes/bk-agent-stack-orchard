@@ -15,7 +15,7 @@ file, and a Secret that the operator creates before the install.
 | `config` | The configuration file of the controller, as the [configuration reference](../../../docs/user/configuration.md) describes. It never holds a secret. A change restarts the pod. |
 | `secret.name` | The existing Secret whose keys are the environment variables of the tokens. The chart creates no Secret. |
 | `otel.endpoint`, `otel.protocol` | The export of the telemetry. Other SDK settings go in `extraEnv`. |
-| `extraEnv` | More environment variables. A variable that a profile sends to a VM starts with `VM_`. |
+| `extraEnv` | More environment variables that are not secret, or a reference to a key of a Secret with `valueFrom.secretKeyRef`. A variable that a profile sends to a VM starts with `VM_`, and it is a secret: put it in the Secret of `secret.name`, or reference it with `secretKeyRef`. A literal `value` goes into the Deployment and the history of the release. |
 | `resources` | The requests and limits of the container. |
 | `networkPolicy` | The egress destinations. See the section "The NetworkPolicy". |
 | `deploymentAnnotations`, `podAnnotations`, `podLabels` | Annotations of the Deployment, and annotations and labels of the pod. The selector labels of the chart win over a label of `podLabels` with the same key. |
@@ -44,6 +44,8 @@ The schema mirrors the rules of the controller that JSON Schema can express:
 * A `softnetAllow` entry is an IPv4 CIDR range with a prefix length from 16 to 32. `@host`,
   `@peers`, IPv6 ranges, and bare addresses fail. An exact repeat of an entry fails.
 * `vmCredentials.usernameEnv`, `vmCredentials.passwordEnv`, and `otel.headersEnv` start with `VM_`.
+* An `extraEnv` entry whose name starts with `VM_` has no literal `value`. It takes its value from
+  a Secret with `valueFrom`.
 * `controllerID` has 23 characters or fewer, and it starts and ends with a letter or a digit.
 * `agent.source` is `download` or `image`, `agent.url` is an `https` URL, and `agent.sha256` is 64
   lower-case hexadecimal characters, in `defaults` and in each profile.
@@ -78,7 +80,8 @@ the packaged chart.
 The controller calls the Stacks API of Buildkite, Orchard, and the OpenTelemetry collector. It
 calls nothing else, and it answers only the probes. The chart sets egress to DNS, and to the port
 of each destination. A standard NetworkPolicy matches addresses, pods, and namespaces, and not DNS
-names. With no `to` list, a destination allows any peer on its port.
+names. With no `to` list, a destination allows any peer on its port. The notes of `helm install`
+and `helm upgrade` then name each such destination in a warning.
 
 For production, give each destination its peers in `to`. This example is a values file. The
 addresses are placeholders from the documentation ranges of RFC 5737, and the operator replaces
