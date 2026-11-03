@@ -122,6 +122,22 @@ type Reaper struct {
 	// lists the machine records nothing more. A restart loses it, and the first tick after one
 	// then starts the time again, which the design states.
 	ended map[job.ID]time.Time
+
+	// listed holds, for each machine of a snapshot, when a snapshot first listed it and the
+	// creation time that Orchard gave it then. A machine with another creation time is a new
+	// machine with the same name, such as the second machine of a job, and its time starts again.
+	// Only the goroutine of the loop reads and writes it.
+	listed map[string]sighting
+}
+
+// sighting is the first snapshot that listed one machine.
+type sighting struct {
+	// created is the creation time that Orchard gave the machine, which tells two machines of one
+	// name apart. It is never compared with a time of the controller.
+	created time.Time
+
+	// at is when that snapshot was taken, on the clock of the controller.
+	at time.Time
 }
 
 // New builds the reaper.
@@ -186,6 +202,7 @@ func New(options Options) (*Reaper, error) {
 		ignored:      map[job.ID]bool{},
 		warned:       map[job.ID]string{},
 		ended:        map[job.ID]time.Time{},
+		listed:       map[string]sighting{},
 	}, nil
 }
 
@@ -253,6 +270,7 @@ func (r *Reaper) collect(snapshot inventory.Snapshot) []Machine {
 		machine := Machine{
 			VM:       owned.VM,
 			Job:      owned.Job,
+			ListedAt: r.list(owned.VM, snapshot.At),
 			Timeouts: Timeouts(r.profile(owned.Job), r.profiles, r.defaults),
 		}
 
@@ -278,6 +296,18 @@ func (r *Reaper) collect(snapshot inventory.Snapshot) []Machine {
 	}
 
 	return machines
+}
+
+// list gives when a snapshot first listed a machine, and records the snapshot at as the first one
+// for a machine that no snapshot listed before.
+func (r *Reaper) list(vm orchard.VM, at time.Time) time.Time {
+	seen, known := r.listed[vm.Name]
+	if !known || !seen.created.Equal(vm.CreatedAt) {
+		seen = sighting{created: vm.CreatedAt, at: at}
+		r.listed[vm.Name] = seen
+	}
+
+	return seen.at
 }
 
 // carry carries out one decision.
@@ -447,8 +477,8 @@ func (r *Reaper) warn(ctx context.Context, machine Machine) {
 		telemetry.SpanJobState, machine.State)
 }
 
-// forget drops what the reaper remembers about jobs whose machines are gone, so that neither map
-// grows for the life of the process.
+// forget drops what the reaper remembers about jobs whose machines are gone, so that no map grows
+// for the life of the process.
 func (r *Reaper) forget(snapshot inventory.Snapshot) {
 	owned := make(map[job.ID]bool, len(snapshot.Owned))
 	for _, machine := range snapshot.Owned {
@@ -470,6 +500,17 @@ func (r *Reaper) forget(snapshot inventory.Snapshot) {
 	for id := range r.ended {
 		if !owned[id] {
 			delete(r.ended, id)
+		}
+	}
+
+	names := make(map[string]bool, len(snapshot.Owned))
+	for _, machine := range snapshot.Owned {
+		names[machine.VM.Name] = true
+	}
+
+	for name := range r.listed {
+		if !names[name] {
+			delete(r.listed, name)
 		}
 	}
 }

@@ -399,20 +399,22 @@ func joined(t *testing.T, api *stacks, machines *fleet, c *clock) (*jobstates.St
 // for before a machine existed describes a job that the machine never saw, such as an earlier
 // machine of the same job, and it must not end this one. The next state, asked for after the
 // machine existed, may.
+//
+// Both times are on the clock of the controller: the machine exists once a snapshot lists it. The
+// creation time of Orchard is on another clock, so the machine here says that it is an hour old.
 func TestTheReaperWaitsForAStateAskedAfterTheMachine(t *testing.T) {
 	t.Parallel()
 
 	c := &clock{at: now}
 	api := &stacks{states: map[job.ID]string{ended: "finished"}}
-	machine := owned(ended, 0)
-	machine.VM.CreatedAt = now.Add(2 * time.Second)
 	machines := &fleet{read: true, snapshot: inventory.Snapshot{
-		Owned: []inventory.Owned{machine},
+		Owned: []inventory.Owned{owned(ended, time.Hour)},
+		At:    now.Add(2 * time.Second),
 	}}
 
 	states, reaping := joined(t, api, machines, c)
 
-	// The controller asks at now, and the machine appears two seconds later.
+	// The controller asks at now, and a snapshot lists the machine two seconds later.
 	if err := states.Refresh(t.Context()); err != nil {
 		t.Fatalf("Refresh() = %v, want no error", err)
 	}
@@ -439,6 +441,59 @@ func TestTheReaperWaitsForAStateAskedAfterTheMachine(t *testing.T) {
 
 	if len(machines.deleted) != 1 {
 		t.Errorf("orchard deleted %v, want the machine once a state after it said finished",
+			machines.deleted)
+	}
+}
+
+// The controller first lists a machine in one snapshot, and the later snapshots keep that time. A
+// machine that a later snapshot lists with another creation time is a new machine with the same
+// name, such as the second machine of a job, and its time starts again.
+func TestAMachineIsListedFromTheFirstSnapshotThatShowsIt(t *testing.T) {
+	t.Parallel()
+
+	c := &clock{at: now}
+	api := &stacks{states: map[job.ID]string{ended: "scheduled"}}
+	first := owned(ended, time.Hour)
+	machines := &fleet{read: true, snapshot: inventory.Snapshot{
+		Owned: []inventory.Owned{first}, At: now,
+	}}
+
+	states, reaping := joined(t, api, machines, c)
+
+	// The first pass sees the machine, and has no state for its job yet.
+	if err := reaping.Reap(t.Context()); err != nil {
+		t.Fatalf("Reap() = %v, want no error", err)
+	}
+
+	// A state asked for after the first snapshot counts, while a later snapshot lists the
+	// machine again.
+	c.at = now.Add(time.Second)
+	if err := states.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh() = %v, want no error", err)
+	}
+
+	machines.snapshot.At = now.Add(2 * time.Second)
+
+	if err := reaping.Reap(t.Context()); err != nil {
+		t.Fatalf("Reap() = %v, want no error", err)
+	}
+
+	if len(machines.deleted) != 1 {
+		t.Fatalf("orchard deleted %v, want the machine of the lapsed reservation", machines.deleted)
+	}
+
+	// A new machine with the same name and the old state. The state was asked for before the
+	// snapshot that first listed the new machine, so it must not end it.
+	second := owned(ended, time.Minute)
+	machines.snapshot = inventory.Snapshot{Owned: []inventory.Owned{second}, At: now.Add(3 * time.Second)}
+	c.at = now.Add(4 * time.Second)
+
+	if err := reaping.Reap(t.Context()); err != nil {
+		t.Fatalf("Reap() = %v, want no error", err)
+	}
+
+	if len(machines.deleted) != 1 {
+		t.Errorf("orchard deleted %v, want no deletion of the new machine on the old state",
 			machines.deleted)
 	}
 }

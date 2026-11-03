@@ -701,11 +701,16 @@ above, and for `download` also `BKASO_AGENT_URL` and `BKASO_AGENT_SHA256`. When
    MUST NOT use counters. Timeouts MUST use the Orchard timestamps `createdAt`, `scheduled_at`,
    and `started_at`. Because of this, timeouts continue to operate after a controller restart.
 2. **Causally fresh job state.** The Reaper MUST use a job state for a VM only if the controller
-   observed the state after the VM `createdAt`. If the state is older, the Reaper MUST wait for
-   the next JobStates refresh. The observation time of a state MUST be the time that JobStates
-   sent the request, which is the earliest moment that the answer can describe. A time taken
-   from the answer makes a state look newer than it is, and this rule and the next one would
-   then trust it too soon.
+   observed the state after the first Inventory answer that listed the VM. If the state is older,
+   the Reaper MUST wait for the next JobStates refresh. Both times MUST be on the clock of the
+   controller. The VM `createdAt` is on the clock of Orchard, and an Orchard clock that runs
+   behind would make an older state look newer than the VM. A VM with the same name and another
+   `createdAt` is a new VM, such as the second VM of a job, and the first answer that lists it
+   counts for it. After a restart, the first answer of the new process counts. JobStates reads
+   after the Inventory in each tick, so this adds no wait. The observation time of a state MUST
+   be the time that JobStates sent the request, which is the earliest moment that the answer can
+   describe. A time taken from the answer makes a state look newer than it is, and this rule and
+   the next one would then trust it too soon.
 3. **Fresh data or no action.** If the job state of a VM is older than `stateFreshness` (60 s),
    the Reaper MUST do only the orphan action and the maximum-lifetime action.
 4. **Permanent errors are terminal.** If finish or delete returns 404 or 422, the controller

@@ -108,9 +108,20 @@ func TestTheDecisionTable(t *testing.T) {
 			machine("finished", func(m *reaper.Machine) { m.Observed = false }),
 			3, reaper.Keep, "",
 		},
-		"a state asked for before the machine existed decides nothing": {
-			machine("finished", created(10*time.Second), func(m *reaper.Machine) {
+		"a state asked for before the controller first listed the machine decides nothing": {
+			machine("finished", func(m *reaper.Machine) {
+				m.ListedAt = now.Add(-10 * time.Second)
 				m.ObservedAt = now.Add(-11 * time.Second)
+			}),
+			3, reaper.Keep, "",
+		},
+		// The machine was made 4 s ago, after the state was asked for, and the clock of Orchard
+		// runs 2 s behind the clock of the controller. On the clock of Orchard, the state looks
+		// newer than the machine. The controller listed the machine after it asked.
+		"a clock of Orchard that runs behind does not make an old state count": {
+			machine("scheduled", created(6*time.Second), func(m *reaper.Machine) {
+				m.ListedAt = now.Add(-3 * time.Second)
+				m.ObservedAt = now.Add(-5 * time.Second)
 			}),
 			3, reaper.Keep, "",
 		},
