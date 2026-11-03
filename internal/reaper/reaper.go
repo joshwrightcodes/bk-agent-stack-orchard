@@ -538,6 +538,10 @@ func (r *Reaper) settle(ctx context.Context, t task, done result,
 	// machine that Orchard no longer holds.
 	r.fleet.Forget(machine.VM.Name)
 
+	// A new machine with the same name starts its own sighting. Its creation time alone cannot
+	// tell it apart when Orchard gives none.
+	delete(r.listed, machine.VM.Name)
+
 	if decision.Ignore {
 		r.ignored[machine.Job] = true
 	}

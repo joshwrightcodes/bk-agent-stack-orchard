@@ -630,6 +630,58 @@ func TestAMachineIsListedFromTheFirstSnapshotThatShowsIt(t *testing.T) {
 	}
 }
 
+// A machine that Orchard deleted leaves no first sighting behind. A new machine with the same name
+// and no creation time, which the old sighting cannot tell apart from the old machine, starts its
+// time again.
+func TestADeletedMachineLeavesNoSightingForItsName(t *testing.T) {
+	t.Parallel()
+
+	c := &clock{at: now}
+	api := &stacks{states: map[job.ID]string{ended: "scheduled"}}
+	first := owned(ended, time.Hour)
+	first.VM.CreatedAt = time.Time{}
+	machines := &fleet{read: true, snapshot: inventory.Snapshot{
+		Owned: []inventory.Owned{first}, At: now,
+	}}
+
+	states, reaping := joined(t, api, machines, c)
+
+	if err := reaping.Reap(t.Context()); err != nil {
+		t.Fatalf("Reap() = %v, want no error", err)
+	}
+
+	c.at = now.Add(time.Second)
+	if err := states.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh() = %v, want no error", err)
+	}
+
+	machines.snapshot.At = now.Add(2 * time.Second)
+
+	if err := reaping.Reap(t.Context()); err != nil {
+		t.Fatalf("Reap() = %v, want no error", err)
+	}
+
+	if len(machines.deleted) != 1 {
+		t.Fatalf("orchard deleted %v, want the machine of the lapsed reservation", machines.deleted)
+	}
+
+	// The next snapshot already lists a new machine with the same name and no creation time. The
+	// state was asked for before that snapshot, so it must not end the new machine.
+	second := owned(ended, time.Minute)
+	second.VM.CreatedAt = time.Time{}
+	machines.snapshot = inventory.Snapshot{Owned: []inventory.Owned{second}, At: now.Add(3 * time.Second)}
+	c.at = now.Add(4 * time.Second)
+
+	if err := reaping.Reap(t.Context()); err != nil {
+		t.Fatalf("Reap() = %v, want no error", err)
+	}
+
+	if len(machines.deleted) != 1 {
+		t.Errorf("orchard deleted %v, want no deletion of the new machine on the old state",
+			machines.deleted)
+	}
+}
+
 // The stale rule, with the job states that the controller runs. When Buildkite stops answering,
 // the last state grows old, and past the freshness limit it no longer ends a machine. A fresh
 // state that says the same thing may.
