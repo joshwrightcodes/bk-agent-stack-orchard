@@ -297,9 +297,10 @@ func TestLivenessFollowsTheHeartbeatOfTheLoop(t *testing.T) {
 	}
 }
 
-// The loop registers its stack before its first tick. That call has a timeout of its own, so the
-// process is alive until the first tick.
-func TestLivenessPassesBeforeTheFirstTick(t *testing.T) {
+// The loop registers its stack before it starts. The registration waits only while Buildkite
+// does not answer, and a restart cures nothing that Buildkite causes, so the process is alive
+// until the loop starts.
+func TestLivenessPassesBeforeTheLoopStarts(t *testing.T) {
 	t.Parallel()
 
 	refused := false
@@ -308,7 +309,7 @@ func TestLivenessPassesBeforeTheFirstTick(t *testing.T) {
 	*p.beat = time.Time{}
 
 	if got := p.status(t, health.ServiceLiveness); got != serving {
-		t.Errorf("liveness is %s, want SERVING before the first tick", got)
+		t.Errorf("liveness is %s, want SERVING before the loop starts", got)
 	}
 }
 

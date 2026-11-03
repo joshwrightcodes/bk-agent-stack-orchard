@@ -488,9 +488,9 @@ func TestNewRefusesAnIncompleteLoop(t *testing.T) {
 	}
 }
 
-// The liveness check reads when the loop last finished a tick, so a loop that stops in a tick
-// stops the heartbeat.
-func TestTheLoopGivesTheTimeOfItsLastTick(t *testing.T) {
+// The heartbeat is zero while the loop has not started, because the process then registers its
+// stack, and a restart cures nothing that Buildkite causes.
+func TestTheHeartbeatIsZeroBeforeTheLoopStarts(t *testing.T) {
 	t.Parallel()
 
 	loop, err := controller.New(options(t, &recorder{}))
@@ -498,8 +498,33 @@ func TestTheLoopGivesTheTimeOfItsLastTick(t *testing.T) {
 		t.Fatalf("New() = %v, want the loop", err)
 	}
 
-	if got := loop.LastTick(); !got.IsZero() {
-		t.Fatalf("LastTick() before Run = %s, want the zero time", got)
+	if got := loop.Heartbeat(); !got.IsZero() {
+		t.Fatalf("Heartbeat() before Run = %s, want the zero time", got)
+	}
+}
+
+// The loop beats when it starts, after the registration, and not first at the end of its first
+// tick. A first tick that never ends is the case that liveness exists for, and a heartbeat that
+// stayed zero through it would never fail liveness.
+func TestTheHeartbeatStartsWithTheLoop(t *testing.T) {
+	t.Parallel()
+
+	r := &recorder{}
+	settings := options(t, r)
+	moment := time.Date(2020, 1, 1, 9, 0, 0, 0, time.UTC)
+	settings.Now = (&clock{at: moment}).now
+
+	reaping := make(chan struct{})
+	settings.Reap = func(ctx context.Context) error {
+		close(reaping)
+		<-ctx.Done()
+
+		return ctx.Err()
+	}
+
+	loop, err := controller.New(settings)
+	if err != nil {
+		t.Fatalf("New() = %v, want the loop", err)
 	}
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -507,21 +532,53 @@ func TestTheLoopGivesTheTimeOfItsLastTick(t *testing.T) {
 
 	go func() { finished <- loop.Run(ctx) }()
 
-	deadline := time.After(2 * time.Second)
-
-	for loop.LastTick().IsZero() {
-		select {
-		case <-deadline:
-			cancel()
-			t.Fatal("the loop gave no time of a tick inside two seconds")
-		default:
-			time.Sleep(time.Millisecond)
-		}
+	select {
+	case <-reaping:
+	case <-time.After(2 * time.Second):
+		cancel()
+		t.Fatal("the loop did not reach its first tick inside two seconds")
 	}
+
+	got := loop.Heartbeat()
 
 	cancel()
 
 	if err := <-finished; err != nil {
 		t.Fatalf("Run() = %v, want no error", err)
+	}
+
+	if !got.Equal(moment) {
+		t.Errorf("Heartbeat() in a first tick that has not ended = %s, want %s, when the loop "+
+			"started", got, moment)
+	}
+}
+
+// The heartbeat is the time that a tick ended, and not the time that it began. A beat from the
+// start of a tick adds the length of that tick to the age that liveness measures, so two long
+// ticks in a row could fail liveness while the loop still works.
+func TestTheHeartbeatIsTheEndOfTheLastTick(t *testing.T) {
+	t.Parallel()
+
+	r := &recorder{}
+	settings := options(t, r)
+	moment := time.Date(2020, 1, 1, 9, 0, 0, 0, time.UTC)
+	wall := &clock{at: moment}
+	settings.Now = wall.now
+	settings.Reap = func(context.Context) error {
+		wall.advance(5 * time.Minute)
+
+		return nil
+	}
+
+	loop, err := controller.New(settings)
+	if err != nil {
+		t.Fatalf("New() = %v, want the loop", err)
+	}
+
+	loop.Tick(t.Context(), moment)
+
+	if got, want := loop.Heartbeat(), moment.Add(5*time.Minute); !got.Equal(want) {
+		t.Errorf("Heartbeat() after a tick of 5 minutes = %s, want %s, when the tick ended", got,
+			want)
 	}
 }

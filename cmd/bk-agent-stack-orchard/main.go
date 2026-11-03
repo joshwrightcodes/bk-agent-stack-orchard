@@ -189,7 +189,7 @@ func serve(ctx context.Context, path, origin string, out, problems io.Writer) er
 		Sources:      sources,
 		Unauthorized: stacks.Unauthorized,
 		Window:       settings.StateFreshness,
-		Heartbeat:    loop.LastTick,
+		Heartbeat:    loop.Heartbeat,
 		Stall:        livenessStall,
 		Now:          now,
 		Logger:       recorder.Logger,
@@ -207,10 +207,12 @@ func serve(ctx context.Context, path, origin string, out, problems io.Writer) er
 	return loop.Run(ctx)
 }
 
-// livenessStall is how long the loop may go without a finished tick before liveness fails and the
-// platform restarts the process. Each call to an API has a timeout of 30 s, and a tick in an
-// outage of an API makes many calls, so the bound is many times the slowest tick that an outage
-// gives. A restart cures a loop that waits without an end, and not an outage.
+// livenessStall is how long the loop may go without progress before liveness fails and the
+// platform restarts the process. The loop makes progress when it starts and when a tick ends, so
+// the bound covers one whole tick. Each call to an API has a limit of 10 s, and the longest tick,
+// in which every call takes its whole limit, is 210 s (target design, section 4), so the bound is
+// more than four times that tick. A restart cures a loop that waits without an end, and not an
+// outage.
 const livenessStall = 15 * time.Minute
 
 // telemetryGrace is how long the stop of telemetry may take. An exporter that cannot reach the

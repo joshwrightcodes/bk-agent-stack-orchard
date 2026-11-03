@@ -157,9 +157,9 @@ type Controller struct {
 	// it.
 	paused map[telemetry.Source]time.Duration
 
-	// lastTick is the time of the last tick that Run finished, which is when that tick began.
-	// The liveness check reads it from another goroutine.
-	lastTick atomic.Pointer[time.Time]
+	// heartbeat is the last time that the loop made progress: when Run started its loop, and
+	// then when each tick ended. The liveness check reads it from another goroutine.
+	heartbeat atomic.Pointer[time.Time]
 }
 
 // New builds the loop.
@@ -252,6 +252,10 @@ func (c *Controller) Run(ctx context.Context) error {
 	c.logger.InfoContext(ctx, "the controller registered its stack and starts its loop",
 		"interval", c.interval.String())
 
+	// The first beat comes before the first tick, so that a first tick that never ends fails
+	// liveness like any other.
+	c.beat()
+
 	ticker := time.NewTicker(c.interval)
 	defer ticker.Stop()
 
@@ -263,22 +267,30 @@ func (c *Controller) Run(ctx context.Context) error {
 			// The value of the ticker is the time that the beat was due. After a tick that took
 			// longer than the interval, that time is in the past, and the freshness gate would
 			// measure an old answer against it. The clock gives the time of the work.
-			at := c.now()
-			c.Tick(ctx, at)
-			c.lastTick.Store(&at)
+			c.Tick(ctx, c.now())
 		}
 	}
 }
 
-// LastTick gives the time of the last tick that Run finished, which is when that tick began, and
-// the zero time before the first one. A loop that stops in a tick stops this time, and the
-// liveness check reads it.
-func (c *Controller) LastTick() time.Time {
-	if at := c.lastTick.Load(); at != nil {
+// Heartbeat gives the last time that the loop made progress: when Run started its loop after the
+// registration, and then when each tick ended. It gives the zero time while the loop has not
+// started. A loop that stops in a tick stops this time, and the liveness check reads it.
+//
+// The time is the end of a tick, and not its start, so that the age that liveness measures is the
+// time that the loop has spent in the current tick, and not that time plus the length of the tick
+// before it.
+func (c *Controller) Heartbeat() time.Time {
+	if at := c.heartbeat.Load(); at != nil {
 		return *at
 	}
 
 	return time.Time{}
+}
+
+// beat records that the loop made progress now.
+func (c *Controller) beat() {
+	now := c.now()
+	c.heartbeat.Store(&now)
 }
 
 // withdraw takes the stack out of Buildkite. The context of the loop has ended, so the call gets
@@ -307,7 +319,8 @@ func (c *Controller) withdraw(ctx context.Context) error {
 // Run runs.
 func (c *Controller) Tick(ctx context.Context, at time.Time) {
 	// The observation comes last, so that it reports the fleet as this tick left it and not as
-	// this tick found it.
+	// this tick found it. The beat comes after it, because a tick ends there.
+	defer c.beat()
 	defer c.observe()
 
 	c.refresh(ctx, at)

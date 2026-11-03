@@ -934,10 +934,12 @@ gRPC is in the binary already, because the OTLP exporters use it. Kubernetes pro
 natively (`grpc: {port, service}`).
 
 `liveness` serves while the process serves and its loop finishes its ticks. It does not depend
-on either API, because a restart cures nothing that an API causes. It stops serving only when the
-loop has not finished a tick for 15 minutes, which is many times the slowest tick that an outage of
-an API gives. A loop that waits without an end does nothing, and a restart cures it. Before the
-first tick, while the controller registers its stack, `liveness` serves.
+on either API, because a restart cures nothing that an API causes. The loop records its progress
+when it starts, after the registration, and when each tick ends. `liveness` stops serving only
+when the loop has made no progress for 15 minutes. That is more than four times the longest tick
+of §4 (210 s), so only a tick that never ends fails it. A loop that waits without an end does
+nothing, and a restart cures it. While the controller registers its stack, before the loop
+starts, `liveness` serves.
 
 `readiness` stops serving while the last answer of a
 source is older than `stateFreshness` (§8), or after the Stacks API returned HTTP 401. The
