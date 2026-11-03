@@ -38,7 +38,7 @@ These are the tasks that you use most. `mise tasks` lists all of them.
 | `mise run integration` | Run the integration tests against a synthetic Orchard |
 | `mise run check-docs` | Check the links, line widths, and identifiers of the documents |
 | `mise run check` | Run every gate before you open a pull request |
-| `GITHUB_TOKEN=$(gh auth token) mise run ci` | Run the checks that the required CI jobs run |
+| `mise run ci` | Run the checks that the required CI jobs run. It needs no GitHub token |
 
 ## Make a change
 

@@ -48,10 +48,12 @@ The gates are also tasks of their own: `check-docs`, `check-commits`, `check-dep
 * `check` is the gate before a pull request. It runs `check-c4`, so it needs Docker.
 * `ci` runs the checks that the required CI jobs run, so a pass predicts a pass in CI. It adds
   `test-scripts`, `vuln`, `check-hook`, `check-hosts`, `check-generate`, and `integration`, which
-  `check` does not run. `check-generate` reads the GitHub API, so the command is
-  `GITHUB_TOKEN=$(gh auth token) mise run ci`. Keep the token in the environment. Do not
-  write it to a file.
-  `ci` runs `check-generate` alone and first, because it rewrites the generated files that the
+  `check` does not run.
+* `ci` needs no GitHub token. `check-generate` reads the public Orchard source without a token.
+  Do not set `GITHUB_TOKEN` to the token of your `gh` login when you run a gate. Every tool, Go
+  module, and test that the gate runs can read the environment, and that token can act as you
+  on GitHub.
+* `ci` runs `check-generate` alone and first, because it rewrites the generated files that the
   other checks compile. It then runs the other checks in parallel, through `ci-checks`.
 * `ci` runs the Docker jobs (`check-c4`, `orchard-image`, `smoke`, and `snapshot`) through
   `ci-docker`. When Docker is absent, `ci-docker` prints that it skips them and exits 0. Those
