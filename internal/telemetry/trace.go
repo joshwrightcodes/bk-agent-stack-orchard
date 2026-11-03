@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 
@@ -106,4 +107,12 @@ func TraceParent(ctx context.Context) string {
 	propagation.TraceContext{}.Inject(ctx, carrier)
 
 	return carrier.Get("traceparent")
+}
+
+// Fail records an error on a span and sets the status Error. A span that records an error and
+// keeps the status Unset shows as a success in a backend, so every part calls this and not
+// RecordError.
+func Fail(span trace.Span, err error) {
+	span.RecordError(err) //nolint:forbidigo // the one place that records an error
+	span.SetStatus(codes.Error, err.Error())
 }

@@ -4,9 +4,11 @@ package telemetry_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
+	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
@@ -271,5 +273,30 @@ func TestTraceParentIsEmptyWithoutASpan(t *testing.T) {
 
 	if parent := telemetry.TraceParent(t.Context()); parent != "" {
 		t.Errorf("TraceParent() = %q, want empty text", parent)
+	}
+}
+
+// A span that records an error and keeps the status Unset shows as a success in a backend, so a
+// search for failed spans finds nothing. Fail records the error and sets the status Error.
+func TestFailRecordsTheErrorAndSetsTheStatusError(t *testing.T) {
+	t.Parallel()
+
+	provider, exporter := recorder(t)
+
+	_, span := provider.Tracer("test").Start(t.Context(), "orchard.vm.create")
+	telemetry.Fail(span, errors.New("orchard answered 503"))
+	span.End()
+
+	spans := exporter.GetSpans()
+	if len(spans) != 1 {
+		t.Fatalf("the exporter holds %d spans, want 1", len(spans))
+	}
+
+	if got := spans[0].Status; got.Code != codes.Error || got.Description != "orchard answered 503" {
+		t.Errorf("the status is %+v, want Error with the message of the error", got)
+	}
+
+	if len(spans[0].Events) != 1 || spans[0].Events[0].Name != "exception" {
+		t.Errorf("the span holds the events %+v, want one exception", spans[0].Events)
 	}
 }

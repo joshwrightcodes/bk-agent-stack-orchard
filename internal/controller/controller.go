@@ -463,7 +463,7 @@ func (c *Controller) run(ctx context.Context, name string, work func(context.Con
 	c.metrics.Tick(ctx, name, time.Since(started)) //nolint:forbidigo // real elapsed time
 
 	if err != nil {
-		span.RecordError(err)
+		telemetry.Fail(span, err)
 		c.logger.ErrorContext(ctx, "a step of the tick failed", "step", name, "error", err)
 	}
 }

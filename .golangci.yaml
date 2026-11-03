@@ -34,6 +34,10 @@ linters:
         # some moments. A constructor may default a nil clock to time.Now, with a nolint comment.
         - pattern: ^time\.(Now|Since|Until)$
           msg: read the clock that the part was given, not the clock of the machine
+        # A span that records an error MUST also have the status Error, or a backend shows the
+        # span as a success. telemetry.Fail does both, so no part calls RecordError itself.
+        - pattern: ^trace\.Span\.RecordError$
+          msg: call telemetry.Fail, which also sets the status Error
   exclusions:
     rules:
       # A test fixes its own times, and some measure the real time that a step takes. The fakes

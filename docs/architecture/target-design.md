@@ -1374,6 +1374,9 @@ real VMs; the attribute is added when they show a pull.
   span at each tick would put one span each second into the trace of a job that waits.
 * **Tick spans** (`tick.poll`, `tick.inventory`, `tick.job_states`, `tick.reap`, `tick.admit`)
   are separate short traces. They have span links to the job traces that they affect.
+* **Errors.** A span whose work failed MUST record the error as an `exception` event and MUST
+  have the status Error, so that a backend can find the failed spans. A refusal that is an answer
+  about one job, such as a finish of a job that ended, is not an error of the span.
 
 ### 10.3 Logs
 

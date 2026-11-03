@@ -343,7 +343,7 @@ func (l *Launcher) Extend(ctx context.Context, ids []job.ID) error {
 
 	answer, err := l.stacks.Reserve(ctx, ids, l.expiry)
 	if err != nil {
-		span.RecordError(err)
+		telemetry.Fail(span, err)
 
 		return fmt.Errorf("extending %d reservations: %w", len(ids), err)
 	}
@@ -390,7 +390,7 @@ func (l *Launcher) reserve(ctx context.Context, admit []admission.Candidate) (ma
 
 	answer, err := l.stacks.Reserve(ctx, ids, l.expiry)
 	if err != nil {
-		span.RecordError(err)
+		telemetry.Fail(span, err)
 
 		return nil, fmt.Errorf("reserving %d jobs: %w", len(ids), err)
 	}
@@ -537,7 +537,7 @@ func (l *Launcher) tell(ctx context.Context, fresh []admission.Unmatched) error 
 		var partial *buildkite.RefusedError
 
 		if !errors.As(err, &partial) {
-			span.RecordError(err)
+			telemetry.Fail(span, err)
 
 			return err
 		}
@@ -631,7 +631,7 @@ func (l *Launcher) tokens(ctx context.Context, wanted []admission.Candidate) (ma
 
 		answer, err := l.stacks.Tokens(ctx, ids, lifetime)
 		if err != nil {
-			span.RecordError(err)
+			telemetry.Fail(span, err)
 
 			return issued, fmt.Errorf("getting the tokens of %d jobs: %w", len(ids), err)
 		}
@@ -731,7 +731,7 @@ func (l *Launcher) start(ctx context.Context, candidate admission.Candidate,
 	defer span.End()
 
 	if err := l.machine(ctx, candidate, token); err != nil {
-		span.RecordError(err)
+		telemetry.Fail(span, err)
 		l.logger.ErrorContext(ctx, "the controller could not start a machine",
 			telemetry.LogJob, string(candidate.Job.ID),
 			telemetry.LogProfile, candidate.Profile.Name, "error", err)

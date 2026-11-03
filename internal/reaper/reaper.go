@@ -485,7 +485,7 @@ func (r *Reaper) carry(ctx context.Context, t task) result {
 
 			return done
 		default:
-			span.RecordError(err)
+			telemetry.Fail(span, err)
 			r.logger.ErrorContext(ctx, "the reaper could not end a job",
 				append(fields, "error", err)...)
 
@@ -496,7 +496,7 @@ func (r *Reaper) carry(ctx context.Context, t task) result {
 	}
 
 	if err := r.delete(ctx, machine); err != nil {
-		span.RecordError(err)
+		telemetry.Fail(span, err)
 		r.logger.ErrorContext(ctx, "the reaper could not delete a machine",
 			append(fields, "error", err)...)
 
@@ -567,7 +567,7 @@ func (r *Reaper) finish(ctx context.Context, machine Machine, decision Decision)
 
 	err := r.stacks.Finish(ctx, machine.Job, failedExitStatus, detail)
 	if err != nil && !errors.Is(err, buildkite.ErrTerminal) {
-		span.RecordError(err)
+		telemetry.Fail(span, err)
 	}
 
 	return err
@@ -586,7 +586,7 @@ func (r *Reaper) script(ctx context.Context, machine Machine, decision Decision)
 
 	events, err := r.machines.Events(ctx, machine.VM.Name)
 	if err != nil {
-		span.RecordError(err)
+		telemetry.Fail(span, err)
 		r.logger.WarnContext(ctx, "the reaper could not read the startup script of a machine",
 			telemetry.LogJob, string(machine.Job), telemetry.LogVM, machine.VM.Name, "error", err)
 
@@ -727,5 +727,10 @@ func (r *Reaper) delete(ctx context.Context, machine Machine) error {
 	ctx, span := r.tracer.Start(ctx, "orchard.vm.delete")
 	defer span.End()
 
-	return r.machines.DeleteVM(ctx, machine.VM.Name)
+	err := r.machines.DeleteVM(ctx, machine.VM.Name)
+	if err != nil {
+		telemetry.Fail(span, err)
+	}
+
+	return err
 }
