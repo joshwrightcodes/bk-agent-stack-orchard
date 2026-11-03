@@ -16,7 +16,7 @@
     ansible.builtin.uri: "{{ orchard_worker_api }}"
   block:
     - name: List the images in the cache of Tart
-      ansible.builtin.command: tart list --source oci --format json
+      ansible.builtin.command: "{{ orchard_worker_tart }} list --source oci --format json"
       register: orchard_worker_cache
       changed_when: false
       become: true
@@ -30,7 +30,7 @@
 
     - name: Remove the images
       ansible.builtin.command:
-        argv: [tart, delete, "{{ item }}"]
+        argv: ["{{ orchard_worker_tart }}", delete, "{{ item }}"]
       loop: "{{ orchard_worker_cache.stdout | from_json | map(attribute='Name') | tart_prunable(orchard_worker_keep) }}"
       changed_when: true
       become: true
