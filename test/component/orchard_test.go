@@ -39,6 +39,10 @@ type orchardFake struct {
 	// created is called with each machine that the controller asks for, before Orchard holds it.
 	created func(spec orchard.VM)
 
+	// deleting is called with each machine that the controller deletes, before Orchard removes
+	// it.
+	deleting func(vm orchard.VM)
+
 	// down is the answer of every call while the Orchard controller is not available. Its
 	// scheduler stops too, and the machines on the workers run on.
 	down error
@@ -287,6 +291,10 @@ func (o *orchardFake) DeleteVM(ctx context.Context, name string) error {
 
 	if o.deleteFails != nil {
 		return o.deleteFails
+	}
+
+	if vm, exists := o.vms[name]; exists && o.deleting != nil {
+		o.deleting(*vm)
 	}
 
 	delete(o.vms, name)

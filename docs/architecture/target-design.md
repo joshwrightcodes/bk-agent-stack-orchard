@@ -76,6 +76,7 @@ The design depends on these facts. Each fact was verified against source code or
 | The Stacks API accepts only a cluster agent token (`bkct_`). | Buildkite docs, `apis/agent_api/stacks.md` | The controller keeps a cluster agent token (§9.2). |
 | The scheduled-jobs list gives all jobs in the queue. It does not filter by other tags. It does not include reserved jobs. | Stacks API docs | The controller does the tag match (§5). |
 | The scheduled-jobs call takes `limit` (page size, maximum 1000) and `after` (a cursor). The answer has `page_info.has_next_page` and `page_info.end_cursor`. The API orders the jobs by `scheduled_at`, oldest first. A call returns one page, and the library does not read the next page. Paging does not cover a snapshot: new jobs can appear behind the cursor. The documentation advises to read the first few pages only, and to reserve the jobs. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01); `buildkite/stacksapi` v1.2.0 `scheduled_jobs.go` | The Poller asks for 1000 jobs in each call. It makes at most 3 calls in one tick: 2 pages from the head of the list, and 1 page of the sweep (§6.3, ADR-0019). |
+| The get-states call takes a list of job UUIDs (`job_uuids`). Its answer is `{"states": {"<uuid>": "<state>"}}`, and the library decodes a missing or renamed field as an empty map, with no error. Whether the answer leaves out a job that Buildkite does not know, and the largest list that one call accepts, are `UNKNOWN` (owner: the maintainers; trigger: the recording of O-6 in the test strategy). | `buildkite/stacksapi` v1.2.0 `get_job_states.go` (read 2026-11-03) | An answer that names none of the jobs is a failed call. A job is unknown to Buildkite only after two answers in a row leave it out (§7.1, rule 4). |
 | A reservation lasts 900 s by default and 3600 s maximum. A second reserve call extends it. When a reservation expires, the job becomes `scheduled` again. | Stacks API docs | The controller uses short reservations. It extends them while a VM starts (§6, §7). |
 | A job acquisition token (`bkjat_`) connects an agent to one reserved job. The token expires early if the reservation expires. At agent registration, Buildkite applies the expiry and the allowed IP addresses of the agent token that issued the JAT. | `buildkite/stacksapi` v1.2.0 `IssueJobAcquisitionTokens`; `buildkite/docs` `pages/agent/self_hosted/job_acquisition_tokens.md` (2026-08-26) | Only a job acquisition token goes into a VM (§9.1). The agent token allowlist MUST contain the job VM egress addresses (§9.2). |
 | `token_lifetime_seconds` of a job acquisition token has a minimum of 1, a maximum of 3600, and a default of 900. `reservation_expiry_seconds` has a default of 900 and a maximum of 3600. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The limits of 3600 s are the limits of the API. The controller refuses a `reservationExpiry` that is more than 3600 s. It refuses a `jobTokenLifetime` that is more than 1800 s, which is the security limit of §9.1. It refuses both values if they are less than 1 s, so that the refusal comes at start-up and not at the first job (§8). |
@@ -178,7 +179,7 @@ In-memory data is only a cache. The loss of this cache is always safe.
 | **Poller** | Lists the first page of scheduled jobs at each `pollInterval` (1 s). Obeys `Retry-After`. | `Stacks` client |
 | **Matcher** | Pure function. Converts the job `agent_query_rules` to exactly one profile, or to a mismatch reason. | Configuration |
 | **Inventory** | Lists Orchard workers and VMs at each `inventoryInterval` (1 s). Selects owned VMs by name prefix. Parses the job UUIDs. | `Orchard` client |
-| **JobStates** | Gets the Buildkite job states of owned VMs in one batch at each `jobStatesInterval` (5 s). Records the observation time for each job, and whether Buildkite named the job. A call that fails keeps the states before it, with their times. | `Stacks` client |
+| **JobStates** | Gets the Buildkite job states of owned VMs in one batch at each `jobStatesInterval` (5 s). Records the observation time for each job, whether Buildkite named the job, and how many answers in a row left it out. A call that fails keeps the states before it, with their times. An answer that names none of the jobs is a failed call. | `Stacks` client |
 | **Admission** | Pure function. Input: scheduled jobs, inventory, profiles, and `maxInFlight`. Output: jobs to start, and unmatched jobs to skip. | Matcher, Inventory |
 | **Launcher** | For admitted jobs: reserves the jobs, gets job acquisition tokens, and creates VMs. Sends stack notifications. | `Stacks` client, `Orchard` client |
 | **Reaper** | Pure decision function for each owned VM, and an executor. Actions: delete the VM, finish the job, extend the reservation, or send a notification. | Inventory, JobStates |
@@ -776,8 +777,15 @@ above, and for `download` also `BKASO_AGENT_URL` and `BKASO_AGENT_SHA256`. When
    MUST mark the job as ignored in memory. The controller MUST NOT send the call again in a
    loop. The get-states call asks about many jobs at once, so a 404 or 422 on it is a failure
    of the call and not an answer about one job. The controller MUST count it in
-   `cicd.system.errors` (§10.1). A job that the get-states answer does not name is unknown to
-   Buildkite (row 5).
+   `cicd.system.errors` (§10.1). An answer of get-states that names none of the jobs of a request
+   is also a failed call, because a renamed field, a filter of the server, or a fault gives the
+   same empty map (§3). The JobStates data then becomes stale, and the rules for stale data
+   apply. A job is unknown to Buildkite (row 5) only when two answers in a row leave it out, and
+   each of the two names at least one other job. Row 5 comes before the rows of an acquired job,
+   so one answer that leaves out jobs by a fault would otherwise delete the VMs of running builds.
+   The cost: when every owned VM has a job that Buildkite does not know, every answer names no
+   job, the JobStates data stays stale, and only rows 1 and 2 delete those VMs. Readiness then
+   fails, so an operator sees it.
 5. **Fail a job only before an agent acquires it.** After an agent acquires a job, the Buildkite
    lost-agent procedure controls the job result. The controller MUST NOT finish that job. The
    controller MUST only delete the VM.
@@ -792,7 +800,7 @@ The Reaper MUST examine each owned VM at each tick. The first row that matches a
 | 2 | The age since `createdAt` is more than `maxVMLifetime` (25 h) | Any | Delete the VM. | `lifetime` |
 | 3 | Any | Not causally fresh, or stale | No action. | — |
 | 4 | Any | Terminal: `finished`, `canceled`, `expired`, `timed_out`, `skipped`, `broken` | Delete the VM. | `job_terminal` |
-| 5 | Any | Unknown to Buildkite (404, or not in the get-states result) | Delete the VM. Ignore the job. | `job_unknown` |
+| 5 | Any | Unknown to Buildkite: two get-states answers in a row leave it out (rule 4) | Delete the VM. Ignore the job. After one such answer, no action. | `job_unknown` |
 | 6 | Any | `scheduled` (the reservation expired) | Delete the VM. | `reservation_lapsed` |
 | 7 | `failed` | An agent owns the job: `assigned`, `accepted`, `running`, `canceling`, `timing_out` | Send a notification with `status_message`. Delete the VM. | `vm_failed` |
 | 8 | Not `failed` | An agent owns the job | No action. | — |
@@ -874,6 +882,7 @@ At start-up, before the first Admission, the controller MUST do these steps:
 | The Orchard controller is not available | Inventory data becomes stale. Admission stops. The Reaper cannot delete VMs. VMs on the workers continue to run. Readiness fails. Liveness passes. |
 | The Buildkite API is not available, or applies a rate limit | The controller obeys `Retry-After`. JobStates data becomes stale. The controller does not reserve or finish jobs. The controller deletes VMs only for rows 1 and 2. |
 | A worker is offline | After the worker offline timeout (3 min), Orchard sets the VMs of the worker to `failed`. Rows 7 and 9 apply. `restart_policy: Never` prevents a new VM for the same job on a different worker. |
+| The get-states answer names none of the jobs | JobStates counts it as a failed call, and its data becomes stale (§7.1, rule 4). The result is the same as for a Buildkite outage of the get-states call only: admission stops while owned VMs exist, and the Reaper deletes VMs only by rows 1 and 2. |
 | The queue is `dispatch_paused` | Admission stops. The controller does not write new notifications for unmatched jobs. The Reaper continues for existing VMs. |
 
 An API that accepts calls and does not answer is an outage of the same kind. Each call ends at

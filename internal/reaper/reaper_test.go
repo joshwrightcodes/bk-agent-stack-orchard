@@ -32,7 +32,8 @@ const (
 )
 
 // observed holds what the job states say. A state is one that the controller asked for a
-// second ago, and Buildkite named it. A nil map is a controller that has asked about nothing.
+// second ago, and Buildkite named it. A job that the map leaves out is one that the last two
+// answers left out. A nil map is a controller that has asked about nothing.
 type observed struct {
 	states map[job.ID]string
 	reads  int
@@ -47,7 +48,12 @@ func (b *observed) Observed(id job.ID) (jobstates.Observation, bool) {
 
 	state, named := b.states[id]
 
-	return jobstates.Observation{State: state, Named: named, At: now.Add(-time.Second)}, true
+	observation := jobstates.Observation{State: state, Named: named, At: now.Add(-time.Second)}
+	if !named {
+		observation.Absent = 2
+	}
+
+	return observation, true
 }
 
 // pages answers finish and notify as Buildkite, and records what the job pages received.
@@ -305,6 +311,44 @@ func TestAJobThatBuildkiteDoesNotNameLosesItsMachine(t *testing.T) {
 
 	if len(machines.deleted) != 1 {
 		t.Errorf("orchard deleted %v, want the machine of the job that Buildkite does not know",
+			machines.deleted)
+	}
+}
+
+// Row 5 with the job states that the controller runs. One answer that leaves a job out, beside a
+// job that it names, can be a fault of the answer, so the machine stays. A second answer in a row
+// that leaves the job out makes it unknown to Buildkite, and its machine goes.
+func TestAJobIsUnknownOnlyAfterTwoAnswersInARowLeaveItOut(t *testing.T) {
+	t.Parallel()
+
+	c := &clock{at: now}
+	api := &stacks{states: map[job.ID]string{running: "running"}}
+	machines := &fleet{read: true, snapshot: inventory.Snapshot{
+		Owned: []inventory.Owned{owned(running, time.Hour), owned(ended, time.Hour)},
+		At:    now.Add(-time.Second),
+	}}
+
+	states, reaping := joined(t, api, machines, c)
+
+	for answer := 1; answer <= 2; answer++ {
+		c.at = c.at.Add(5 * time.Second)
+
+		if err := states.Refresh(t.Context()); err != nil {
+			t.Fatalf("Refresh() = %v, want no error", err)
+		}
+
+		if err := reaping.Reap(t.Context()); err != nil {
+			t.Fatalf("Reap() = %v, want no error", err)
+		}
+
+		if want := answer - 1; len(machines.deleted) != want {
+			t.Fatalf("after answer %d orchard deleted %v, want %d machines", answer,
+				machines.deleted, want)
+		}
+	}
+
+	if machines.deleted[0] != "bk-macos-prod-"+string(ended) {
+		t.Errorf("orchard deleted %v, want the machine of the job that Buildkite left out",
 			machines.deleted)
 	}
 }

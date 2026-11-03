@@ -69,6 +69,10 @@ const (
 	stateReserved  = "reserved"
 )
 
+// unknownAfter is the number of answers in a row that must leave a job out before the job counts
+// as unknown to Buildkite.
+const unknownAfter = 2
+
 // Machine is everything that the decision reads about one machine of this controller.
 type Machine struct {
 	// VM is the machine as Orchard holds it.
@@ -84,10 +88,13 @@ type Machine struct {
 	// State is the Buildkite state of the job, when Observed and Named are true.
 	State string
 
-	// Named reports that Buildkite named the job when the controller asked. A job that Buildkite
-	// leaves out of its answer is unknown to it, which is a fact about the job and not a gap in
-	// what the controller knows.
+	// Named reports that Buildkite named the job in the last answer.
 	Named bool
+
+	// Absent counts the answers in a row that left the job out. A job that unknownAfter answers in
+	// a row leave out is unknown to Buildkite, which is a fact about the job. One answer that
+	// leaves it out can be a fault of the answer.
+	Absent int
 
 	// Observed reports that the controller has a state for the job. A state that the controller
 	// could not read is not a state, and a decision must not read the empty text as one.
@@ -167,8 +174,14 @@ func Decide(m Machine, now time.Time, rules Rules) Decision {
 	}
 
 	// Row 5. A job that Buildkite does not know gives the same answer to every call, so the
-	// machine goes and the controller asks about the job no more.
+	// machine goes and the controller asks about the job no more. The row waits for a second
+	// answer that leaves the job out: it comes before the rows of an acquired job, so one answer
+	// with a fault would otherwise delete the machine of a running build.
 	if !m.Named {
+		if m.Absent < unknownAfter {
+			return Decision{Row: 5, Action: Keep}
+		}
+
 		return Decision{Row: 5, Action: Delete, Reason: ReasonJobUnknown, Ignore: true}
 	}
 

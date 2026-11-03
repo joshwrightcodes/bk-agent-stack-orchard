@@ -73,6 +73,11 @@ func started(ago time.Duration) func(*reaper.Machine) {
 
 func unplaced(m *reaper.Machine) { m.VM.Worker = ""; m.VM.ScheduledAt = time.Time{} }
 
+// unknown is a job that the last answers, so many in a row, left out.
+func unknown(answers int) func(*reaper.Machine) {
+	return func(m *reaper.Machine) { m.Named = false; m.Absent = answers }
+}
+
 func reservedFor(left time.Duration) func(*reaper.Machine) {
 	return func(m *reaper.Machine) { m.ReservedUntil = now.Add(left) }
 }
@@ -140,9 +145,11 @@ func TestTheDecisionTable(t *testing.T) {
 		},
 
 		// Row 5.
-		"a job that Buildkite does not name goes": {
-			machine("", func(m *reaper.Machine) { m.Named = false }),
-			5, reaper.Delete, reaper.ReasonJobUnknown,
+		"a job that two answers in a row leave out goes": {
+			machine("", unknown(2)), 5, reaper.Delete, reaper.ReasonJobUnknown,
+		},
+		"a job that one answer leaves out waits for the next answer": {
+			machine("", unknown(1)), 5, reaper.Keep, "",
 		},
 
 		// Row 6.
@@ -248,7 +255,7 @@ func TestTheDecisionTable(t *testing.T) {
 func TestAnUnknownJobIsIgnoredAfterwards(t *testing.T) {
 	t.Parallel()
 
-	got := reaper.Decide(machine("", func(m *reaper.Machine) { m.Named = false }), now, rules)
+	got := reaper.Decide(machine("", unknown(2)), now, rules)
 	if !got.Ignore {
 		t.Error("Decide() for an unknown job does not mark it ignored")
 	}

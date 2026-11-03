@@ -63,8 +63,8 @@ func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m)
 }
 
-// T-020. Random sequences of events hold I-1, I-2, I-5, and I-8 after every event, and I-6 at the
-// end of each sequence.
+// T-020. Random sequences of events hold I-1, I-2, I-5, I-8, and I-9 after every event, and I-6
+// at the end of each sequence.
 func TestRandomEventsHoldTheInvariants(t *testing.T) {
 	recorder := quiet(t)
 
@@ -262,6 +262,7 @@ func newFleetOf(t *testing.T, fatal fataler, recorder *telemetry.Telemetry, load
 	f.stacks = newStacks(clock, &f.violations)
 	f.orchard = newOrchardOf(clock, f.settings.Orchard.WorkerOfflineTimeout, hosts)
 	f.orchard.created = f.created
+	f.orchard.deleting = f.deleting
 	f.orchard.violations = &f.violations
 	f.start(fatal)
 
@@ -451,6 +452,38 @@ func subtract(room, taken map[string]uint64) {
 	for name, value := range taken {
 		room[name] -= min(value, room[name])
 	}
+}
+
+// deleting checks each machine that the controller deletes, before Orchard removes it.
+//
+// I-9: the machine of a job that an agent took, and that has not ended, goes only by row 2 (it
+// outlived the longest lifetime) or by row 7 (it failed). Any other deletion takes the agent from
+// a running build. The fake gives a machine the time of the suite as its creation time, so the
+// age since the creation is never less than the age that the controller measures.
+func (f *fleet) deleting(vm orchard.VM) {
+	id, owned := vmspec.OwnedJob(vm.Name, controllerID)
+	if !owned {
+		return
+	}
+
+	f.stacks.mu.Lock()
+	defer f.stacks.mu.Unlock()
+
+	w, known := f.stacks.jobs[id]
+	if !known || !w.acquired || w.terminal() || vm.Status == orchard.StatusFailed {
+		return
+	}
+
+	lifetime := f.settings.Defaults.Timeouts.MaxVMLifetime
+	for _, p := range f.settings.Profiles {
+		lifetime = max(lifetime, p.EffectiveTimeouts(f.settings.Defaults.Timeouts).MaxVMLifetime)
+	}
+
+	if f.now.Sub(vm.CreatedAt) > lifetime {
+		return
+	}
+
+	f.violate("I-9: the machine %s of the running job %s was deleted", vm.Name, id)
 }
 
 func (f *fleet) violate(format string, args ...any) {

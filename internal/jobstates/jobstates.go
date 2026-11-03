@@ -44,6 +44,12 @@ type Observation struct {
 	// failed call that read as the first would end every machine of the fleet.
 	Named bool
 
+	// Absent counts the answers in a row, up to and including the last one, that left the job
+	// out, and it is zero for a job that the last answer named. One answer that leaves a job out
+	// can be a fault of the answer and not a fact about the job, so the reaper waits for a second
+	// one. A failed call is no answer, and it leaves the count as it was.
+	Absent int
+
 	// At is when the controller sent the request. The answer describes Buildkite at some moment
 	// after that, so this is the earliest time that the state can describe, and every rule that
 	// reads it errs towards a state that is older than it is.
@@ -131,6 +137,11 @@ func (s *States) At() time.Time {
 // old and then stale, and the reaper stops acting on them by its own rules. A failed call that
 // replaced them with nothing would lose a state that is still true, and one that replaced them
 // with an empty answer would make every job look unknown to Buildkite.
+//
+// An answer that names none of the jobs that the controller asked about is a failed call too. A
+// renamed field, a filter of the server, or a fault gives the same empty map, and the controller
+// cannot tell it from a fleet whose every job Buildkite forgot. Read as an answer, it would
+// delete every machine of the fleet, the machines of running builds included.
 func (s *States) Refresh(ctx context.Context) error {
 	snapshot, read := s.fleet.Latest()
 	if !read {
@@ -153,6 +164,11 @@ func (s *States) Refresh(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("reading the job states: %w", err)
 		}
+
+		if !namesAny(answer, ids) {
+			return fmt.Errorf("reading the job states: %w: Buildkite named none of the %d jobs "+
+				"that the controller asked about", ErrNamedNone, len(ids))
+		}
 	}
 
 	s.mu.Lock()
@@ -164,7 +180,13 @@ func (s *States) Refresh(ctx context.Context) error {
 
 	for _, id := range ids {
 		state, named := answer[id]
-		observations[id] = Observation{State: state, Named: named, At: asked}
+		observation := Observation{State: state, Named: named, At: asked}
+
+		if !named {
+			observation.Absent = s.observations[id].Absent + 1
+		}
+
+		observations[id] = observation
 	}
 
 	s.observations = observations
@@ -182,4 +204,19 @@ func (s *States) Observed(id job.ID) (Observation, bool) {
 	observation, asked := s.observations[id]
 
 	return observation, asked
+}
+
+// ErrNamedNone is the failure of an answer that names none of the jobs that the controller asked
+// about.
+var ErrNamedNone = errors.New("an answer that names no job")
+
+// namesAny reports an answer that names at least one of the jobs.
+func namesAny(answer map[job.ID]string, ids []job.ID) bool {
+	for _, id := range ids {
+		if _, named := answer[id]; named {
+			return true
+		}
+	}
+
+	return false
 }

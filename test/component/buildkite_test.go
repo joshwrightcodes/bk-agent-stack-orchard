@@ -66,6 +66,12 @@ type stacksFake struct {
 	// never answers does.
 	hangs bool
 
+	// nameless makes each answer of the job states name no job, as an answer whose field
+	// Buildkite renamed does. omit holds, for each job, how many more answers leave it out while
+	// they name the other jobs, as a partial answer does.
+	nameless bool
+	omit     map[job.ID]int
+
 	// calls holds each call, with the endpoint and the time of the suite, for the request
 	// budget. finished holds each job that a finish call ended, and lines each line of a job page.
 	calls    []call
@@ -84,6 +90,7 @@ func newStacks(now func() time.Time, violations *[]string) *stacksFake {
 		now:        now,
 		jobs:       map[job.ID]*work{},
 		reported:   map[job.ID]string{},
+		omit:       map[job.ID]int{},
 		failing:    map[string]error{},
 		violations: violations,
 	}
@@ -111,6 +118,15 @@ func (s *stacksFake) scheduleRules(id job.ID, rules []string, matched bool) {
 		state:       stateScheduled,
 	}
 	s.order = append(s.order, id)
+}
+
+// forget removes a job from Buildkite, as if the job never existed.
+func (s *stacksFake) forget(id job.ID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	delete(s.jobs, id)
+	s.order = slices.DeleteFunc(s.order, func(other job.ID) bool { return other == id })
 }
 
 // lapse schedules again each reserved job whose reservation ended, as Buildkite does.
@@ -272,7 +288,17 @@ func (s *stacksFake) States(ctx context.Context, ids []job.ID) (map[job.ID]strin
 
 	states := map[job.ID]string{}
 
+	if s.nameless {
+		return states, nil
+	}
+
 	for _, id := range ids {
+		if s.omit[id] > 0 {
+			s.omit[id]--
+
+			continue
+		}
+
 		if w, known := s.jobs[id]; known {
 			states[id] = w.state
 			s.reported[id] = w.state

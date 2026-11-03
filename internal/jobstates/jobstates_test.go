@@ -143,6 +143,85 @@ func TestAJobThatBuildkiteLeavesOutIsAskedAndNotNamed(t *testing.T) {
 	}
 }
 
+// An answer that names none of the jobs that the controller asked about is not an answer about
+// the jobs. A renamed field, a filter, or a fault of the server gives the same empty map, and an
+// empty map that read as "every job is unknown" would delete every machine of the fleet. The
+// refresh fails, and the states before it keep their times, as after any failed call.
+func TestAnAnswerThatNamesNoJobIsAFailedRefresh(t *testing.T) {
+	t.Parallel()
+
+	c := &clock{at: start}
+	api := &buildkite{clock: c, states: map[job.ID]string{first: "running", second: "running"}}
+
+	states := build(t, api, owning(first, second), c)
+	if err := states.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh() = %v, want no error", err)
+	}
+
+	c.at = start.Add(5 * time.Second)
+	api.states = map[job.ID]string{}
+
+	if err := states.Refresh(t.Context()); err == nil {
+		t.Fatal("Refresh() = nil for an answer that names no job, want a failed refresh")
+	}
+
+	for _, id := range []job.ID{first, second} {
+		got, asked := states.Observed(id)
+		if !asked || !got.Named || got.State != "running" || !got.At.Equal(start) {
+			t.Errorf("Observed(%s) = %+v, %v, want the state from before the empty answer", id, got,
+				asked)
+		}
+	}
+
+	if !states.At().Equal(start) {
+		t.Errorf("At() = %s, want the time of the last answer that named a job, %s", states.At(),
+			start)
+	}
+}
+
+// A job counts the answers in a row that leave it out, so that the reaper can wait for a second
+// one before it treats the job as unknown to Buildkite. An answer that names the job again starts
+// the count again, and a failed call is no answer, so it leaves the count as it was.
+func TestEachJobCountsTheAnswersInARowThatLeaveItOut(t *testing.T) {
+	t.Parallel()
+
+	c := &clock{at: start}
+	api := &buildkite{clock: c, states: map[job.ID]string{first: "running"}}
+
+	states := build(t, api, owning(first, second), c)
+
+	absent := func(want int) {
+		t.Helper()
+
+		if err := states.Refresh(t.Context()); err != nil {
+			t.Fatalf("Refresh() = %v, want no error", err)
+		}
+
+		if got, _ := states.Observed(second); got.Absent != want {
+			t.Errorf("the job is absent from %d answers in a row, want %d", got.Absent, want)
+		}
+
+		if got, _ := states.Observed(first); got.Absent != 0 {
+			t.Errorf("the named job is absent from %d answers, want 0", got.Absent)
+		}
+	}
+
+	absent(1)
+	absent(2)
+
+	api.err = errors.New("buildkite is not available")
+	if err := states.Refresh(t.Context()); err == nil {
+		t.Fatal("Refresh() = nil, want the error of Buildkite")
+	}
+
+	api.err = nil
+
+	absent(3)
+
+	api.states = map[job.ID]string{first: "running", second: "reserved"}
+	absent(0)
+}
+
 // A call that fails changes nothing. The states before it keep their times, so they grow old and
 // then stale, and the reaper stops acting on them by its own rules. A failed call must never read
 // as an answer that names no job, because every job would then look unknown to Buildkite.

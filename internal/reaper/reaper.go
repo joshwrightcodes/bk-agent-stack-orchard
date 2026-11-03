@@ -360,6 +360,7 @@ func (r *Reaper) collect(snapshot inventory.Snapshot) []Machine {
 		if observation, asked := r.states.Observed(owned.Job); asked {
 			machine.State = observation.State
 			machine.Named = observation.Named
+			machine.Absent = observation.Absent
 			machine.Observed = true
 			machine.ObservedAt = observation.At
 
