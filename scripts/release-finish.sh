@@ -92,7 +92,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 for file in dist/*.tar.gz dist/*.sbom.json dist/checksums.txt dist/checksums.txt.sigstore.json \
-	build/chart/*.tgz build/chart/*.tgz.sigstore.json; do
+	dist/checksums.txt.intoto.jsonl build/chart/*.tgz build/chart/*.tgz.sigstore.json; do
 	[ -f "$file" ] || {
 		echo "release-finish: $file is missing" >&2
 		exit 1

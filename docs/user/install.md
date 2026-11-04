@@ -244,7 +244,11 @@ Each release also has SLSA build provenance, as
 The provenance is a signed record of how the release workflow built the release: the workflow
 file, the tag, the commit, and the runner. The release workflow attests `checksums.txt`, which
 names each archive and each SBOM, the image, and the chart in the registry. The attestations of
-the image and the chart are also in the registry, next to them.
+the image and the chart are also in the registry, next to them. From the release after v0.1.0, the
+attestation of `checksums.txt` is also an asset of the release, as the bundle
+`checksums.txt.intoto.jsonl`. Add `--bundle downloads/checksums.txt.intoto.jsonl` to the command
+below to check it without the attestation API. `scripts/verify-release.sh` checks the bundle when
+it is in the directory.
 
 `scripts/verify-release.sh` checks the provenance. To check it yourself, get the commit of the tag,
 and give it to `gh attestation verify` with the release workflow and the tag. Like the cosign

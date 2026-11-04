@@ -12,7 +12,8 @@ name: release
 # uploads, verifies, and publishes them. GoReleaser signs and uploads only in the run that builds,
 # so the publish job does both with cosign and gh. It also attests the SLSA build provenance of
 # checksums.txt, the image, and the chart as GitHub artifact attestations, which name this file, the
-# tag, and the commit, and which scripts/verify-release.sh checks with gh.
+# tag, and the commit, and which scripts/verify-release.sh checks with gh. The bundle of the
+# attestation of checksums.txt is also an asset of the release (checksums.txt.intoto.jsonl).
 
 on:
   push:
@@ -196,9 +197,24 @@ jobs:
       # SLSA build provenance for checksums.txt, which names each archive and each SBOM, so the
       # attestation covers them too. The sign step has checked each file against it.
       - name: attest the provenance of the checksums
+        id: provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: dist/checksums.txt
+
+      # The bundle of that attestation goes on the release as checksums.txt.intoto.jsonl, so that a
+      # reader can check the provenance without the GitHub API, and a tool that looks for a
+      # provenance file among the assets finds it. scripts/verify-release.sh checks the bundle, and
+      # scripts/release-finish.sh requires it.
+      - name: upload the provenance of the checksums to the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          jq -c . "$BUNDLE" >dist/checksums.txt.intoto.jsonl
+          gh release upload "$TAG" dist/checksums.txt.intoto.jsonl --clobber
 
       # The image index and the chart by the digests that the build job pushed. The attestation
       # also goes to the registry, next to the artifact, with the docker login above. GitHub keeps
