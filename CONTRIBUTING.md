@@ -61,6 +61,32 @@ and a new push dismisses the approvals that it had. A pull request with no activ
 gets the `stale` label, and it closes 14 days later unless somebody comments, pushes a commit, or
 removes the label. Dependency pull requests and the release pull request are exempt.
 
+## How a change is reviewed
+
+Every change reaches `main` through a pull request, and a maintainer reviews each one.
+[`.github/CODEOWNERS`](.github/CODEOWNERS) makes the maintainers the owners of each path.
+CodeRabbit also reviews each pull request, and the author answers each of its comments in its
+thread.
+
+The reviewer checks these items:
+
+* **The checks pass.** Every required check is green, and code scanning has no new alert at the
+  threshold that [SECURITY.md](SECURITY.md#static-analysis-findings) states.
+* **The documents decide.** The change follows the requirements and the design, or it changes
+  them in the same pull request, with an ADR for a new approach.
+* **The tests prove it.** A change of behaviour has a test that failed before the change. The test
+  is at the level that the [test strategy](docs/quality/test-strategy.md) gives.
+* **The code is clear and safe.** It follows the style of its language, it handles its errors, and
+  it adds no secret, and no dependency without a review of its licence
+  ([SECURITY.md](SECURITY.md#dependencies-and-vulnerabilities)). A change that adds a trust
+  boundary, or changes one, is acceptable only when the same pull request updates the
+  [assurance case](docs/quality/assurance-case.md).
+* **The history is clean.** The commits follow Conventional Commits, carry a sign-off, and are
+  signed. The pull request template is complete.
+
+A change is acceptable when every item holds, and every comment of the review is answered or
+resolved. The maintainers decide the rest, as [MAINTAINERS.md](MAINTAINERS.md) states.
+
 ## Before code: the documents decide
 
 The documents are the source of truth for what the controller does. They have one direction:
