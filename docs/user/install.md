@@ -190,6 +190,7 @@ The release workflow of this repository signs each release with a keyless
 | Artifact | Where | Signature | SBOM |
 |---|---|---|---|
 | Archives | The GitHub release | `checksums.txt.sigstore.json` signs `checksums.txt`, which names each archive | `<archive>.sbom.json` (SPDX), in `checksums.txt` |
+| VEX document | The GitHub release, as `bk-agent-stack-orchard_<version>.openvex.json` | Named in `checksums.txt` | None. It says, for each known vulnerability in a dependency at the time of the release, that the code does not reach it |
 | Image | `ghcr.io/joshwrightcodes/bk-agent-stack-orchard`, tags `v<version>` and `<version>` | On the index and on each platform image | An attestation of type `spdxjson` on each platform image |
 | Chart | `oci://ghcr.io/joshwrightcodes/charts/bk-agent-stack-orchard`, and the GitHub release | On the chart in the registry, and `<chart>.tgz.sigstore.json` on the release | None. The chart refers to the image by its digest |
 

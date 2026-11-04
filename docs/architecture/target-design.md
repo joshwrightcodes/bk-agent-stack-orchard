@@ -1807,14 +1807,17 @@ jobs do these steps in this order:
    `checksums.txt`, which covers the archives and the SBOMs. GoReleaser pushes the image. Its
    release pipe is off. The GoReleaser action runs it, at the version of `mise.toml`
    (`scripts/check-deps.py`), and checks the download of GoReleaser with cosign.
+   `scripts/release-publish.sh vex` then runs govulncheck. It stops the release when the code
+   reaches a known vulnerability. It writes the OpenVEX document of the release,
+   `bk-agent-stack-orchard_<version>.openvex.json`, and adds it to `checksums.txt`.
 2. `build`: `scripts/release-publish.sh build` reads the digest of the image from the record of
    GoReleaser (`dist/artifacts.json`). It MUST NOT get the digest from a tag, because another
    workflow can push to the tag. It makes an SPDX JSON SBOM of each platform image with syft. It
    packages the chart with `image.digest` set to that digest, and pushes it to
    `oci://ghcr.io/joshwrightcodes/charts`. The image has no SBOM from ko, because that SBOM has no
    signature.
-3. `publish`: `scripts/release-publish.sh sign` checks that the archives and the SBOMs are
-   exactly the files that `checksums.txt` names, with their checksums. cosign signs
+3. `publish`: `scripts/release-publish.sh sign` checks that the archives, the SBOMs, and the VEX
+   document are exactly the files that `checksums.txt` names, with their checksums. cosign signs
    `checksums.txt` into the bundle `checksums.txt.sigstore.json`, and the script uploads these
    files to the draft release of release-please. It signs the image index and each platform image
    by the digest of step 2, and attaches the SBOM of each platform image with `cosign attest

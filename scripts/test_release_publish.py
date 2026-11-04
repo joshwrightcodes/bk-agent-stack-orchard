@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Tests of the sign phase of scripts/release-publish.sh.
+"""Tests of the vex and sign phases of scripts/release-publish.sh.
 
 Run with: python3 -m unittest discover -s scripts -p 'test_*.py'
 
@@ -65,7 +65,11 @@ class SignTest(unittest.TestCase):
         for directory in ("dist", "build/sbom", "build/chart"):
             (self.work / directory).mkdir(parents=True)
         lines = []
-        for name in ("x_linux_amd64.tar.gz", "x_linux_amd64.tar.gz.sbom.json"):
+        for name in (
+            "x_linux_amd64.tar.gz",
+            "x_linux_amd64.tar.gz.sbom.json",
+            "bk-agent-stack-orchard_0.1.0.openvex.json",
+        ):
             data = name.encode()
             (self.work / "dist" / name).write_bytes(data)
             lines.append(f"{hashlib.sha256(data).hexdigest()}  {name}\n")
@@ -160,6 +164,87 @@ class SignTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(marker.exists())
         self.assertFalse([c for c in calls if c.startswith(("cosign", "gh"))], calls)
+
+
+def openvex(*statements: dict[str, object]) -> str:
+    return json.dumps(
+        {
+            "@context": "https://openvex.dev/ns/v0.2.0",
+            "author": "Unknown Author",
+            "statements": list(statements),
+        }
+    )
+
+
+def statement(vulnerability: str, status: str) -> dict[str, object]:
+    return {"vulnerability": {"name": vulnerability}, "status": status}
+
+
+class VexTest(unittest.TestCase):
+    """The vex phase writes the OpenVEX document of the release and lists it in checksums.txt."""
+
+    NAME = "bk-agent-stack-orchard_0.1.0.openvex.json"
+
+    def vex(
+        self, output: str, status: int = 0
+    ) -> tuple[subprocess.CompletedProcess[str], pathlib.Path]:
+        tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(tmp)], check=True)
+        bin_dir = tmp / "bin"
+        bin_dir.mkdir()
+        (tmp / "out.json").write_text(output)
+        stub = bin_dir / "govulncheck"
+        stub.write_text(
+            f'#!/bin/sh\necho "$*" > "{tmp}/args"\ncat "{tmp}/out.json"\nexit {status}\n'
+        )
+        stub.chmod(0o755)
+        work = tmp / "work"
+        (work / "dist").mkdir(parents=True)
+        (work / "dist/checksums.txt").write_text(f"{'0' * 64}  x_linux_amd64.tar.gz\n")
+        env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+        result = subprocess.run(
+            ["bash", "-c", f'source "{SCRIPT}"; tag=v0.1.0; vex'],
+            cwd=work,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual((tmp / "args").read_text().split()[:2], ["-format", "openvex"])
+        return result, work
+
+    def test_the_document_is_written_and_listed_in_the_checksums(self) -> None:
+        result, work = self.vex(openvex())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        document = work / "dist" / self.NAME
+        self.assertEqual(
+            json.loads(document.read_text())["author"],
+            "the release workflow of joshwrightcodes/bk-agent-stack-orchard",
+        )
+        digest = hashlib.sha256(document.read_bytes()).hexdigest()
+        self.assertIn(f"{digest}  {self.NAME}", (work / "dist/checksums.txt").read_text())
+
+    def test_a_vulnerability_that_the_code_does_not_reach_is_recorded(self) -> None:
+        result, work = self.vex(openvex(statement("GO-2026-0001", "not_affected")))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        statements = json.loads((work / "dist" / self.NAME).read_text())["statements"]
+        self.assertEqual([s["status"] for s in statements], ["not_affected"])
+
+    def test_a_vulnerability_that_the_code_reaches_stops_the_release(self) -> None:
+        result, work = self.vex(
+            openvex(
+                statement("GO-2026-0001", "not_affected"), statement("GO-2026-0002", "affected")
+            )
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("GO-2026-0002", result.stderr)
+        self.assertNotIn("GO-2026-0001", result.stderr)
+        self.assertFalse((work / "dist" / self.NAME).exists())
+        self.assertNotIn(self.NAME, (work / "dist/checksums.txt").read_text())
+
+    def test_a_failed_govulncheck_stops_the_release(self) -> None:
+        result, work = self.vex("", status=1)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((work / "dist" / self.NAME).exists())
 
 
 if __name__ == "__main__":
