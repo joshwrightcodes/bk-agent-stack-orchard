@@ -134,4 +134,51 @@ These are known, recorded, and accepted. They are not vulnerabilities in this pr
 
 The repository contains no secret, and no configuration file holds one. Secrets reach the
 controller through environment variables only. A report of a committed secret is welcome through
-the same private channel.
+the same private channel. The operator of a fleet stores and rotates the secrets of the fleet, as
+the [runbooks](docs/user/runbooks) say.
+
+The project itself has these secrets, and this policy covers them:
+
+* **Storage.** The private key and the client ID of the release GitHub App are secrets of the
+  `release-please` environment of the repository. Nothing else stores them: not a file, a workflow,
+  or a personal machine. The project uses no personal access token, and the release workflow signs
+  without a key (ADR-0013).
+* **Access.** Only the jobs of that environment read them, and the environment accepts only the
+  `main` branch. Only the maintainers can change the environments, and
+  [MAINTAINERS.md](MAINTAINERS.md) lists them.
+* **Rotation.** The maintainers make a new private key of the App every 12 months, and at once
+  when a key may have leaked or a maintainer leaves. They delete the old key in the settings of the
+  App after the new one works.
+* **Detection.** Secret scanning and push protection are on, so GitHub refuses a push that holds a
+  known kind of secret.
+
+## Dependencies and vulnerabilities
+
+The project tracks its dependencies in `go.mod`, `go.sum`, `mise.toml`, and `mise.lock`, and it
+pins each action by its commit. Renovate proposes the updates. This policy applies to every
+finding of software composition analysis: a vulnerability in a dependency, or the licence of one.
+
+* **On each change.** govulncheck runs on every pull request, and the rules of `main` block a merge
+  while it reports a vulnerability that the code reaches, whatever its severity. A vulnerability
+  that the code does not reach does not block the merge.
+* **Remediation.** A vulnerability that the code reaches is fixed in a patch release within 14
+  days after a fixed version of the dependency is available. If no fixed version exists, the
+  maintainers publish an advisory with the mitigation that they know.
+* **Before a release.** The release workflow runs govulncheck again, and it stops the release while
+  the code reaches a known vulnerability. No release goes out with one.
+* **Not affected.** Each release carries an OpenVEX document,
+  `bk-agent-stack-orchard_<version>.openvex.json`, that govulncheck writes. For each known
+  vulnerability in a dependency at the time of the release, it records that the code does not reach
+  it. `checksums.txt` lists the document, so its signature covers it. To check a release again
+  later, run `govulncheck -format openvex ./...` in a clone at its tag.
+* **Licences.** Each dependency of the released software has an OSI-approved licence that the
+  AGPL-3.0-or-later permits, and no restriction of the field of use. The Orchard code stays out of
+  `go.mod` for this reason
+  ([ADR-0010](docs/adrs/0010-call-the-orchard-api-with-a-client-of-this-project.md)). The
+  maintainers check the licence of each new dependency in its review, and a dependency with another
+  licence does not merge. Each release carries the licence texts of its dependencies.
+* **Malicious dependencies.** The Go checksum database confirms each module, and `go.sum` pins its
+  hash. `mise.lock` pins the checksum of each tool, and the release workflow refuses a tool that the
+  lock does not hold. Renovate proposes a release only when it is at least three days old, so that
+  a release that its registry withdraws never reaches a review. A maintainer reviews each update
+  before it merges.

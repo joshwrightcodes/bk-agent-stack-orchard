@@ -43,6 +43,19 @@ The maintainers track work in a GitHub project. Each item is a work unit of the
 
 [Releasing](docs/releasing.md) gives the steps of a release.
 
+## Access
+
+A person gets write access to the repository, the role of an administrator, or the role of a
+reviewer of the `release` environment only after these steps:
+
+1. The maintainers review the contributions of the person to the project.
+2. The person agrees to the role and to the responsibilities in this file.
+3. A pull request adds the person to the table above, with the role. The access starts after it
+   merges.
+
+The maintainers remove the access of a person who leaves, and the same pull request removes the
+person from this file.
+
 ## Continuity
 
 The project has no second holder for these items yet:
