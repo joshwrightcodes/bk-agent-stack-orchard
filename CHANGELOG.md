@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/joshwrightcodes/bk-agent-stack-orchard/compare/v0.1.0...v0.1.1) (2026-11-04)
+
+
+### Fixes
+
+* **telemetry:** keep the log records that come after a signal ([#197](https://github.com/joshwrightcodes/bk-agent-stack-orchard/issues/197)) ([87105c7](https://github.com/joshwrightcodes/bk-agent-stack-orchard/commit/87105c7699c8cfec953da1cb2565005413444b49))
+
 ## 0.1.0 (2026-11-04)
 
 
