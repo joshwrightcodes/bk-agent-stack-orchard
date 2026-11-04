@@ -77,9 +77,10 @@ The reviewer checks these items:
 * **The tests prove it.** A change of behaviour has a test that failed before the change. The test
   is at the level that the [test strategy](docs/quality/test-strategy.md) gives.
 * **The code is clear and safe.** It follows the style of its language, it handles its errors, and
-  it adds no secret, no new trust boundary, and no dependency without a review of its licence
-  ([SECURITY.md](SECURITY.md#dependencies-and-vulnerabilities)). A change to a trust boundary
-  updates the [assurance case](docs/quality/assurance-case.md).
+  it adds no secret, and no dependency without a review of its licence
+  ([SECURITY.md](SECURITY.md#dependencies-and-vulnerabilities)). A change that adds a trust
+  boundary, or changes one, is acceptable only when the same pull request updates the
+  [assurance case](docs/quality/assurance-case.md).
 * **The history is clean.** The commits follow Conventional Commits, carry a sign-off, and are
   signed. The pull request template is complete.
 
