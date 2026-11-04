@@ -21,11 +21,18 @@ import (
 // through the wrappers of fmt.Errorf only. A failure that another try can pass carries the mark
 // of internal/retry, so every such failure would name the same type, the mark. The SDK keeps an
 // exception.type that the record already has.
+//
+// The handler also takes the end of the context away from each record. A signal cancels the
+// context of the process, and the work that runs when it comes still logs with that context. The
+// log SDK drops a record whose context has ended, so the last records of a process, which are the
+// interesting ones, would be lost. The record keeps the values of the context, so its trace stays.
 type exceptionTyped struct {
 	slog.Handler
 }
 
 func (h exceptionTyped) Handle(ctx context.Context, record slog.Record) error {
+	ctx = context.WithoutCancel(ctx)
+
 	var failure error
 
 	record.Attrs(func(attr slog.Attr) bool {
