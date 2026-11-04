@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Tests of the chart copy rule of scripts/check-deps.py.
+"""Tests of the chart copy rule and the GoReleaser rule of scripts/check-deps.py.
 
 Run with: python3 -m unittest discover -s scripts -p 'test_*.py'
 """
@@ -27,6 +27,34 @@ class ChartCopyTest(unittest.TestCase):
 
     def test_an_equal_copy_passes(self) -> None:
         self.assertEqual(check_deps.copy_errors("LICENSE", "a\n", "a\n"), [])
+
+
+MISE = 'go = "1.27.3"\ngoreleaser = "2.18.2"\n'
+
+WORKFLOW = """
+      - name: build the archives, the SBOMs, the checksums, and the image
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          version: v{version}
+          args: release --clean
+"""
+
+
+class GoReleaserVersionTest(unittest.TestCase):
+    def test_the_same_version_passes(self) -> None:
+        workflow = WORKFLOW.format(version="2.18.2")
+        self.assertEqual(check_deps.goreleaser_errors(MISE, workflow), [])
+
+    def test_a_different_version_fails(self) -> None:
+        workflow = WORKFLOW.format(version="2.17.0")
+        self.assertEqual(len(check_deps.goreleaser_errors(MISE, workflow)), 1)
+
+    def test_a_workflow_without_the_action_fails(self) -> None:
+        self.assertEqual(len(check_deps.goreleaser_errors(MISE, "run: goreleaser release")), 1)
+
+    def test_a_mise_without_goreleaser_fails(self) -> None:
+        workflow = WORKFLOW.format(version="2.18.2")
+        self.assertEqual(len(check_deps.goreleaser_errors('go = "1.27.3"\n', workflow)), 1)
 
 
 if __name__ == "__main__":

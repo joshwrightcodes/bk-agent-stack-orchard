@@ -1805,7 +1805,8 @@ jobs do these steps in this order:
 
 1. `build`: GoReleaser builds the archives, an SPDX JSON SBOM of each archive (syft), and
    `checksums.txt`, which covers the archives and the SBOMs. GoReleaser pushes the image. Its
-   release pipe is off.
+   release pipe is off. The GoReleaser action runs it, at the version of `mise.toml`
+   (`scripts/check-deps.py`), and checks the download of GoReleaser with cosign.
 2. `build`: `scripts/release-publish.sh build` reads the digest of the image from the record of
    GoReleaser (`dist/artifacts.json`). It MUST NOT get the digest from a tag, because another
    workflow can push to the tag. It makes an SPDX JSON SBOM of each platform image with syft. It
@@ -1822,8 +1823,11 @@ jobs do these steps in this order:
    asset that a failed run left. Both phases MUST fail unless the image index holds exactly the
    platforms `linux/amd64` and `linux/arm64`, because a loop over no platform signs nothing and
    passes.
-4. `publish`: `scripts/verify-release.sh` verifies each signature and each attestation, and checks
-   that the tags in the registry give the digests that step 3 signed.
+4. `publish`: the job attests the SLSA build provenance of `checksums.txt`, the image, and the
+   chart (ADR-0013). It uploads the bundle of the attestation of `checksums.txt` to the draft as
+   `checksums.txt.intoto.jsonl`. Then `scripts/verify-release.sh` verifies each signature and each
+   attestation, that bundle included, and checks that the tags in the registry give the digests
+   that step 3 signed.
 5. `publish`: `scripts/release-finish.sh` checks that exactly one release has the tag, and that
    the assets of the draft are the verified files, by name and SHA-256. It lists the assets again
    just before the publish, and keeps the draft if an asset ID changed. Then it publishes the

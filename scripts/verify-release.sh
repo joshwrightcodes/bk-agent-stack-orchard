@@ -94,6 +94,13 @@ if [ -n "$dir" ]; then
 	cosign verify-blob "${identity[@]}" \
 		--bundle "$dir/checksums.txt.sigstore.json" "$dir/checksums.txt"
 	attested "$dir/checksums.txt"
+	# The release also carries the bundle of that attestation. gh checks it offline, with the same
+	# identity, so a bundle on the release that is not the attestation of the workflow fails here.
+	if [ -f "$dir/checksums.txt.intoto.jsonl" ]; then
+		gh attestation verify "$dir/checksums.txt" --bundle "$dir/checksums.txt.intoto.jsonl" \
+			"${provenance[@]}" >/dev/null ||
+			die "$dir/checksums.txt.intoto.jsonl is not a valid provenance attestation of the release workflow of $repo at $tag"
+	fi
 	# Only the files that are present: an operator often downloads one archive. At least one file
 	# must be present, because a check of nothing passes. macOS has shasum, and not sha256sum.
 	present=0

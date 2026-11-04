@@ -113,6 +113,7 @@ FILES = {
     "dist/x_linux_amd64.tar.gz.sbom.json": "sbom",
     "dist/checksums.txt": "sums",
     "dist/checksums.txt.sigstore.json": "bundle",
+    "dist/checksums.txt.intoto.jsonl": "provenance",
     "build/chart/bk-agent-stack-orchard-0.1.0.tgz": "chart",
     "build/chart/bk-agent-stack-orchard-0.1.0.tgz.sigstore.json": "chart bundle",
 }
@@ -199,6 +200,14 @@ class FinishTest(unittest.TestCase):
     def test_an_extra_asset_keeps_the_draft(self) -> None:
         extra = draft_assets({"extra.tar.gz": "extra"})
         result, calls = self.finish([extra, extra])
+        self.assertEqual(result.returncode, 1)
+        self.assertFalse(self.published(calls))
+
+    def test_a_draft_without_the_provenance_keeps_the_draft(self) -> None:
+        # The bundle of the provenance attestation is an asset of each release, so that a reader
+        # can check the provenance without the GitHub API.
+        missing = [a for a in draft_assets() if a["name"] != "checksums.txt.intoto.jsonl"]
+        result, calls = self.finish([missing, missing])
         self.assertEqual(result.returncode, 1)
         self.assertFalse(self.published(calls))
 
