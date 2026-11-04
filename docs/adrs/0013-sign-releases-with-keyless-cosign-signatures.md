@@ -111,9 +111,10 @@ release workflow also attests SLSA build provenance as GitHub artifact attestati
 policy tools that read these attestations can check the release. The attested subjects are
 `checksums.txt`, which names each archive and each SBOM, the image index by digest, and the chart
 in `ghcr.io/joshwrightcodes/charts` by digest. The attestations of the image and the chart also go
-to the registry, next to the artifact. A verification of an attestation MUST require the release
-workflow of this repository, the release tag as the source ref, and the commit of the tag as the
-source digest.
+to the registry, next to the artifact. The bundle of the attestation of `checksums.txt` is also an
+asset of the release, as `checksums.txt.intoto.jsonl`. A verification of an attestation MUST
+require the release workflow of this repository, the release tag as the source ref, and the commit
+of the tag as the source digest.
 
 ## Consequences
 
