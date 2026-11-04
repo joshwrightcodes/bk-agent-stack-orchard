@@ -12,7 +12,9 @@ Checks:
      archive, so the workers run the Orchard that the tests run;
   4. the Mac hosts install at least the minimum Tart version that the design states;
   5. the Helm chart carries copies of LICENSE and NOTICE that equal the files of the root, so
-     that helm package includes them.
+     that helm package includes them;
+  6. the GoReleaser action of the release workflow runs the GoReleaser version of mise.toml, so
+     that the release builds with the GoReleaser that the local release task runs.
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ DESIGN = ROOT / "docs/architecture/target-design.md"
 ORCHARD_IMAGE = ROOT / "deploy/orchard/image/Dockerfile"
 CHART = ROOT / "deploy/helm/bk-agent-stack-orchard"
 HOSTS = ROOT / "deploy/hosts/roles/orchard_worker/defaults/main.yml"
+RELEASE = ROOT / ".github/workflows/release.yml"
 
 errors: list[str] = []
 
@@ -200,12 +203,42 @@ def check_chart_copies() -> None:
             )
 
 
+def goreleaser_errors(mise: str, workflow: str) -> list[str]:
+    """Rule 6: the GoReleaser action runs the GoReleaser version of mise.toml."""
+    pinned = re.search(r'^goreleaser = "([^"]+)"', mise, re.MULTILINE)
+    if not pinned:
+        return ["mise.toml pins no goreleaser version"]
+    action = re.search(
+        r"uses: goreleaser/goreleaser-action@[0-9a-f]{40}[^\n]*\n\s+with:\n"
+        r"(?:\s+[a-z-]+:[^\n]*\n)*?\s+version: v?([0-9][^\s]*)",
+        workflow,
+    )
+    if not action:
+        return [
+            ".github/workflows/release.yml has no GoReleaser action, pinned by its commit, "
+            "with a version"
+        ]
+    if action.group(1) != pinned.group(1):
+        return [
+            f".github/workflows/release.yml runs GoReleaser {action.group(1)}, and mise.toml "
+            f"pins {pinned.group(1)}. Set the version of the action to v{pinned.group(1)}"
+        ]
+    return []
+
+
+def check_goreleaser() -> None:
+    errors.extend(
+        goreleaser_errors(MISE.read_text(encoding="utf-8"), RELEASE.read_text(encoding="utf-8"))
+    )
+
+
 def main() -> int:
     check_orchard_tool()
     check_orchard_image()
     check_orchard_hosts()
     check_tart_hosts()
     check_chart_copies()
+    check_goreleaser()
 
     if errors:
         print(f"check-deps: {len(errors)} problem(s)\n", file=sys.stderr)

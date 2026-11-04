@@ -58,8 +58,9 @@ jobs:
           cache: false
           # Only the tools that this job runs. GoReleaser runs go-licenses through
           # scripts/licenses.sh and syft for the SBOMs of the archives, and it builds the image
-          # with the ko library inside it.
-          install_args: go goreleaser syft helm jq go:github.com/google/go-licenses/v2
+          # with the ko library inside it. The GoReleaser action installs GoReleaser, and checks
+          # its download with this cosign. The job has no OIDC token, so cosign cannot sign here.
+          install_args: go cosign syft helm jq go:github.com/google/go-licenses/v2
 
       # release-please wrote the version of the tag into the chart, on a commit of main. This
       # refuses a tag on another commit only while that commit holds this check: the tag rules and
@@ -89,9 +90,15 @@ jobs:
           printf '%s' "$TOKEN" | docker login ghcr.io --username "$ACTOR" --password-stdin
           printf '%s' "$TOKEN" | helm registry login ghcr.io --username "$ACTOR" --password-stdin
 
-      # GoReleaser pushes the image. The publish job signs the files and uploads them.
+      # GoReleaser pushes the image. The publish job signs the files and uploads them. The action
+      # checks the archive of GoReleaser against the checksums of its release, and the checksums
+      # against the cosign signature of the release workflow of GoReleaser. scripts/check-deps.py
+      # keeps the version equal to the one in mise.toml, which the local release task runs.
       - name: build the archives, the SBOMs, the checksums, and the image
-        run: goreleaser release --clean
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          version: v2.18.2
+          args: release --clean
 
       - name: make the SBOM of each platform image, and package and push the chart
         env:

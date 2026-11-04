@@ -70,6 +70,19 @@
       depNameTemplate: "cirruslabs/softnet",
       datasourceTemplate: "github-releases",
     },
+    {
+      // The GoReleaser action of the release workflow runs the GoReleaser version of mise.toml,
+      // and scripts/check-deps.py fails when the two differ. This finds the version of the action,
+      // and the goreleaser group below moves it with the mise pin.
+      customType: "regex",
+      managerFilePatterns: ["/^\\.github/workflows/release\\.yml$/"],
+      matchStrings: [
+        "goreleaser/goreleaser-action@[0-9a-f]{40}[^\\n]*\\n\\s+with:\\n\\s+version: v(?<currentValue>\\S+)",
+      ],
+      depNameTemplate: "goreleaser/goreleaser",
+      datasourceTemplate: "github-releases",
+      extractVersionTemplate: "^v(?<version>.+)$",
+    },
   ],
 
   timezone: "Australia/Sydney",
@@ -176,6 +189,13 @@
       // mise.lock.
       matchManagers: ["mise"],
       semanticCommitType: "build",
+    },
+    {
+      // GoReleaser is in mise.toml and in the GoReleaser action of the release workflow, and both
+      // move in one pull request.
+      matchDepNames: ["goreleaser", "goreleaser/goreleaser"],
+      semanticCommitType: "build",
+      groupName: "goreleaser",
     },
     {
       // A major release can change what a gate checks or how the release is signed, so a person

@@ -1805,7 +1805,8 @@ jobs do these steps in this order:
 
 1. `build`: GoReleaser builds the archives, an SPDX JSON SBOM of each archive (syft), and
    `checksums.txt`, which covers the archives and the SBOMs. GoReleaser pushes the image. Its
-   release pipe is off.
+   release pipe is off. The GoReleaser action runs it, at the version of `mise.toml`
+   (`scripts/check-deps.py`), and checks the download of GoReleaser with cosign.
 2. `build`: `scripts/release-publish.sh build` reads the digest of the image from the record of
    GoReleaser (`dist/artifacts.json`). It MUST NOT get the digest from a tag, because another
    workflow can push to the tag. It makes an SPDX JSON SBOM of each platform image with syft. It
