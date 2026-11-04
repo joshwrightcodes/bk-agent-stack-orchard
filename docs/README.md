@@ -33,6 +33,7 @@ a number, such as the demand model or a quality target.
 | [C4 model](architecture/c4.md) | What are the levels of the architecture? The file is generated from [`workspace.dsl`](architecture/workspace.dsl). |
 | [Decision records](adrs/README.md) | Why did the project choose this approach? |
 | [Test strategy](quality/test-strategy.md) | Which risks exist, and which tests cover them? |
+| [Assurance case](quality/assurance-case.md) | Why does the controller meet its security requirements? |
 | [Implementation plan](delivery/implementation-plan.md) | In which order does the work go, and what ends each unit? |
 | [Development guide](development.md) | How does a developer set up a Mac, and run the gates, the tests, and the controller? |
 | [Testing on real VMs](testing-on-real-vms.md) | How does a developer run the tests that start real Tart VMs? |

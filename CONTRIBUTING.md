@@ -95,6 +95,17 @@ These documents describe the design:
 
 ## Code
 
+Follow the style of each language. CI checks each one, and a change that fails the check does not
+merge.
+
+| Language | Style | Check |
+|---|---|---|
+| Go | [Effective Go](https://go.dev/doc/effective_go) and [Go Code Review Comments](https://go.dev/wiki/CodeReviewComments). gofumpt and goimports format the code. | `mise run lint` and `mise run lint-format` (golangci-lint, with the linters of [`.golangci.yaml`](.golangci.yaml)) |
+| Shell | [Google Shell Style Guide](https://google.github.io/styleguide/shellguide.html). shfmt formats the scripts. | `mise run lint-scripts` (shellcheck, shfmt) |
+| Python | [PEP 8](https://peps.python.org/pep-0008/), as ruff applies it with [`ruff.toml`](ruff.toml) | `mise run lint-scripts` (ruff) |
+| GitHub Actions workflows | Actions pinned by commit, and the least permissions for each job | `mise run lint-scripts` (actionlint, zizmor) |
+| Documents | The [writing guide](docs/writing-guide.md) | `mise run check-docs` (Vale, links, identifiers) |
+
 * **Keep identifiers in the documents.** Production code, configuration, and task descriptions say
   what they do and why. They do not carry a work unit, a requirement, or a test identifier,
   because a reader of the code cannot resolve one. Test files can carry `T-nnn`, `I-n`, and `O-n`,
