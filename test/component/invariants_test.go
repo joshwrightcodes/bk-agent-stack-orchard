@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Josh Wright
 
 // Package component_test runs the controller that ships against in-memory fakes of both APIs, on
 // a clock that the suite moves, and checks the invariants of the test strategy, section 5, over

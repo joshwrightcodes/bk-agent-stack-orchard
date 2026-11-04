@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Josh Wright
 
 // Package jobstates holds what Buildkite says about the jobs of the machines of this controller,
 // and when the controller asked.

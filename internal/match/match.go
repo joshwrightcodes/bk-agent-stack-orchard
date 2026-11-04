@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Josh Wright
 
 // Package match selects the virtual machine profile of a job from the agent tags of that job.
 //

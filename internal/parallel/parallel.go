@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Josh Wright
 
 // Package parallel runs the API calls of one step of the tick at the same time, with a limit.
 //

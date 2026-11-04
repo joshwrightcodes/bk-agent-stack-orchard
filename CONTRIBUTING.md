@@ -106,6 +106,11 @@ merge.
 | GitHub Actions workflows | Actions pinned by commit, and the least permissions for each job | `mise run lint-scripts` (actionlint, zizmor) |
 | Documents | The [writing guide](docs/writing-guide.md) | `mise run check-docs` (Vale, links, identifiers) |
 
+* **Start each source file with its licence and copyright.** A Go, shell, or Python file starts
+  with an `SPDX-License-Identifier: AGPL-3.0-or-later` comment, after the shebang of a script,
+  and an `SPDX-FileCopyrightText: <year> <holder>` comment on the next line. A test of
+  `internal/repocheck` checks both lines. `REUSE.toml` gives them for the files that cannot carry
+  a comment.
 * **Keep identifiers in the documents.** Production code, configuration, and task descriptions say
   what they do and why. They do not carry a work unit, a requirement, or a test identifier,
   because a reader of the code cannot resolve one. Test files can carry `T-nnn`, `I-n`, and `O-n`,

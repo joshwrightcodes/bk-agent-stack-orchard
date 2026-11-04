@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Josh Wright
 """Filters for the addresses that Softnet can give the host on the network of a VM.
 
 Softnet picks the network of each VM, a /29, from a few private ranges (the variable

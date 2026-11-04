@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Josh Wright
 # Builds a job VM image of the fleet into a local Tart VM, and pushes it when a registry is given.
 # It is a reference build for an operator who builds its own images: the project publishes no job
 # VM image (ADR-0020).

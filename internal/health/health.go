@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Josh Wright
 
 // Package health answers the liveness and the readiness probes of the platform that runs the
 // controller, through the gRPC health checking protocol (grpc.health.v1).

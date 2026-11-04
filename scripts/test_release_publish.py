@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Josh Wright
 """Tests of the vex and sign phases of scripts/release-publish.sh.
 
 Run with: python3 -m unittest discover -s scripts -p 'test_*.py'

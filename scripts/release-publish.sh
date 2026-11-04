@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Josh Wright
 # Prepare and sign the assets of a release, in phases that run in two jobs of the release
 # workflow.
 #

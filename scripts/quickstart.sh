@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Josh Wright
 # The quick start: one real job in a real Tart VM on this Mac, from a real Buildkite queue.
 #
 # It downloads a release of the controller and verifies its signature, starts a local Orchard (a
