@@ -5,6 +5,7 @@ package inventory_test
 import (
 	"context"
 	"errors"
+	"maps"
 	"testing"
 	"time"
 
@@ -314,35 +315,42 @@ func TestTheSnapshotFillsTheObservationOfTheInstruments(t *testing.T) {
 		return observation.Slots[telemetry.Slot{Pool: "pilot", State: state}]
 	}
 
-	if pool(telemetry.SlotsTotal) != 4 || pool(telemetry.SlotsUsed) != 2 ||
-		pool(telemetry.SlotsFree) != 2 {
-		t.Errorf("the pool has %d slots, %d used and %d free, want 4, 2 and 2",
-			pool(telemetry.SlotsTotal), pool(telemetry.SlotsUsed), pool(telemetry.SlotsFree))
+	if pool(telemetry.SlotsTotal) != 4 || pool(telemetry.SlotsUsed) != 2 {
+		t.Errorf("the pool has %d slots and %d used, want 4 and 2",
+			pool(telemetry.SlotsTotal), pool(telemetry.SlotsUsed))
 	}
 }
 
-// Orchard can place more machines on a worker than it advertises, because an operator can lower
-// the number afterwards. The fleet then has nothing free, and not a negative amount.
-func TestAFullWorkerHasNothingFreeAndNotLess(t *testing.T) {
+// A host that the operator paused, and a host that stopped answering, still exist. The count of
+// the hosts by state shows lost capacity, which the slots of the online hosts do not.
+func TestTheHostsAreCountedByState(t *testing.T) {
 	t.Parallel()
 
-	on := func(name string) orchard.VM { return orchard.VM{Name: name, Worker: "mac-01"} }
-
-	snapshot := inventory.Snapshot{
-		Workers: []orchard.Worker{{
-			Name:      "mac-01",
-			LastSeen:  now,
-			Resources: map[string]uint64{orchard.ResourceVMs: 1},
-		}},
-		VMs: []orchard.VM{on("one"), on("two"), on("three")},
+	host := func(name string, paused bool) orchard.Worker {
+		return orchard.Worker{
+			Name: name, Labels: map[string]string{"pool": "pilot"}, SchedulingPaused: paused,
+			Resources: map[string]uint64{orchard.ResourceVMs: 2},
+		}
 	}
 
+	snapshot := inventory.Snapshot{Workers: []orchard.Worker{
+		host("mac-01", false), host("mac-02", true), host("mac-03", false), host("mac-04", true),
+		{Name: "mac-05"},
+	}}
+
 	observation := telemetry.Observation{}
-	snapshot.Observe(&observation, func(orchard.Worker) bool { return true },
+	snapshot.Observe(&observation, func(w orchard.Worker) bool { return w.Name != "mac-03" && w.Name != "mac-04" },
 		func(inventory.Owned) string { return "" })
 
-	if got := observation.Slots[telemetry.Slot{State: telemetry.SlotsFree}]; got != 0 {
-		t.Errorf("the pool has %d slots free, want 0", got)
+	want := map[telemetry.Host]int64{
+		{Pool: "pilot", State: telemetry.HostOnline}:  1,
+		{Pool: "pilot", State: telemetry.HostPaused}:  1,
+		{Pool: "pilot", State: telemetry.HostOffline}: 2,
+		{Pool: "", State: telemetry.HostOnline}:       1,
+	}
+
+	if !maps.Equal(observation.Hosts, want) {
+		t.Errorf("the hosts are %v, want %v", observation.Hosts, want)
 	}
 }
 

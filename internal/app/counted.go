@@ -34,9 +34,9 @@ func cause(err error) (string, bool) {
 		errors.Is(err, orchard.ErrAlreadyExists),
 		errors.Is(err, orchard.ErrNotFound):
 		return "", false
-	case errors.Is(err, buildkite.ErrUnauthorized):
+	case errors.Is(err, buildkite.ErrUnauthorized), errors.Is(err, orchard.ErrUnauthorized):
 		return errorUnauthorized, true
-	case errors.Is(err, buildkite.ErrRateLimited):
+	case errors.Is(err, buildkite.ErrRateLimited), errors.Is(err, orchard.ErrRateLimited):
 		return errorRateLimited, true
 	case errors.Is(err, context.DeadlineExceeded):
 		return errorTimeout, true
@@ -51,9 +51,9 @@ type counter struct {
 	component telemetry.Component
 }
 
-func (c counter) count(ctx context.Context, err error) {
+func (c counter) count(ctx context.Context, operation telemetry.Operation, err error) {
 	if name, failed := cause(err); failed {
-		c.metrics.SystemError(ctx, c.component, name)
+		c.metrics.SystemError(ctx, c.component, operation, name)
 	}
 }
 
@@ -66,14 +66,14 @@ type countedStacks struct {
 
 func (s countedStacks) Register(ctx context.Context) error {
 	err := s.next.Register(ctx)
-	s.count(ctx, err)
+	s.count(ctx, telemetry.OperationRegister, err)
 
 	return err
 }
 
 func (s countedStacks) Deregister(ctx context.Context) error {
 	err := s.next.Deregister(ctx)
-	s.count(ctx, err)
+	s.count(ctx, telemetry.OperationDeregister, err)
 
 	return err
 }
@@ -82,7 +82,7 @@ func (s countedStacks) ScheduledJobs(ctx context.Context, cursor string, size in
 	buildkite.Page, error,
 ) {
 	page, err := s.next.ScheduledJobs(ctx, cursor, size)
-	s.count(ctx, err)
+	s.count(ctx, telemetry.OperationScheduledJobs, err)
 
 	return page, err
 }
@@ -91,7 +91,7 @@ func (s countedStacks) Reserve(ctx context.Context, ids []job.ID, expiry time.Du
 	buildkite.Reservation, error,
 ) {
 	answer, err := s.next.Reserve(ctx, ids, expiry)
-	s.count(ctx, err)
+	s.count(ctx, telemetry.OperationReserve, err)
 
 	return answer, err
 }
@@ -100,28 +100,28 @@ func (s countedStacks) Tokens(ctx context.Context, ids []job.ID, lifetime time.D
 	buildkite.Tokens, error,
 ) {
 	answer, err := s.next.Tokens(ctx, ids, lifetime)
-	s.count(ctx, err)
+	s.count(ctx, telemetry.OperationTokens, err)
 
 	return answer, err
 }
 
 func (s countedStacks) States(ctx context.Context, ids []job.ID) (map[job.ID]string, error) {
 	states, err := s.next.States(ctx, ids)
-	s.count(ctx, err)
+	s.count(ctx, telemetry.OperationStates, err)
 
 	return states, err
 }
 
 func (s countedStacks) Finish(ctx context.Context, id job.ID, exitStatus int, detail string) error {
 	err := s.next.Finish(ctx, id, exitStatus, detail)
-	s.count(ctx, err)
+	s.count(ctx, telemetry.OperationFinish, err)
 
 	return err
 }
 
 func (s countedStacks) Notify(ctx context.Context, notifications []buildkite.Notification) error {
 	err := s.next.Notify(ctx, notifications)
-	s.count(ctx, err)
+	s.count(ctx, telemetry.OperationNotify, err)
 
 	return err
 }
@@ -134,35 +134,35 @@ type countedOrchard struct {
 
 func (o countedOrchard) CreateVM(ctx context.Context, spec orchard.VM) error {
 	err := o.next.CreateVM(ctx, spec)
-	o.count(ctx, err)
+	o.count(ctx, telemetry.OperationCreateVM, err)
 
 	return err
 }
 
 func (o countedOrchard) ListVMs(ctx context.Context) ([]orchard.VM, error) {
 	vms, err := o.next.ListVMs(ctx)
-	o.count(ctx, err)
+	o.count(ctx, telemetry.OperationListVMs, err)
 
 	return vms, err
 }
 
 func (o countedOrchard) DeleteVM(ctx context.Context, name string) error {
 	err := o.next.DeleteVM(ctx, name)
-	o.count(ctx, err)
+	o.count(ctx, telemetry.OperationDeleteVM, err)
 
 	return err
 }
 
 func (o countedOrchard) ListWorkers(ctx context.Context) ([]orchard.Worker, error) {
 	workers, err := o.next.ListWorkers(ctx)
-	o.count(ctx, err)
+	o.count(ctx, telemetry.OperationListWorkers, err)
 
 	return workers, err
 }
 
 func (o countedOrchard) Events(ctx context.Context, name string) ([]orchard.Event, error) {
 	events, err := o.next.Events(ctx, name)
-	o.count(ctx, err)
+	o.count(ctx, telemetry.OperationEvents, err)
 
 	return events, err
 }

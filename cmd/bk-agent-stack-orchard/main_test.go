@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"testing"
 	"time"
@@ -327,5 +328,36 @@ func TestTheLivenessStallOutlastsTheLongestTick(t *testing.T) {
 	if livenessStall <= 3*longestTick {
 		t.Errorf("liveness waits %s, want more than three times the longest tick of %s",
 			livenessStall, longestTick)
+	}
+}
+
+// A ko build sets no ldflags, and Go stamps the module version from the commit. The telemetry
+// carries that version, so a backend can tell two builds apart.
+func TestTheTelemetryVersionFallsBackToTheVersionThatGoStamped(t *testing.T) {
+	stamped := func(v string) func() (*debug.BuildInfo, bool) {
+		return func() (*debug.BuildInfo, bool) {
+			return &debug.BuildInfo{Main: debug.Module{Version: v}}, true
+		}
+	}
+
+	for name, test := range map[string]struct {
+		released string
+		read     func() (*debug.BuildInfo, bool)
+		want     string
+	}{
+		"the release version wins": {"1.2.3", stamped("v0.0.0-x"), "1.2.3"},
+		"a ko build gives the stamped version": {
+			"", stamped("v0.0.0-20261104101010-abcdef123456"), "v0.0.0-20261104101010-abcdef123456",
+		},
+		"a build without a stamp gives none": {"", stamped("(devel)"), ""},
+		"no build information gives none": {
+			"", func() (*debug.BuildInfo, bool) { return nil, false }, "",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := serviceVersion(test.released, test.read); got != test.want {
+				t.Errorf("serviceVersion() = %q, want %q", got, test.want)
+			}
+		})
 	}
 }

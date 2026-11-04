@@ -182,6 +182,18 @@ type Controller struct {
 	// heartbeat is the last time that the loop made progress: when Run started its loop, and
 	// then when each tick ended. The liveness check reads it from another goroutine.
 	heartbeat atomic.Pointer[time.Time]
+
+	// started is when the loop was built. The age of a source that has not answered, and of a
+	// loop that has not started, counts from it.
+	started time.Time
+
+	// registered reports a stack that Buildkite holds. Only the goroutine of the loop reads and
+	// writes it.
+	registered bool
+
+	// blocked is why the gate of admission was closed at the last tick, and empty when it was
+	// open. Only the goroutine of the loop reads and writes it.
+	blocked telemetry.AdmissionBlock
 }
 
 // New builds the loop.
@@ -260,6 +272,8 @@ func New(options Options) (*Controller, error) {
 		tracer:    tracer,
 		refreshed: map[telemetry.Source]time.Time{},
 		paused:    map[telemetry.Source]time.Duration{},
+		started:   options.Now(),
+		blocked:   telemetry.BlockQueueUnread,
 	}, nil
 }
 
@@ -274,12 +288,19 @@ func (c *Controller) Sources() []Source {
 // A tick that fails does not stop the loop, because almost every failure here is one call to one
 // API, and the next tick reads the world again. The loop stops only when the context ends.
 func (c *Controller) Run(ctx context.Context) error {
+	// The series of the loop exist from the start, so that an alert that compares a value sees
+	// a process that cannot register, and not a series that is absent.
+	c.observe()
+
 	if err := c.register(ctx); err != nil {
 		return err
 	}
 
+	c.registered = true
+	c.observe()
+
 	c.logger.InfoContext(ctx, "the controller registered its stack and starts its loop",
-		"interval", c.interval.String())
+		telemetry.LogInterval, c.interval.String())
 
 	// The first beat comes before the first tick, so that a first tick that never ends fails
 	// liveness like any other.
@@ -325,8 +346,8 @@ func (c *Controller) register(ctx context.Context) error {
 		wait := backoff.Backoff(attempt, err)
 
 		c.logger.WarnContext(ctx, "the controller could not register its stack, because "+
-			"Buildkite did not answer, and tries again", "attempt", attempt,
-			"wait", wait.Round(time.Millisecond).String(), "error", err)
+			"Buildkite did not answer, and tries again", telemetry.LogAttempt, attempt,
+			telemetry.LogWait, wait.Round(time.Millisecond).String(), telemetry.LogError, err)
 
 		if slept := c.sleep(ctx, wait); slept != nil {
 			return errors.Join(err, slept)
@@ -366,6 +387,9 @@ func (c *Controller) withdraw(ctx context.Context) error {
 		return err
 	}
 
+	c.registered = false
+	c.observe()
+
 	c.logger.InfoContext(ctx, "the controller withdrew its stack and stopped")
 
 	return nil
@@ -381,9 +405,10 @@ func (c *Controller) withdraw(ctx context.Context) error {
 // Run runs.
 func (c *Controller) Tick(ctx context.Context, at time.Time) {
 	// The observation comes last, so that it reports the fleet as this tick left it and not as
-	// this tick found it. The beat comes after it, because a tick ends there.
-	defer c.beat()
+	// this tick found it, and the heartbeat of the end of this tick. The deferred calls run in
+	// the opposite order: the beat, then the observation.
 	defer c.observe()
+	defer c.beat()
 
 	c.refresh(ctx, at)
 
@@ -392,8 +417,12 @@ func (c *Controller) Tick(ctx context.Context, at time.Time) {
 	// The gate measures the answers at the time of the decision, and not at the time of the
 	// tick: the refresh and the reaper can take long, and a source whose refresh failed keeps an
 	// answer that ages while they run.
-	if reason, ok := c.mayAdmit(c.now()); !ok {
-		c.logger.DebugContext(ctx, "the controller admitted no job", "reason", reason)
+	blocked, detail := c.mayAdmit(c.now())
+	c.blocked = blocked
+
+	if blocked != "" {
+		c.logger.DebugContext(ctx, "the controller admitted no job",
+			telemetry.LogAdmissionReason, string(blocked), telemetry.LogDetail, detail)
 
 		return
 	}
@@ -463,8 +492,9 @@ func (c *Controller) run(ctx context.Context, name string, work func(context.Con
 	c.metrics.Tick(ctx, name, time.Since(started)) //nolint:forbidigo // real elapsed time
 
 	if err != nil {
-		span.RecordError(err)
-		c.logger.ErrorContext(ctx, "a step of the tick failed", "step", name, "error", err)
+		telemetry.Fail(span, err)
+		c.logger.ErrorContext(ctx, "a step of the tick failed", telemetry.LogStep, name,
+			telemetry.LogError, err)
 	}
 }
 
@@ -480,40 +510,52 @@ func (c *Controller) observe() {
 
 	synced := make(map[telemetry.Source]time.Time, len(c.sources))
 
+	// A source that has not answered is as old as the process, so its age rises from the start
+	// like the age of a source that stopped answering.
 	for _, source := range c.sources {
+		synced[source.Source()] = c.started
+
 		if at := source.At(); !at.IsZero() {
 			synced[source.Source()] = at
 		}
 	}
 
 	observation.Synced = synced
+	observation.Registered = c.registered
+	observation.Blocked = c.blocked
+
+	observation.Heartbeat = c.Heartbeat()
+	if observation.Heartbeat.IsZero() {
+		observation.Heartbeat = c.started
+	}
 
 	c.metrics.Observe(observation)
 }
 
-// mayAdmit reports whether the controller may start jobs at the time at, and why not when it may
-// not.
+// mayAdmit gives why the controller may not start jobs at the time at, with a sentence for a
+// person, and empty text when it may.
 //
 // The controller starts no job while it has not read the queue, because an empty queue and an
 // unread queue look the same, and because a paused queue is an instruction from an operator. It
 // starts no job on an answer older than the freshness limit either: a source whose calls fail
 // keeps its last answer, and the fleet and the queue move on without it.
-func (c *Controller) mayAdmit(at time.Time) (string, bool) {
+func (c *Controller) mayAdmit(at time.Time) (telemetry.AdmissionBlock, string) {
 	queue, ok := c.queue.Latest()
 	if !ok {
-		return "the controller has not read the queue yet", false
+		return telemetry.BlockQueueUnread, "the controller has not read the queue yet"
 	}
 
 	if queue.Paused {
-		return "an operator paused the queue", false
+		return telemetry.BlockQueuePaused, "an operator paused the queue"
 	}
 
 	rests := admissionRests()
 
 	for _, source := range c.sources {
 		if source.Source() == admissionFollows && source.At().IsZero() {
-			return fmt.Sprintf("the source %s has not answered yet, so no reaper pass has seen "+
-				"the machines of the last process", source.Source()), false
+			return telemetry.Unanswered(source.Source()), fmt.Sprintf("the source %s has not "+
+				"answered yet, so no reaper pass has seen the machines of the last process",
+				source.Source())
 		}
 
 		if !slices.Contains(rests, source.Source()) {
@@ -522,14 +564,16 @@ func (c *Controller) mayAdmit(at time.Time) (string, bool) {
 
 		answered := source.At()
 		if answered.IsZero() {
-			return fmt.Sprintf("the source %s has not answered yet", source.Source()), false
+			return telemetry.Unanswered(source.Source()),
+				fmt.Sprintf("the source %s has not answered yet", source.Source())
 		}
 
 		if age := at.Sub(answered); age > c.freshness {
-			return fmt.Sprintf("the last answer of the source %s is %s old, and admission "+
-				"needs one inside %s", source.Source(), age.Round(time.Second), c.freshness), false
+			return telemetry.Stale(source.Source()), fmt.Sprintf("the last answer of the source "+
+				"%s is %s old, and admission needs one inside %s", source.Source(),
+				age.Round(time.Second), c.freshness)
 		}
 	}
 
-	return "", true
+	return "", ""
 }

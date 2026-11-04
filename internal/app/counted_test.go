@@ -10,6 +10,7 @@ import (
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/retry"
 )
 
 // A failure of the system counts, with a name that an operator can group by. An answer about one
@@ -31,6 +32,8 @@ func TestTheCauseOfAFailedCall(t *testing.T) {
 		{fmt.Errorf("polling: %w", buildkite.ErrUnauthorized), errorUnauthorized, true},
 		{buildkite.ErrRateLimited, errorRateLimited, true},
 		{fmt.Errorf("listing: %w", context.DeadlineExceeded), errorTimeout, true},
+		{fmt.Errorf("listing: %w", orchard.ErrUnauthorized), errorUnauthorized, true},
+		{retry.Again(fmt.Errorf("listing: %w", orchard.ErrRateLimited), 0), errorRateLimited, true},
 		{errors.New("orchard answered 503 Service Unavailable"), errorOther, true},
 	} {
 		got, counted := cause(c.err)

@@ -6,10 +6,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
+	"net/url"
 	"strings"
 	"testing"
 
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/retry"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
 )
 
@@ -250,6 +254,79 @@ func TestShutdownIsSafeTwice(t *testing.T) {
 	for attempt := range 2 {
 		if err := started.Shutdown(t.Context()); err != nil {
 			t.Errorf("Shutdown() on attempt %d = %v, want no error", attempt+1, err)
+		}
+	}
+}
+
+// The retry policy marks an error that another try can pass, and a call wraps the mark in its own
+// message. exception.type must name the error under both, because the type of the mark is the
+// same for every failure and says nothing.
+func TestTheExceptionTypeNamesTheCauseAndNotTheRetryMark(t *testing.T) {
+	quiet(t)
+
+	var out bytes.Buffer
+
+	started, err := telemetry.Setup(t.Context(), telemetry.Options{Output: &out})
+	if err != nil {
+		t.Fatalf("Setup() = %v, want the providers", err)
+	}
+
+	t.Cleanup(func() { _ = started.Shutdown(context.Background()) })
+
+	cause := &url.Error{Op: "Get", URL: "https://orchard.example.com/v1/vms", Err: errors.New("refused")}
+	marked := fmt.Errorf("listing the machines: %w", retry.Again(cause, 0))
+
+	started.Logger.Error("a step of the tick failed", "error", marked)
+
+	found := records(t, &out)
+	if len(found) != 1 {
+		t.Fatalf("stdout holds %d records, want 1", len(found))
+	}
+
+	if got := attributeOf(found[0], "exception.type"); got != "*url.Error" {
+		t.Errorf("exception.type is %q, want *url.Error, the type of the cause", got)
+	}
+
+	if got := attributeOf(found[0], "exception.message"); got != marked.Error() {
+		t.Errorf("exception.message is %q, want the whole message %q", got, marked.Error())
+	}
+}
+
+// A build without a version must not send an empty service.version, which a backend shows as a
+// version of its own.
+func TestAnEmptyVersionLeavesTheVersionOutOfTheResource(t *testing.T) {
+	quiet(t)
+
+	for version, want := range map[string]bool{"": false, "1.2.3": true} {
+		var out bytes.Buffer
+
+		started, err := telemetry.Setup(t.Context(), telemetry.Options{
+			Version: version, Output: &out,
+		})
+		if err != nil {
+			t.Fatalf("Setup() = %v, want the providers", err)
+		}
+
+		started.Logger.Info("the controller started")
+		_ = started.Shutdown(context.Background())
+
+		found := records(t, &out)
+		if len(found) != 1 {
+			t.Fatalf("stdout holds %d records, want 1", len(found))
+		}
+
+		resource, _ := found[0]["Resource"].([]any)
+		has := false
+
+		for _, one := range resource {
+			if pair, ok := one.(map[string]any); ok && pair["Key"] == "service.version" {
+				has = true
+			}
+		}
+
+		if has != want {
+			t.Errorf("with the version %q the resource has service.version: %v, want %v",
+				version, has, want)
 		}
 	}
 }

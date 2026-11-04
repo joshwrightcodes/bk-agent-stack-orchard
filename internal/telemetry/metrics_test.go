@@ -4,6 +4,7 @@ package telemetry_test
 
 import (
 	"context"
+	"maps"
 	"reflect"
 	"regexp"
 	"slices"
@@ -25,10 +26,13 @@ func observation() telemetry.Observation {
 		Waiting:       map[string]int64{"xcode-27": 4},
 		OldestWaiting: map[string]time.Duration{"xcode-27": 90 * time.Second},
 		Slots:         map[telemetry.Slot]int64{{Pool: "pilot", State: telemetry.SlotsFree}: 3},
+		Hosts:         map[telemetry.Host]int64{{Pool: "pilot", State: telemetry.HostOnline}: 2},
 		VMs:           map[telemetry.VM]int64{{Profile: "xcode-27", Phase: telemetry.VMRunning}: 2},
 		Workers:       map[telemetry.WorkerState]int64{telemetry.WorkerBusy: 2},
 		Leftover:      1,
 		Synced:        map[telemetry.Source]time.Time{telemetry.SourceInventory: time.Now()},
+		Heartbeat:     time.Now(),
+		Registered:    true,
 	}
 }
 
@@ -55,9 +59,11 @@ func recordAll(t *testing.T) []metricdata.Metrics {
 	ctx := t.Context()
 	instruments.Skipped(ctx)
 	instruments.QueueTruncated(ctx)
-	instruments.Failed(ctx, "no_profile")
-	instruments.Deleted(ctx, "job_ended")
-	instruments.SystemError(ctx, telemetry.ComponentBuildkite, "rate_limited")
+	instruments.Failed(ctx, telemetry.Failure{Profile: "xcode-27", Worker: "mac-01"}, "boot_timeout")
+	instruments.Deleted(ctx, telemetry.Failure{Profile: "xcode-27"}, "job_terminal")
+	instruments.Started(ctx, "xcode-27", telemetry.StartCreated)
+	instruments.SystemError(ctx, telemetry.ComponentBuildkite, telemetry.OperationReserve,
+		"rate_limited")
 	instruments.JobPhase(ctx, "xcode-27", telemetry.PhaseTotal, 4*time.Minute)
 	instruments.Tick(ctx, "reap", 300*time.Millisecond)
 
@@ -151,10 +157,19 @@ var design = []struct {
 	},
 	{"bk_agent_stack_orchard.job.skipped", "{job}", nil, true},
 	{"bk_agent_stack_orchard.queue.truncated", "{read}", nil, true},
-	{"bk_agent_stack_orchard.job.failed", "{job}", []string{"error.type"}, true},
+	{
+		"bk_agent_stack_orchard.job.failed", "{job}",
+		[]string{"bk_agent_stack_orchard.profile", "bk_agent_stack_orchard.worker.name", "error.type"},
+		true,
+	},
 	{
 		"bk_agent_stack_orchard.slot.count", "{slot}",
 		[]string{"bk_agent_stack_orchard.pool", "bk_agent_stack_orchard.slot.state"},
+		true,
+	},
+	{
+		"bk_agent_stack_orchard.host.count", "{host}",
+		[]string{"bk_agent_stack_orchard.host.state", "bk_agent_stack_orchard.pool"},
 		true,
 	},
 	{
@@ -170,10 +185,22 @@ var design = []struct {
 	},
 	{
 		"bk_agent_stack_orchard.vm.deletions", "{vm}",
-		[]string{"bk_agent_stack_orchard.vm.delete.reason"},
+		[]string{
+			"bk_agent_stack_orchard.profile", "bk_agent_stack_orchard.vm.delete.reason",
+			"bk_agent_stack_orchard.worker.name",
+		},
 		true,
 	},
-	{"cicd.system.errors", "{error}", []string{"cicd.system.component", "error.type"}, true},
+	{
+		"bk_agent_stack_orchard.vm.starts", "{vm}",
+		[]string{"bk_agent_stack_orchard.profile", "bk_agent_stack_orchard.vm.start.outcome"},
+		true,
+	},
+	{
+		"cicd.system.errors", "{error}",
+		[]string{"bk_agent_stack_orchard.operation", "cicd.system.component", "error.type"},
+		true,
+	},
 	{
 		"bk_agent_stack_orchard.tick.duration", "s",
 		[]string{"bk_agent_stack_orchard.tick.step"},
@@ -183,6 +210,13 @@ var design = []struct {
 	{
 		"bk_agent_stack_orchard.source.staleness", "s",
 		[]string{"bk_agent_stack_orchard.source"},
+		false,
+	},
+	{"bk_agent_stack_orchard.loop.heartbeat.age", "s", nil, false},
+	{"bk_agent_stack_orchard.stack.registered", "{stack}", nil, false},
+	{
+		"bk_agent_stack_orchard.admission.blocked", "{gate}",
+		[]string{"bk_agent_stack_orchard.admission.reason"},
 		false,
 	},
 }
@@ -305,9 +339,10 @@ func TestNothingOfTheInstrumentsAcceptsAJob(t *testing.T) {
 	}
 }
 
-// A series that leaves the observation must stop. A profile that no longer exists would
-// otherwise report its last count for ever, and the fleet would look busier than it is.
-func TestASeriesStopsWhenItLeavesTheObservation(t *testing.T) {
+// A series that leaves the observation reports 0, and does not stop. A series that stops keeps
+// its last value in many backends for minutes, so a count that fell to zero would look like the
+// last count it had, and an alert on it would not clear.
+func TestASeriesThatLeavesTheObservationReportsZero(t *testing.T) {
 	t.Parallel()
 
 	reader := metric.NewManualReader()
@@ -321,22 +356,117 @@ func TestASeriesStopsWhenItLeavesTheObservation(t *testing.T) {
 	}
 
 	instruments.Observe(telemetry.Observation{Waiting: map[string]int64{"xcode-27": 4}})
+	collect(t, reader)
+
 	instruments.Observe(telemetry.Observation{Waiting: map[string]int64{"xcode-26": 1}})
+
+	got := sumsOf(t, collect(t, reader), "bk_agent_stack_orchard.job.waiting.count",
+		"bk_agent_stack_orchard.profile")
+	if want := map[string]int64{"xcode-26": 1, "xcode-27": 0}; !maps.Equal(got, want) {
+		t.Errorf("the waiting jobs are %v, want %v", got, want)
+	}
+}
+
+// collect reads the instruments once.
+func collect(t *testing.T, reader *metric.ManualReader) []metricdata.Metrics {
+	t.Helper()
 
 	var collected metricdata.ResourceMetrics
 	if err := reader.Collect(t.Context(), &collected); err != nil {
 		t.Fatalf("Collect() = %v, want the metrics", err)
 	}
 
-	sets := points(t, collected.ScopeMetrics[0].Metrics[0])
-	if len(sets) != 1 {
-		t.Fatalf("the instrument holds %d series, want only the one of the last observation",
-			len(sets))
+	if len(collected.ScopeMetrics) != 1 {
+		t.Fatalf("the reader holds %d scopes, want 1", len(collected.ScopeMetrics))
 	}
 
-	value, _ := sets[0].Value("bk_agent_stack_orchard.profile")
-	if value.AsString() != "xcode-26" {
-		t.Errorf("the series is for the profile %q, want xcode-26", value.AsString())
+	return collected.ScopeMetrics[0].Metrics
+}
+
+// sumsOf gives the value of each series of an integer instrument, by the value of one attribute.
+func sumsOf(t *testing.T, recorded []metricdata.Metrics, name, key string) map[string]int64 {
+	t.Helper()
+
+	values := map[string]int64{}
+
+	for _, one := range recorded {
+		if one.Name != name {
+			continue
+		}
+
+		var points []metricdata.DataPoint[int64]
+
+		switch data := one.Data.(type) {
+		case metricdata.Sum[int64]:
+			points = data.DataPoints
+		case metricdata.Gauge[int64]:
+			points = data.DataPoints
+		default:
+			t.Fatalf("%s holds %T, want integers", name, data)
+		}
+
+		for _, point := range points {
+			value, _ := point.Attributes.Value(attribute.Key(key))
+			values[value.String()] = point.Value
+		}
+	}
+
+	return values
+}
+
+// gaugeOf gives the values of a gauge of floats.
+func gaugeOf(t *testing.T, recorded []metricdata.Metrics, name string) []float64 {
+	t.Helper()
+
+	var values []float64
+
+	for _, one := range recorded {
+		if one.Name != name {
+			continue
+		}
+
+		data, ok := one.Data.(metricdata.Gauge[float64])
+		if !ok {
+			t.Fatalf("%s holds %T, want a gauge of floats", name, one.Data)
+		}
+
+		for _, point := range data.DataPoints {
+			values = append(values, point.Value)
+		}
+	}
+
+	return values
+}
+
+// The age of the last tick is real time at the read, as the age of a source is, so it keeps
+// rising while the loop is stuck and no new observation arrives.
+func TestTheHeartbeatAgeIsTheAgeAtTheRead(t *testing.T) {
+	t.Parallel()
+
+	reader := metric.NewManualReader()
+	provider := metric.NewMeterProvider(metric.WithReader(reader))
+
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+
+	instruments, err := telemetry.NewMetrics(provider.Meter("test"))
+	if err != nil {
+		t.Fatalf("NewMetrics() = %v, want the instruments", err)
+	}
+
+	instruments.Observe(telemetry.Observation{
+		Heartbeat: time.Now().Add(-time.Minute), Registered: true,
+	})
+
+	recorded := collect(t, reader)
+
+	ages := gaugeOf(t, recorded, "bk_agent_stack_orchard.loop.heartbeat.age")
+	if len(ages) != 1 || ages[0] < 60 || ages[0] > 120 {
+		t.Errorf("the heartbeat age is %v, want one value of about 60 s", ages)
+	}
+
+	registered := sumsOf(t, recorded, "bk_agent_stack_orchard.stack.registered", "")
+	if registered[""] != 1 {
+		t.Errorf("the registration reads %v, want 1", registered)
 	}
 }
 
@@ -388,4 +518,49 @@ func TestTheLeftoverGaugeReportsTheCountOfTheObservation(t *testing.T) {
 	}
 
 	t.Error("no instrument reports the leftover machines")
+}
+
+// The age of the oldest waiting job is its age when the collector reads it, as the age of a source
+// is: the age at the observation, and the time since. A queue that the controller cannot act on,
+// such as one behind a stuck loop, still ages.
+func TestTheOldestWaitingJobAgesAtTheRead(t *testing.T) {
+	t.Parallel()
+
+	reader := metric.NewManualReader()
+	provider := metric.NewMeterProvider(metric.WithReader(reader))
+
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+
+	instruments, err := telemetry.NewMetrics(provider.Meter("test"))
+	if err != nil {
+		t.Fatalf("NewMetrics() = %v, want the instruments", err)
+	}
+
+	instruments.Observe(telemetry.Observation{
+		Waiting:       map[string]int64{"xcode-27": 1, "xcode-26": 0},
+		OldestWaiting: map[string]time.Duration{"xcode-27": 10 * time.Minute},
+	})
+
+	time.Sleep(50 * time.Millisecond)
+
+	ages := map[string]float64{}
+
+	for _, one := range collect(t, reader) {
+		if one.Name != "bk_agent_stack_orchard.job.waiting.oldest.age" {
+			continue
+		}
+
+		for _, point := range one.Data.(metricdata.Gauge[float64]).DataPoints {
+			profile, _ := point.Attributes.Value("bk_agent_stack_orchard.profile")
+			ages[profile.AsString()] = point.Value
+		}
+	}
+
+	if ages["xcode-27"] <= 600.04 || ages["xcode-27"] > 660 {
+		t.Errorf("the oldest job of xcode-27 waited %v s, want 600 s and the time since", ages["xcode-27"])
+	}
+
+	if age, ok := ages["xcode-26"]; !ok || age != 0 {
+		t.Errorf("the profile with no waiting job reads %v (present: %v), want 0", age, ok)
+	}
 }

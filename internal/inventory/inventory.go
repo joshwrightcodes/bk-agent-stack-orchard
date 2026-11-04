@@ -320,6 +320,7 @@ func (s Snapshot) Observe(observation *telemetry.Observation, online func(orchar
 ) {
 	observation.VMs = map[telemetry.VM]int64{}
 	observation.Slots = map[telemetry.Slot]int64{}
+	observation.Hosts = map[telemetry.Host]int64{}
 	observation.Workers = map[telemetry.WorkerState]int64{}
 
 	for _, owned := range s.Owned {
@@ -343,6 +344,7 @@ func (s Snapshot) Observe(observation *telemetry.Observation, online func(orchar
 	}
 
 	s.slots(observation, online)
+	s.hosts(observation, online)
 }
 
 // Leftover counts the machines of jobs, and not the orphans, whose job is in a terminal state
@@ -362,35 +364,41 @@ func (s Snapshot) Leftover(observation *telemetry.Observation, terminal func(job
 // profile of the configuration.
 const UnknownProfile = "unknown"
 
-// slots counts the machine slots of each pool.
+// slots counts the machine slots of each pool that its online hosts have, and the ones that a
+// machine holds. Admission counts the open slots, because only it knows which of them it can use
+// (admission.Slots).
 func (s Snapshot) slots(observation *telemetry.Observation, online func(orchard.Worker) bool) {
-	used := map[string]int64{}
-	total := map[string]int64{}
-
 	for _, worker := range s.Workers {
 		if !online(worker) {
 			continue
 		}
 
-		pool := worker.Labels[poolLabel]
-		total[pool] += count(worker.Resources[orchard.ResourceVMs])
-		used[pool] += int64(len(s.Carried(worker.Name)))
+		pool := PoolOf(worker)
+		observation.Slots[telemetry.Slot{Pool: pool, State: telemetry.SlotsTotal}] += count(worker.Resources[orchard.ResourceVMs])
+		observation.Slots[telemetry.Slot{Pool: pool, State: telemetry.SlotsUsed}] += int64(len(s.Carried(worker.Name)))
 	}
+}
 
-	for pool, slots := range total {
-		observation.Slots[telemetry.Slot{Pool: pool, State: telemetry.SlotsTotal}] = slots
-		observation.Slots[telemetry.Slot{Pool: pool, State: telemetry.SlotsUsed}] = used[pool]
+// hosts counts the Mac hosts of each pool by state. A host that stopped answering drops out of
+// the slots, and only this count still shows it.
+func (s Snapshot) hosts(observation *telemetry.Observation, online func(orchard.Worker) bool) {
+	for _, worker := range s.Workers {
+		state := telemetry.HostOnline
 
-		free := slots - used[pool]
-		if free < 0 {
-			// A worker can carry more machines than it advertises, because Orchard placed them
-			// before an operator lowered the number. The fleet then has nothing free, and not a
-			// negative amount.
-			free = 0
+		switch {
+		case !online(worker):
+			state = telemetry.HostOffline
+		case worker.SchedulingPaused:
+			state = telemetry.HostPaused
 		}
 
-		observation.Slots[telemetry.Slot{Pool: pool, State: telemetry.SlotsFree}] = free
+		observation.Hosts[telemetry.Host{Pool: PoolOf(worker), State: state}]++
 	}
+}
+
+// PoolOf gives the pool of a worker, which is its pool label.
+func PoolOf(worker orchard.Worker) string {
+	return worker.Labels[poolLabel]
 }
 
 // count turns a resource of Orchard into a number that an instrument carries. Orchard counts

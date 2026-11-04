@@ -886,8 +886,8 @@ func TestTheWarningOfACutReadNamesThePipelineWithTheMostJobs(t *testing.T) {
 		t.Fatalf("Refresh() = %v, want no error", err)
 	}
 
-	if !strings.Contains(logged.String(), "pipeline=flood") ||
-		!strings.Contains(logged.String(), "pipelineJobs=2") {
+	if !strings.Contains(logged.String(), "cicd.pipeline.name=flood") ||
+		!strings.Contains(logged.String(), "bk_agent_stack_orchard.queue.pipeline_jobs=2") {
 		t.Errorf("the warning is %q, want the pipeline flood with its 2 jobs", logged.String())
 	}
 }

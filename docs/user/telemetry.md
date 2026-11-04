@@ -26,23 +26,103 @@ small.
 
 | Metric | Type, unit | Attributes | What it measures |
 |---|---|---|---|
-| `bk_agent_stack_orchard.job.waiting.count` | up-down counter, `{job}` | `bk_agent_stack_orchard.profile` | Matched jobs that wait for a VM |
-| `bk_agent_stack_orchard.job.waiting.oldest.age` | gauge, `s` | `bk_agent_stack_orchard.profile` | How long the oldest waiting job has waited |
+| `bk_agent_stack_orchard.job.waiting.count` | up-down counter, `{job}` | `bk_agent_stack_orchard.profile` | Matched jobs of the last read of the queue that wait for a VM |
+| `bk_agent_stack_orchard.job.waiting.oldest.age` | gauge, `s` | `bk_agent_stack_orchard.profile` | How long the oldest waiting job has waited, or 0 when no job of the profile waits |
+| `bk_agent_stack_orchard.admission.blocked` | gauge, `{gate}` | `bk_agent_stack_orchard.admission.reason` | 1 for the reason that stopped admission at the last tick, and 0 for each other reason (below) |
 | `bk_agent_stack_orchard.job.skipped` | counter, `{job}` | | Jobs that match no profile, and that the controller leaves for another runner |
 | `bk_agent_stack_orchard.queue.truncated` | counter, `{read}` | | Reads of the queue that did not list it whole, so that jobs behind the head of the queue wait for a later read |
-| `bk_agent_stack_orchard.job.failed` | counter, `{job}` | `error.type` | Jobs that the controller failed, such as after a timeout |
-| `bk_agent_stack_orchard.slot.count` | up-down counter, `{slot}` | `bk_agent_stack_orchard.pool`, `bk_agent_stack_orchard.slot.state` (`total`, `used`, `free`) | VM slots of the Mac hosts |
+| `bk_agent_stack_orchard.job.failed` | counter, `{job}` | `bk_agent_stack_orchard.profile`, `bk_agent_stack_orchard.worker.name`, `error.type` (`vm_failed`, `boot_timeout`, `acquire_timeout`) | Jobs that the controller failed before an agent took them. The causes are the reasons of the same name (below) |
+| `bk_agent_stack_orchard.slot.count` | up-down counter, `{slot}` | `bk_agent_stack_orchard.pool`, `bk_agent_stack_orchard.slot.state` (`total`, `used`, `reserved`, `unavailable`, `free`) | VM slots of the online Mac hosts (below) |
+| `bk_agent_stack_orchard.host.count` | up-down counter, `{host}` | `bk_agent_stack_orchard.pool`, `bk_agent_stack_orchard.host.state` (`online`, `offline`, `paused`) | Mac hosts that Orchard lists. A host that stopped answering is `offline`, and a host whose scheduling an operator paused is `paused` |
 | `bk_agent_stack_orchard.vm.count` | up-down counter, `{vm}` | `bk_agent_stack_orchard.profile`, `bk_agent_stack_orchard.vm.phase` (`unplaced`, `booting`, `running`, `failed`) | VMs of this controller, by phase |
-| `cicd.worker.count` | up-down counter, `{worker}` | `cicd.worker.state` (`available`, `busy`, `offline`) | Agents in VMs, by state |
+| `cicd.worker.count` | up-down counter, `{worker}` | `cicd.worker.state` (`busy`, `offline`) | Job VMs, by the status that Orchard gives them: `busy` while the VM runs, and `offline` when it failed. A VM carries one job, so no VM is `available` |
 | `bk_agent_stack_orchard.job.phase.duration` | histogram, `s` | `bk_agent_stack_orchard.profile`, `bk_agent_stack_orchard.job.phase` | How long each phase of a start took (below) |
-| `bk_agent_stack_orchard.vm.deletions` | counter, `{vm}` | `bk_agent_stack_orchard.vm.delete.reason` | VMs that the controller deleted, by reason (below) |
-| `cicd.system.errors` | counter, `{error}` | `cicd.system.component` (`buildkite`, `orchard`), `error.type` (`unauthorized`, `rate_limited`, `timeout`, `_OTHER`) | Calls to Buildkite or Orchard that failed |
+| `bk_agent_stack_orchard.vm.starts` | counter, `{vm}` | `bk_agent_stack_orchard.profile`, `bk_agent_stack_orchard.vm.start.outcome` (`created`, `create_failed`, `no_token`, `not_sent`) | Starts of a VM for a reserved job, by outcome (below) |
+| `bk_agent_stack_orchard.vm.deletions` | counter, `{vm}` | `bk_agent_stack_orchard.profile`, `bk_agent_stack_orchard.worker.name`, `bk_agent_stack_orchard.vm.delete.reason` | VMs that the controller deleted, by reason (below) |
+| `cicd.system.errors` | counter, `{error}` | `cicd.system.component` (`buildkite`, `orchard`), `bk_agent_stack_orchard.operation` (below), `error.type` (`unauthorized`, `rate_limited`, `timeout`, `_OTHER`) | Calls to Buildkite or Orchard that failed |
 | `bk_agent_stack_orchard.tick.duration` | histogram, `s` | `bk_agent_stack_orchard.tick.step` | How long each step of the loop took |
 | `bk_agent_stack_orchard.vm.leftover` | gauge, `{vm}` | | VMs whose job ended, and that are not deleted yet |
-| `bk_agent_stack_orchard.source.staleness` | gauge, `s` | `bk_agent_stack_orchard.source` (`scheduled_jobs`, `job_states`, `inventory`) | How old the last answer of each source is |
+| `bk_agent_stack_orchard.source.staleness` | gauge, `s` | `bk_agent_stack_orchard.source` (`scheduled_jobs`, `job_states`, `inventory`) | How old the last answer of each source is. A source that has not answered since the start is as old as the process |
+| `bk_agent_stack_orchard.loop.heartbeat.age` | gauge, `s` | | Time since the loop last finished a tick. Before the loop starts, it is the age of the process |
+| `bk_agent_stack_orchard.stack.registered` | gauge, `{stack}` | | 1 while Buildkite holds the registration of the stack. 0 while the controller registers, which it tries again while Buildkite does not answer, and after it withdrew |
 
-`bk_agent_stack_orchard.pool` is the `pool` label of the worker, or `none`. The HTTP clients also
-give `http.client.request.duration`.
+`bk_agent_stack_orchard.pool` is the `pool` label of the worker, or `none`. On the two failure
+counters, `bk_agent_stack_orchard.worker.name` is the Mac host of the VM, or `none` for a VM that no
+host took, and the profile is `unknown` for a VM of no profile of the configuration. A bad image
+shows as failures of one profile, and a broken host as failures on one host.
+
+The HTTP clients also give the metrics of `otelhttp`, with the attributes of the HTTP conventions:
+`http.client.request.duration` (`s`) and `http.client.request.body.size` (`By`). Each try of a
+call is one request, so a retry shows there and not in `cicd.system.errors`.
+
+Each series exists from the start of the process, with 0 where nothing is counted. A pool is
+known only from the workers, so its series start with the first read of Orchard. A series that
+falls to zero reports 0, and does not stop. The ages are computed when the collector reads them,
+so they keep rising while the loop is stuck. The liveness check fails after 15 minutes without a
+finished tick, and the platform then restarts the process.
+
+An alert that compares a value does not fire on a series that does not exist. For each alert on
+the controller, also alert when its series is absent for the `service.instance.id` of the
+controller, which covers a process that does not start or that crashes in a loop.
+
+`cicd.system.errors` counts a call once, after its last try. The client tries a call again after
+a failure in transport, a 5xx status, or 429, inside the time limit of the call, and those tries
+show only in `http.client.request.duration` with `http.response.status_code`. `error.type` is
+`unauthorized` for a credential that the system refused (401 from Buildkite, and 401 or 403 from
+Orchard), `rate_limited` for 429, `timeout` for a call that reached its time limit, and `_OTHER`
+for each other failure. An answer about one job, such as a job that ended or a VM that exists, is
+not a failure of the system. The calls of `bk_agent_stack_orchard.operation`:
+
+| Component | Operations |
+|---|---|
+| `buildkite` | `register`, `deregister`, `scheduled_jobs`, `reserve`, `tokens`, `states`, `finish`, `notify` |
+| `orchard` | `create_vm`, `list_vms`, `delete_vm`, `list_workers`, `events` |
+
+The states of `bk_agent_stack_orchard.slot.state` count the slots of the online hosts of a pool
+as admission counts them. `total` is `used` plus `reserved`, `unavailable`, and `free`, while no
+host carries more VMs than it advertises:
+
+| State | The slots |
+|---|---|
+| `total` | Every slot of the online hosts. |
+| `used` | Slots that a VM of any owner holds. |
+| `reserved` | Open slots that a VM will take: a VM that Orchard holds and no host runs yet, or a VM that the controller asked for and has not seen yet. |
+| `unavailable` | Open slots of a host that admission does not use: an operator paused it, or no profile has its labels. |
+| `free` | Open slots that admission can give a new VM, when the host also has the cores and the memory of the profile. |
+
+A host that stopped answering has no slots. `bk_agent_stack_orchard.host.count` with the state
+`offline` shows it. The first signs of a full fleet are `bk_agent_stack_orchard.vm.count` with the
+phase `unplaced`, `bk_agent_stack_orchard.job.waiting.count`, and
+`bk_agent_stack_orchard.vm.deletions` with the reason `unplaced_timeout`.
+
+The outcomes of `bk_agent_stack_orchard.vm.start.outcome`. Each outcome but `created` leaves the
+job reserved with no VM, and Buildkite schedules the job again when the reservation ends
+(`reservationExpiry`):
+
+| Outcome | What happened |
+|---|---|
+| `created` | Orchard accepted the VM. |
+| `create_failed` | The create failed, for example because Orchard refused it. The job page says "VM request failed". `cicd.system.errors` with the operation `create_vm` gives the cause. |
+| `no_token` | Buildkite issued no token for the job, so the controller asked for no VM. |
+| `not_sent` | The controller did not send the create, because Orchard did not answer an earlier create of the tick, or the step ran out of time. |
+
+The two gauges of the waiting jobs read the last read of the queue at each tick, also while
+admission is stopped. A read that did not list the whole queue (`queue.truncated`) does not count
+the jobs behind its last page. While a source does not answer, the last read of the queue stays,
+so the count stays and the age rises.
+
+The reasons of `bk_agent_stack_orchard.admission.reason`. Admission starts no VM while one of them
+holds:
+
+| Reason | Why admission stopped |
+|---|---|
+| `queue_unread` | The controller has not read the queue since it started. |
+| `queue_paused` | An operator paused the queue in Buildkite. |
+| `scheduled_jobs_stale` | The last read of the queue is older than `stateFreshness`. |
+| `inventory_unanswered` | Orchard has not answered since the start. |
+| `inventory_stale` | The last answer of Orchard is older than `stateFreshness`. |
+| `job_states_unanswered` | The job states have not answered since the start, so no reaper pass has seen the VMs of the last process. |
+| `job_states_stale` | The last job states are older than `stateFreshness`. |
 
 The phases of `bk_agent_stack_orchard.job.phase.duration`:
 
@@ -56,7 +136,16 @@ The phases of `bk_agent_stack_orchard.job.phase.duration`:
 | `total` | the job is scheduled | the agent takes the job |
 
 The controller sees a change at each read, so each phase is accurate to about `jobStatesInterval`
-(5 s).
+(5 s). The histogram counts what this process saw, and not jobs:
+
+* `scheduled_to_reserved` counts each reservation. A job whose reservation lapses, and that the
+  controller reserves again, counts again, from the scheduled time that the queue gives it then.
+* The phases after it count only the jobs that this process reserved. A restart loses the times
+  of the jobs that the process before it started, so those jobs have no `total`.
+* `finished_to_deleted` starts again after a restart, at the first tick that sees the ended job.
+
+Build a ratio on `bk_agent_stack_orchard.vm.starts` for the starts, and on this histogram for the
+times of the starts that this process saw.
 
 The reasons of `bk_agent_stack_orchard.vm.delete.reason`:
 
@@ -64,7 +153,7 @@ The reasons of `bk_agent_stack_orchard.vm.delete.reason`:
 |---|---|
 | `job_terminal` | The job ended. This is the normal reason. |
 | `job_unknown` | Buildkite does not know the job. |
-| `reservation_lapsed` | The reservation expired before the agent took the job, so the job is back in the queue. |
+| `reservation_lapsed` | The reservation expired before the agent took the job, so the job is back in the queue. Or Buildkite refused to extend the reservation, so another stack can hold the job. The controller does not fail the job in either case. |
 | `vm_failed` | Orchard reports the VM as failed. |
 | `unplaced_timeout` | No host took the VM in time. The job goes back to the queue. |
 | `boot_timeout` | The VM did not start in time. The job failed. |
@@ -75,24 +164,75 @@ The reasons of `bk_agent_stack_orchard.vm.delete.reason`:
 ## Traces
 
 Each Buildkite job has one trace, and the trace ID is the job UUID without its dashes. To find the
-trace of a job, search your backend for that ID. The trace holds the spans of the controller for the
-job: `job.match`, `job.admit`, `stacks.reserve`, `stacks.issue_token`, `orchard.vm.create`,
-`reaper.decide`, `stacks.finish_job`, and `orchard.vm.delete`, with the steps of the VM as events.
-`job.match` has the attributes `bk_agent_stack_orchard.job.matched`,
-`bk_agent_stack_orchard.profile`, and, for a job that no profile carries,
-`bk_agent_stack_orchard.job.skipped`. `reaper.decide` has `bk_agent_stack_orchard.vm.phase`,
-`bk_agent_stack_orchard.job.state`, `bk_agent_stack_orchard.reaper.decision`,
-`bk_agent_stack_orchard.reaper.reason`, and `bk_agent_stack_orchard.reaper.row`.
-Each step of the loop (`tick.poll`, `tick.inventory`, `tick.job_states`, `tick.reap`, `tick.admit`)
-is a short trace of its own, with links to the jobs that it affected.
+trace of a job, search your backend for that ID. The trace has no root span, because no process
+of the controller lives as long as a job. Each step of the loop is a short trace of its own, with
+links to the job spans that it wrote.
+
+| Span | Trace | What it covers | Attributes |
+|---|---|---|---|
+| `job.match` | job | The first time that this process sees the job in the queue. A job that no profile carries has the event `no profile`, with the reason in `bk_agent_stack_orchard.match.reason`. | `bk_agent_stack_orchard.job.matched`, `bk_agent_stack_orchard.profile`, `bk_agent_stack_orchard.job.skipped` |
+| `job.admit` | job | Admission starts the job. | `bk_agent_stack_orchard.profile` |
+| `stacks.reserve` | job | The reservation of the job, and each extension of it. | `bk_agent_stack_orchard.job.reserved`, and `bk_agent_stack_orchard.reservation.extension` on an extension |
+| `stacks.issue_token` | job | The token call of the job. | `bk_agent_stack_orchard.job.token_issued` |
+| `orchard.vm.create` | job | The create of the VM. | |
+| `orchard.vm.change` | job | A step of the VM, as the event `placed` or `running`. | The events carry `bk_agent_stack_orchard.worker.name` and `bk_agent_stack_orchard.vm.name` |
+| `stacks.notify_skipped` | job | The skip notice of a job that no profile carries. | `bk_agent_stack_orchard.notification.refused` when Buildkite refused the line |
+| `reaper.decide` | job | One action of the reaper on the VM of the job. | `bk_agent_stack_orchard.vm.phase`, `bk_agent_stack_orchard.job.state`, `bk_agent_stack_orchard.reaper.decision`, `bk_agent_stack_orchard.reaper.reason`, `bk_agent_stack_orchard.reaper.row` |
+| `stacks.finish_job` | job | The finish of a job that the controller fails, under `reaper.decide`. | |
+| `orchard.vm.events` | job | The read of the startup-script lines for a finish, under `reaper.decide`. | |
+| `orchard.vm.delete` | job | The delete of the VM, under `reaper.decide`. | |
+| `tick.poll`, `tick.inventory`, `tick.job_states`, `tick.reap`, `tick.admit` | its own | One step of the loop. It links to each job span of the step. | |
+
+One call to Buildkite can reserve, or get the tokens of, several jobs. Each job then has its own
+`stacks.reserve` or `stacks.issue_token` span with the answer for that job, and the HTTP span of
+the call is under the step of the loop. The HTTP clients add the spans of `otelhttp`. A span whose
+work failed has the status Error and an `exception` event.
 
 ## Logs
 
-Each record goes to the collector and to standard output, in the same shape. When they are known, a
-record has the job (`cicd.pipeline.task.run.id`), the pipeline (`cicd.pipeline.name`), the build
-(`cicd.pipeline.run.id`), the VM (`bk_agent_stack_orchard.vm.name`), the profile, and the host
-(`bk_agent_stack_orchard.worker.name`), and the trace and span when one is active. Each time the
-controller acts on a VM, it writes one record with the reason.
+Each record goes to the collector and to standard output, in the same shape, which is the log data
+model of OpenTelemetry. A record carries the trace and the span when one is active. A record about
+one job carries the trace of that job, also when one call covered several jobs. Each time the
+controller acts on a VM, it writes one record with the row and the reason.
+
+The resource of each signal has `service.name`, `service.instance.id` (the `controllerID`), and
+`service.version` when the build has a version. A release build has the version of the release,
+and a build from the source has the version that Go stamps from the commit.
+
+A record has these keys when they are known:
+
+| Key | What it holds |
+|---|---|
+| `cicd.pipeline.task.run.id` | The Buildkite job |
+| `cicd.pipeline.name` | The pipeline |
+| `cicd.pipeline.run.id` | The build |
+| `bk_agent_stack_orchard.vm.name` | The VM |
+| `bk_agent_stack_orchard.profile` | The profile |
+| `bk_agent_stack_orchard.worker.name` | The Mac host |
+| `exception.type`, `exception.message` | The error of the record. The type is the type of the cause, under the wrappers that say nothing of it |
+| `bk_agent_stack_orchard.reaper.row`, `bk_agent_stack_orchard.reaper.reason`, `bk_agent_stack_orchard.reaper.decision` | The row of the decision table, the reason, and the action of the reaper |
+| `bk_agent_stack_orchard.vm.phase`, `bk_agent_stack_orchard.job.state` | The phase of the VM and the state of the job, on the warning that no row of the decision table matches |
+| `bk_agent_stack_orchard.match.reason` | Why no profile carries a job that the controller skips |
+| `bk_agent_stack_orchard.admission.reason` | Why admission stopped, on the debug record of the gate |
+| `bk_agent_stack_orchard.detail` | A sentence that says more, such as why admission stopped, or the reason of a refusal of Buildkite |
+| `bk_agent_stack_orchard.tick.step` | The step of the loop that failed |
+| `bk_agent_stack_orchard.tick.interval` | The interval of the tick, when the loop starts |
+| `bk_agent_stack_orchard.registration.attempt`, `bk_agent_stack_orchard.registration.wait` | The number of a registration that failed because Buildkite did not answer, and the wait before the next one |
+| `bk_agent_stack_orchard.readiness.reasons` | Each reason that the controller is not ready |
+| `bk_agent_stack_orchard.loop.heartbeat.age`, `bk_agent_stack_orchard.loop.stall_bound` | The time since the last tick, and the bound after which liveness fails |
+| `bk_agent_stack_orchard.job.count`, `bk_agent_stack_orchard.vm.count` | The jobs or the VMs that a record is about, such as the reserved jobs that got no VM in a tick |
+| `bk_agent_stack_orchard.notification.count`, `bk_agent_stack_orchard.notification.refused_count`, `bk_agent_stack_orchard.notification.failed_calls` | The lines of a request to the job pages, the lines that Buildkite refused, and the requests that failed |
+| `bk_agent_stack_orchard.queue.pages`, `bk_agent_stack_orchard.queue.page_size`, `bk_agent_stack_orchard.queue.pipeline_jobs` | On the warning that the queue is longer than one read: the pages of a read, the jobs of a page, and the jobs of the read of the pipeline that `cicd.pipeline.name` names |
+
+## Host signals from Orchard
+
+The controller sees each Mac host only through the Orchard API, which gives the slots, the cores,
+and the memory of a host, and not its disk. Each Orchard worker sends its own metrics to the
+collector that `orchard_worker_otlp_endpoint` names, such as the pull time of an image
+(`org.cirruslabs.orchard.worker.vm.pull_time`), and the Orchard controller sends the resources of
+each worker (`org.cirruslabs.orchard.controller.worker_resource`). Watch the disk of each host with
+an agent of your own on the host. A host with a full disk fails each VM, which shows as failures
+on one host (`bk_agent_stack_orchard.worker.name`).
 
 ## The agent in each VM
 
@@ -111,10 +251,13 @@ fleet. These conditions are a good start:
 |---|---|---|---|
 | Jobs wait too long | `bk_agent_stack_orchard.job.waiting.oldest.age` rises and stays high. | Jobs wait longer than your wait objective. The fleet is full, or no host carries the profile. | [A job stays scheduled](troubleshooting.md#a-job-stays-scheduled) |
 | The controller is not ready | `bk_agent_stack_orchard.source.staleness` of a source rises and stays high. | The controller has no fresh answer from Buildkite or Orchard, so it starts no VM. | [A job stays scheduled](troubleshooting.md#a-job-stays-scheduled), the row about readiness |
+| Admission is stopped | `bk_agent_stack_orchard.admission.blocked` stays at 1 for a reason. | The controller starts no VM, and the reason says why. `queue_paused` is a choice of an operator. | [A job stays scheduled](troubleshooting.md#a-job-stays-scheduled) |
+| VMs do not start | `bk_agent_stack_orchard.vm.starts` with an outcome other than `created` keeps going up. | The controller reserves jobs and gets no VM for them, so each job waits for its reservation to end. | [A job stays scheduled](troubleshooting.md#a-job-stays-scheduled) |
 | The controller fails jobs | `bk_agent_stack_orchard.job.failed` keeps going up. | VMs fail, or time out before an agent takes the job. | [A job fails before it runs](troubleshooting.md#a-job-fails-before-it-runs) |
 | Timeouts repeat | `bk_agent_stack_orchard.vm.deletions` with a reason that ends in `_timeout` keeps going up. | VMs do not reach a host, boot, or start an agent in time. | [A job fails before it runs](troubleshooting.md#a-job-fails-before-it-runs) |
 | VMs remain | `bk_agent_stack_orchard.vm.leftover` rises and stays high. Ignore it while Buildkite is down. | The controller does not delete the VMs of ended jobs. | [VMs remain after their jobs](troubleshooting.md#vms-remain-after-their-jobs) |
 | Orphans exist | `bk_agent_stack_orchard.vm.deletions` with the reason `orphan` goes up. | A VM with the name prefix of this controller has no job. Two controllers can have the same `controllerID`. | [VMs remain after their jobs](troubleshooting.md#vms-remain-after-their-jobs) |
-| The fleet is full | `bk_agent_stack_orchard.slot.count` with the state `free` stays at 0. | Every slot is in use, so new jobs wait. | [A job stays scheduled](troubleshooting.md#a-job-stays-scheduled) |
+| The fleet is full | `bk_agent_stack_orchard.slot.count` with the state `free` stays at 0. | Admission has no slot for a new VM, so new jobs wait. The states `reserved` and `unavailable` say whether VMs are on their way or hosts are paused. | [A job stays scheduled](troubleshooting.md#a-job-stays-scheduled) |
+| Hosts are lost | `bk_agent_stack_orchard.host.count` with the state `offline` goes up. | A Mac host stopped answering Orchard, and its slots are gone. | Check the host and its Orchard worker. |
 | The queue is longer than one read | `bk_agent_stack_orchard.queue.truncated` keeps going up. | Jobs that never leave the queue fill its head, so jobs behind them wait longer. | [A job stays scheduled](troubleshooting.md#a-job-stays-scheduled) |
 | Unknown worker | The Orchard metric `org.cirruslabs.orchard.controller.worker_resource` shows a `worker` value that is not in your list of hosts. | A worker registered with a name that no host of your fleet has, for example with a stolen host token. Orchard does not tie a worker name to an account, so this is the only sign of such a worker. It does not show a known name that another host uses. The project has not yet seen this series in a collector, so check that your collector receives it. | [Revoke one host](runbooks/orchard-worker-accounts.md#revoke-one-host) |

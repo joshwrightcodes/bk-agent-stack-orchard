@@ -12,11 +12,14 @@ reason. [Telemetry](telemetry.md) lists the reasons and the metrics.
 | What you see | Cause | What to do |
 |---|---|---|
 | The job page says that no profile carries the job | The tags of the job, without `queue`, equal no `match` map. The match is exact. | Change the `agents:` of the step, or add a profile with that `match` map. |
-| No line on the job page | The controller does not serve the queue, or does not run. | Check `buildkite.queue`, and that the controller is ready. |
+| No line on the job page | The controller does not serve the queue, or does not run. Or Buildkite issued no token for the job, so the controller started no VM. | Check `buildkite.queue`, and that the controller is ready. Read `bk_agent_stack_orchard.vm.starts` with the outcome `no_token`. |
+| "VM request failed" | Orchard refused the create of the VM, or did not answer. The job returns to the queue when its reservation ends, and the controller tries again. | Read `cicd.system.errors` with the operation `create_vm`, and the controller log. A refusal after an Orchard upgrade can mean that Orchard no longer accepts a field of the VM. |
 | "VM requested", then nothing | No Mac host has a free slot, or none has the `workerLabels` of the profile. | Check `bk_agent_stack_orchard.slot.count` with the state `free`, the workers in Orchard, and their labels. After `unplaced` (2 min), the VM is deleted and the job waits again. |
 | The job waits while other jobs run | Each Mac host runs at most two VMs. | Add hosts, or wait. `bk_agent_stack_orchard.job.waiting.oldest.age` shows the wait. |
 | The log warns that the queue is longer than one read | Many jobs that never leave the queue, such as jobs that no profile carries, are at the head of the queue. Each tick, the controller reads the head and one more page, so a job behind them waits longer. | The warning names the pipeline that has the most jobs of the read. Cancel the build of that pipeline, or fix the `agents:` of its steps. |
 | The controller log says that it is not ready | Buildkite or Orchard does not answer, or Buildkite refused the agent token. | Fix the connection or the token. The log names the source. |
+| `cicd.system.errors` with `orchard` and `unauthorized` goes up | Orchard refused the token of the service account of the controller, for example after a rotation. The inventory then gets old, and admission stops. | Give the controller the current token of its Orchard account, and restart it. |
+| No job starts, and `bk_agent_stack_orchard.admission.blocked` is 1 for a reason | The reason says why admission stopped: a queue that the controller has not read or that an operator paused, or a source that has not answered or whose answer is old. | For `queue_paused`, resume the queue in Buildkite. For a source, fix the connection to Buildkite or Orchard, and read `bk_agent_stack_orchard.source.staleness`. |
 
 ## A job fails before it runs
 
@@ -28,6 +31,8 @@ reason. [Telemetry](telemetry.md) lists the reasons and the metrics.
 | `does not match agent.sha256` | The archive at `agent.url` is not the one that `agent.sha256` names. | Set the pair of the release that you want, together. |
 | `the image has "buildkite-agent version 3…"` | The profile uses the agent of the image (`agent.source: image`), and the image has another major version. | Put agent v4 in the image, or use `agent.source: download`. |
 | The reason that Orchard gives for a failed VM | Orchard or Tart could not run the VM: a missing image, a disk smaller than the image, or a host problem. | Read the reason. Check `diskSizeGB`, the image reference, and the log of the Orchard worker. |
+| Failures of many jobs on one Mac host | `bk_agent_stack_orchard.job.failed` or `bk_agent_stack_orchard.vm.deletions` goes up for one `bk_agent_stack_orchard.worker.name`. A host with a full disk or a broken Tart fails each VM fast, frees its slot at once, and so gets many new VMs. | Pause scheduling on the worker in Orchard, so that admission skips it, and repair the host. |
+| Failures of many jobs of one profile | The same counters go up for one `bk_agent_stack_orchard.profile` on several hosts. | Check the image and the timeouts of the profile. |
 
 ## A job fails while it runs
 

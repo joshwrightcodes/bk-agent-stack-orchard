@@ -35,11 +35,13 @@ type Stacks interface {
 	Notify(ctx context.Context, notifications []buildkite.Notification) error
 }
 
-// Reservations gives when the reservation of a job ends, and extends reservations. The launcher
-// holds both, because it makes the reservations and knows their expiry.
+// Reservations gives when the reservation of a job ends, extends reservations, and gives when
+// Buildkite refused an extension. The launcher holds all three, because it makes the reservations
+// and knows their expiry.
 type Reservations interface {
 	ReservedUntil(id job.ID) (time.Time, bool)
 	Extend(ctx context.Context, ids []job.ID) error
+	RefusedAt(id job.ID) time.Time
 }
 
 // States gives what Buildkite said about a job, and when the controller asked.
@@ -296,7 +298,7 @@ func (r *Reaper) Reap(ctx context.Context) error {
 		failures++
 
 		r.logger.ErrorContext(ctx, "the reaper could not extend the reservations of the machines "+
-			"that start", "jobs", len(extend), "error", err)
+			"that start", telemetry.LogJobs, len(extend), telemetry.LogError, err)
 	}
 
 	step, cancel := context.WithTimeout(ctx, r.budget)
@@ -326,7 +328,7 @@ func (r *Reaper) Reap(ctx context.Context) error {
 
 	if left > 0 {
 		r.logger.WarnContext(ctx, "the reaper stopped its pass early, because an API did not "+
-			"answer or the step ran out of time, and the next tick decides again", "machines", left)
+			"answer or the step ran out of time, and the next tick decides again", telemetry.LogVMs, left)
 	}
 
 	r.write(ctx, lines)
@@ -393,6 +395,8 @@ func (r *Reaper) collect(snapshot inventory.Snapshot) []Machine {
 		if until, known := r.reservations.ReservedUntil(owned.Job); known {
 			machine.ReservedUntil = until
 		}
+
+		machine.RefusedAt = r.reservations.RefusedAt(owned.Job)
 
 		// A job that the controller has not asked about has no state, and not an empty one.
 		if observation, asked := r.states.Observed(owned.Job); asked {
@@ -475,15 +479,15 @@ func (r *Reaper) carry(ctx context.Context, t task) result {
 			// this finish read. The last one runs a build, so the machine stays in this pass,
 			// and the next state decides: an agent keeps it, and a job that ended loses it.
 			r.logger.InfoContext(ctx, "buildkite refused to end a job, and the next job state "+
-				"decides what happens to its machine", append(fields, "error", err)...)
+				"decides what happens to its machine", append(fields, telemetry.LogError, err)...)
 
 			done.refused = true
 
 			return done
 		default:
-			span.RecordError(err)
+			telemetry.Fail(span, err)
 			r.logger.ErrorContext(ctx, "the reaper could not end a job",
-				append(fields, "error", err)...)
+				append(fields, telemetry.LogError, err)...)
 
 			done.err = err
 
@@ -492,9 +496,9 @@ func (r *Reaper) carry(ctx context.Context, t task) result {
 	}
 
 	if err := r.delete(ctx, machine); err != nil {
-		span.RecordError(err)
+		telemetry.Fail(span, err)
 		r.logger.ErrorContext(ctx, "the reaper could not delete a machine",
-			append(fields, "error", err)...)
+			append(fields, telemetry.LogError, err)...)
 
 		done.err = err
 
@@ -520,8 +524,10 @@ func (r *Reaper) settle(ctx context.Context, t task, done result,
 		r.refused[machine.Job] = true
 	}
 
+	where := r.failure(machine)
+
 	if done.finished {
-		r.metrics.Failed(ctx, decision.Reason)
+		r.metrics.Failed(ctx, where, decision.Reason)
 	}
 
 	// Why the machine failed comes before its removal on the job page, and it goes whether the
@@ -546,7 +552,7 @@ func (r *Reaper) settle(ctx context.Context, t task, done result,
 		r.ignored[machine.Job] = true
 	}
 
-	r.metrics.Deleted(ctx, decision.Reason)
+	r.metrics.Deleted(ctx, where, decision.Reason)
 	r.deleted(ctx, machine)
 
 	// The last step on the job page. Buildkite may refuse a line for a job that ended, which
@@ -563,7 +569,7 @@ func (r *Reaper) finish(ctx context.Context, machine Machine, decision Decision)
 
 	err := r.stacks.Finish(ctx, machine.Job, failedExitStatus, detail)
 	if err != nil && !errors.Is(err, buildkite.ErrTerminal) {
-		span.RecordError(err)
+		telemetry.Fail(span, err)
 	}
 
 	return err
@@ -582,9 +588,9 @@ func (r *Reaper) script(ctx context.Context, machine Machine, decision Decision)
 
 	events, err := r.machines.Events(ctx, machine.VM.Name)
 	if err != nil {
-		span.RecordError(err)
+		telemetry.Fail(span, err)
 		r.logger.WarnContext(ctx, "the reaper could not read the startup script of a machine",
-			telemetry.LogJob, string(machine.Job), telemetry.LogVM, machine.VM.Name, "error", err)
+			telemetry.LogJob, string(machine.Job), telemetry.LogVM, machine.VM.Name, telemetry.LogError, err)
 
 		return nil
 	}
@@ -619,10 +625,10 @@ func (r *Reaper) write(ctx context.Context, lines []buildkite.Notification) {
 		case err == nil:
 		case errors.Is(err, buildkite.ErrRefused):
 			r.logger.DebugContext(ctx, "buildkite refused some lines of the reaper",
-				"lines", len(batch), "error", err)
+				telemetry.LogLines, len(batch), telemetry.LogError, err)
 		default:
 			r.logger.WarnContext(ctx, "the reaper could not write to the job pages",
-				"lines", len(batch), "error", err)
+				telemetry.LogLines, len(batch), telemetry.LogError, err)
 		}
 
 		// A Buildkite that does not answer would hold each later request for its whole time
@@ -711,6 +717,17 @@ func (r *Reaper) deleted(ctx context.Context, machine Machine) {
 	r.metrics.JobPhase(ctx, name, telemetry.PhaseFinishedToDeleted, r.now().Sub(began))
 }
 
+// failure gives the profile and the host of a machine, for the failure counters. An orphan has no
+// job, and a machine of no known profile counts under inventory.UnknownProfile.
+func (r *Reaper) failure(machine Machine) telemetry.Failure {
+	name := r.nameOf(inventory.Owned{VM: machine.VM, Job: machine.Job})
+	if name == "" {
+		name = inventory.UnknownProfile
+	}
+
+	return telemetry.Failure{Profile: name, Worker: machine.VM.Worker}
+}
+
 // nameOf gives the profile of a machine: the one that this process started it with, or else the
 // one that its tags name, when the configuration has it.
 func (r *Reaper) nameOf(owned inventory.Owned) string {
@@ -723,5 +740,10 @@ func (r *Reaper) delete(ctx context.Context, machine Machine) error {
 	ctx, span := r.tracer.Start(ctx, "orchard.vm.delete")
 	defer span.End()
 
-	return r.machines.DeleteVM(ctx, machine.VM.Name)
+	err := r.machines.DeleteVM(ctx, machine.VM.Name)
+	if err != nil {
+		telemetry.Fail(span, err)
+	}
+
+	return err
 }

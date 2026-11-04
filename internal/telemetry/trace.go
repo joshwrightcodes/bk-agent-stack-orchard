@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"strings"
 
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
 )
@@ -62,6 +64,65 @@ func StartJob(ctx context.Context, tracer trace.Tracer, id job.ID, name string,
 	return ctx, span
 }
 
+// Jobs is one span of the same work in the trace of each of several jobs, such as one call that
+// reserves them all. A span can be in one trace only, and the trace of each job must show the call
+// and what it gave that job, so the call gets one span for each job. The call itself runs in the
+// context of the tick, which links to each of these spans.
+type Jobs struct {
+	spans map[job.ID]trace.Span
+}
+
+// StartJobs starts a span of the name in the trace of each job, with StartJob. A job that the list
+// names twice gets one span.
+func StartJobs(ctx context.Context, tracer trace.Tracer, ids []job.ID, name string,
+	options ...trace.SpanStartOption,
+) *Jobs {
+	jobs := &Jobs{spans: make(map[job.ID]trace.Span, len(ids))}
+
+	for _, id := range ids {
+		if _, started := jobs.spans[id]; started {
+			continue
+		}
+
+		_, jobs.spans[id] = StartJob(ctx, tracer, id, name, options...)
+	}
+
+	return jobs
+}
+
+// Context gives the context with the span of a job, so that a log record about the job carries
+// its trace. A job outside the batch keeps the context as it is.
+func (j *Jobs) Context(ctx context.Context, id job.ID) context.Context {
+	if span, started := j.spans[id]; started {
+		return trace.ContextWithSpan(ctx, span)
+	}
+
+	return ctx
+}
+
+// Span gives the span of a job, and a span that records nothing for a job outside the batch.
+func (j *Jobs) Span(id job.ID) trace.Span {
+	if span, started := j.spans[id]; started {
+		return span
+	}
+
+	return noop.Span{}
+}
+
+// Fail records the error of the call on the span of each job.
+func (j *Jobs) Fail(err error) {
+	for _, span := range j.spans {
+		Fail(span, err)
+	}
+}
+
+// End ends the span of each job.
+func (j *Jobs) End() {
+	for _, span := range j.spans {
+		span.End()
+	}
+}
+
 // TraceID gives the trace identifier of a job, which is the 128 bits of its Buildkite UUID.
 // Because of this, a person who has the job page can find the trace, and every span of the job
 // is in that one trace.
@@ -106,4 +167,12 @@ func TraceParent(ctx context.Context) string {
 	propagation.TraceContext{}.Inject(ctx, carrier)
 
 	return carrier.Get("traceparent")
+}
+
+// Fail records an error on a span and sets the status Error. A span that records an error and
+// keeps the status Unset shows as a success in a backend, so every part calls this and not
+// RecordError.
+func Fail(span trace.Span, err error) {
+	span.RecordError(err) //nolint:forbidigo // the one place that records an error
+	span.SetStatus(codes.Error, err.Error())
 }

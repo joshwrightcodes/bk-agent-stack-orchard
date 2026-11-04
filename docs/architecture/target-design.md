@@ -873,7 +873,7 @@ The Reaper MUST examine each owned VM at each tick. The first row that matches a
 | 3 | Any | Not causally fresh, or stale | No action. | — |
 | 4 | Any | Terminal: `finished`, `canceled`, `expired`, `timed_out`, `skipped`, `broken` | Delete the VM. | `job_terminal` |
 | 5 | Any | Unknown to Buildkite: two get-states answers in a row leave it out (rule 4) | Delete the VM. Ignore the job. After one such answer, no action. | `job_unknown` |
-| 6 | Any | `scheduled` (the reservation expired) | Delete the VM. | `reservation_lapsed` |
+| 6 | Any | `scheduled` (the reservation expired), or `reserved` after Buildkite answered `not_reserved` to an extension of row 13 | Delete the VM. Do not finish the job. | `reservation_lapsed` |
 | 7 | `failed` | An agent owns the job: `assigned`, `accepted`, `running`, `canceling`, `timing_out` | Send a notification with `status_message`. Delete the VM. | `vm_failed` |
 | 8 | Not `failed` | An agent owns the job | No action. | — |
 | 9 | `failed` | `reserved`, asked for in this tick (rule 3) | Finish the job (`-1`, `status_message`, and the last 50 startup-script log lines when the script wrote any). Delete the VM. | `vm_failed` |
@@ -881,6 +881,14 @@ The Reaper MUST examine each owned VM at each tick. The first row that matches a
 | 11 | `pending`, a worker is set, and the age since the first answer that showed a worker is more than `boot` (15 min) | `reserved`, asked for in this tick (rule 3) | Finish the job (`-1`, `status_message`). Delete the VM. | `boot_timeout` |
 | 12 | `running`, and the age since the first answer that showed it `running` is more than `acquire` (5 min) | `reserved`, asked for in this tick (rule 3) | Finish the job (`-1`, the last 50 startup-script log lines from `GET /v1/vms/{name}/events`). Delete the VM. | `acquire_timeout` |
 | 13 | `pending` or `running` | `reserved` | Extend the reservation when `reservedUntil − now` is less than `reservationRenewBefore` (120 s). If `reservedUntil` is unknown, extend it immediately. | — |
+
+Row 6 also applies when Buildkite answered `not_reserved` to an extension. Another stack can hold
+the job, so this VM cannot acquire it, and a finish of rows 9, 11, or 12 would end a job that this
+stack does not hold. An agent can also acquire the job just before the extension, and Buildkite
+refuses that extension too. Because of this, row 6 waits for a job state that the controller asked
+for after it sent the refused extension: a `reserved` state deletes the VM, and an acquired state
+goes to rows 7 and 8. A reservation that Buildkite grants again ends the refusal. A restart loses
+it, and the first extension after the restart then gets the same answer.
 
 A row that finishes a job and whose job state is from an earlier tick does not apply. A failed VM
 then waits with no action, and row 13 applies to a `pending` or `running` VM. After Buildkite
@@ -976,6 +984,7 @@ At start-up, before the first Admission, the controller MUST do these steps:
 | The Buildkite API is not available, or applies a rate limit | The controller obeys `Retry-After`. JobStates data becomes stale. The controller does not reserve or finish jobs. The controller deletes VMs only for rows 1 and 2. |
 | A worker is offline | After the worker offline timeout (3 min), Orchard sets the VMs of the worker to `failed`. Rows 7 and 9 apply. `restart_policy: Never` prevents a new VM for the same job on a different worker. |
 | The get-states answer names none of the jobs | JobStates counts it as a failed call, and its data becomes stale (§7.1, rule 4). The result is the same as for a Buildkite outage of the get-states call only: admission stops while owned VMs exist, and the Reaper deletes VMs only by rows 1 and 2. |
+| Orchard refuses the creates, for example after an upgrade that no longer accepts a field of the VM | The Launcher counts each refused create as `create_failed` in `bkaso.vm.starts` and writes "VM request failed" on the job page (§10.5). The job keeps its reservation with no VM, and returns to the queue when the reservation ends. Admission then starts it again, so the job loops until Orchard accepts the create. |
 | The queue is `dispatch_paused` | Admission stops. The controller does not write new notifications for unmatched jobs. The Reaper continues for existing VMs. |
 
 An API that accepts calls and does not answer is an outage of the same kind. Each call ends at
@@ -1270,18 +1279,23 @@ The name that an operator queries has the full prefix.
 |---|---|---|
 | UpDownCounter | `bkaso.job.waiting.count` (`{job}`) | `bkaso.profile` |
 | Gauge | `bkaso.job.waiting.oldest.age` (`s`) | `bkaso.profile` |
+| Gauge | `bkaso.admission.blocked` (`{gate}`) | `bkaso.admission.reason` = `queue_unread`/`queue_paused`/`scheduled_jobs_stale`/`inventory_unanswered`/`inventory_stale`/`job_states_unanswered`/`job_states_stale` |
 | Counter | `bkaso.job.skipped` (`{job}`) | — |
 | Counter | `bkaso.queue.truncated` (`{read}`) | — |
-| Counter | `bkaso.job.failed` (`{job}`) | `error.type` |
-| UpDownCounter | `bkaso.slot.count` (`{slot}`) | `bkaso.pool`, `bkaso.slot.state` = `total`/`used`/`free` |
+| Counter | `bkaso.job.failed` (`{job}`) | `bkaso.profile`, `bkaso.worker.name`, `error.type` = `vm_failed`/`boot_timeout`/`acquire_timeout` |
+| UpDownCounter | `bkaso.slot.count` (`{slot}`) | `bkaso.pool`, `bkaso.slot.state` = `total`/`used`/`reserved`/`unavailable`/`free` |
+| UpDownCounter | `bkaso.host.count` (`{host}`) | `bkaso.pool`, `bkaso.host.state` = `online`/`offline`/`paused` |
 | UpDownCounter | `bkaso.vm.count` (`{vm}`) | `bkaso.profile`, `bkaso.vm.phase` = `unplaced`/`booting`/`running`/`failed` |
-| UpDownCounter | `cicd.worker.count` (`{worker}`) | `cicd.worker.state` = `available`/`busy`/`offline` |
+| UpDownCounter | `cicd.worker.count` (`{worker}`) | `cicd.worker.state` = `busy`/`offline` |
 | Histogram | `bkaso.job.phase.duration` (`s`) | `bkaso.profile`, `bkaso.job.phase` = `scheduled_to_reserved`/`reserved_to_placed`/`placed_to_running`/`running_to_accepted`/`finished_to_deleted`/`total` |
-| Counter | `bkaso.vm.deletions` (`{vm}`) | `bkaso.vm.delete.reason` (§7.2) |
-| Counter | `cicd.system.errors` (`{error}`) | `cicd.system.component` = `buildkite`/`orchard`, `error.type` |
+| Counter | `bkaso.vm.starts` (`{vm}`) | `bkaso.profile`, `bkaso.vm.start.outcome` = `created`/`create_failed`/`no_token`/`not_sent` |
+| Counter | `bkaso.vm.deletions` (`{vm}`) | `bkaso.profile`, `bkaso.worker.name`, `bkaso.vm.delete.reason` (§7.2) |
+| Counter | `cicd.system.errors` (`{error}`) | `cicd.system.component` = `buildkite`/`orchard`, `bkaso.operation`, `error.type` |
 | Histogram | `bkaso.tick.duration` (`s`) | `bkaso.tick.step` |
 | Gauge | `bkaso.vm.leftover` (`{vm}`) | — |
 | Gauge | `bkaso.source.staleness` (`s`) | `bkaso.source` = `scheduled_jobs`/`job_states`/`inventory` |
+| Gauge | `bkaso.loop.heartbeat.age` (`s`) | — |
+| Gauge | `bkaso.stack.registered` (`{stack}`) | — |
 
 These rules come from the conventions and MUST hold:
 
@@ -1293,21 +1307,64 @@ These rules come from the conventions and MUST hold:
   a gauge.
 * **A level comes from a callback.** The controller computes its levels from observed state at
   each tick, so it gives the whole observation and an asynchronous instrument reports it. A
-  series that leaves an observation stops, which is why a profile that no longer exists cannot
-  report its last count for ever.
+  series that the callback reported once and that leaves an observation MUST report 0. A series
+  that stops keeps its last value in many backends for minutes, so a count that fell to zero
+  would look like the count that it had.
+* **Every series exists from the start.** The series of each profile of the configuration, of
+  each closed set of values, and of each source MUST exist from the first observation, which the
+  loop gives before it registers the stack. An alert that compares a value does not fire on a
+  series that is absent. A pool is known only from the workers, so its series start with the
+  first answer of the Inventory.
 * **The worker of the conventions is the virtual machine**, because `cicd.worker` is the thing
-  that does the work of a job. The Mac host is not that worker, and the attribute for its name
-  is `bkaso.worker.name`.
+  that does the work of a job. A VM of this controller carries one job, so it is `busy` while it
+  runs and `offline` when it failed, and never `available`.
+* **The Mac host is not the worker of the conventions**, and the attribute for its name is
+  `bkaso.worker.name`.
 * **The controller MUST NOT define a metric for its own HTTP calls.** `otelhttp` gives
   `http.client.request.duration` with the attributes of the conventions, and a second instrument
   for the same measurement would disagree with it. A rate limit and a status that the controller
   cannot use are `cicd.system.errors`. The controller counts each call to either API that fails,
-  in one place in front of each API, with `error.type` = `unauthorized`, `rate_limited`,
-  `timeout`, or `_OTHER`. An answer about one job, such as a job that ended or a VM that exists,
-  is not an error of the system.
+  in one place in front of each API, with `error.type` = `unauthorized` (401 from Buildkite, 401
+  or 403 from Orchard), `rate_limited` (429), `timeout`, or `_OTHER`, and with the call in
+  `bkaso.operation`: `register`, `deregister`, `scheduled_jobs`, `reserve`, `tokens`, `states`,
+  `finish`, and `notify` for Buildkite, and `create_vm`, `list_vms`, `delete_vm`, `list_workers`,
+  and `events` for Orchard. A call counts once, after its last try. The tries inside a call show
+  only in `http.client.request.duration`. An answer about one job, such as a job that ended or a VM
+  that exists, is not an error of the system.
 * **`bkaso.source.staleness` is an age and not a time.** The readiness alert reads a number that
-  needs no clock of its own, and the value cannot disagree with the clock of the backend.
+  needs no clock of its own, and the value cannot disagree with the clock of the backend. The age
+  is computed when the collector reads it, so it keeps rising while the loop is stuck. A source
+  that has not answered since the start of the process is as old as the process.
+* **The waiting jobs come from the last read of the queue at each tick.** The controller MUST
+  count the waiting jobs and the age of the oldest one at each tick, also when the gate of
+  admission (§6.3) is closed, because an outage is when jobs wait longest. The age at the tick
+  grows by the real time until the collector reads it, so it keeps rising while the loop is
+  stuck. A truncated read does not count the jobs behind its last page.
+* **`bkaso.admission.blocked` says why admission stopped.** At each tick, the series of the
+  reason that closed the gate is 1, and every other series is 0. The reasons are the checks of
+  the gate in their order: the queue was not read or is paused, then a source that has not
+  answered or whose answer is older than `stateFreshness`.
+* **`bkaso.loop.heartbeat.age` is the age of the last tick.** It is the time since the loop last
+  finished a tick, computed when the collector reads it, and the age of the process before the
+  loop starts. Liveness fails when the loop has not finished a tick inside 15 min.
+  `bkaso.stack.registered` is 0 while the controller registers its stack (§7.4, step 1) and after
+  it withdrew it, and 1 between.
 
+* **`bkaso.slot.count` counts the slots as admission counts them.** For the online workers of a
+  pool, `total` is every slot and `used` is the slots that a VM of any owner holds. Admission
+  counts the open slots (§6.3): `reserved` is the room that the hypothetical placement gives to
+  unplaced VMs and to the VMs that this process requested, `unavailable` is the open slots of a
+  worker that is paused or that no profile has the labels of, and `free` is the rest. While no
+  worker carries more VMs than it advertises, `total` = `used` + `reserved` + `unavailable` +
+  `free`. A free slot also needs the cores and the memory of a profile, which the count does not
+  show. `bkaso.host.count` counts the workers that Orchard lists, by pool and state, so a worker
+  that goes offline stays visible after its slots leave `total`. The controller cannot see the
+  disk of a worker, because the Orchard API does not give it.
+* **`bkaso.vm.starts` counts each start of a reserved job.** The Launcher counts one outcome for
+  each reserved job of a tick: `created` when Orchard accepted the VM, `create_failed` when the
+  create failed, `no_token` when Buildkite issued no token, and `not_sent` when the step did not
+  send the create (§4). Each outcome but `created` leaves the job reserved with no VM until the
+  reservation ends (§7.4), so these starts are the denominator of a start success rate.
 * **`bkaso.vm.leftover` counts the owned VMs whose job is terminal.** At each tick, the controller
   counts the VMs in the last inventory whose job has a terminal state in the last job states
   (`finished`, `canceled`, `expired`, `timed_out`, `skipped`, or `broken`, the states of row 4 of
@@ -1331,11 +1388,20 @@ These rules come from the conventions and MUST hold:
   attribute `bkaso.profile` is `unknown` for a VM that this process did not start and whose tags
   name no profile of the configuration.
 
+`bkaso.job.failed` and `bkaso.vm.deletions` carry the profile and the Mac host of the VM, so that a
+bad image and a broken host each show apart from the fleet. The host is `none` for a VM that no
+worker took. The profiles are bounded by the configuration and the hosts by the fleet, so both are
+allowed on a metric.
+
 Metric attributes MUST NOT contain job UUIDs or VM names. The `bkaso.pool` attribute is the value
 of the worker `pool` label. If the worker has no `pool` label, the value is `none`.
 
 The controller observes phase changes at poll intervals. Because of this, phase durations have a
-tolerance of ±`jobStatesInterval`. Outgoing HTTP clients MUST use `otelhttp`.
+tolerance of ±`jobStatesInterval`. The histogram counts what one process saw, and not jobs:
+`scheduled_to_reserved` counts each reservation, so a job whose reservation lapsed counts again,
+and a restart loses the start times of the jobs of the process before it, so those jobs have no
+`total`. Outgoing HTTP clients MUST use `otelhttp`, which gives `http.client.request.duration` and
+`http.client.request.body.size`, one record for each try of a call.
 
 **Cold or warm start: `UNKNOWN`.** The target of QA-01 is for an image that is on the host, but the
 controller cannot say if a start pulled the image. The events of a VM from Orchard 0.58.0 have one
@@ -1354,18 +1420,32 @@ real VMs; the attribute is added when they show a pull.
   Because of this, all spans of a job are in one trace, also after controller restarts. A person
   can find the trace from the job UUID.
 * **Spans:** `job.match`, `job.admit`, `stacks.reserve`, `stacks.issue_token`,
-  `orchard.vm.create`, `reaper.decide` (attributes `bkaso.vm.phase`, `bkaso.job.state`,
-  `bkaso.reaper.decision`, `bkaso.reaper.reason`), `stacks.finish_job`, `orchard.vm.delete`.
-  Orchard state changes (placement on a worker, `running`) are span events. A span carries
-  `cicd.pipeline.task.run.id` for its job, and the HTTP client spans come from `otelhttp`.
+  `orchard.vm.create`, `orchard.vm.change`, `stacks.notify_skipped`, `reaper.decide` (attributes
+  `bkaso.vm.phase`, `bkaso.job.state`, `bkaso.reaper.decision`, `bkaso.reaper.reason`,
+  `bkaso.reaper.row`), and, under `reaper.decide`, `stacks.finish_job`, `orchard.vm.events`, and
+  `orchard.vm.delete`. Each of these spans MUST be in the trace of its job. Orchard state changes
+  (placement on a worker, `running`) are events of `orchard.vm.change`. The HTTP client spans come
+  from `otelhttp`.
   `job.match` is written once for each job that a process sees in the queue, with
   `bkaso.job.matched` and `bkaso.profile`. When no profile matches, it also has the attribute
-  `bkaso.job.skipped` set to true, and the reason as the event `no profile`. A skip is not an
-  error of the controller, so the span has no error status. `job.admit` is written when admission
-  starts the job. `stacks.notify_skipped` is written when the controller writes skip notices. A
-  span at each tick would put one span each second into the trace of a job that waits.
+  `bkaso.job.skipped` set to true, and the event `no profile` with the reason in
+  `bkaso.match.reason`. A skip is not an error of the controller, so the span has no error status.
+  `job.admit` is written when admission starts the job. `stacks.notify_skipped` is written when the
+  controller writes the skip notice of the job. A span at each tick would put one span each second
+  into the trace of a job that waits.
+* **One call for several jobs.** One call to Buildkite reserves, extends, gets the tokens of, or
+  writes the skip notices of several jobs. A span can be in one trace only, and the trace of each
+  job MUST show the call and its answer for that job. Because of this, each job of the call gets
+  its own span of the call (`stacks.reserve`, `stacks.issue_token`, `stacks.notify_skipped`), with
+  the answer for the job: `bkaso.job.reserved`, `bkaso.job.token_issued`, or
+  `bkaso.notification.refused`. An extension has `bkaso.reservation.extension`. The call itself
+  runs under the tick span, which links to each of these spans. A log record about one job of the
+  call carries the trace of that job.
 * **Tick spans** (`tick.poll`, `tick.inventory`, `tick.job_states`, `tick.reap`, `tick.admit`)
   are separate short traces. They have span links to the job traces that they affect.
+* **Errors.** A span whose work failed MUST record the error as an `exception` event and MUST
+  have the status Error, so that a backend can find the failed spans. A refusal that is an answer
+  about one job, such as a finish of a job that ended, is not an error of the span.
 
 ### 10.3 Logs
 
@@ -1379,7 +1459,14 @@ contain `cicd.pipeline.task.run.id` (the Buildkite job), `cicd.pipeline.name`,
 `cicd.pipeline.run.id`, `bkaso.vm.name`, `bkaso.profile`, and `bkaso.worker.name` when these
 values are known. Buildkite has the shape that the CI/CD conventions describe, so a person with a
 backend of several CI systems can ask one question of all of them. Each Reaper
-action MUST write exactly one decision record with its table row and its `reason`.
+action MUST write exactly one decision record with its table row and its `reason`. A record about
+one job of a call for several jobs MUST carry the trace of that job (§10.2).
+
+Each other key of a record MUST be a constant of `internal/telemetry`, with the prefix of this
+project, or the name of a semantic convention, such as `exception.type`. A lint rule refuses a key
+that is not a constant. An error of a record becomes `exception.type` and `exception.message`, and
+`exception.type` names the type of the cause, under the wrappers of `fmt.Errorf` and of the retry
+policy. The user guide lists each key.
 
 ### 10.4 Agent telemetry (optional for each profile)
 
@@ -1412,11 +1499,14 @@ the job trace. The default value of `profile.otel.enabled` is false.
 
 ### 10.5 Buildkite stack notifications
 
-The controller MUST send a notification at each step: "VM requested", "placed on mac-03",
-"booting", "failed: …", and "VM deleted: …". Pipeline authors can then find problems from the
-job page.
+The controller MUST send a notification at each step: "VM requested", "VM request failed",
+"placed on mac-03", "booting", "failed: …", and "VM deleted: …". Pipeline authors can then find
+problems from the job page.
 
-The Launcher sends "VM requested" when it creates the VM. At each tick, before the Reaper, the
+The Launcher sends "VM requested" when it creates the VM, and "VM request failed" when the create
+fails. That line says that the job returns to the queue when its reservation ends. The cause stays
+in the log and in the trace of the job, because an answer of Orchard can repeat the VM
+specification. At each tick, before the Reaper, the
 controller compares each owned VM with what it saw before: it sends "placed on <worker>" when
 Orchard first gives the VM a worker, and "booting" when Orchard first reports the VM `running`,
 because macOS starts after that. The Reaper sends "failed: <status message>" for row 7, and
@@ -1447,11 +1537,14 @@ scope, because they depend on the backend behind the collector.
 |---|---|---|
 | Jobs wait too long | `bkaso.job.waiting.oldest.age` rises and stays high. | Jobs wait longer than the wait objective of the operator. The fleet is full, or no worker carries the profile. |
 | Controller is not ready | `bkaso.source.staleness` of a source rises and stays high. | The controller has no fresh answer from Buildkite or Orchard, so it starts no VM (§7.5). |
+| Admission is stopped | `bkaso.admission.blocked` stays at 1 for a reason. | The controller starts no VM. The reason names the source, or a queue that an operator paused. |
+| VMs do not start | `bkaso.vm.starts` with an outcome other than `created` keeps increasing. | The controller reserves jobs and gets no VM for them, so each job waits until its reservation ends (§7.5). |
 | Controller fails jobs | `bkaso.job.failed` keeps increasing. | VMs fail, or time out before an agent takes the job. |
 | Timeouts repeat | `bkaso.vm.deletions{bkaso.vm.delete.reason=~".*_timeout"}` keeps increasing. | VMs do not place, boot, or reach an agent within the timeouts of their profile (§7.3). |
 | VMs remain | `bkaso.vm.leftover` rises and stays high. Outages of Buildkite excluded. | The Reaper does not delete the VMs of ended jobs. A VM that stays in the count for longer than the window of §10.1 is a leak. |
 | Orphans exist | `bkaso.vm.deletions{bkaso.vm.delete.reason="orphan"}` increases. | A VM with the name prefix of this controller has no job. Two controllers can share a `controllerID` (§11). |
-| Fleet is full | `bkaso.slot.count{bkaso.slot.state="free"}` stays at 0. | Every slot is in use, so new jobs wait. |
+| Fleet is full | `bkaso.slot.count{bkaso.slot.state="free"}` stays at 0. | Admission has no slot for a new VM, so new jobs wait. `reserved` and `unavailable` say whether VMs are on their way or workers are paused. |
+| Workers are lost | `bkaso.host.count{bkaso.host.state="offline"}` increases. | A worker stopped answering Orchard, and its slots are gone. |
 | Queue is longer than one read | `bkaso.queue.truncated` keeps increasing. | Jobs behind the head of the queue wait for the sweep (§6.3). The usual cause is a flood of jobs that no profile carries. The warning of the read names the pipeline that has the most jobs of the read. |
 | Unknown worker | The Orchard metric `org.cirruslabs.orchard.controller.worker_resource` shows a `worker` value that is not in the list of hosts of the operator. | Orchard 0.58.0 does not tie a worker name to an account (§9.2), so this is the only signal of a stolen token that registers an unknown name. The metric has the attributes `worker`, `resource`, and `type`, and no account, so the alert does not see a host that registers a name that the operator knows, for example a stolen token that takes over the record of `mac-01`. That impersonation is not detected (residual risk, SECURITY.md). The operator keeps the list of host names in the alert rule, for example as a comparison that matches every `worker` value that is not one of `mac-01` and `mac-02`. The list MUST agree with the Secret. The metric is in `internal/controller/controller.go` (tag 0.58.0, read on 2026-11-02). Nobody has yet seen it in a running collector (test strategy, O-8). |
 

@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"syscall"
 	"time"
 
@@ -114,7 +115,7 @@ func serve(ctx context.Context, path, origin string, out, problems io.Writer) er
 	}
 
 	recorder, err := telemetry.Setup(ctx, telemetry.Options{
-		Version:      version,
+		Version:      serviceVersion(version, debug.ReadBuildInfo),
 		ControllerID: settings.ControllerID,
 		Output:       out,
 	})
@@ -260,7 +261,7 @@ func serveProbes(ctx context.Context, server *grpc.Server, listener net.Listener
 ) {
 	if err := server.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 		logger.ErrorContext(ctx, "the probe server stopped, so the platform cannot probe the "+
-			"controller", "error", err.Error())
+			"controller", telemetry.LogError, err)
 	}
 }
 
@@ -298,6 +299,23 @@ func probe(ctx context.Context, address string, checks *health.Checks, logger *s
 }
 
 // orUnknown gives a value that a development build left empty a name that a person can read.
+// serviceVersion gives the version that the telemetry of this process carries: the version of the
+// release build, or else the version that Go stamped from the module and its commit, such as the
+// pseudo-version of a ko build. A build of neither, such as go run, gives empty text, and the
+// telemetry then has no version.
+func serviceVersion(released string, read func() (*debug.BuildInfo, bool)) string {
+	if released != "" {
+		return released
+	}
+
+	info, ok := read()
+	if !ok || info.Main.Version == "(devel)" {
+		return ""
+	}
+
+	return info.Main.Version
+}
+
 func orUnknown(value string) string {
 	if value == "" {
 		return "unknown"

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -14,8 +15,13 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/admission"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/buildkite"
@@ -217,11 +223,36 @@ type records struct {
 	mu     sync.Mutex
 	errors []string
 	infos  []string
+
+	// traces holds the trace of the context of each record, by its message.
+	traces map[string]trace.TraceID
 }
 
-func (r *records) Handle(_ context.Context, record slog.Record) error {
+// traceOf gives the trace of the last record whose message contains the text.
+func (r *records) traceOf(text string) trace.TraceID {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	var found trace.TraceID
+
+	for message, traced := range r.traces {
+		if strings.Contains(message, text) {
+			found = traced
+		}
+	}
+
+	return found
+}
+
+func (r *records) Handle(ctx context.Context, record slog.Record) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.traces == nil {
+		r.traces = map[string]trace.TraceID{}
+	}
+
+	r.traces[record.Message] = trace.SpanContextFromContext(ctx).TraceID()
 
 	if record.Level >= slog.LevelError {
 		r.errors = append(r.errors, record.Message)
@@ -1514,12 +1545,29 @@ func TestAJobThatWasNotExtendedKeepsItsEnd(t *testing.T) {
 	before, _ := started.ReservedUntil(first)
 
 	api.reservation = buildkite.Reservation{NotReserved: []job.ID{first}}
+	extended := clock
+
 	if err := started.Extend(t.Context(), []job.ID{first}); err != nil {
 		t.Fatalf("Extend() = %v, want no error", err)
 	}
 
 	if after, _ := started.ReservedUntil(first); !after.Equal(before) {
 		t.Errorf("the reservation now ends at %s, want the end it had, %s", after, before)
+	}
+
+	// The reaper reads the refusal as row 6, once a job state from after it arrives.
+	if at := started.RefusedAt(first); !at.Equal(extended) {
+		t.Errorf("RefusedAt() = %s, want the send of the refused extension, %s", at, extended)
+	}
+
+	// A reservation that Buildkite grants again ends the refusal.
+	api.reservation = buildkite.Reservation{Reserved: []job.ID{first}}
+	if err := started.Extend(t.Context(), []job.ID{first}); err != nil {
+		t.Fatalf("Extend() = %v, want no error", err)
+	}
+
+	if at := started.RefusedAt(first); !at.IsZero() {
+		t.Errorf("RefusedAt() = %s after a granted extension, want the zero time", at)
 	}
 }
 
@@ -1729,5 +1777,253 @@ func TestTheTokenCallsOfATickShareTheBudgetOfAStep(t *testing.T) {
 	if len(fleet.created) != parallel.Rounds {
 		t.Errorf("orchard saw %d machines, want %d, one for each token call that answered",
 			len(fleet.created), parallel.Rounds)
+	}
+}
+
+// buildTraced gives a launcher whose spans and log records a test reads.
+func buildTraced(t *testing.T, api *stacks, fleet launcher.Machines,
+	log *records,
+) (*launcher.Launcher, *tracetest.InMemoryExporter) {
+	t.Helper()
+
+	exporter := tracetest.NewInMemoryExporter()
+	tracing := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	t.Cleanup(func() { _ = tracing.Shutdown(context.Background()) })
+
+	provider := sdkmetric.NewMeterProvider()
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+
+	instruments, err := telemetryMetrics(t, provider)
+	if err != nil {
+		t.Fatalf("NewMetrics() = %v, want the instruments", err)
+	}
+
+	started, err := launcher.New(launcher.Options{
+		Stacks:            api,
+		Orchard:           fleet,
+		ControllerID:      controller,
+		Queue:             "macos-prod",
+		ReservationExpiry: 300 * time.Second,
+		TokenLifetime:     1800 * time.Second,
+		DefaultTimeouts:   defaultTimeouts,
+		CallTimeout:       time.Second,
+		Metrics:           instruments,
+		Logger:            slog.New(log),
+		Tracer:            tracing.Tracer("test"),
+		Now:               time.Now,
+	})
+	if err != nil {
+		t.Fatalf("New() = %v, want the launcher", err)
+	}
+
+	return started, exporter
+}
+
+// spansIn gives the names of the spans of the trace of a job.
+func spansIn(t *testing.T, exporter *tracetest.InMemoryExporter, id job.ID) []string {
+	t.Helper()
+
+	want, err := telemetry.TraceID(id)
+	if err != nil {
+		t.Fatalf("TraceID() = %v, want no error", err)
+	}
+
+	var names []string
+
+	for _, span := range exporter.GetSpans() {
+		if span.SpanContext.TraceID() == want {
+			names = append(names, span.Name)
+		}
+	}
+
+	slices.Sort(names)
+
+	return names
+}
+
+// The trace of a job shows each call that acted on it: the reservation and the token as well as
+// the create, although one call reserves and one call gets the tokens of every job of a tick.
+func TestTheTraceOfAJobHoldsItsReservationAndItsToken(t *testing.T) {
+	t.Parallel()
+
+	api := &stacks{tokens: buildkite.Tokens{
+		Issued:    []buildkite.Token{{JobID: first, Token: secret.String("bkjat_first")}},
+		NotIssued: []job.ID{second},
+	}}
+	started, exporter := buildTraced(t, api, &machines{}, &records{Handler: slog.DiscardHandler})
+
+	if err := started.Launch(t.Context(), admission.Result{Admit: candidates(first, second)},
+		inventory.Snapshot{}); err != nil {
+		t.Fatalf("Launch() = %v, want no error", err)
+	}
+
+	want := []string{"orchard.vm.create", "stacks.issue_token", "stacks.reserve"}
+	if got := spansIn(t, exporter, first); !slices.Equal(got, want) {
+		t.Errorf("the trace of the first job holds %v, want %v", got, want)
+	}
+
+	// The second job got no token, so its trace ends with the token call, which says so.
+	if got := spansIn(t, exporter, second); !slices.Equal(got, want[1:]) {
+		t.Errorf("the trace of the second job holds %v, want %v", got, want[1:])
+	}
+
+	for _, span := range exporter.GetSpans() {
+		if span.Name != "stacks.issue_token" {
+			continue
+		}
+
+		issued := span.SpanContext.TraceID() == traceOf(t, first)
+		if got := attributeBool(span.Attributes, "bk_agent_stack_orchard.job.token_issued"); got != issued {
+			t.Errorf("a token span says token_issued=%v, want %v", got, issued)
+		}
+	}
+}
+
+// A call that fails marks the span of each job that it carried, so the trace of each job shows the
+// failure.
+func TestAReservationThatFailsMarksTheTraceOfEachJob(t *testing.T) {
+	t.Parallel()
+
+	api := &stacks{reserveErr: errors.New("buildkite answered 503")}
+	started, exporter := buildTraced(t, api, &machines{}, &records{Handler: slog.DiscardHandler})
+
+	if err := started.Launch(t.Context(), admission.Result{Admit: candidates(first, second)},
+		inventory.Snapshot{}); err == nil {
+		t.Fatal("Launch() = nil, want the error of the reservation")
+	}
+
+	failed := 0
+
+	for _, span := range exporter.GetSpans() {
+		if span.Name == "stacks.reserve" && span.Status.Code == codes.Error {
+			failed++
+		}
+	}
+
+	if failed != 2 {
+		t.Errorf("%d reserve spans have the status Error, want one for each job", failed)
+	}
+}
+
+// The notice of a skipped job and its log record are in the trace of the job, so a person who
+// has the job page finds why the controller left the job.
+func TestASkippedJobIsInItsOwnTrace(t *testing.T) {
+	t.Parallel()
+
+	api := &stacks{}
+	log := &records{Handler: slog.DiscardHandler}
+	started, exporter := buildTraced(t, api, &machines{}, log)
+
+	decision := admission.Result{Unmatched: []admission.Unmatched{{
+		Job:      buildkite.ScheduledJob{ID: second},
+		Mismatch: errors.New("no profile carries xcode=99"),
+	}}}
+
+	if err := started.Launch(t.Context(), decision, inventory.Snapshot{}); err != nil {
+		t.Fatalf("Launch() = %v, want no error", err)
+	}
+
+	if got := spansIn(t, exporter, second); !slices.Equal(got, []string{"stacks.notify_skipped"}) {
+		t.Errorf("the trace of the skipped job holds %v, want stacks.notify_skipped", got)
+	}
+
+	if got := log.traceOf("skips a job"); got != traceOf(t, second) {
+		t.Errorf("the record of the skip carries the trace %s, want the trace of the job", got)
+	}
+}
+
+func traceOf(t *testing.T, id job.ID) trace.TraceID {
+	t.Helper()
+
+	traceID, err := telemetry.TraceID(id)
+	if err != nil {
+		t.Fatalf("TraceID(%s) = %v, want no error", id, err)
+	}
+
+	return traceID
+}
+
+func attributeBool(attributes []attribute.KeyValue, key string) bool {
+	for _, pair := range attributes {
+		if string(pair.Key) == key {
+			return pair.Value.AsBool()
+		}
+	}
+
+	return false
+}
+
+// starts gives the value of each series of vm.starts, by its outcome.
+func starts(t *testing.T, reader *sdkmetric.ManualReader) map[string]int64 {
+	t.Helper()
+
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(t.Context(), &collected); err != nil {
+		t.Fatalf("Collect() = %v, want the metrics", err)
+	}
+
+	values := map[string]int64{}
+
+	for _, scope := range collected.ScopeMetrics {
+		for _, one := range scope.Metrics {
+			if one.Name != "bk_agent_stack_orchard.vm.starts" {
+				continue
+			}
+
+			for _, point := range one.Data.(metricdata.Sum[int64]).DataPoints {
+				outcome, _ := point.Attributes.Value("bk_agent_stack_orchard.vm.start.outcome")
+				profileOf, _ := point.Attributes.Value("bk_agent_stack_orchard.profile")
+				values[profileOf.AsString()+"/"+outcome.AsString()] = point.Value
+			}
+		}
+	}
+
+	return values
+}
+
+// A start that Orchard refuses, and a job that got no token, start no machine. The job comes back
+// to the queue when its reservation ends, and nothing else counts it, so the starts count each
+// outcome, and a refused create writes a line on the job page.
+func TestEachStartIsCountedByItsOutcome(t *testing.T) {
+	t.Parallel()
+
+	api := &stacks{tokens: buildkite.Tokens{
+		Issued:    []buildkite.Token{{JobID: first, Token: secret.String("bkjat_first")}},
+		NotIssued: []job.ID{second},
+	}}
+	fleet := &machines{err: errors.New("orchard answered 422 Unprocessable Entity")}
+	started, reader := buildMeasured(t, api, fleet, &records{Handler: slog.DiscardHandler})
+
+	if err := started.Launch(t.Context(), admission.Result{Admit: candidates(first, second)},
+		inventory.Snapshot{}); err != nil {
+		t.Fatalf("Launch() = %v, want no error", err)
+	}
+
+	want := map[string]int64{"xcode-27/create_failed": 1, "xcode-27/no_token": 1}
+	if got := starts(t, reader); !maps.Equal(got, want) {
+		t.Errorf("vm.starts holds %v, want %v", got, want)
+	}
+
+	if len(api.notified) != 1 || len(api.notified[0]) != 1 ||
+		api.notified[0][0].JobID != first ||
+		!strings.HasPrefix(api.notified[0][0].Detail, "VM request failed") {
+		t.Errorf("the job pages got %v, want one line that the request of the first job failed",
+			api.notified)
+	}
+}
+
+// A start that Orchard accepts counts as created, which is the denominator of the failures.
+func TestACreatedStartIsCounted(t *testing.T) {
+	t.Parallel()
+
+	started, reader := buildMeasured(t, &stacks{}, &machines{}, &records{Handler: slog.DiscardHandler})
+
+	if err := started.Launch(t.Context(), admission.Result{Admit: candidates(first)},
+		inventory.Snapshot{}); err != nil {
+		t.Fatalf("Launch() = %v, want no error", err)
+	}
+
+	if got := starts(t, reader); !maps.Equal(got, map[string]int64{"xcode-27/created": 1}) {
+		t.Errorf("vm.starts holds %v, want one created", got)
 	}
 }

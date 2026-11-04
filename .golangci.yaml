@@ -25,6 +25,10 @@ linters:
     - unconvert
     - usestdlibvars
   settings:
+    # Each log key is a constant of internal/telemetry, which carries the prefix of the project or
+    # the name of a semantic convention, and which docs/user/telemetry.md names.
+    sloglint:
+      no-raw-keys: true
     forbidigo:
       analyze-types: true
       forbid:
@@ -34,6 +38,10 @@ linters:
         # some moments. A constructor may default a nil clock to time.Now, with a nolint comment.
         - pattern: ^time\.(Now|Since|Until)$
           msg: read the clock that the part was given, not the clock of the machine
+        # A span that records an error MUST also have the status Error, or a backend shows the
+        # span as a success. telemetry.Fail does both, so no part calls RecordError itself.
+        - pattern: ^trace\.Span\.RecordError$
+          msg: call telemetry.Fail, which also sets the status Error
   exclusions:
     rules:
       # A test fixes its own times, and some measure the real time that a step takes. The fakes
@@ -41,6 +49,7 @@ linters:
       - path: _test\.go
         linters:
           - forbidigo
+          - sloglint
       - path: ^test/
         linters:
           - forbidigo

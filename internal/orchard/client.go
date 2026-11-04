@@ -35,6 +35,13 @@ var (
 
 	// ErrNotFound is a machine or a worker that Orchard does not have.
 	ErrNotFound = errors.New("orchard does not have this resource")
+
+	// ErrUnauthorized is a credential that Orchard refused with 401 or 403, such as a token of the
+	// service account that an operator revoked or rotated.
+	ErrUnauthorized = errors.New("orchard refused the credentials of the service account")
+
+	// ErrRateLimited is a rate limit of Orchard (429) that outlived the tries of the retry policy.
+	ErrRateLimited = errors.New("orchard applied a rate limit")
 )
 
 // Status values of a machine inside Orchard. The Buildkite job state, not this status, decides
@@ -289,16 +296,22 @@ func (c *Client) statusError(response *http.Response) error {
 	}
 
 	message := apiMessage(response)
-	err := fmt.Errorf("orchard answered %s: %s", response.Status, message)
 
 	// A server error, or a limit, can pass. A refusal of the request does not. A server that
 	// names a wait gets it.
-	if response.StatusCode >= http.StatusInternalServerError ||
-		response.StatusCode == http.StatusTooManyRequests {
-		return retry.Again(err, retry.ParseAfter(response.Header.Get("Retry-After"), c.now()))
+	switch {
+	case response.StatusCode == http.StatusUnauthorized, response.StatusCode == http.StatusForbidden:
+		return fmt.Errorf("%w: orchard answered %s: %s", ErrUnauthorized, response.Status, message)
+	case response.StatusCode == http.StatusTooManyRequests:
+		return retry.Again(
+			fmt.Errorf("%w: orchard answered %s: %s", ErrRateLimited, response.Status, message),
+			retry.ParseAfter(response.Header.Get("Retry-After"), c.now()))
+	case response.StatusCode >= http.StatusInternalServerError:
+		return retry.Again(fmt.Errorf("orchard answered %s: %s", response.Status, message),
+			retry.ParseAfter(response.Header.Get("Retry-After"), c.now()))
 	}
 
-	return err
+	return fmt.Errorf("orchard answered %s: %s", response.Status, message)
 }
 
 // apiMessage reads the message that Orchard writes with an error.

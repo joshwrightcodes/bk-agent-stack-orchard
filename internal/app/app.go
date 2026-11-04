@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"maps"
 	"sync"
 	"time"
 
@@ -238,6 +239,10 @@ type admitter struct {
 
 	mu     sync.Mutex
 	latest admission.Result
+
+	// decided reports a decision of admission since the last observation. Without one, the gate
+	// was closed, and the observation counts the waiting jobs of the last queue read itself.
+	decided bool
 }
 
 // admit decides which jobs the fleet can carry, and starts them.
@@ -269,10 +274,32 @@ func (a *admitter) admit(ctx context.Context) error {
 	a.trace(ctx, queue.Jobs, result)
 
 	a.mu.Lock()
-	a.latest = result
+	a.latest, a.decided = result, true
 	a.mu.Unlock()
 
 	return a.starter.Launch(ctx, result, held)
+}
+
+// waiting counts the jobs of the last queue read that wait, for a tick that decided nothing. The
+// gate of admission closes in an outage, and an outage is when jobs wait longest, so the demand
+// stays visible. A queue that the controller has not read has no waiting job.
+func (a *admitter) waiting() admission.Result {
+	queue, read := a.queue.Latest()
+	if !read {
+		return admission.Result{}
+	}
+
+	// A fleet that has not answered holds no machine, so each matched job of the queue counts.
+	held, _ := a.fleet.Latest()
+
+	return admission.Waiting(admission.Request{
+		Jobs:     queue.Jobs,
+		Profiles: a.settings.Profiles,
+		Fleet:    held,
+		Held:     a.starter.Held(held),
+		Eligible: a.fleet.Eligible,
+		Now:      a.now(),
+	})
 }
 
 // trace writes job.match for each job that this process sees in the queue for the first time,
@@ -317,7 +344,8 @@ func (a *admitter) trace(ctx context.Context, waiting []buildkite.ScheduledJob,
 		if unmatched {
 			// A skip is not an error of the controller: another runner may carry the job.
 			span.SetAttributes(attribute.Bool(telemetry.SpanSkipped, true))
-			span.AddEvent("no profile", trace.WithAttributes(attribute.String("reason", skip.Reason())))
+			span.AddEvent("no profile", trace.WithAttributes(
+				attribute.String(telemetry.SpanMismatch, skip.Reason())))
 		}
 		span.End()
 
@@ -340,8 +368,13 @@ func (a *admitter) trace(ctx context.Context, waiting []buildkite.ScheduledJob,
 // observe gives the instruments what this tick saw.
 func (a *admitter) observe() telemetry.Observation {
 	a.mu.Lock()
-	result := a.latest
+	result, decided := a.latest, a.decided
+	a.decided = false
 	a.mu.Unlock()
+
+	if !decided {
+		result = a.waiting()
+	}
 
 	observation := telemetry.Observation{}
 	result.Observe(&observation)
@@ -349,7 +382,23 @@ func (a *admitter) observe() telemetry.Observation {
 	if held, read := a.fleet.Latest(); read {
 		held.Observe(&observation, a.fleet.Online, a.profileOf)
 		held.Leftover(&observation, a.ended)
+
+		open := admission.Slots(admission.Request{
+			Profiles: a.settings.Profiles,
+			Fleet:    held,
+			Held:     a.starter.Held(held),
+			Eligible: a.fleet.Eligible,
+		}, a.fleet.Online)
+
+		maps.Copy(observation.Slots, open)
 	}
+
+	profiles := make([]string, 0, len(a.settings.Profiles))
+	for _, p := range a.settings.Profiles {
+		profiles = append(profiles, p.Name)
+	}
+
+	observation.Expect(profiles)
 
 	return observation
 }

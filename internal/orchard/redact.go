@@ -12,7 +12,10 @@ import (
 // These methods belong beside the generated types, not in them, because a generator writes the
 // shape of the API and this project decides what a log may see.
 
-// LogValue gives a view of a machine that carries no secret.
+// LogValue gives a view of a machine that carries no secret. The keys are the fields of a group
+// under the key that the caller gives it, and not keys of a record.
+//
+//nolint:sloglint // the fields of a group
 func (v VM) LogValue() slog.Value {
 	return slog.GroupValue(
 		slog.String("name", v.Name),

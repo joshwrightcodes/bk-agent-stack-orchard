@@ -120,6 +120,12 @@ func frozen(m *reaper.Machine) { m.SnapshotAt = now.Add(-2 * freshness) }
 // earlier is a job state that the controller asked for before the last pass of the reaper.
 func earlier(m *reaper.Machine) { m.Current = false }
 
+// refused is a job whose last extension Buildkite refused with not_reserved, a time ago. The
+// state of the case is one that the controller asked for a second ago.
+func refused(ago time.Duration) func(*reaper.Machine) {
+	return func(m *reaper.Machine) { m.RefusedAt = now.Add(-ago) }
+}
+
 func reservedFor(left time.Duration) func(*reaper.Machine) {
 	return func(m *reaper.Machine) { m.ReservedUntil = now.Add(left) }
 }
@@ -201,6 +207,25 @@ func TestTheDecisionTable(t *testing.T) {
 		"a lapsed reservation wins over a failed machine": {
 			machine("scheduled", status(orchard.StatusFailed)), 6, reaper.Delete,
 			reaper.ReasonReservationLapsed,
+		},
+		"a reserved job whose extension Buildkite refused lost its reservation": {
+			machine("reserved", refused(10*time.Second)), 6, reaper.Delete,
+			reaper.ReasonReservationLapsed,
+		},
+		"a refused extension wins over a failed machine and sends no finish": {
+			machine("reserved", refused(10*time.Second), status(orchard.StatusFailed)),
+			6, reaper.Delete, reaper.ReasonReservationLapsed,
+		},
+		"a refused extension wins over the timeouts that finish a job": {
+			machine("reserved", refused(10*time.Second), started(6*time.Minute)),
+			6, reaper.Delete, reaper.ReasonReservationLapsed,
+		},
+		"a refused extension waits for a state asked for after the refusal": {
+			machine("reserved", refused(time.Millisecond), reservedFor(4*time.Minute)),
+			13, reaper.Keep, "",
+		},
+		"a refused extension of a job that an agent acquired keeps the machine": {
+			machine("running", refused(10*time.Second)), 8, reaper.Keep, "",
 		},
 
 		// Rows 7 and 8.

@@ -3,6 +3,7 @@
 package admission_test
 
 import (
+	"maps"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/job"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/orchard"
 	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/profile"
+	"github.com/joshwrightcodes/bk-agent-stack-orchard/internal/telemetry"
 )
 
 var now = time.Date(2026, 9, 20, 10, 0, 0, 0, time.UTC)
@@ -648,5 +650,103 @@ func TestTheMachinesThatThisProcessAskedForTakeTheirRoomInAFixedOrder(t *testing
 			t.Fatalf("admission started %d jobs, want the candidate in the room that the machines "+
 				"on their way leave in the order of their jobs", len(result.Admit))
 		}
+	}
+}
+
+// While the gate of admission is closed, the loop still counts the jobs that wait, so the demand
+// that the fleet faces stays visible. Waiting gives the demand and decides nothing.
+func TestWaitingCountsTheDemandAndAdmitsNothing(t *testing.T) {
+	t.Parallel()
+
+	ids := identifiers(2)
+	fleet := inventory.Snapshot{Workers: []orchard.Worker{worker("mac-01", nil)}, At: now}
+
+	result := admission.Waiting(request([]buildkite.ScheduledJob{
+		waiting(ids[0], 0, time.Minute),
+		waiting(ids[1], 0, 20*time.Minute),
+	}, fleet))
+
+	if len(result.Admit) != 0 {
+		t.Errorf("Waiting() admitted %v, want nothing", result.Admit)
+	}
+
+	if result.Waiting[pilot.Name] != 2 {
+		t.Errorf("Waiting() counts %d jobs of the profile, want 2", result.Waiting[pilot.Name])
+	}
+
+	if got := result.OldestWaiting[pilot.Name]; got != 20*time.Minute {
+		t.Errorf("the oldest job waited %s, want 20m", got)
+	}
+}
+
+// The slots of a pool say what admission can use. A slot of a paused worker, or of a worker that
+// no profile can use, is unavailable. A slot that a machine waiting for a worker, or a machine that
+// this process asked for, will take is reserved. Only the rest is free, so a full fleet reads 0
+// free while a host is paused or a machine is on its way.
+func TestTheSlotsOfAPoolAreTheRoomThatAdmissionCanUse(t *testing.T) {
+	t.Parallel()
+
+	paused := worker("mac-02", map[string]string{"pool": "pilot"})
+	paused.SchedulingPaused = true
+
+	fleet := inventory.Snapshot{
+		Workers: []orchard.Worker{
+			worker("mac-01", map[string]string{"pool": "pilot"}),
+			paused,
+			worker("mac-03", map[string]string{"pool": "other"}),
+			worker("mac-04", map[string]string{"pool": "pilot"}),
+		},
+		VMs: []orchard.VM{
+			machine("on-one", "mac-01"),
+			machine("waiting", ""),
+		},
+		At: now,
+	}
+
+	settings := request(nil, fleet)
+	settings.Profiles = []profile.Profile{{
+		Name: pilot.Name, Match: pilot.Match, CPU: pilot.CPU, MemoryMiB: pilot.MemoryMiB,
+		WorkerLabels: map[string]string{"pool": "pilot"},
+	}}
+	settings.Eligible = func(w orchard.Worker, labels map[string]string) bool {
+		return !w.SchedulingPaused && online(w, labels)
+	}
+	settings.Held = map[job.ID]string{"018f3b2c-1c4a-7e5b-9a3d-2f1e4c5b6a7d": pilot.Name}
+
+	got := admission.Slots(settings, func(orchard.Worker) bool { return true })
+
+	want := map[telemetry.Slot]int64{
+		// mac-01 carries one and has one open, which the machine that waits takes. mac-04 has
+		// two open, and the machine that this process asked for takes one.
+		{Pool: "pilot", State: telemetry.SlotsReserved}:    2,
+		{Pool: "pilot", State: telemetry.SlotsUnavailable}: 2,
+		{Pool: "pilot", State: telemetry.SlotsFree}:        1,
+		// No profile carries a machine to a worker of another pool.
+		{Pool: "other", State: telemetry.SlotsReserved}:    0,
+		{Pool: "other", State: telemetry.SlotsUnavailable}: 2,
+		{Pool: "other", State: telemetry.SlotsFree}:        0,
+	}
+
+	if !maps.Equal(got, want) {
+		t.Errorf("Slots() = %v, want %v", got, want)
+	}
+}
+
+// A worker that carries more machines than it advertises has nothing open, and not less.
+func TestAFullWorkerHasNoFreeSlotAndNotLess(t *testing.T) {
+	t.Parallel()
+
+	fleet := inventory.Snapshot{
+		Workers: []orchard.Worker{worker("mac-01", nil)},
+		VMs: []orchard.VM{
+			machine("one", "mac-01"), machine("two", "mac-01"), machine("three", "mac-01"),
+		},
+		At: now,
+	}
+
+	got := admission.Slots(request(nil, fleet), func(orchard.Worker) bool { return true })
+	if got[telemetry.Slot{State: telemetry.SlotsFree}] != 0 ||
+		got[telemetry.Slot{State: telemetry.SlotsReserved}] != 0 {
+		t.Errorf("Slots() = %v, want nothing free or reserved", got)
 	}
 }

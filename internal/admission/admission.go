@@ -15,6 +15,7 @@ import (
 	"cmp"
 	"errors"
 	"maps"
+	"math"
 	"slices"
 	"time"
 
@@ -131,6 +132,84 @@ type Result struct {
 func (r Result) Observe(observation *telemetry.Observation) {
 	observation.Waiting = r.Waiting
 	observation.OldestWaiting = r.OldestWaiting
+}
+
+// Waiting gives the jobs of the queue that wait, and the jobs that no profile carries, and admits
+// none. The loop reads it at a tick whose gate of admission is closed, so that the demand that the
+// fleet faces stays visible while no job starts.
+func Waiting(request Request) Result {
+	result := Result{
+		Truncated:     request.Truncated,
+		Waiting:       map[string]int64{},
+		OldestWaiting: map[string]time.Duration{},
+	}
+
+	result.Matched = sift(request, &result)
+
+	return result
+}
+
+// Slots gives the open slots of each pool, for the online hosts, as admission counts them: the
+// slots that a machine waiting for a host or a machine that this process asked for will take are
+// reserved, the slots of a host that no profile may use are unavailable, and the rest are free. A
+// host is one that no profile may use when an operator paused it, or when no profile has its
+// labels.
+//
+// The slots are the machine slots of a host. A free slot also needs the cores and the memory of a
+// profile, which a count of slots does not show.
+func Slots(request Request, online func(orchard.Worker) bool) map[telemetry.Slot]int64 {
+	slots := map[telemetry.Slot]int64{}
+	room := freeResources(request)
+
+	for _, worker := range request.Fleet.Workers {
+		if !online(worker) {
+			continue
+		}
+
+		pool := inventory.PoolOf(worker)
+		open := orchard.Free(worker, request.Fleet.Carried(worker.Name))[orchard.ResourceVMs]
+		left := min(room[worker.Name][orchard.ResourceVMs], open)
+
+		reserved := telemetry.Slot{Pool: pool, State: telemetry.SlotsReserved}
+		unavailable := telemetry.Slot{Pool: pool, State: telemetry.SlotsUnavailable}
+		free := telemetry.Slot{Pool: pool, State: telemetry.SlotsFree}
+
+		// Each pool has all three series, so that a pool with nothing open reads 0.
+		slots[reserved] += 0
+		slots[free] += 0
+
+		if !usable(request, worker) {
+			slots[unavailable] += count(open)
+
+			continue
+		}
+
+		slots[unavailable] += 0
+		slots[reserved] += count(open - left)
+		slots[free] += count(left)
+	}
+
+	return slots
+}
+
+// usable reports a host that admission may give a machine of at least one profile.
+func usable(request Request, worker orchard.Worker) bool {
+	for _, p := range request.Profiles {
+		if request.Eligible(worker, p.WorkerLabels) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// count turns a number of slots into a number that an instrument carries.
+func count(value uint64) int64 {
+	if value > math.MaxInt64 {
+		return math.MaxInt64
+	}
+
+	return int64(value)
 }
 
 // Decide gives the jobs to start and the jobs to end.
