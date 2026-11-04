@@ -33,14 +33,29 @@ archives:
     # Setting files replaces the defaults (LICENSE*, README*, CHANGELOG*), so the list keeps
     # them as globs, which match nothing without an error (CHANGELOG.md exists only after the
     # first release). It adds NOTICE and the texts of the third-party licences under licenses/.
+    # Each file in the archive takes the time of the commit, and a fixed owner and mode, so that
+    # two builds of one commit give the same archive, byte for byte.
+    builds_info:
+      owner: root
+      group: root
+      mtime: "{{ .CommitDate }}"
     files:
-      - LICENSE*
-      - README*
-      - CHANGELOG*
-      - NOTICE
+      - src: LICENSE*
+        info: &file-info
+          owner: root
+          group: root
+          mode: 0o644
+          mtime: "{{ .CommitDate }}"
+      - src: README*
+        info: *file-info
+      - src: CHANGELOG*
+        info: *file-info
+      - src: NOTICE
+        info: *file-info
       - src: build/licenses/**
         dst: licenses
         strip_parent: false
+        info: *file-info
 
 # Each archive gets an SPDX SBOM from syft. The checksums cover the archives and the SBOMs, and one
 # keyless cosign signature covers the checksums (ADR-0013). scripts/release-publish.sh makes that
