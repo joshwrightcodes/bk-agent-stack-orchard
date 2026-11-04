@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 The bk-agent-stack-orchard Authors
 # Loads the pf rules of the hosts on this Mac, for the Softnet test, or removes them.
 #
 # The rules come from the template of the role, so this Mac runs the rules that a host runs. The

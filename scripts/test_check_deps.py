@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 The bk-agent-stack-orchard Authors
 """Tests of the chart copy rule and the GoReleaser rule of scripts/check-deps.py.
 
 Run with: python3 -m unittest discover -s scripts -p 'test_*.py'

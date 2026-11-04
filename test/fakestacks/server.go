@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 The bk-agent-stack-orchard Authors
 
 // Package fakestacks is a fake Buildkite Stacks API server for the tests of this project.
 //

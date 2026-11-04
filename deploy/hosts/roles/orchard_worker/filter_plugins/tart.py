@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 The bk-agent-stack-orchard Authors
 """A filter for the images in the cache of Tart that the host no longer needs.
 
 "tart list --source oci" names each cached image as <repository>@<digest> or <repository>:<tag>.

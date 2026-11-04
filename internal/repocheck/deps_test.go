@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 The bk-agent-stack-orchard Authors
 
 package repocheck_test
 
@@ -39,8 +40,14 @@ const stacksAPI = "github.com/buildkite/stacksapi"
 // minimumStacksAPI is the first version of the Stacks API client that the design accepts.
 var minimumStacksAPI = [3]int{1, 2, 0}
 
-// The text is in two parts, so that the reuse tool does not read it as a header of this file.
-const spdxLine = "// SPDX-License-" + "Identifier: AGPL-3.0-or-later"
+// The texts are in two parts, so that the reuse tool does not read them as a header of this file.
+const (
+	spdxLine        = "// SPDX-License-" + "Identifier: AGPL-3.0-or-later"
+	copyrightPrefix = "// SPDX-File" + "CopyrightText: "
+
+	scriptLicence   = "# SPDX-License-" + "Identifier: AGPL-3.0-or-later"
+	scriptCopyright = "# SPDX-File" + "CopyrightText: "
+)
 
 // goMod is the part of the output of go mod edit -json that the rules read.
 type goMod struct {
@@ -93,6 +100,33 @@ func TestNoticeNamesEachModuleThatTheBinaryLinks(t *testing.T) {
 
 	for _, problem := range noticeErrors(modules, string(notice)) {
 		t.Error(problem)
+	}
+}
+
+func TestEachScriptStartsWithTheSPDXLines(t *testing.T) {
+	checked := 0
+
+	for _, name := range trackedFiles(t) {
+		if !strings.HasSuffix(name, ".sh") && !strings.HasSuffix(name, ".py") {
+			continue
+		}
+
+		text, err := os.ReadFile(filepath.Join(root, name)) //nolint:gosec // a file that git tracks
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			t.Fatal(err)
+		}
+
+		checked++
+
+		for _, problem := range scriptHeaderErrors(name, string(text)) {
+			t.Error(problem)
+		}
+	}
+
+	if checked == 0 {
+		t.Fatal("git lists no script, so this test checks nothing")
 	}
 }
 
@@ -416,13 +450,46 @@ func isPathByte(b byte) bool {
 	return isWordByte(b) || b == '.' || b == '/' || b == '-'
 }
 
-// spdxErrors applies the rule of the licence line: it is the first line of a Go file. A
-// generator writes the line into a generated file too.
+// spdxErrors applies the rule of the header of a Go file: the licence line is its first line, and
+// a copyright line that names a holder is its second. A generator writes both lines into a
+// generated file too.
 func spdxErrors(name, text string) []string {
-	first, _, _ := strings.Cut(text, "\n")
-	if strings.TrimSuffix(first, "\r") == spdxLine {
-		return nil
+	lines := strings.SplitN(text, "\n", 3)
+	if strings.TrimSuffix(lines[0], "\r") != spdxLine {
+		return []string{fmt.Sprintf("%s lacks the line %q as its first line", name, spdxLine)}
 	}
 
-	return []string{fmt.Sprintf("%s lacks the line %q as its first line", name, spdxLine)}
+	if len(lines) < 2 || !namesHolder(lines[1], copyrightPrefix) {
+		return []string{fmt.Sprintf("%s lacks a line %q with the holder as its second line", name,
+			copyrightPrefix+"<year> <holder>")}
+	}
+
+	return nil
+}
+
+// scriptHeaderErrors applies the same rule to a shell or Python script, whose first line can be
+// a shebang.
+func scriptHeaderErrors(name, text string) []string {
+	lines := strings.SplitN(text, "\n", 4)
+	if strings.HasPrefix(lines[0], "#!") {
+		lines = lines[1:]
+	}
+
+	if strings.TrimSuffix(lines[0], "\r") != scriptLicence {
+		return []string{fmt.Sprintf("%s lacks the line %q at its start", name, scriptLicence)}
+	}
+
+	if len(lines) < 2 || !namesHolder(lines[1], scriptCopyright) {
+		return []string{fmt.Sprintf("%s lacks a line %q with the holder after its licence line",
+			name, scriptCopyright+"<year> <holder>")}
+	}
+
+	return nil
+}
+
+// namesHolder reports whether a line is a copyright line with some text after its prefix.
+func namesHolder(line, prefix string) bool {
+	holder, found := strings.CutPrefix(strings.TrimSuffix(line, "\r"), prefix)
+
+	return found && strings.TrimSpace(holder) != ""
 }

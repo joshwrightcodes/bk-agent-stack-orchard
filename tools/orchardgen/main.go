@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 The bk-agent-stack-orchard Authors
 
 // Command orchardgen writes the wire types of the Orchard API that this controller uses.
 //

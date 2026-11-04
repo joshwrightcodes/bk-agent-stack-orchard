@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 The bk-agent-stack-orchard Authors
 
 // Package repocheck reads the Go code of this repository as the compiler does, for the tests that
 // keep the documents and the licence files in step with the code.

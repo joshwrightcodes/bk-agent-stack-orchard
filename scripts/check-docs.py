@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 The bk-agent-stack-orchard Authors
 """Check that the document set stays whole.
 
 The documents of this project carry identifiers, and the direction of the set runs from the

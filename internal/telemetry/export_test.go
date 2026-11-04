@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 The bk-agent-stack-orchard Authors
 
 // The export tests are inside the package, because the rule that they prove is the choice of an
 // exporter, and that choice is what the package does not let an environment variable change.
