@@ -39,7 +39,9 @@ properties, and a defect in one of them is a vulnerability:
 * Telemetry contains no source code, no token, and no job or VM identifier in metric attributes.
 
 [`docs/quality/test-strategy.md`](docs/quality/test-strategy.md) holds these properties as
-invariants I-1 to I-8, and the gates assert them.
+invariants I-1 to I-8, and the gates assert them. The
+[assurance case](docs/quality/assurance-case.md) argues why the project meets them: the threat
+model, the trust boundaries, the secure design principles, and the weaknesses that it counters.
 
 ## Accepted risks
 
