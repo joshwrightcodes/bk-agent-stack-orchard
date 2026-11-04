@@ -7,13 +7,14 @@ name: release
 # which is what scripts/verify-release.sh checks.
 #
 # Two jobs keep the tools that build the release away from the signing identity. build runs Go,
-# GoReleaser, go-licenses, syft, and helm, with access to push the image and the chart only.
-# publish installs only cosign and jq. It takes the files of build as an artifact, then signs,
-# uploads, verifies, and publishes them. GoReleaser signs and uploads only in the run that builds,
-# so the publish job does both with cosign and gh. It also attests the SLSA build provenance of
-# checksums.txt, the image, and the chart as GitHub artifact attestations, which name this file, the
-# tag, and the commit, and which scripts/verify-release.sh checks with gh. The bundle of the
-# attestation of checksums.txt is also an asset of the release (checksums.txt.intoto.jsonl).
+# GoReleaser, go-licenses, govulncheck, syft, and helm, with access to push the image and the chart
+# only. It stops on a vulnerability that the code reaches, and writes the OpenVEX document of the
+# release. publish installs only cosign and jq. It takes the files of build as an artifact, then
+# signs, uploads, verifies, and publishes them. GoReleaser signs and uploads only in the run that
+# builds, so the publish job does both with cosign and gh. It also attests the SLSA build
+# provenance of checksums.txt, the image, and the chart as GitHub artifact attestations, which name
+# this file, the tag, and the commit, and which scripts/verify-release.sh checks with gh. The bundle
+# of the attestation of checksums.txt is also an asset of the release (checksums.txt.intoto.jsonl).
 
 on:
   push:
@@ -60,7 +61,10 @@ jobs:
           # scripts/licenses.sh and syft for the SBOMs of the archives, and it builds the image
           # with the ko library inside it. The GoReleaser action installs GoReleaser, and checks
           # its download with this cosign. The job has no OIDC token, so cosign cannot sign here.
-          install_args: go cosign syft helm jq go:github.com/google/go-licenses/v2
+          # govulncheck writes the VEX document of the release.
+          install_args: >-
+            go cosign syft helm jq go:github.com/google/go-licenses/v2
+            go:golang.org/x/vuln/cmd/govulncheck
 
       # release-please wrote the version of the tag into the chart, on a commit of main. This
       # refuses a tag on another commit only while that commit holds this check: the tag rules and
@@ -100,6 +104,14 @@ jobs:
           version: v2.18.2
           args: release --clean
 
+      # A vulnerability that the code reaches stops the release here, before the image has an SBOM
+      # or the chart exists (SECURITY.md). The VEX document records, for each known vulnerability in
+      # a dependency, that the code does not reach it, and checksums.txt lists the document.
+      - name: check the dependencies for known vulnerabilities, and write the VEX document
+        env:
+          TAG: ${{ github.ref_name }}
+        run: ./scripts/release-publish.sh vex "$TAG"
+
       - name: make the SBOM of each platform image, and package and push the chart
         env:
           TAG: ${{ github.ref_name }}
@@ -111,6 +123,7 @@ jobs:
           path: |
             dist/*.tar.gz
             dist/*.sbom.json
+            dist/*.openvex.json
             dist/checksums.txt
             build/sbom/*.spdx.json
             build/chart/*.tgz
@@ -165,7 +178,8 @@ jobs:
             exit 1
           fi
           mkdir -p dist build/sbom build/chart
-          cp "$FROM"/dist/*.tar.gz "$FROM"/dist/*.sbom.json "$FROM"/dist/checksums.txt dist/
+          cp "$FROM"/dist/*.tar.gz "$FROM"/dist/*.sbom.json "$FROM"/dist/*.openvex.json \
+            "$FROM"/dist/checksums.txt dist/
           cp "$FROM"/build/sbom/*.spdx.json build/sbom/
           cp "$FROM"/build/chart/*.tgz build/chart/
           cp "$FROM"/build/release.env build/

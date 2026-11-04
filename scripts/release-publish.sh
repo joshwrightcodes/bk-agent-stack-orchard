@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
-# Prepare and sign the assets of a release, in two phases that run in two jobs of the release
+# Prepare and sign the assets of a release, in phases that run in two jobs of the release
 # workflow.
+#
+# vex runs in the build job after GoReleaser. govulncheck writes the OpenVEX document of the
+# release: for each known vulnerability in a dependency, whether the code reaches it. A
+# vulnerability that the code reaches stops the release (SECURITY.md). checksums.txt then lists
+# the document, so the signature of checksums.txt covers it.
 #
 # build runs after GoReleaser pushed the image and wrote the archives, their SBOMs, and
 # checksums.txt to dist. It makes an SBOM of each platform image with syft, and packages and pushes
@@ -15,17 +20,18 @@
 # for a short-lived Sigstore certificate that names the workflow and the tag, so no signing key
 # exists to protect (ADR-0013). It needs a registry login for docker.
 #
-# Usage: scripts/release-publish.sh build|sign <tag>    (for example: sign v0.3.1)
+# Usage: scripts/release-publish.sh vex|build|sign <tag>    (for example: sign v0.3.1)
 #
 # build writes build/release.env with the digests of the image and the chart. sign signs these
 # digests, and scripts/verify-release.sh checks that the registry tags still give them.
 set -euo pipefail
 
 usage() {
-	echo "usage: release-publish.sh build|sign <tag>" >&2
+	echo "usage: release-publish.sh vex|build|sign <tag>" >&2
 	exit 2
 }
 
+repo="joshwrightcodes/bk-agent-stack-orchard"
 image="ghcr.io/joshwrightcodes/bk-agent-stack-orchard"
 charts="ghcr.io/joshwrightcodes/charts"
 
@@ -55,6 +61,22 @@ check_handled() {
 		echo "release-publish: handled the platforms '$1', and exactly amd64 and arm64 are necessary" >&2
 		exit 1
 	fi
+}
+
+vex() {
+	local name work affected
+	name="bk-agent-stack-orchard_${tag#v}.openvex.json"
+	work="$(mktemp)"
+	govulncheck -format openvex ./... >"$work"
+	affected="$(jq -r '[.statements[]? | select(.status == "affected") | .vulnerability.name] | join(", ")' "$work")"
+	if [ -n "$affected" ]; then
+		rm -f "$work"
+		echo "release-publish: the code reaches $affected, so this release stops. Update the dependency first" >&2
+		exit 1
+	fi
+	jq --arg author "the release workflow of $repo" '.author = $author' "$work" >"dist/$name"
+	rm -f "$work"
+	(cd dist && sha256sum "$name") >>dist/checksums.txt
 }
 
 build() {
@@ -118,15 +140,16 @@ sign() {
 		exit 1
 	fi
 
-	# The archives and the SBOMs to upload are the files that checksums.txt names, and each one must
-	# match its checksum. A file that the list does not name stops the run here, before anything is
-	# signed: scripts/release-finish.sh would refuse it later, after the signatures exist.
+	# The archives, the SBOMs, and the VEX document to upload are the files that checksums.txt names,
+	# and each one must
+	# match its checksum. A file that the list does not name stops the run here, before anything
+	# is signed: scripts/release-finish.sh would refuse it later, after the signatures exist.
 	local listed present
 	(cd dist && sha256sum --check --strict checksums.txt)
 	listed="$(awk '{print $2}' dist/checksums.txt | sort)"
-	present="$(cd dist && printf '%s\n' *.tar.gz *.sbom.json | sort)"
+	present="$(cd dist && printf '%s\n' *.tar.gz *.sbom.json *.openvex.json | sort)"
 	if [ "$listed" != "$present" ]; then
-		echo "release-publish: the archives and SBOMs in dist are not the files of checksums.txt" >&2
+		echo "release-publish: the archives, SBOMs, and VEX document in dist are not the files of checksums.txt" >&2
 		diff <(printf '%s\n' "$listed") <(printf '%s\n' "$present") >&2 || true
 		exit 1
 	fi
@@ -180,6 +203,7 @@ root="$(git rev-parse --show-toplevel)"
 cd "$root"
 
 case "$phase" in
+vex) vex ;;
 build) build ;;
 sign) sign ;;
 *) usage ;;

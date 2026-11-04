@@ -111,6 +111,7 @@ if out is not None:
 FILES = {
     "dist/x_linux_amd64.tar.gz": "archive",
     "dist/x_linux_amd64.tar.gz.sbom.json": "sbom",
+    "dist/bk-agent-stack-orchard_0.1.0.openvex.json": "vex",
     "dist/checksums.txt": "sums",
     "dist/checksums.txt.sigstore.json": "bundle",
     "dist/checksums.txt.intoto.jsonl": "provenance",
@@ -207,6 +208,12 @@ class FinishTest(unittest.TestCase):
         # The bundle of the provenance attestation is an asset of each release, so that a reader
         # can check the provenance without the GitHub API.
         missing = [a for a in draft_assets() if a["name"] != "checksums.txt.intoto.jsonl"]
+        result, calls = self.finish([missing, missing])
+        self.assertEqual(result.returncode, 1)
+        self.assertFalse(self.published(calls))
+
+    def test_a_draft_without_the_vex_document_keeps_the_draft(self) -> None:
+        missing = [a for a in draft_assets() if not str(a["name"]).endswith(".openvex.json")]
         result, calls = self.finish([missing, missing])
         self.assertEqual(result.returncode, 1)
         self.assertFalse(self.published(calls))
