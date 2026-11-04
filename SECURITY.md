@@ -182,3 +182,22 @@ finding of software composition analysis: a vulnerability in a dependency, or th
   lock does not hold. Renovate proposes a release only when it is at least three days old, so that
   a release that its registry withdraws never reaches a review. A maintainer reviews each update
   before it merges.
+
+## Static analysis findings
+
+Static analysis tools read the source code of each change: CodeQL, golangci-lint with the gosec
+security rules, ruff, actionlint, and zizmor. They report their findings to GitHub code scanning.
+
+* **Blocking threshold.** The rules of `main` block a merge while CodeQL, golangci-lint, or
+  govulncheck reports an error, or a security alert of high or critical severity, on the change.
+  The lint jobs also fail on any finding of their tools, so most findings never reach `main`.
+* **Remediation.** An alert of medium or low severity that is open on `main` is fixed, or
+  dismissed in code scanning with a written reason, before the next release.
+* **Suppressions.** A finding that is not a real problem is suppressed where the reviewer of the
+  change sees it: a `nolint` comment in the code names the rule, and a comment next to it gives the
+  reason. A dismissal in code scanning carries its reason too.
+* **Scorecard.** OpenSSF Scorecard also reports to code scanning, but it rates the settings of the
+  repository, not the code. Its alerts for code review and branch protection follow from the single
+  maintainer, an accepted risk above, and the maintainers review its other alerts before each
+  release.
+
