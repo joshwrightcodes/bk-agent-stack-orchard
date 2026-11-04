@@ -181,6 +181,48 @@ func TestARecordInsideASpanCarriesTheTrace(t *testing.T) {
 	}
 }
 
+// A signal cancels the context of the process, and the work that was running when it came still
+// logs with that context. The log SDK drops a record whose context has ended, and reports only
+// "context canceled" in its place. The record must reach stdout with its message and its trace.
+func TestARecordAfterTheSignalKeepsItsMessageAndTrace(t *testing.T) {
+	quiet(t)
+
+	var out bytes.Buffer
+
+	tel, err := telemetry.Setup(t.Context(), telemetry.Options{Output: &out})
+	if err != nil {
+		t.Fatalf("Setup() = %v, want the providers", err)
+	}
+
+	t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
+
+	running, cancel := context.WithCancel(telemetry.WithJob(t.Context(), sample))
+	ctx, span := tel.Tracer.Start(running, "orchard.vm.delete")
+
+	cancel()
+	tel.Logger.WarnContext(ctx, "the controller could not delete the machine")
+	span.End()
+
+	found := records(t, &out)
+	if len(found) != 1 {
+		t.Fatalf("stdout holds %d records, want 1", len(found))
+	}
+
+	body, _ := found[0]["Body"].(map[string]any)
+	if got := body["Value"]; got != "the controller could not delete the machine" {
+		t.Errorf("the record says %q, want the message that the controller logged", got)
+	}
+
+	want, err := telemetry.TraceID(sample)
+	if err != nil {
+		t.Fatalf("TraceID() = %v, want no error", err)
+	}
+
+	if found[0]["TraceID"] != want.String() {
+		t.Errorf("the record carries the trace %v, want %s", found[0]["TraceID"], want)
+	}
+}
+
 // A level that the options set must stop the records below it, in both destinations.
 func TestTheLoggerObeysTheLevel(t *testing.T) {
 	quiet(t)
