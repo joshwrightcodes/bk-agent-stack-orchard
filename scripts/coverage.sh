@@ -1,6 +1,6 @@
 #!/bin/sh
 # SPDX-License-Identifier: AGPL-3.0-or-later
-# SPDX-FileCopyrightText: 2026 Josh Wright
+# SPDX-FileCopyrightText: 2026 The bk-agent-stack-orchard Authors
 
 # coverage.sh runs the Go tests with the race detector and a coverage profile, and fails when the
 # total statement coverage is below the threshold below. It writes these files:

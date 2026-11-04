@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
-# SPDX-FileCopyrightText: 2026 Josh Wright
+# SPDX-FileCopyrightText: 2026 The bk-agent-stack-orchard Authors
 # Runs the playbook against a Tart VM, with an Orchard controller on this Mac, and checks the host
 # as the fleet uses it:
 #

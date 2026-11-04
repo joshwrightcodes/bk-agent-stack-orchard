@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
-# SPDX-FileCopyrightText: 2026 Josh Wright
+# SPDX-FileCopyrightText: 2026 The bk-agent-stack-orchard Authors
 # Verify the signatures of a release: the checksums and the archives, the chart package, the image,
 # the SBOM of each platform image, and the chart in the registry. Also verify the SLSA build
 # provenance of checksums.txt, the image, and the chart, which GitHub artifact attestations hold.

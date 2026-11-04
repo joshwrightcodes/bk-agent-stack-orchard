@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Josh Wright
+// SPDX-FileCopyrightText: 2026 The bk-agent-stack-orchard Authors
 
 package repocheck_test
 
@@ -98,7 +98,7 @@ func TestNoticeCarriesTheNoticeTextOfGRPC(t *testing.T) {
 }
 
 func TestTheSPDXLineRule(t *testing.T) {
-	const copyright = copyrightPrefix + "2026 Josh Wright"
+	const copyright = copyrightPrefix + "2026 The bk-agent-stack-orchard Authors"
 
 	for _, test := range []struct {
 		name, text string
@@ -135,7 +135,7 @@ func TestTheSPDXLineRule(t *testing.T) {
 func TestTheScriptHeaderRule(t *testing.T) {
 	const (
 		licence   = "# SPDX-License-" + "Identifier: AGPL-3.0-or-later"
-		copyright = "# SPDX-File" + "CopyrightText: 2026 Josh Wright"
+		copyright = "# SPDX-File" + "CopyrightText: 2026 The bk-agent-stack-orchard Authors"
 	)
 
 	for _, test := range []struct {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Josh Wright
+// SPDX-FileCopyrightText: 2026 The bk-agent-stack-orchard Authors
 
 // Package reaper decides what happens to each machine of this controller, and carries the
 // decision out.

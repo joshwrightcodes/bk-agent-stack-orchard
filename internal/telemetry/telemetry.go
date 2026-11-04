@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Josh Wright
+// SPDX-FileCopyrightText: 2026 The bk-agent-stack-orchard Authors
 
 // Package telemetry starts the OpenTelemetry providers of the controller, and it holds the
 // instruments and the trace identity that the rest of the controller uses.

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-# SPDX-FileCopyrightText: 2026 Josh Wright
+# SPDX-FileCopyrightText: 2026 The bk-agent-stack-orchard Authors
 """Tests of scripts/check-upstream.py.
 
 Run with: python3 -m unittest discover -s scripts -p 'test_*.py'

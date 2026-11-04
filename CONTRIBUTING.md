@@ -108,9 +108,11 @@ merge.
 
 * **Start each source file with its licence and copyright.** A Go, shell, or Python file starts
   with an `SPDX-License-Identifier: AGPL-3.0-or-later` comment, after the shebang of a script,
-  and an `SPDX-FileCopyrightText: <year> <holder>` comment on the next line. A test of
-  `internal/repocheck` checks both lines. `REUSE.toml` gives them for the files that cannot carry
-  a comment.
+  and an `SPDX-FileCopyrightText: <year> The bk-agent-stack-orchard Authors` comment on the next
+  line. Each contributor keeps the copyright of their work and licenses it under the AGPL with
+  their sign-off, so the line names the authors together, and the history of the repository
+  records who wrote what. A test of `internal/repocheck` checks both lines. `REUSE.toml` gives
+  them for the files that cannot carry a comment.
 * **Keep identifiers in the documents.** Production code, configuration, and task descriptions say
   what they do and why. They do not carry a work unit, a requirement, or a test identifier,
   because a reader of the code cannot resolve one. Test files can carry `T-nnn`, `I-n`, and `O-n`,

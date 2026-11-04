@@ -51,7 +51,7 @@ path = [
   ".gitattributes",
 ]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "2026 Josh Wright"
+SPDX-FileCopyrightText = "2026 The bk-agent-stack-orchard Authors"
 SPDX-License-Identifier = "AGPL-3.0-or-later"
 
 # NOTICE and its copy in the chart reproduce third-party notice text: the MIT, BSD-3-Clause and
@@ -60,7 +60,7 @@ SPDX-License-Identifier = "AGPL-3.0-or-later"
 [[annotations]]
 path = ["NOTICE", "deploy/helm/bk-agent-stack-orchard/NOTICE"]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "2026 Josh Wright"
+SPDX-FileCopyrightText = "2026 The bk-agent-stack-orchard Authors"
 SPDX-License-Identifier = "AGPL-3.0-or-later AND MIT AND BSD-3-Clause AND Apache-2.0"
 
 # The code of conduct quotes the Contributor Covenant 2.1 without change. The Covenant is
@@ -69,14 +69,14 @@ SPDX-License-Identifier = "AGPL-3.0-or-later AND MIT AND BSD-3-Clause AND Apache
 [[annotations]]
 path = "CODE_OF_CONDUCT.md"
 precedence = "aggregate"
-SPDX-FileCopyrightText = ["Contributor Covenant contributors", "2026 Josh Wright"]
+SPDX-FileCopyrightText = ["Contributor Covenant contributors", "2026 The bk-agent-stack-orchard Authors"]
 SPDX-License-Identifier = "CC-BY-4.0 AND AGPL-3.0-or-later"
 
 # The source files carry the licence in their header. This entry adds the copyright holder.
 [[annotations]]
 path = ["**/*.go", "**/*.sh", "**/*.py", "Brewfile"]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "2026 Josh Wright"
+SPDX-FileCopyrightText = "2026 The bk-agent-stack-orchard Authors"
 
 # The SARIF template of actionlint is the template file of the actionlint test data at v1.7.12
 # (testdata/format/sarif_template.txt), without change, under the MIT licence of actionlint. A

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Josh Wright
+// SPDX-FileCopyrightText: 2026 The bk-agent-stack-orchard Authors
 
 // Package inventory holds what Orchard has: the workers of the fleet, and the machines that run
 // on them.

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Josh Wright
+// SPDX-FileCopyrightText: 2026 The bk-agent-stack-orchard Authors
 
 package main
 
@@ -182,7 +182,7 @@ func TestRenderStartsWithTheLicenceLineAndStaysGenerated(t *testing.T) {
 	}
 
 	const line = "// SPDX-License-" + "Identifier: AGPL-3.0-or-later\n" +
-		"// SPDX-File" + "CopyrightText: 2026 Josh Wright\n"
+		"// SPDX-File" + "CopyrightText: 2026 The bk-agent-stack-orchard Authors\n"
 	if !strings.HasPrefix(string(got), line) {
 		t.Errorf("render() does not start with the licence and copyright lines:\n%.200s", got)
 	}

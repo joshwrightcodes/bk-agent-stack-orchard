@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Josh Wright
+// SPDX-FileCopyrightText: 2026 The bk-agent-stack-orchard Authors
 
 // These tests are inside the package, because the rule that they prove is when the loop reads a
 // source, and that decision needs a tick time that a test can choose.

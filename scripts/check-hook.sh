@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
-# SPDX-FileCopyrightText: 2026 Josh Wright
+# SPDX-FileCopyrightText: 2026 The bk-agent-stack-orchard Authors
 # Checks the environment hook of the agent image (images/files/environment) the way
 # buildkite-agent runs it: the agent sources the hook, and then reads the environment. When the
 # image has an owner-managed storage, the hook keeps the artifacts of a job in it. When the image

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
-# SPDX-FileCopyrightText: 2026 Josh Wright
+# SPDX-FileCopyrightText: 2026 The bk-agent-stack-orchard Authors
 # The smoke deployment of W-21: the controller from its Helm chart and Orchard from its kustomize
 # base, on a kind cluster, with the fake Stacks API and an OpenTelemetry collector. It passes when
 # the controller becomes ready through its gRPC readiness probe, and the collector receives its
