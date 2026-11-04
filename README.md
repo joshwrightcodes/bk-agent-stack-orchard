@@ -3,6 +3,7 @@
 [![ci](https://github.com/joshwrightcodes/bk-agent-stack-orchard/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/joshwrightcodes/bk-agent-stack-orchard/actions/workflows/ci.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/joshwrightcodes/bk-agent-stack-orchard/badge)](https://scorecard.dev/viewer/?uri=github.com/joshwrightcodes/bk-agent-stack-orchard)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/16316/badge)](https://www.bestpractices.dev/projects/16316)
+[![OpenSSF Baseline](https://www.bestpractices.dev/projects/16316/baseline)](https://www.bestpractices.dev/projects/16316)
 [![Latest release](https://img.shields.io/github/v/release/joshwrightcodes/bk-agent-stack-orchard?include_prereleases&sort=semver)](https://github.com/joshwrightcodes/bk-agent-stack-orchard/releases)
 [![Licence: AGPL-3.0-or-later](https://img.shields.io/badge/licence-AGPL--3.0--or--later-blue)](LICENSE)
 
