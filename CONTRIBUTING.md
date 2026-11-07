@@ -186,7 +186,7 @@ follows [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0
   must do.
 * A fix of a vulnerability names its identifier (`GO-`, `GHSA-`, or `CVE-`) in the subject or the
   body. Renovate has no field for it, so a maintainer adds it when a vulnerability update merges.
-* A commit that an AI tool helped to write carries an `Assisted-by: <tool>` trailer.
+* A commit that an AI tool helped to write names it in a `Co-authored-by` trailer.
 * Footers can name the source identifiers, for example `Refs: W-06, PR-001` and
   `Evidence: T-041`.
 * Commits from Renovate and Dependabot keep the type and shape, but their subjects can be longer,

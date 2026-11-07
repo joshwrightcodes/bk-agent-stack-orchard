@@ -9,9 +9,10 @@ the maintainers as well.
 * **Disclose the tool.** State which tool you used and what it did if it produced more than a
   line completion, a spelling fix, or formatting. Use the AI section of the pull request template.
   In an issue, a comment, or a report, add one line.
-* **Add the commit trailer.** If you disclose a tool, each commit that it helped to write carries
-  an `Assisted-by: <tool>` trailer, for example `Assisted-by: Claude Code`. Do not name a tool in a
-  `Co-authored-by` trailer, because a tool cannot take responsibility for the change.
+* **Add the commit trailer.** If you disclose a tool, each commit that it helped to write names it
+  in a `Co-authored-by` trailer, for example
+  `Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>`. The trailer records the tool, and you
+  stay responsible for the change. A squash keeps this trailer on `main`.
 * **Understand the change.** Read all of it before you ask for a review. Explain the change and
   the reason for it in your own words, and answer the questions of a reviewer yourself.
 * **Verify the change.** If you open a pull request, run `mise run check`. A claim in a pull
@@ -21,18 +22,14 @@ the maintainers as well.
 
 ## What CI checks
 
-The `commit messages` and `pull request title` checks fail a pull request if one of these is true:
+The `pull request title` check fails a pull request if one of these is true:
 
-* A `Co-authored-by` trailer names an AI tool.
-* An `Assisted-by` trailer does not name a tool.
 * The description has no AI tools section, or the section is empty.
-* The section says "none", but a commit has an `Assisted-by` trailer.
+* The section says "none", but a `Co-authored-by` trailer names an AI tool.
 
-Write "none" in the section if you have nothing to disclose. To change a trailer, reword the
-commit and sign it again. [CONTRIBUTING.md](CONTRIBUTING.md#developer-certificate-of-origin) gives
-the commands. CI cannot find a tool that you did not declare, so disclosure stays your
-responsibility. The project squashes each pull request and keeps its description, so the AI tools
-section stays on `main`.
+Write "none" in the section if you have nothing to disclose. CI cannot find a tool that you did
+not declare, so disclosure stays your responsibility. The project squashes each pull request and
+keeps its description, so the AI tools section stays on `main`.
 
 ## Your sign-off stays your responsibility
 

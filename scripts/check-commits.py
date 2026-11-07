@@ -17,10 +17,9 @@ the email of the author (the Developer Certificate of Origin). A GitHub App bot 
 title mode applies the subject rules to a pull request title, with a lower limit, because GitHub
 adds " (#NNN)" to the subject of the squash commit.
 
-AI_POLICY.md states the rules for AI tools. A commit cannot name a tool in Co-authored-by, and an
-Assisted-by trailer names a tool. The disclosure mode checks that the AI tools section of a pull
-request description is complete, and that it does not contradict the trailers. No check can find
-a tool that nobody declared.
+AI_POLICY.md states the rules for AI tools. The disclosure mode checks that the AI tools section
+of a pull request description is complete, and that it does not say "none" when a commit names a
+tool in Co-authored-by. No check can find a tool that nobody declared.
 """
 
 from __future__ import annotations
@@ -55,7 +54,6 @@ BREAKING_FOOTER = re.compile(r"^BREAKING[ -]CHANGE: ", re.MULTILINE)
 COAUTHOR = re.compile(
     r"^Co-authored-by:[ \t]*(.*?)[ \t]*<([^<>\s]*)>[ \t]*$", re.MULTILINE | re.IGNORECASE
 )
-ASSISTED_BY = re.compile(r"^Assisted-by:(.*)$", re.MULTILINE | re.IGNORECASE)
 # An email or a whole name that a tool writes, so a person called Claude Monet passes.
 TOOL_EMAIL = re.compile(
     r"^(noreply@anthropic\.com|(\d+\+)?copilot@users\.noreply\.github\.com|cursoragent@cursor\.com"
@@ -120,24 +118,12 @@ def check_signoff(rev: str, message: str, email: str) -> list[str]:
     return []
 
 
-def check_ai_trailers(rev: str, message: str) -> list[str]:
-    """Return the problems with the AI trailers of one commit. AI_POLICY.md states the rules."""
-    block = trailer_block(message)
-    problems = []
-    for name, email in COAUTHOR.findall(block):
-        if TOOL_EMAIL.match(email) or TOOL_NAME.match(name):
-            problems.append(
-                f"{rev}: Co-authored-by names the AI tool {name!r}. Replace the trailer with "
-                "'Assisted-by: <tool>', as AI_POLICY.md states, and sign the commit again"
-            )
-    for value in ASSISTED_BY.findall(block):
-        tool = value.strip()
-        if not tool or "<" in tool:
-            problems.append(
-                f"{rev}: an Assisted-by trailer names a tool, for example "
-                "'Assisted-by: Claude Code'"
-            )
-    return problems
+def has_tool_coauthor(message: str) -> bool:
+    """Return whether the trailers of a commit name an AI tool as a co-author."""
+    return any(
+        TOOL_EMAIL.match(email) or TOOL_NAME.match(name)
+        for name, email in COAUTHOR.findall(trailer_block(message))
+    )
 
 
 def ai_section(body: str) -> str | None:
@@ -157,7 +143,7 @@ def ai_section(body: str) -> str | None:
 
 def check_disclosure(body: str, assisted: list[str]) -> list[str]:
     """Return the problems with the disclosure of a pull request. `assisted` lists the commits
-    that carry an Assisted-by trailer."""
+    that name an AI tool in Co-authored-by."""
     section = ai_section(body)
     if section is None:
         return [f"the description has no '## {AI_SECTION}' section. AI_POLICY.md states the rules"]
@@ -168,8 +154,8 @@ def check_disclosure(body: str, assisted: list[str]) -> list[str]:
         ]
     if section.rstrip(".").lower() == "none" and assisted:
         return [
-            f"the '## {AI_SECTION}' section says none, but these commits have an Assisted-by "
-            f"trailer: {', '.join(assisted)}"
+            f"the '## {AI_SECTION}' section says none, but these commits name an AI tool in "
+            f"Co-authored-by: {', '.join(assisted)}"
         ]
     return []
 
@@ -271,9 +257,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if arguments.disclosure is not None:
-        assisted = [
-            rev for rev, message, _, _ in found if ASSISTED_BY.search(trailer_block(message))
-        ]
+        assisted = [rev for rev, message, _, _ in found if has_tool_coauthor(message)]
         problems = check_disclosure(body, assisted)
         if problems:
             for problem in problems:
@@ -289,11 +273,7 @@ def main(argv: list[str] | None = None) -> int:
     problems = [
         p
         for rev, message, author, email in found
-        for p in (
-            check(rev, message, author)
-            + check_signoff(rev, message, email)
-            + check_ai_trailers(rev, message)
-        )
+        for p in check(rev, message, author) + check_signoff(rev, message, email)
     ]
     if problems:
         print(
