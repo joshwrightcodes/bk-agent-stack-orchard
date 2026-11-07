@@ -10,7 +10,7 @@ this guide says nothing, follow the Google guide.
 | Documents | Reader | Person | RFC 2119 key words |
 |---|---|---|---|
 | `README.md`, `docs/user/` (the runbooks included), the READMEs of `deploy/` and `images/` | An operator | "You" | No. Use imperatives: "Set `queue`." |
-| `CONTRIBUTING.md`, `MAINTAINERS.md`, `docs/development.md`, `docs/testing-on-real-vms.md`, `docs/releasing.md`, this guide | A contributor | "You" | No |
+| `CONTRIBUTING.md`, `AI_POLICY.md`, `MAINTAINERS.md`, `docs/development.md`, `docs/testing-on-real-vms.md`, `docs/releasing.md`, this guide | A contributor | "You" | No |
 | `docs/product/`, `docs/architecture/`, `docs/quality/`, `docs/delivery/`, `docs/adrs/`, the policy in `SECURITY.md` | A reviewer of the design | Third person | Yes, in capitals, for obligations only |
 
 A document that uses the key words starts with the BCP 14 paragraph:

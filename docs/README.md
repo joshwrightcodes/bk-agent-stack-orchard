@@ -39,6 +39,7 @@ a number, such as the demand model or a quality target.
 | [Testing on real VMs](testing-on-real-vms.md) | How does a developer run the tests that start real Tart VMs? |
 | [Releasing](releasing.md) | How are versions calculated, and how do the maintainers make a release? |
 | [Writing guide](writing-guide.md) | How does a contributor write a document? |
+| [AI policy](../AI_POLICY.md) | What does a contributor disclose when an AI tool helps? |
 | [Glossary](glossary.md) | What does a term or an identifier mean? |
 | [Quick start](user/quickstart.md) | How does an operator see one real job run in a Tart VM on one Mac? |
 | [How it works](user/how-it-works.md) | What does the controller do with each job, and why? |
