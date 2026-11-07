@@ -191,5 +191,143 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(check_commits.check("r", prose), [])
 
 
+class AiTrailerTests(unittest.TestCase):
+    def problems(self, trailers: str) -> list[str]:
+        return check_commits.check_ai_trailers("r", f"docs: say more\n\nBody.\n\n{trailers}")
+
+    def test_a_tool_cannot_be_a_co_author(self) -> None:
+        for trailer in (
+            "Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+            "Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+            "co-authored-by: Claude Code <someone@example.org>",
+            "Co-authored-by: Copilot <198982749+Copilot@users.noreply.github.com>",
+            "Co-authored-by: Cursor Agent <cursoragent@cursor.com>",
+            "Co-authored-by: Codex <noreply@openai.com>",
+            "Co-authored-by: Gemini <someone@example.org>",
+            "Co-authored-by: aider (gpt) <aider@aider.chat>",
+            "Co-authored-by: Helper <noreply@anthropic.com>",
+            "Co-authored-by: Helper <198982749+Copilot@users.noreply.github.com>",
+        ):
+            problems = self.problems(trailer)
+            self.assertEqual(len(problems), 1, trailer)
+            self.assertIn("Assisted-by", problems[0])
+
+    def test_a_person_or_a_bot_can_be_a_co_author(self) -> None:
+        for trailer in (
+            "Co-authored-by: Ann Lee <ann@example.org>",
+            "Co-authored-by: Claude Monet <claude@example.org>",
+            "Co-authored-by: Jules Verne <jules@example.org>",
+            "Co-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>",
+            "Co-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+        ):
+            self.assertEqual(self.problems(trailer), [], trailer)
+
+    def test_only_the_trailer_block_counts(self) -> None:
+        message = (
+            "docs: say more\n\n"
+            "Co-authored-by: Claude Code <noreply@anthropic.com>\n"
+            "Assisted-by:\n\n"
+            "Signed-off-by: Ann <ann@example.org>"
+        )
+        self.assertEqual(check_commits.check_ai_trailers("r", message), [])
+        self.assertEqual(check_commits.check_ai_trailers("r", "docs: say more"), [])
+
+    def test_assisted_by_names_a_tool(self) -> None:
+        self.assertEqual(self.problems("Assisted-by: Claude Code"), [])
+        self.assertEqual(self.problems("assisted-by: Copilot"), [])
+        for trailer in ("Assisted-by:", "Assisted-by:   "):
+            problems = self.problems(trailer)
+            self.assertEqual(len(problems), 1, repr(trailer))
+            self.assertIn("names a tool", problems[0])
+
+    def test_assisted_by_is_not_the_placeholder_of_the_policy(self) -> None:
+        problems = self.problems("Assisted-by: <tool>")
+        self.assertEqual(len(problems), 1)
+        self.assertIn("names a tool", problems[0])
+
+    def test_the_commit_mode_reports_a_tool_co_author(self) -> None:
+        bad = (
+            "docs: say more\n\n"
+            "Co-authored-by: Claude <noreply@anthropic.com>\n"
+            "Signed-off-by: A <a@b.c>"
+        )
+        found = [("abc12345", bad, "Ann", "a@b.c")]
+        stderr = io.StringIO()
+        with (
+            mock.patch.object(check_commits, "commits", return_value=found),
+            contextlib.redirect_stderr(stderr),
+        ):
+            self.assertEqual(check_commits.main(["origin/main"]), 1)
+        self.assertIn("Assisted-by", stderr.getvalue())
+
+
+class DisclosureTests(unittest.TestCase):
+    def body(self, section: str) -> str:
+        return (
+            f"## What changes\n\nA change.\n\n## AI tools\n\n{section}\n\n## Traceability\n\nnone"
+        )
+
+    def test_a_tool_or_none_is_a_disclosure(self) -> None:
+        for section in ("Claude Code drafted the tests.", "none", "None.", "NONE"):
+            self.assertEqual(check_commits.check_disclosure(self.body(section), []), [], section)
+
+    def test_a_missing_section_fails(self) -> None:
+        for body in ("", "## What changes\n\nA change.", "## AI toolsets\n\nnone"):
+            problems = check_commits.check_disclosure(body, [])
+            self.assertEqual(len(problems), 1, body)
+            self.assertIn("AI tools", problems[0])
+
+    def test_a_blank_section_or_a_template_comment_fails(self) -> None:
+        comment = '<!-- Name each tool and say what it did, or write "none". -->'
+        for section in ("", "   ", comment, f"{comment}\n\n<!-- second\nline -->"):
+            problems = check_commits.check_disclosure(self.body(section), [])
+            self.assertEqual(len(problems), 1, section)
+            self.assertIn("empty", problems[0])
+
+    def test_the_section_stops_at_the_next_heading(self) -> None:
+        body = "## AI tools\n\n## Traceability\n\nClaude Code wrote it."
+        self.assertIn("empty", check_commits.check_disclosure(body, [])[0])
+
+    def test_a_description_from_the_github_website_has_crlf_line_endings(self) -> None:
+        body = self.body("none").replace("\n", "\r\n")
+        self.assertEqual(check_commits.check_disclosure(body, []), [])
+        blank = self.body("<!-- only -->").replace("\n", "\r\n")
+        self.assertIn("empty", check_commits.check_disclosure(blank, [])[0])
+
+    def test_none_contradicts_an_assisted_by_trailer(self) -> None:
+        for section in ("none", "None.", "NONE"):
+            problems = check_commits.check_disclosure(self.body(section), ["abc12345"])
+            self.assertEqual(len(problems), 1, section)
+            self.assertIn("abc12345", problems[0])
+        self.assertEqual(
+            check_commits.check_disclosure(self.body("Claude Code."), ["abc12345"]), []
+        )
+
+    def test_the_disclosure_mode_reads_the_description_from_the_environment(self) -> None:
+        trailer = "docs: say more\n\nAssisted-by: Claude Code\nSigned-off-by: A <a@b.c>"
+        plain = "docs: say more\n\nSigned-off-by: A <a@b.c>"
+        cases = (
+            (self.body("none"), [("abc", plain, "A", "a@b.c")], 0),
+            (self.body("none"), [("abc", trailer, "A", "a@b.c")], 1),
+            (self.body("Claude Code."), [("abc", trailer, "A", "a@b.c")], 0),
+            ("no section", [("abc", plain, "A", "a@b.c")], 1),
+        )
+        for body, found, want in cases:
+            with (
+                mock.patch.dict(check_commits.os.environ, {"PR_BODY": body}),
+                mock.patch.object(check_commits, "commits", return_value=found),
+                contextlib.redirect_stderr(io.StringIO()),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(check_commits.main(["--disclosure", "origin/main"]), want, body)
+
+    def test_the_disclosure_mode_needs_the_description(self) -> None:
+        with (
+            mock.patch.dict(check_commits.os.environ, clear=True),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            self.assertEqual(check_commits.main(["--disclosure", "origin/main"]), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

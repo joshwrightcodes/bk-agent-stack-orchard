@@ -19,6 +19,19 @@ the maintainers as well.
 * **Agree the change first.** [CONTRIBUTING.md](CONTRIBUTING.md) gives the process, and a tool does
   not change it.
 
+## What CI checks
+
+The `commit messages` and `pull request title` checks fail a pull request if one of these is true:
+
+* A `Co-authored-by` trailer names an AI tool.
+* An `Assisted-by` trailer does not name a tool.
+* The description has no AI tools section, or the section is empty.
+* The section says "none", but a commit has an `Assisted-by` trailer.
+
+Write "none" in the section if you used no AI tool. To change a trailer, reword the commit and sign
+it again. [CONTRIBUTING.md](CONTRIBUTING.md#developer-certificate-of-origin) gives the commands. CI
+cannot find a tool that you did not declare, so disclosure stays your responsibility.
+
 ## Your sign-off stays your responsibility
 
 An agent can add your `Signed-off-by` trailer when you tell it to commit. The sign-off is still

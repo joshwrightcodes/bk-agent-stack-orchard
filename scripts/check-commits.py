@@ -9,17 +9,24 @@ and changes nothing.
 Usage:
     scripts/check-commits.py [<base-ref>]
     scripts/check-commits.py --title "<pull request title>"
+    PR_BODY="<description>" scripts/check-commits.py --disclosure <base-ref>
 
 The default base reference is origin/main. A pull request checks its own commits, so CI gives the
 merge base of the target branch. Each commit of a person MUST carry a Signed-off-by trailer with
 the email of the author (the Developer Certificate of Origin). A GitHub App bot is exempt. The
 title mode applies the subject rules to a pull request title, with a lower limit, because GitHub
 adds " (#NNN)" to the subject of the squash commit.
+
+AI_POLICY.md states the rules for AI tools. A commit cannot name a tool in Co-authored-by, and an
+Assisted-by trailer names a tool. The disclosure mode checks that the AI tools section of a pull
+request description is complete, and that it does not contradict the trailers. No check can find
+a tool that nobody declared.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -45,6 +52,23 @@ SIGNOFF = re.compile(r"^Signed-off-by: .+? <([^<>\s]+)>\s*$", re.MULTILINE | re.
 # Conventional Commits defines the footer token as BREAKING CHANGE or BREAKING-CHANGE, followed by
 # ": ". The phrase in the body text is not the footer.
 BREAKING_FOOTER = re.compile(r"^BREAKING[ -]CHANGE: ", re.MULTILINE)
+COAUTHOR = re.compile(
+    r"^Co-authored-by:[ \t]*(.*?)[ \t]*<([^<>\s]*)>[ \t]*$", re.MULTILINE | re.IGNORECASE
+)
+ASSISTED_BY = re.compile(r"^Assisted-by:(.*)$", re.MULTILINE | re.IGNORECASE)
+# An email or a whole name that a tool writes, so a person called Claude Monet passes.
+TOOL_EMAIL = re.compile(
+    r"^(noreply@anthropic\.com|(\d+\+)?copilot@users\.noreply\.github\.com|cursoragent@cursor\.com"
+    r"|(noreply|codex)@openai\.com|aider@aider\.chat)$",
+    re.IGNORECASE,
+)
+TOOL_NAME = re.compile(
+    r"^(claude|claude (code|opus|sonnet|haiku|fable)\b.*|(github )?copilot|cursor( agent)?|codex"
+    r"|gemini|aider( \(.*\))?|devin|windsurf|jules)$",
+    re.IGNORECASE,
+)
+AI_SECTION = "AI tools"
+HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 FIELD = "\x1f"
 SEPARATOR = "\x1e"
 
@@ -93,6 +117,60 @@ def check_signoff(rev: str, message: str, email: str) -> list[str]:
         return [f"{rev}: no Signed-off-by trailer. Commit with 'git commit -s'"]
     if email.lower() not in emails:
         return [f"{rev}: the Signed-off-by email does not match the author email {email}"]
+    return []
+
+
+def check_ai_trailers(rev: str, message: str) -> list[str]:
+    """Return the problems with the AI trailers of one commit. AI_POLICY.md states the rules."""
+    block = trailer_block(message)
+    problems = []
+    for name, email in COAUTHOR.findall(block):
+        if TOOL_EMAIL.match(email) or TOOL_NAME.match(name):
+            problems.append(
+                f"{rev}: Co-authored-by names the AI tool {name!r}. Replace the trailer with "
+                "'Assisted-by: <tool>', as AI_POLICY.md states, and sign the commit again"
+            )
+    for value in ASSISTED_BY.findall(block):
+        tool = value.strip()
+        if not tool or "<" in tool:
+            problems.append(
+                f"{rev}: an Assisted-by trailer names a tool, for example "
+                "'Assisted-by: Claude Code'"
+            )
+    return problems
+
+
+def ai_section(body: str) -> str | None:
+    """Return the text of the AI tools section of a description, or None if it has no section."""
+    lines = HTML_COMMENT.sub("", body).split("\n")
+    heading = f"## {AI_SECTION}"
+    if heading not in [line.strip() for line in lines]:
+        return None
+    start = [line.strip() for line in lines].index(heading) + 1
+    found = []
+    for line in lines[start:]:
+        if line.startswith("## "):
+            break
+        found.append(line)
+    return "\n".join(found).strip()
+
+
+def check_disclosure(body: str, assisted: list[str]) -> list[str]:
+    """Return the problems with the disclosure of a pull request. `assisted` lists the commits
+    that carry an Assisted-by trailer."""
+    section = ai_section(body)
+    if section is None:
+        return [f"the description has no '## {AI_SECTION}' section. AI_POLICY.md states the rules"]
+    if not section:
+        return [
+            f"the '## {AI_SECTION}' section is empty. Name each tool and say what it did, "
+            "or write 'none'"
+        ]
+    if section.rstrip(".").lower() == "none" and assisted:
+        return [
+            f"the '## {AI_SECTION}' section says none, but these commits have an Assisted-by "
+            f"trailer: {', '.join(assisted)}"
+        ]
     return []
 
 
@@ -161,6 +239,11 @@ def main(argv: list[str] | None = None) -> int:
         help="check the commits in <base>..HEAD (default: origin/main)",
     )
     mode.add_argument("--title", help="check a pull request title instead of commits")
+    mode.add_argument(
+        "--disclosure",
+        metavar="BASE",
+        help="check the description in PR_BODY against the commits in <BASE>..HEAD",
+    )
     # argparse exits 2 on a usage error, such as --title with no value.
     arguments = parser.parse_args(argv)
 
@@ -173,7 +256,12 @@ def main(argv: list[str] | None = None) -> int:
         print("check-commits: the title follows Conventional Commits")
         return 0
 
-    base = arguments.base
+    if arguments.disclosure is not None:
+        body = os.environ.get("PR_BODY")
+        if body is None:
+            print("check-commits: PR_BODY is not set", file=sys.stderr)
+            return 2
+    base = arguments.disclosure if arguments.disclosure is not None else arguments.base
     try:
         found = commits(base)
     except subprocess.CalledProcessError as error:
@@ -182,6 +270,18 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {error.stderr.strip()}", file=sys.stderr)
         return 2
 
+    if arguments.disclosure is not None:
+        assisted = [
+            rev for rev, message, _, _ in found if ASSISTED_BY.search(trailer_block(message))
+        ]
+        problems = check_disclosure(body, assisted)
+        if problems:
+            for problem in problems:
+                print(f"  {problem}", file=sys.stderr)
+            return 1
+        print("check-commits: the pull request discloses its AI tools")
+        return 0
+
     if not found:
         print(f"check-commits: no commit in {base}..HEAD")
         return 0
@@ -189,7 +289,11 @@ def main(argv: list[str] | None = None) -> int:
     problems = [
         p
         for rev, message, author, email in found
-        for p in check(rev, message, author) + check_signoff(rev, message, email)
+        for p in (
+            check(rev, message, author)
+            + check_signoff(rev, message, email)
+            + check_ai_trailers(rev, message)
+        )
     ]
     if problems:
         print(

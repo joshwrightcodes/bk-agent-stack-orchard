@@ -1,7 +1,8 @@
 name: title
 
-# The title gate of a pull request. It has a workflow of its own because it alone reads the title:
-# a new title or description (the edited event) runs this gate again, and not the other gates.
+# The title and description gate of a pull request. It has a workflow of its own because it alone
+# reads them: a new title or description (the edited event) runs this gate again, and not the other
+# gates. The job keeps its name, because the ruleset of main requires the check by that name.
 
 on:
   pull_request:
@@ -32,6 +33,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          # The disclosure gate reads the commits of the pull request. It pushes nothing.
+          fetch-depth: 0
           persist-credentials: false
       # The same mise as release.yml (see ci.yml). The gate needs only Python.
       - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
@@ -45,3 +48,17 @@ jobs:
         # The Python of mise, not the one of the runner. Only Python is installed, so mise x
         # names it, and does not install the other tools of mise.toml.
         run: mise x python -- python3 scripts/check-commits.py --title "$PR_TITLE"
+      # AI_POLICY.md requires a disclosure. The description is free text from the author, so it
+      # reaches only the environment of the script, and never the shell. docs.yml explains how
+      # the checkout gives the commits of the pull request.
+      - env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          if [ "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 3 ]; then
+            base="$(git rev-parse HEAD^1)"
+          else
+            base="$BASE_SHA"
+          fi
+          mise x python -- python3 scripts/check-commits.py --disclosure "$base"
