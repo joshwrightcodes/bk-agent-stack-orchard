@@ -9,13 +9,13 @@ the maintainers as well.
 * **Disclose the tool.** State which tool you used and what it did if it produced more than a
   line completion, a spelling fix, or formatting. Use the AI section of the pull request template.
   In an issue, a comment, or a report, add one line.
-* **Add the commit trailer.** Each commit that a tool helped to write carries an
-  `Assisted-by: <tool>` trailer, for example `Assisted-by: Claude Code`. Do not name a tool in a
+* **Add the commit trailer.** If you disclose a tool, each commit that it helped to write carries
+  an `Assisted-by: <tool>` trailer, for example `Assisted-by: Claude Code`. Do not name a tool in a
   `Co-authored-by` trailer, because a tool cannot take responsibility for the change.
 * **Understand the change.** Read all of it before you ask for a review. Explain the change and
   the reason for it in your own words, and answer the questions of a reviewer yourself.
-* **Verify the change.** Run `mise run check`. A claim in a pull request or an issue needs evidence
-  that you checked.
+* **Verify the change.** If you open a pull request, run `mise run check`. A claim in a pull
+  request or an issue needs evidence that you checked.
 * **Agree the change first.** [CONTRIBUTING.md](CONTRIBUTING.md) gives the process, and a tool does
   not change it.
 
@@ -28,9 +28,11 @@ The `commit messages` and `pull request title` checks fail a pull request if one
 * The description has no AI tools section, or the section is empty.
 * The section says "none", but a commit has an `Assisted-by` trailer.
 
-Write "none" in the section if you used no AI tool. To change a trailer, reword the commit and sign
-it again. [CONTRIBUTING.md](CONTRIBUTING.md#developer-certificate-of-origin) gives the commands. CI
-cannot find a tool that you did not declare, so disclosure stays your responsibility.
+Write "none" in the section if you have nothing to disclose. To change a trailer, reword the
+commit and sign it again. [CONTRIBUTING.md](CONTRIBUTING.md#developer-certificate-of-origin) gives
+the commands. CI cannot find a tool that you did not declare, so disclosure stays your
+responsibility. The project squashes each pull request and keeps its description, so the AI tools
+section stays on `main`.
 
 ## Your sign-off stays your responsibility
 
