@@ -57,13 +57,13 @@ jobs:
           retention-days: 30
 
   # The default run of the suite draws 400 checks. This run draws 20000 checks of up to 200 steps.
-  # On 2026-11-02, 20000 checks of 200 steps took about 13 minutes on a development Mac, estimated
-  # from a run of 5000 checks (docs/development.md). The timeout leaves room for a slower hosted
-  # runner.
+  # On 2026-11-07, 20000 checks of 200 steps took about 20 minutes on a development Mac and about
+  # 60 minutes on a hosted runner, both estimated (docs/development.md). rapid stops near the
+  # deadline of the test and reports a pass, so -v prints the number of checks that ran.
   property:
     name: long property run
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 80
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -72,8 +72,8 @@ jobs:
         with:
           version: 2026.10.24
       - run: >-
-          mise x -- go test ./test/component/ -run '^TestRandomEventsHoldTheInvariants$' -count=1
-          -timeout 40m -rapid.checks=20000 -rapid.steps=200
+          mise x -- go test ./test/component/ -run '^TestRandomEventsHoldTheInvariants$' -count=1 -v
+          -timeout 75m -rapid.checks=20000 -rapid.steps=200
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

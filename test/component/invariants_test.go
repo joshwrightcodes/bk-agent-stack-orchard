@@ -818,7 +818,17 @@ orchard:
 profiles:
 %s`, controllerID, maxInFlight, profiles)
 
-	path := filepath.Join(t.TempDir(), "config.yaml")
+	// The property tests load a configuration for each check. The directory goes when the load
+	// ends, because a t.TempDir stays until the test ends. The deadline of a long run leaves no
+	// time to delete one for each check.
+	dir, err := os.MkdirTemp("", "component-config-") //nolint:usetesting // see above
+	if err != nil {
+		t.Fatalf("making the configuration directory: %v", err)
+	}
+
+	defer func() { _ = os.RemoveAll(dir) }()
+
+	path := filepath.Join(dir, "config.yaml")
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatalf("writing the configuration: %v", err)
 	}
@@ -845,6 +855,29 @@ profiles:
 	loaded, err := config.Load(path, func(name string) string { return environment[name] })
 
 	return loaded, environment, err
+}
+
+// A long property run stops near the deadline of the test. A file that each check leaves until the
+// test ends makes the cleanup outlast that deadline, and the run panics and reports no result.
+func TestLoadingTheConfigurationLeavesNoFile(t *testing.T) {
+	dir := t.TempDir()
+
+	t.Run("load", func(t *testing.T) {
+		t.Setenv("TMPDIR", dir)
+
+		if _, _, err := loadSettings(t, 0, ""); err != nil {
+			t.Fatalf("loading the configuration: %v", err)
+		}
+
+		left, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatalf("reading the temporary directory: %v", err)
+		}
+
+		if len(left) != 0 {
+			t.Fatalf("the load left %d entries in the temporary directory", len(left))
+		}
+	})
 }
 
 // quiet gives telemetry that exports nothing and writes no log, so that a run of thousands of

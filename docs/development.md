@@ -428,10 +428,12 @@ artifact. Add the input to the seeds of the test, and correct the code, in one p
 
 A failed night opens an issue titled "Nightly fuzz run failed", or comments on the issue that is
 open. The `fuzz` workflow also runs the long property run of the component suite each night, with
-`-rapid.checks=20000 -rapid.steps=200`. It takes about 13 minutes on a development Mac
-(2026-11-02, estimated from a run of 5,000 checks). When it fails, the workflow keeps
-`test/component/testdata/rapid/` as an artifact. Replay a fail file as the component suite section
-describes.
+`-rapid.checks=20000 -rapid.steps=200`. It takes about 20 minutes on a development Mac
+(2026-11-07, estimated from a run of 2,000 checks) and about 60 minutes on a hosted runner
+(estimated from the last full run). rapid stops near the deadline of the test and reports a pass,
+so read the line `[rapid] OK, passed <number> tests` in the log to see how many checks ran. When it
+fails, the workflow keeps `test/component/testdata/rapid/` as an artifact. Replay a fail file as the
+component suite section describes.
 
 ## The integration tests
 
