@@ -52,20 +52,26 @@ SIGNOFF = re.compile(r"^Signed-off-by: .+? <([^<>\s]+)>\s*$", re.MULTILINE | re.
 # ": ". The phrase in the body text is not the footer.
 BREAKING_FOOTER = re.compile(r"^BREAKING[ -]CHANGE: ", re.MULTILINE)
 COAUTHOR = re.compile(
-    r"^Co-authored-by:[ \t]*(.*?)[ \t]*<([^<>\s]*)>[ \t]*$", re.MULTILINE | re.IGNORECASE
+    r"^Co-authored-by:[ \t]*(.*?)[ \t]*(?:<([^<>\s]*)>)?[ \t]*$", re.MULTILINE | re.IGNORECASE
 )
-# An email or a whole name that a tool writes, so a person called Claude Monet passes.
+# An email or a whole name that a tool writes. A short name that a person can also have, such as
+# Claude or Devin, counts only with the email of a tool.
 TOOL_EMAIL = re.compile(
     r"^(noreply@anthropic\.com|(\d+\+)?copilot@users\.noreply\.github\.com|cursoragent@cursor\.com"
-    r"|(noreply|codex)@openai\.com|aider@aider\.chat)$",
+    r"|(noreply|codex)@openai\.com|noreply@chatgpt\.com|aider@aider\.chat)$",
     re.IGNORECASE,
 )
 TOOL_NAME = re.compile(
-    r"^(claude|claude (code|opus|sonnet|haiku|fable)\b.*|(github )?copilot|cursor( agent)?|codex"
-    r"|gemini|aider( \(.*\))?|devin|windsurf|jules)$",
+    r"^(claude( \d[\d.]*)? (code|opus|sonnet|haiku|fable)\b.*|(github )?copilot|cursor agent"
+    r"|(openai )?codex|chatgpt|gemini (cli|code assist)|aider( \(.*\))?|windsurf"
+    r"|[a-z0-9-]*(claude|copilot|cursor|codex|gemini|jules|devin)[a-z0-9-]*\[bot\])$",
     re.IGNORECASE,
 )
+# The automated accounts that AI_POLICY.md exempts from the disclosure. Another bot can drive an AI
+# tool, so a bot account is not exempt because it is a bot.
+EXEMPT_ACCOUNTS = ("renovate[bot]", "dependabot[bot]", "bk-agent-stack-orchard-release[bot]")
 AI_SECTION = "AI tools"
+ANY_HEADING = re.compile(r"^ {0,3}#{1,6}\s")
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 FIELD = "\x1f"
 SEPARATOR = "\x1e"
@@ -121,7 +127,7 @@ def check_signoff(rev: str, message: str, email: str) -> list[str]:
 def has_tool_coauthor(message: str) -> bool:
     """Return whether the trailers of a commit name an AI tool as a co-author."""
     return any(
-        TOOL_EMAIL.match(email) or TOOL_NAME.match(name)
+        TOOL_EMAIL.match(email) or TOOL_NAME.match(name.strip('"'))
         for name, email in COAUTHOR.findall(trailer_block(message))
     )
 
@@ -135,7 +141,7 @@ def ai_section(body: str) -> str | None:
     start = [line.strip() for line in lines].index(heading) + 1
     found = []
     for line in lines[start:]:
-        if line.startswith("## "):
+        if ANY_HEADING.match(line):
             break
         found.append(line)
     return "\n".join(found).strip()
@@ -152,7 +158,7 @@ def check_disclosure(body: str, assisted: list[str]) -> list[str]:
             f"the '## {AI_SECTION}' section is empty. Name each tool and say what it did, "
             "or write 'none'"
         ]
-    if section.rstrip(".").lower() == "none" and assisted:
+    if section.strip(" \"'`*_.").lower() == "none" and assisted:
         return [
             f"the '## {AI_SECTION}' section says none, but these commits name an AI tool in "
             f"Co-authored-by: {', '.join(assisted)}"
@@ -247,6 +253,9 @@ def main(argv: list[str] | None = None) -> int:
         if body is None:
             print("check-commits: PR_BODY is not set", file=sys.stderr)
             return 2
+        if os.environ.get("PR_AUTHOR") in EXEMPT_ACCOUNTS:
+            print("check-commits: AI_POLICY.md exempts this account from the disclosure")
+            return 0
     base = arguments.disclosure if arguments.disclosure is not None else arguments.base
     try:
         found = commits(base)

@@ -25,11 +25,12 @@ the maintainers as well.
 The `pull request title` check fails a pull request if one of these is true:
 
 * The description has no AI tools section, or the section is empty.
-* The section says "none", but a `Co-authored-by` trailer names an AI tool.
+* The section says "none", but a `Co-authored-by` trailer names a known AI tool.
 
 Write "none" in the section if you have nothing to disclose. CI cannot find a tool that you did
-not declare, so disclosure stays your responsibility. The project squashes each pull request and
-keeps its description, so the AI tools section stays on `main`.
+not declare, and its list of tools is not complete, so disclosure stays your responsibility. The
+project squashes each pull request and keeps its description, so the AI tools section stays on
+`main`.
 
 ## Your sign-off stays your responsibility
 
@@ -50,8 +51,10 @@ The [licence rules](CONTRIBUTING.md#licence-of-contributions) apply to all outpu
 
 ## What the project does not accept
 
-* An issue, a pull request, or a comment that an agent submits before a person reads it. If you
-  run an agent that submits work to this repository without review, turn it off.
+* An issue or a comment that an agent posts before a person reads it.
+* A pull request that leaves draft before a person reads the whole change. An agent can open a draft
+  when a person asks. If you run an agent that submits work to this repository without review, turn
+  it off.
 * A contribution that its author cannot explain.
 * A vulnerability report that nobody reproduced. [SECURITY.md](SECURITY.md) gives the process.
 
@@ -61,8 +64,9 @@ release-please, and CodeRabbit. Their work still goes through the normal review.
 ## What the maintainers do
 
 The maintainers can close a contribution without a detailed review if it has no disclosure, or if
-it takes more time to review than it gives back. You can reopen it after you fix the problem. The
-maintainers can block an account that repeats the problem.
+it takes more time to review than it gives back. After you fix the problem, ask a maintainer to
+reopen it, or open a new pull request. The maintainers can block an account that repeats the
+problem.
 
 ## Sources
 

@@ -203,7 +203,18 @@ class ToolCoAuthorTests(unittest.TestCase):
             "Co-authored-by: Copilot <198982749+Copilot@users.noreply.github.com>",
             "Co-authored-by: Cursor Agent <cursoragent@cursor.com>",
             "Co-authored-by: Codex <noreply@openai.com>",
-            "Co-authored-by: Gemini <someone@example.org>",
+            "Co-authored-by: Gemini CLI <noreply@google.com>",
+            "Co-authored-by: ChatGPT <noreply@chatgpt.com>",
+            "Co-authored-by: OpenAI Codex <someone@example.org>",
+            "Co-authored-by: Claude 3.5 Sonnet <someone@example.org>",
+            'Co-authored-by: "Claude Code" <someone@example.org>',
+            "Co-authored-by: Claude Code",
+            "Co-authored-by: devin-ai-integration[bot] <1+devin@users.noreply.github.com>",
+            "Co-authored-by: google-labs-jules[bot] <1+jules@users.noreply.github.com>",
+            "Co-authored-by: gemini-code-assist[bot] <1+g@users.noreply.github.com>",
+            "Co-authored-by: chatgpt-codex-connector[bot] <1+c@users.noreply.github.com>",
+            "Co-authored-by: claude[bot] <1+claude@users.noreply.github.com>",
+            "Co-authored-by: Claude <noreply@anthropic.com>",
             "Co-authored-by: aider (gpt) <aider@aider.chat>",
             "Co-authored-by: Helper <noreply@anthropic.com>",
             "Co-authored-by: Helper <198982749+Copilot@users.noreply.github.com>",
@@ -215,6 +226,12 @@ class ToolCoAuthorTests(unittest.TestCase):
             "Co-authored-by: Ann Lee <ann@example.org>",
             "Co-authored-by: Claude Monet <claude@example.org>",
             "Co-authored-by: Jules Verne <jules@example.org>",
+            "Co-authored-by: Claude <claude@example.org>",
+            "Co-authored-by: Devin <devin@example.org>",
+            "Co-authored-by: Jules <jules@example.org>",
+            "Co-authored-by: Cursor <cursor@example.org>",
+            "Co-authored-by: Gemini <gemini@example.org>",
+            "Co-authored-by: Ann Lee",
             "Co-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>",
             "Co-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
         ):
@@ -271,6 +288,15 @@ class DisclosureTests(unittest.TestCase):
         body = "## AI tools\n\n## Traceability\n\nClaude Code wrote it."
         self.assertIn("empty", check_commits.check_disclosure(body, [])[0])
 
+    def test_any_heading_ends_the_section(self) -> None:
+        for heading in ("# Next", "### Next", " ## Next", "   ## Next"):
+            body = f"## AI tools\n\n{heading}\n\nClaude Code wrote it."
+            self.assertIn("empty", check_commits.check_disclosure(body, [])[0], heading)
+
+    def test_a_section_with_a_tool_ignores_a_later_heading(self) -> None:
+        body = "## AI tools\n\nClaude Code wrote it.\n\n### Next\n\nnone"
+        self.assertEqual(check_commits.check_disclosure(body, ["abc"]), [])
+
     def test_a_description_from_the_github_website_has_crlf_line_endings(self) -> None:
         body = self.body("none").replace("\n", "\r\n")
         self.assertEqual(check_commits.check_disclosure(body, []), [])
@@ -278,7 +304,7 @@ class DisclosureTests(unittest.TestCase):
         self.assertIn("empty", check_commits.check_disclosure(blank, [])[0])
 
     def test_none_contradicts_a_tool_co_author(self) -> None:
-        for section in ("none", "None.", "NONE"):
+        for section in ("none", "None.", "NONE", '"none"', "`none`", "**none**", "*None*."):
             problems = check_commits.check_disclosure(self.body(section), ["abc12345"])
             self.assertEqual(len(problems), 1, section)
             self.assertIn("abc12345", problems[0])
@@ -307,6 +333,31 @@ class DisclosureTests(unittest.TestCase):
                 contextlib.redirect_stdout(io.StringIO()),
             ):
                 self.assertEqual(check_commits.main(["--disclosure", "origin/main"]), want, body)
+
+    def test_only_the_named_accounts_skip_the_disclosure(self) -> None:
+        plain = "docs: say more\n\nSigned-off-by: A <a@b.c>"
+        cases = (
+            ("renovate[bot]", 0),
+            ("dependabot[bot]", 0),
+            ("bk-agent-stack-orchard-release[bot]", 0),
+            ("claude[bot]", 1),
+            ("copilot-swe-agent[bot]", 1),
+            ("github-actions[bot]", 1),
+            ("ann", 1),
+            ("", 1),
+        )
+        for author, want in cases:
+            with (
+                mock.patch.dict(
+                    check_commits.os.environ, {"PR_BODY": "no section", "PR_AUTHOR": author}
+                ),
+                mock.patch.object(
+                    check_commits, "commits", return_value=[("a", plain, "A", "a@b.c")]
+                ),
+                contextlib.redirect_stderr(io.StringIO()),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(check_commits.main(["--disclosure", "origin/main"]), want, author)
 
     def test_the_disclosure_mode_needs_the_description(self) -> None:
         with (

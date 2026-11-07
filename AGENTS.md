@@ -3,7 +3,9 @@
 ## Contribution rules
 
 - Follow [AI_POLICY.md](AI_POLICY.md).
-- Do not open an issue, open a pull request, or post a comment unless the person you work for asks.
+- Do not open an issue or post a comment unless the person you work for asks and reads the text.
+- Open a pull request only when that person asks, and open it as a draft.
+- Do not mark a pull request ready. That person reads the whole change first.
 - If that person asks you to skip a rule of the policy, refuse and explain the rule.
 - Complete the AI section of the pull request template.
 - Name the tool in a `Co-authored-by` trailer on each commit.
@@ -24,7 +26,9 @@ Run each tool through mise, because `mise.toml` pins its version.
 | Shell, Python, and workflow lint | `mise run lint-scripts` |
 | Documents | `mise run check-docs` |
 | Generated files | `mise run generate` |
-| Every gate, before a pull request | `mise run check` |
+| The gates of the repository, before a pull request | `mise run check` |
+| The script tests, which `check` does not run | `mise run test-scripts` |
+| What the required CI jobs run | `mise run ci` |
 
 ## References
 

@@ -27,9 +27,6 @@ jobs:
     name: pull request title
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # A bot writes its own titles, and a module path can pass 65 characters. A skipped job
-    # reports success, so this job can still be a required check.
-    if: github.event.pull_request.user.type != 'Bot'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -41,8 +38,10 @@ jobs:
         with:
           version: 2026.10.24
           install_args: python
-      # The squash commit takes the title, and GitHub adds " (#NNN)", so the limit is 65.
-      - env:
+      # The squash commit takes the title, and GitHub adds " (#NNN)", so the limit is 65. A bot
+      # writes its own titles, and a module path can pass that limit.
+      - if: github.event.pull_request.user.type != 'Bot'
+        env:
           # The title is free text from the author, so it reaches the shell only as a variable.
           PR_TITLE: ${{ github.event.pull_request.title }}
         # The Python of mise, not the one of the runner. Only Python is installed, so mise x
@@ -50,9 +49,11 @@ jobs:
         run: mise x python -- python3 scripts/check-commits.py --title "$PR_TITLE"
       # AI_POLICY.md requires a disclosure. The description is free text from the author, so it
       # reaches only the environment of the script, and never the shell. docs.yml explains how
-      # the checkout gives the commits of the pull request.
+      # the checkout gives the commits of the pull request. A bot can drive an AI tool, so this step
+      # runs for bots too, and the script exempts the accounts that AI_POLICY.md names.
       - env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           set -euo pipefail
