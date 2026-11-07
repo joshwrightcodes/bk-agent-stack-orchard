@@ -16,6 +16,11 @@ only this description, not the messages of the commits.
 
 <!-- The problem this solves. Link the requirement, the driver, or the decision. -->
 
+## AI tools
+
+<!-- Name each tool that AI_POLICY.md asks you to disclose, and say what it did. Otherwise write
+"none". -->
+
 ## Traceability
 
 * Work unit: <!-- W-nn, or "none" -->
@@ -33,6 +38,8 @@ only this description, not the messages of the commits.
       approach has an ADR, and a new mechanism updates the target design.
 - [ ] A change to a component, a container, or a relationship updates `workspace.dsl`, and
       `render-c4-md.sh` regenerated `c4.md`.
+- [ ] I disclosed each AI tool that AI_POLICY.md covers, I read the whole change, and I can explain
+      it myself.
 - [ ] No secret, token, or customer source code is in the diff or in the test data.
 - [ ] No code with a field-of-use restriction entered the repository, and `go.mod` has no Orchard
       dependency (ADR-0010).
