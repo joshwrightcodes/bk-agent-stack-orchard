@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/joshwrightcodes/bk-agent-stack-orchard/compare/v0.1.1...v0.1.2) (2026-11-10)
+
+
+### Fixes
+
+* **deps:** update module golang.org/x/sys to v0.50.0 ([#212](https://github.com/joshwrightcodes/bk-agent-stack-orchard/issues/212)) ([0d9ad78](https://github.com/joshwrightcodes/bk-agent-stack-orchard/commit/0d9ad7868ba29403b75f9ba5decd06d96f74039c))
+
 ## [0.1.1](https://github.com/joshwrightcodes/bk-agent-stack-orchard/compare/v0.1.0...v0.1.1) (2026-11-04)
 
 
