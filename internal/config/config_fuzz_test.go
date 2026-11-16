@@ -18,6 +18,8 @@ func FuzzLoadGivesAnErrorOrAValidConfiguration(f *testing.F) {
 	f.Add("profiles: [{name: a, match: {a: b}}]\n")
 	f.Add("{")
 	f.Add("")
+	// The YAML library panicked on a tag on a mapping where the configuration has a list.
+	f.Add("profiles: !\n  name: a\n")
 
 	f.Fuzz(func(t *testing.T, body string) {
 		cfg, err := config.Load(write(t, body), secrets())
