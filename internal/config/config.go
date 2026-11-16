@@ -170,6 +170,19 @@ type Config struct {
 	Warnings []string `yaml:"-"`
 }
 
+// decode reads the YAML of the file into cfg. The YAML library panics on some input, such as a
+// tag on a mapping where the configuration has a list (goccy/go-yaml v1.19.2), so a panic becomes
+// an error: a bad file is a mistake of the operator, and the process reports it.
+func decode(body []byte, cfg *Config) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("the YAML is not valid: %v", recovered)
+		}
+	}()
+
+	return yaml.UnmarshalWithOptions(body, cfg, yaml.Strict())
+}
+
 // Load reads the file, adds the defaults, reads the secrets, and validates everything. It
 // reports every problem that it finds, not only the first.
 func Load(path string, environment Environment) (*Config, error) {
@@ -179,7 +192,7 @@ func Load(path string, environment Environment) (*Config, error) {
 	}
 
 	cfg := defaults()
-	if err := yaml.UnmarshalWithOptions(body, cfg, yaml.Strict()); err != nil {
+	if err := decode(body, cfg); err != nil {
 		return nil, fmt.Errorf("reading the configuration of %s: %w", path, err)
 	}
 
