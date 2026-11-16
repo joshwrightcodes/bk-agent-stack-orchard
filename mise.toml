@@ -375,7 +375,7 @@ version = "0.17.5"
 version = "1.7.12"
 
 [tools.zizmor]
-version = "1.31.1"
+version = "1.32.0"
 
 [tasks.lint-scripts]
 description = "Lint the shell and Python scripts and the workflows (shellcheck, shfmt, ruff, actionlint, zizmor)"
