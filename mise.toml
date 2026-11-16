@@ -39,7 +39,7 @@ kustomize = "5.8.1"
 # The smoke deployment on kind builds the images with ko and loads them into the cluster.
 kind = "0.33.0"
 ko = "0.19.1"
-kubectl = "1.37.1"
+kubectl = "1.37.2"
 # The Mac hosts are set up with Ansible (deploy/hosts). The pypi backend installs each one in its
 # own environment with uv, and ansible-lint gets the same ansible-core. ansible-core 2.21 needs
 # Python 3.12 or later on this side, and 3.9 or later on a host. mise locks the whole dependency
