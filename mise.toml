@@ -18,7 +18,7 @@ lockfile_platforms = ["linux-x64", "linux-arm64", "macos-arm64"]
 [tools]
 go = "1.27.4"
 golangci-lint = "2.15.0"
-goreleaser = "2.18.2"
+goreleaser = "2.20.2"
 # govulncheck reports a known vulnerability that the code can reach. The go backend installs the
 # module at this version, which the checksum database of Go confirms.
 "go:golang.org/x/vuln/cmd/govulncheck" = { version = "1.9.0", depends = ["go"] }
