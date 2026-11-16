@@ -30,7 +30,7 @@ syft = "1.57.1"
 # The quick start reads the JSON log of the controller with jq (scripts/quickstart.sh).
 jq = "1.8.2"
 # Vale checks the language rules of the writing guide (.vale.ini, mise run check-docs).
-vale = "3.26.0"
+vale = "3.27.0"
 # The manifests of deploy are checked with these. The aqua backend of mise checks the checksum
 # that each release publishes.
 helm = "4.3.2"
