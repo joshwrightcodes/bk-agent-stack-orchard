@@ -123,9 +123,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
-          version: 2026.10.24
+          version: 2026.11.8
       # The modules and the build cache of Go, from the last run of this job on main. A pull request
       # only reads them, so its code cannot change what main builds with.
       - name: find the go caches
@@ -182,7 +182,7 @@ jobs:
       # upload does not stop the gates above.
       - name: upload the golangci-lint findings
         if: always() && env.SARIF_UPLOAD == 'true' && hashFiles('build/sarif/golangci-lint.sarif') != ''
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           sarif_file: build/sarif/golangci-lint.sarif
           category: golangci-lint
@@ -211,9 +211,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
-          version: 2026.10.24
+          version: 2026.11.8
       # When the run can upload, ruff, actionlint, and zizmor write their SARIF output to
       # build/sarif in the same run, for the uploads below. The gate still fails on a finding.
       - env:
@@ -227,19 +227,19 @@ jobs:
 
       - name: upload the ruff findings
         if: always() && env.SARIF_UPLOAD == 'true' && hashFiles('build/sarif/ruff.sarif') != ''
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           sarif_file: build/sarif/ruff.sarif
           category: ruff
       - name: upload the actionlint findings
         if: always() && env.SARIF_UPLOAD == 'true' && hashFiles('build/sarif/actionlint.sarif') != ''
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           sarif_file: build/sarif/actionlint.sarif
           category: actionlint
       - name: upload the zizmor findings
         if: always() && env.SARIF_UPLOAD == 'true' && hashFiles('build/sarif/zizmor.sarif') != ''
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           sarif_file: build/sarif/zizmor.sarif
           category: zizmor
@@ -258,9 +258,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
-          version: 2026.10.24
+          version: 2026.11.8
       # The modules and the build cache of Go, from the last run of this job on main. A pull request
       # only reads them, so its code cannot change what main builds with.
       - name: find the go caches
@@ -284,7 +284,7 @@ jobs:
         run: mise run vuln
       - name: upload the govulncheck findings
         if: always() && env.SARIF_UPLOAD == 'true' && hashFiles('build/sarif/govulncheck.sarif') != ''
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           sarif_file: build/sarif/govulncheck.sarif
           category: govulncheck
@@ -307,9 +307,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
-          version: 2026.10.24
+          version: 2026.11.8
       - run: mise run check-deploy
       - run: mise run check-hook
       - run: mise run check-hosts
@@ -329,9 +329,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
-          version: 2026.10.24
+          version: 2026.11.8
       # The modules and the build cache of Go, from the last run of this job on main. A pull request
       # only reads them, so its code cannot change what main builds with.
       - name: find the go caches
@@ -381,9 +381,9 @@ jobs:
       # mise installs the Orchard that mise.toml pins, and checks it against the SHA-256 there.
       # The tests run `orchard dev --synthetic`, so they need no Tart and no virtual machine. CI
       # sets CI=true, and a test then fails instead of skipping when the binary is missing.
-      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
-          version: 2026.10.24
+          version: 2026.11.8
       # The modules and the build cache of Go, from the last run of this job on main. A pull request
       # only reads them, so its code cannot change what main builds with.
       - name: find the go caches
@@ -425,9 +425,9 @@ jobs:
           # GoReleaser reads the tags to name a snapshot.
           fetch-depth: 0
           persist-credentials: false
-      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
-          version: 2026.10.24
+          version: 2026.11.8
       # The modules and the build cache of Go, from the last run of this job on main. A pull request
       # only reads them, so its code cannot change what main builds with.
       - name: find the go caches

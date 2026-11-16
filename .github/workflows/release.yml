@@ -51,11 +51,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           # A fixed version of mise, which the action checks against the signed checksums of the
           # mise release. A cache that another run wrote must not reach the release.
-          version: 2026.10.24
+          version: 2026.11.8
           cache: false
           # Only the tools that this job runs. GoReleaser runs go-licenses through
           # scripts/licenses.sh and syft for the SBOMs of the archives, and it builds the image
@@ -150,11 +150,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           # A fixed version of mise, which the action checks against the signed checksums of the
           # mise release. A cache that another run wrote must not reach the tools that sign.
-          version: 2026.10.24
+          version: 2026.11.8
           cache: false
           # Only the tools that sign and check. gh and docker come with the runner.
           install_args: cosign jq
