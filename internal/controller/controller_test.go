@@ -667,9 +667,12 @@ func TestTheHeartbeatStartsWithTheLoop(t *testing.T) {
 	moment := time.Date(2020, 1, 1, 9, 0, 0, 0, time.UTC)
 	settings.Now = (&clock{at: moment}).now
 
+	// The interval is a millisecond, so after the cancel the loop can start one more tick before it
+	// sees that the context ended. That tick reaps again, and the channel closes only once.
 	reaping := make(chan struct{})
+	reaped := sync.OnceFunc(func() { close(reaping) })
 	settings.Reap = func(ctx context.Context) error {
-		close(reaping)
+		reaped()
 		<-ctx.Done()
 
 		return ctx.Err()
