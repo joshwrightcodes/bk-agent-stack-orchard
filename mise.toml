@@ -26,7 +26,7 @@ goreleaser = "2.18.2"
 "go:github.com/google/go-licenses/v2" = { version = "2.0.1", depends = ["go"] }
 # The release signs with cosign and makes the SBOMs with syft (ADR-0013).
 cosign = "3.1.4"
-syft = "1.55.0"
+syft = "1.57.1"
 # The quick start reads the JSON log of the controller with jq (scripts/quickstart.sh).
 jq = "1.8.2"
 # Vale checks the language rules of the writing guide (.vale.ini, mise run check-docs).
