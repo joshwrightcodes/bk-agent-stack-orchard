@@ -180,8 +180,9 @@ finding of software composition analysis: a vulnerability in a dependency, or th
 * **Malicious dependencies.** The Go checksum database confirms each module, and `go.sum` pins its
   hash. `mise.lock` pins the checksum of each tool, and the release workflow refuses a tool that the
   lock does not hold. Renovate proposes a release only when it is at least three days old, so that
-  a release that its registry withdraws never reaches a review. A maintainer reviews each update
-  before it merges.
+  a release that its registry withdraws never reaches a review. A security update does not wait,
+  and neither does a distroless digest, because its registry gives no release date. A maintainer
+  reviews each update before it merges.
 
 ## Static analysis findings
 

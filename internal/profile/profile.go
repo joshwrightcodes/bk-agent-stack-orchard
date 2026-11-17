@@ -113,8 +113,9 @@ type Profile struct {
 	// another runner of the queue.
 	Match map[string]string `yaml:"match"`
 
-	// The Tart image of the VMs, in an OCI registry. It must run the Tart guest agent. Use a
-	// digest (@sha256:...), or the controller warns that the image can change. Required.
+	// The Tart image of the VMs, in an OCI registry. With the default startupTransport, it must run
+	// the Tart guest agent. Use a digest (@sha256:...), or the controller warns that the image can
+	// change. Required.
 	Image string `yaml:"image"`
 
 	// The CPU cores of each VM. Required.

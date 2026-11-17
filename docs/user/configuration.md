@@ -116,7 +116,7 @@ is required.
 |---|---|---|---|
 | `profiles[].name` | string |  | The name of the profile: lower-case letters, digits, and dashes. Each profile has its own name. The agent of each VM has the tag profile=NAME. Required. |
 | `profiles[].match` | map of strings |  | The tags that a job must have, besides its queue, to run on this profile. A job runs on the profile whose match map equals its tags exactly, and {} matches a job with no tag other than the queue. Two profiles cannot have the same map. A job that matches no profile is left for another runner of the queue. |
-| `profiles[].image` | string |  | The Tart image of the VMs, in an OCI registry. It must run the Tart guest agent. Use a digest (@sha256:...), or the controller warns that the image can change. Required. |
+| `profiles[].image` | string |  | The Tart image of the VMs, in an OCI registry. With the default startupTransport, it must run the Tart guest agent. Use a digest (@sha256:...), or the controller warns that the image can change. Required. |
 | `profiles[].cpu` | integer |  | The CPU cores of each VM. Required. |
 | `profiles[].memoryMiB` | integer |  | The memory of each VM, in MiB. Required. |
 | `profiles[].diskSizeGB` | integer |  | The disk of each VM, in GB. It must be at least the disk of the image. Required. |

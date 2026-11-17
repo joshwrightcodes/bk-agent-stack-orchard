@@ -42,25 +42,25 @@ version in `Chart.yaml`. The pull request collects all changes until the maintai
 
 1. Read the release pull request. Check that the version and the changelog are correct. Check that
    the Limitations section of `README.md` is still correct for the new version.
-2. Run the quick start with `main` on a Mac
-   (`mise run quickstart -- --queue <queue> --from-source`), and run the step that it prints.
+2. Put the cluster agent token of your queue in `BUILDKITE_AGENT_TOKEN`. Run the quick start with
+   `main` on a Mac (`mise run quickstart -- --queue <queue> --from-source`), and run the step that
+   it prints.
    Check that the job passes and that Ctrl-C leaves no VM. A hosted runner cannot start a macOS
    VM, so CI does not run the quick start.
 3. Write the release notes in the body of the release pull request. release-please takes the
    notes of the GitHub release from the body of the merged release pull request, and not from
-   `CHANGELOG.md`. Make this edit last: release-please writes the body again on each push to
+   `CHANGELOG.md`. Make this edit last: release-please writes the body again on the next push to
    `main`, so merge nothing else between the edit and step 4. Keep these parts of the body:
    * The two lines that are `---`. The notes are the text between them.
    * The version heading, for example `## 0.4.0 (2027-01-15)`, as the first line of the notes.
      Without it, release-please finds no version, and it creates no tag and no release.
 
    Under the heading, you can add a summary for operators, such as what the release needs and
-   what to change, and remove entries that do not concern them. For version 0.1.0, remove the
-   entries of the `fix(ci)` and `fix(runner)` commits that are on `main` from before the rule of
-   `scripts/check-commits.py`. `CHANGELOG.md` keeps the list that release-please wrote, and the
-   project accepts this.
+   what to change, and remove entries that do not concern them. `CHANGELOG.md` keeps the list
+   that release-please wrote, and the project accepts this.
 4. Merge the release pull request. release-please creates the tag, and a draft release with the
-   notes of step 3.
+   notes of step 3. If the pull request is behind `main`, follow
+   [The release pull request is behind `main`](#the-release-pull-request-is-behind-main) first.
 5. The tag starts the release workflow in the `release` environment. Each of its two jobs waits
    for an approval:
    1. Check that the SHA of the tag is the merge commit of the release pull request, and that the
@@ -79,6 +79,24 @@ its signature and checksum, and runs one job with it.
 To set a version that the commits do not give, for example a release candidate such as
 `0.4.0-rc.1`, or `1.0.0`, add `"release-as": "<version>"` to `release-please-config.json` in a
 pull request. Remove it in the next pull request after the release.
+
+### The release pull request is behind `main`
+
+release-please changes the release pull request only when its title or body changes. A merge of a
+commit that the changelog hides, for example a `build` or `ci` commit, changes neither. The branch
+then stays behind `main`, and the required checks block the merge.
+
+Do not wait for release-please. It updates the branch at the next merge that changes the
+changelog, and it also replaces the notes of step 3 then.
+
+1. On the release pull request, select **Update branch**. The update keeps the body.
+2. Wait until the checks pass.
+3. Ask another maintainer to approve the pull request.
+4. If no other maintainer can review it, merge it with the bypass of the rules of `main`.
+
+The update makes you the author of the last push. The rules of `main` need an approval from a
+person other than that author, so your own approval does not count. The admin role can bypass
+this rule, and GitHub records each bypass.
 
 ## When a release fails
 

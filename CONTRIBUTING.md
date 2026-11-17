@@ -22,7 +22,7 @@ You need a Mac with Apple silicon and [Homebrew](https://brew.sh).
 brew trust openai/tools   # once: the tap of Tart is not an official tap
 brew bundle               # host tools that mise does not pin (Brewfile)
 mise install              # Go, Orchard, the linters, and the release tools, at pinned versions
-mise run check            # every gate: documents, commits, dependencies, lint, tests, and an image
+mise run check            # every gate: documents, commits, C4 model, dependencies, lint, and tests
 ```
 
 The [development guide](docs/development.md) explains each step, the Docker runtime, and how to
@@ -52,8 +52,8 @@ These are the tasks that you use most. `mise tasks` lists all of them.
 4. **Run `mise run check`.**
 5. **Open a pull request** from your fork, and complete the template. Put `Closes #<number>` in
    the pull request description, not only in a commit: the project squashes each pull request, and
-   the squash keeps only the description. The workflows of a first pull request from a fork start
-   after a maintainer approves them.
+   the squash keeps only the description. The workflows of a pull request from an outside
+   contributor start after a maintainer approves them.
 6. **A maintainer reviews and merges it.**
 
 Nothing goes to `main` directly. A pull request must be up to date with `main` before it merges,
@@ -152,8 +152,8 @@ merge.
   tests replace them with fakes.
 * **Earn each test.** The [test strategy](docs/quality/test-strategy.md) decides the level of each
   test. A new test needs a defect signal that no cheaper test gives.
-* **Use the Buildkite fake.** Do not write a second fake of the Buildkite Stacks API. The project
-  uses the `FakeAgentServer` that Buildkite maintains.
+* **Use the Buildkite fake.** Do not write a second fake of the Buildkite Stacks API. Use
+  `test/fakestacks`, the copy of the `FakeAgentServer` that Buildkite maintains.
 
 ## Commits and pull requests
 

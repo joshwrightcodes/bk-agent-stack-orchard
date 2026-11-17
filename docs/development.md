@@ -18,8 +18,9 @@ This guide tells you how to set up your Mac, run the gates, and run the tests th
 
 * [`mise`](https://mise.jdx.dev/), from the `Brewfile`. It installs every other tool, Go and
   Orchard included.
-* A Docker runtime, for three tasks: `check-c4` (it renders the C4 model), `snapshot` (it builds
-  the image), and `smoke` (it runs kind). `mise run check` runs `check-c4`, so it also needs
+* A Docker runtime, for four tasks: `check-c4` (it renders the C4 model), `orchard-image` (it
+  builds the image of the Orchard controller), `snapshot` (it builds the image), and `smoke` (it
+  runs kind). `mise run check` runs `check-c4`, so it also needs
   Docker. `mise run ci` skips these tasks when Docker is absent, and CI runs them. The `Brewfile`
   installs Colima and the Docker CLI; start Colima with `colima start`. If you use another
   runtime, skip them:
@@ -36,7 +37,7 @@ This guide tells you how to set up your Mac, run the gates, and run the tests th
 
 ```sh
 mise install     # install the pinned tool versions
-mise run check   # the gates: documents, commits, dependencies, lint, tests, and a snapshot image
+mise run check   # the gates: documents, commits, C4 model, dependencies, lint, and tests
 ```
 
 The gates are also tasks of their own: `check-docs`, `check-commits`, `check-deps`, `lint`,
@@ -48,8 +49,9 @@ The gates are also tasks of their own: `check-docs`, `check-commits`, `check-dep
 
 * `check` is the gate before a pull request. It runs `check-c4`, so it needs Docker.
 * `ci` runs the checks that the required CI jobs run, so a pass predicts a pass in CI. It adds
-  `test-scripts`, `vuln`, `check-hook`, `check-hosts`, `check-generate`, and `integration`, which
-  `check` does not run. It runs `coverage` in place of `test`, as CI does.
+  `test-scripts`, `vuln`, `check-hook`, `check-hosts`, `check-generate`, `integration`, and
+  `test-startup-script`, which `check` does not run. It runs `coverage` in place of `test`, as CI
+  does.
 * `ci` runs `check-generate` alone and first, because it rewrites the generated files that the
   other checks compile. It then runs the other checks in parallel, through `ci-checks`.
 * `ci` runs the Docker jobs (`check-c4`, `orchard-image`, `smoke`, and `snapshot`) through
@@ -78,11 +80,11 @@ each job:
 |---|---|
 | `lint and test` | anything, because its tests also read documents and scripts |
 | `known vulnerabilities` | anything, because a new vulnerability applies to unchanged code, and the code scanning rule needs its result |
-| `lint scripts` | a shell or Python script, a workflow, or `ruff.toml` |
+| `lint scripts` | a shell or Python script, a file under `.github/`, `images/files/environment`, or `ruff.toml` |
 | `integration tests` | Go code, `go.mod`, `go.sum`, or `testdata` |
-| `deploy manifests` | `deploy/`, `images/`, or `test/smoke/` |
-| `smoke deployment` | Go code, the chart, the Orchard base, or `test/smoke/` |
-| `snapshot release` | Go code, the GoReleaser or ko configuration, or the licence files |
+| `deploy manifests` | `deploy/`, `images/`, `test/smoke/`, or `scripts/check-hook.sh` |
+| `smoke deployment` | Go code, the chart, the Orchard base, `test/smoke/`, `scripts/smoke.sh`, or `.ko.yaml` |
+| `snapshot release` | Go code, the GoReleaser or ko configuration, the licence files, `README`, `scripts/licenses.sh`, or `scripts/check-image.sh` |
 
 A change to `mise.toml`, `mise.lock`, `.mise/`, or `ci.yml` runs every job. A push to `main`
 runs every job, so that `main` keeps a full result, the Go caches, and the code-scanning baseline.
@@ -155,6 +157,10 @@ internal/stack/                 stack registration, the queue poll, and the paus
 internal/controller/            the tick loop, which a test can run one tick at a time
 internal/telemetry/             OTel meter, tracer, and the slog bridge
 internal/health/                the gRPC health service: liveness and readiness
+internal/parallel/              the API calls of one step of the tick at the same time, with a limit
+internal/retry/                 the one retry policy of both API clients
+internal/repocheck/             reads the Go code of this repository, for the tests that keep the
+                                documents and the licence files in step with the code
 test/fakestacks/                the fake Stacks API server
 test/component/                 T-020: in-memory fakes of both APIs and random event sequences
 test/integration/               tests against orchard dev --synthetic, and the load test (tag load)
@@ -162,6 +168,7 @@ test/smoke/                     the kind smoke deployment: the fake Stacks serve
                                 Orchard and collector manifests
 deploy/helm/                    the controller chart
 deploy/orchard/                 the Orchard StatefulSet and its bootstrap job
+deploy/orchard-overlays/        the first-start component and an internal load balancer example
 deploy/hosts/                   Ansible for the Mac hosts
 images/                         the reference build of the job VM images (agent and pilot: tart and the guest agent)
 tools/orchardgen/               the generator of the Orchard wire types (ADR-0015)
@@ -412,6 +419,7 @@ outside the controller:
 |---|---|---|
 | `FuzzTagsGiveOnlyLiteralRules` | The agent rules of a job, which pipeline authors write | An accepted rule is a literal `key=value` that a rule names and that has no comma, newline, or quote, and a match is an equal match map |
 | `FuzzATagReachesTheEnvironmentAndNeverTheScript` | A tag of a job, which pipeline authors write | The tag reaches `BUILDKITE_AGENT_TAGS` in the VM environment and never the startup script |
+| `FuzzProfileOfReadsOneTag` | The `BUILDKITE_AGENT_TAGS` of a machine in Orchard, which any tool can set | `ProfileOf` gives the value of one `profile` tag, or nothing, and never a text that spans two tags |
 | `FuzzOwnedJobClaimsOnlyTheMachinesOfThisController` | A machine name in Orchard, which any tool can set | The controller claims only the exact name that it gives to a valid job |
 | `FuzzOwnedJobTellsControllersApart` | Two controller identifiers | A controller never claims a machine of another controller |
 | `FuzzParseIDAcceptsOnlyTheBuildkiteShape` | A job identifier from Buildkite | Only the lowercase UUID shape passes, unchanged |

@@ -86,7 +86,7 @@ The design depends on these facts. Each fact was verified against source code or
 | The finish request has no `signal_reason` field, so the controller cannot set it. The Buildkite platform generates a `signal_reason` of `stack_error` for such a job. Pipeline authors use `signal_reason: stack_error` with `limit: 0` in their automatic retry rules. Whether the platform generates `stack_error` for every job that the controller finishes is `UNKNOWN` (owner: the maintainers; trigger: the first runs of T-100 to T-105). | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01); `buildkite/stacksapi` v1.2.0 `finish.go` | The controller finishes a failed job with exit status -1 and a detail (§7.6). |
 | `maxVMLifetime` is 25 h by default. The Reaper deletes a VM whose `createdAt` is older than this, for any job state (row 2 of §7.2, §7.1 rule 1). A restart of the controller does not extend this limit. A job that still runs at 25 h loses its VM and its agent. After the agent acquired the job, the Buildkite lost-agent procedure controls the result, and the controller does not finish the job (§7.1, rule 5). The job result that Buildkite gives in this case is `UNKNOWN` (owner: the maintainers; trigger: the first end-to-end run of a job that outlives `maxVMLifetime`). | Derived from `internal/reaper/decide.go` and §7.2, §7.1 (checked 2026-11-01) | A pipeline step with a run time near 25 h MUST set a lower job timeout. The default of 25 h is the safety limit in SC-06, not a job limit. |
 | `buildkite-agent start --acquire-job` exits with code 27 if the job is already taken, cancelled, or complete (HTTP 422). | `buildkite/agent` v4.0.3 release notes (2026-09-10); `core/client.go` | The rule "the job is terminal, delete the VM" covers this case. |
-| Buildkite agent v4 is the stable line (v4.0.0 on 2026-09-01; v4.10.2 on 2026-11-09, checked 2026-11-17). v4.7.0 is a security release: it rejects compromised eMudhra certificate chains (CVE-2026-111943). v4.10.0 stops a plugin cache collision from running the hooks of another plugin. v4 exits immediately when a flag is not defined. v4 keeps `--acquire-job`, `BUILDKITE_AGENT_ACQUIRE_JOB`, and `BUILDKITE_OPENTELEMETRY_TRACING`, and it adds `BUILDKITE_OPENTELEMETRY_METRICS`. v4 removes the OpenTracing and Datadog backends. | `buildkite/agent` releases and `clicommand/agent_start.go` at v4.0.4 (2026-09-19) | The image MUST contain agent v4.7.0 or later (§5). The startup script uses only v4 flags. |
+| Buildkite agent v4 is the stable line (v4.0.0 on 2026-09-01; v4.10.2 on 2026-11-09, checked 2026-11-17). v4.7.0 is a security release: it rejects compromised eMudhra certificate chains (CVE-2026-111943). v4.10.0 stops a plugin cache collision from running the hooks of another plugin. v4 exits immediately when a flag is not defined. v4 keeps `--acquire-job`, `BUILDKITE_AGENT_ACQUIRE_JOB`, and `BUILDKITE_OPENTELEMETRY_TRACING`, and it adds `BUILDKITE_OPENTELEMETRY_METRICS`. v4 removes the OpenTracing and Datadog backends. | `buildkite/agent` releases and `clicommand/agent_start.go` at v4.0.4 (2026-09-19) | An agent in the image (`agent.source: image`) MUST be v4.7.0 or later (§5). The startup script uses only v4 flags. |
 | Orchard `startup_script.transport` accepts `ssh` (the default) and `tart-guest-agent`. The guest-agent transport operates only on the Tart runtime, and the worker connects through the VM control socket. For both transports, the worker builds the same script: `set -e`, one `export` line for each `env` entry, then `script_content`. | Orchard `pkg/resource/v1/v1.go` and `internal/worker/vmmanager/base` at tag 0.57.0 | §6.4 uses the guest-agent transport. VM specifications need no SSH credentials. |
 | Apple permits 2 concurrent macOS VMs on each host. Orchard models this limit with the worker resource `org.cirruslabs.tart-vms: 2`. | Orchard `api_vms.go`; Apple EULA | Capacity is small. Admission examines capacity before it reserves a job (§6.3). |
 | Orchard VM `labels` are placement constraints. Orchard puts a VM only on a worker whose labels contain all VM labels. | Orchard `scheduler.go` | Labels contain only worker constraints. The VM name identifies the owner (§6.1). |
@@ -175,8 +175,8 @@ In-memory data is only a cache. The loss of this cache is always safe.
 
 | Component | Function | Dependencies |
 |---|---|---|
-| **Stack** | Registers one stack at start-up: `type: custom`, `key = controllerID`, `queue_key = buildkite.queue`. Deregisters the stack at shutdown. Gives the `dispatch_paused` value. | `Stacks` client |
-| **Poller** | Lists the first page of scheduled jobs at each `pollInterval` (1 s). Obeys `Retry-After`. | `Stacks` client |
+| **Stack** | Registers one stack at start-up: `type: custom`, `key = controllerID`, `queue_key = buildkite.queue`. Deregisters the stack at shutdown. | `Stacks` client |
+| **Poller** | Lists up to 3 pages of scheduled jobs at each `pollInterval` (1 s): 2 from the head and 1 of the sweep (§6.3). Gives the `dispatch_paused` value. Obeys `Retry-After`. | `Stacks` client |
 | **Matcher** | Pure function. Converts the job `agent_query_rules` to exactly one profile, or to a mismatch reason. | Configuration |
 | **Inventory** | Lists Orchard workers and VMs at each `inventoryInterval` (1 s). Selects owned VMs by name prefix. Parses the job UUIDs. | `Orchard` client |
 | **JobStates** | Gets the Buildkite job states of owned VMs in one batch at each `jobStatesInterval` (5 s). Records the observation time for each job, whether Buildkite named the job, and how many answers in a row left it out. A call that fails keeps the states before it, with their times. An answer that names none of the jobs is a failed call. | `Stacks` client |
@@ -753,7 +753,8 @@ The startup script is the same text for each VM, so no value of a job is in it
 4. It finds the agent, as `agent.source` says (§5):
    * `download`: it makes a new temporary directory, downloads `BKASO_AGENT_URL` there with
      `curl` (three retries, a 120 s limit), checks the file against `BKASO_AGENT_SHA256` with
-     `shasum -a 256`, and extracts only `buildkite-agent`. It sets `BUILDKITE_BUILD_PATH`,
+     `shasum -a 256`, extracts the archive, and checks that it holds an executable
+     `buildkite-agent`. It sets `BUILDKITE_BUILD_PATH`,
      `BUILDKITE_HOOKS_PATH`, and `BUILDKITE_PLUGINS_PATH` to `~/buildkite/builds`,
      `~/.buildkite-agent/hooks`, and `~/buildkite/plugins`, which are the paths of the images of
      this project, so a configuration file in the image cannot move them. If the download, the
@@ -1089,12 +1090,12 @@ to 16 streams, and each request to 4 KiB. It closes a connection that pings more
 minute, and a connection that holds no stream for 5 minutes. Each `Watch` is a stream without an
 end, and the pod has a small memory limit, so these limits protect the pod from one client.
 
-`buildkite.endpoint` and `orchard.url` MUST use `https`, because a token travels with each
-request. The controller refuses a configuration that does not. Plain `http` is accepted only on a
-loopback address (`localhost`, `127.0.0.0/8`, `::1`), where the integration tests run, and for
-`buildkite.endpoint` only when `buildkite.plainHTTPEndpoint: true` permits it. That setting is for
-a test cluster with a fake Stacks API, and the controller warns at start that the agent token
-travels unencrypted.
+`buildkite.endpoint` and `orchard.url` MUST use `https`, because a token travels with each request.
+The controller refuses a configuration that does not. Plain `http` is accepted only on a loopback
+address (`localhost`, `127.0.0.0/8`, `::1`), where the integration tests run. For
+`buildkite.endpoint`, `buildkite.plainHTTPEndpoint: true` also permits it on another host. That
+setting is for a test cluster with a fake Stacks API, and the controller warns at start that the
+agent token travels unencrypted.
 
 The configuration MUST set `pollInterval`, `jobStatesInterval`, and `inventoryInterval` shorter
 than `stateFreshness`. Admission and the Reaper act only on data newer than `stateFreshness`, so a
@@ -1113,7 +1114,7 @@ JSON encoder, or a format verb writes `[redacted]`.
 | `BK_AGENT_STACK_ORCHARD_BUILDKITE_AGENT_TOKEN` | The cluster agent token (`bkct_…`). |
 | `BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN` | The Orchard service account token. |
 | `BK_AGENT_STACK_ORCHARD_ORCHARD_CA_CERT` | The PEM of the Orchard controller certificate or CA. The calls to Orchard trust it only, and not the authorities of the system, because a public authority can issue a certificate for the name of Orchard. The calls to Buildkite do not trust it. Text that holds no certificate fails the start. |
-| Profile variables (for example, `XCODE_VM_PASSWORD`) | The VM image SSH credentials. Only for a profile with `startupTransport: ssh`. |
+| Profile variables (for example, `VM_XCODE_PASSWORD`) | The VM image SSH credentials. Only for a profile with `startupTransport: ssh`. |
 | `OTEL_*` | The standard OpenTelemetry SDK configuration. |
 
 Configuration changes apply after a restart. The controller MUST NOT reload the configuration
@@ -1560,7 +1561,7 @@ APIs.
 
 | Component | Location | Configuration |
 |---|---|---|
-| bk-agent-stack-orchard | Kubernetes | A Helm chart that ArgoCD deploys. A `Deployment` with 1 replica and `strategy: Recreate`. A termination grace of 45 s, because at a stop the controller withdraws its stack in at most 10 s and then stops its telemetry in at most 10 s. A ConfigMap for the configuration. Secrets as environment variables. gRPC probes of the health service on `healthAddress`: `liveness` (the process is alive and its loop finishes its ticks) and `readiness` (all sources synchronized within `stateFreshness`). `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME=bk-agent-stack-orchard`, and `OTEL_RESOURCE_ATTRIBUTES` (`controller.id`, and `k8s.*` from the downward API). A NetworkPolicy that permits egress only to `agent.buildkite.com:443`, Orchard `:6120`, and the collector. The image comes from §15. |
+| bk-agent-stack-orchard | Kubernetes | A Helm chart that ArgoCD deploys. A `Deployment` with 1 replica and `strategy: Recreate`. A termination grace of 45 s, because at a stop the controller withdraws its stack in at most 10 s and then stops its telemetry in at most 10 s. A ConfigMap for the configuration. Secrets as environment variables. gRPC probes of the health service on `healthAddress`: `liveness` (the process is alive and its loop finishes its ticks) and `readiness` (all sources synchronized within `stateFreshness`). `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME=bk-agent-stack-orchard`, and `OTEL_RESOURCE_ATTRIBUTES` (`k8s.*` from the downward API; the controller sets `service.instance.id` to `controllerID`). A NetworkPolicy that permits egress only to DNS, `agent.buildkite.com:443`, Orchard `:6120`, and the collector. The image comes from §15. |
 | Orchard controller | Kubernetes | `deploy/orchard`, a kustomize base. The image is the Orchard release at the version of §9.2, built by `deploy/orchard/image` for the registry of the fleet, because `ghcr.io/openai/orchard` does not answer a pull without credentials (2026-09-26, [openai/orchard#501](https://github.com/openai/orchard/issues/501)). A 1-replica StatefulSet with a PVC at `/data`, a headless governing Service, and the certificate and key of a Secret that an authority of the operator signs. A StatefulSet, because Orchard keeps its state in an embedded database with one scheduler and no leader election, so at most one pod may write to `/data`, and a StatefulSet starts no replacement until the old pod is gone. A deletion of the StatefulSet leaves the PVC. A ClusterIP Service on port 6120 in the base, so the API of Orchard stays inside the cluster by default, and a NetworkPolicy that admits TCP 6120 only from the controller, the bootstrap Job, and the CIDRs of the Mac hosts, and egress only to DNS and to OTLP on TCP 4317, because the Orchard controller dials nothing else (the workers dial it). An operator reaches the API through `kubectl port-forward`, which the policy admits. An overlay (`deploy/orchard-overlays/internal-lb` is the example) adds an internal LoadBalancer with `externalTrafficPolicy: Local`, so that the policy sees the address of a Mac host. `ORCHARD_BOOTSTRAP_ADMIN_TOKEN` from a Secret, for the first bootstrap only, through the component `deploy/orchard-overlays/first-start`, which the base does not include: the operator then removes the component, so Orchard 0.58.0 does not make the account again at each start and the environment of the pod holds no admin token. The `bootstrap-admin` account stays, with its token in the Secret `orchard-bootstrap`, which only the bootstrap Job mounts, so a change of a host needs the Job and no restart of Orchard. While the account exists, the PVC also holds its token: in the database, and in `/data/orchard.yml`, which Orchard writes at each start. The operator rotates the token, and MAY delete the account for a fleet with no planned change of a host (runbook `orchard-bootstrap-admin`). A bootstrap Job that sets the `bk-agent-stack-orchard` service account, the `operator` service account, and one `worker-<host>` service account for each key of the Secret `orchard-worker-tokens`, through the REST API, on every run, with the credentials on standard input of `curl`. The Job never deletes an account (§9.2). An explicit `OTEL_EXPORTER_OTLP_ENDPOINT`. The loss of the PVC is recoverable, because workers register again and the controller removes in-flight VMs. A backup is not necessary. |
 | Mac hosts | Mac mini with M5 Pro, 64 GB memory, and 1 TB storage (SC-04) | Ansible and launchd (`deploy/hosts`). Install Tart, Softnet, and Orchard at pinned versions, from their release archives, checked against their SHA-256. Softnet has the setuid bit, because Tart starts it with root for each VM (§9.1), and without the bit Tart asks for a password on a terminal. Only root and the worker user MAY run Softnet: its mode is `04750` and an access control entry permits the worker user. A group of the worker user would not work, because Orchard drops to the worker user with `setregid` and `setreuid` and keeps the groups of root (`cirruslabs/chacha` `pkg/privdrop` v0.16.3, which Orchard 0.58.0 uses, read 2026-11-03). Each program that root runs, each file that root reads, and each directory above them up to `/usr/local` MUST be owned by root and the group wheel, with no write permission for a group or other users, because a VM escape lands as the worker user. The release archives of Tart and Softnet give their files uid 501, the first user of a Mac, so the playbook unpacks them with `--no-same-owner`. Turn off the sleep of the system and the disks, and start the host again after a power failure (`pmset`): Orchard fails the VMs of a worker that does not report for its offline timeout, so a host that sleeps fails its jobs. Load a pf anchor at each start of the host, at each change of the network, and every 30 seconds, that blocks traffic from the VM networks to the host, except DHCP and DNS, and to the private ranges, except the `softnetAllow` CIDRs of the profiles of the host (§9.1). The same launchd job enables pf again, and logs it, when pf is not enabled. The anchor is under `com.apple/`, which `/etc/pf.conf` evaluates, so the host keeps the `/etc/pf.conf` of macOS. Run `orchard worker run --bootstrap-token-stdin --labels pool=<pool>` as root with `--user`. Each host has its own worker name and its own account `worker-<name>` (§9.2). The playbook MUST change one host at a time by default (`serial: 1`, which the operator MAY raise), and a failed host MUST stop it, so that a change that breaks the worker reaches no other host. A change that restarts the worker (a new Orchard, Tart, or Softnet, a new token, labels, or controller URL) MUST drain the host first, because the worker stops and deletes every VM on the host when it stops (`Worker.Close`, `internal/worker/worker.go`, Orchard tag 0.58.0, read on 2026-11-03). The drain pauses the worker (`scheduling_paused`, which the Orchard scheduler and the admission of §6.3 honour), waits until no VM of the worker is pending or running (the test of `orchard pause worker --wait`), makes the change, waits until the worker reports again, and resumes it. A worker that registers again keeps `scheduling_paused` (`createWorker`, `internal/controller/api_workers.go`, tag 0.58.0, read on 2026-11-03). A run that restarts nothing MUST NOT drain. The drain time limit is an operator setting, by default 90 min: the default boot and acquire timeouts (20 min), the longest job of SC-06 (60 min), and 10 min to spare. When the limit comes first, the playbook MUST resume the worker, apply no change that restarts it, continue with the next host, and name the host at the end. A worker that an operator paused before the run stays paused. The calls to the API run on the host with the account of the host, and the token is in no command line and no output. An upgrade of Orchard changes the hosts first and the Orchard controller after them, because the Orchard 0.58.0 worker keeps code for an older controller (`internal/worker/worker.go`, `pkg/client/vms.go`); a rollback takes the reverse order. The old version directories stay on the host, so a rollback pins the previous version and runs the drained playbook again (runbook `mac-host-changes`). A host leaves service through a drain, the removal of its files, and the revocation of its account (runbook `mac-host-removal`). The bootstrap token carries the CA of the controller certificate, so a host trusts that CA with no change of its trust settings, and a new certificate of the same CA needs no new token. The token is in a file that only root can read, not in an argument. The automatic login of the worker user unlocks the login keychain. On macOS 27, `sysadminctl -autologin set` failed and a written `/etc/kcpassword` was ignored (2026-09-27), so the operator turns it on in System Settings, and the playbook checks it. Set `OTEL_EXPORTER_OTLP_ENDPOINT`. Run `tart pull` for the image of each profile whose `workerLabels` the worker labels contain. Read the image list from the controller configuration file. A new image MUST reach each host before the controller applies the profile that uses it, because otherwise each VM pulls the image inside its boot timeout, and an image leaves the hosts only after the controller stops using it (runbook `mac-host-changes`). Remove each cached image that no profile of the host names and no VM of the worker uses, so that old images do not fill the disk; the removal keeps a tag or a digest that a kept image can depend on, because `tart delete` also removes a digest that no tag links to (`VMStorageOCI.gc`, Tart 2.41.1, read on 2026-11-03). The fleet operator builds the images (ADR-0020), and each image MUST meet the image requirements of §5 and the image rules of §9.2. The Xcode 27 reference image of `images/` has a 104 GB disk, of which the host stores 59 GB, and other Xcode images up to 140 GB, so a 1 TB host holds only a few images (SC-09). The reference build starts from a vanilla macOS image with only the software of an explicit list, and it fails on anything else (ADR-0012). Its Xcode variant is `images/build.sh pilot`: Xcode 27 from an archive that the operator downloads with an Apple ID, so that no build signs in to Apple, its iOS simulator runtime, and the Homebrew formulae of its list. Each host MUST run macOS 27.2 or later, because the job VMs run macOS 27.2 and a macOS guest needs a host of the same version or later (CO-07). The playbook refuses an older host. |
 | Local development | One Mac | `orchard dev` and `bk-agent-stack-orchard` with a configuration file. A separate Buildkite test cluster and queue. |
@@ -1605,7 +1606,7 @@ The Matcher, Admission, and Reaper decision logic MUST be pure functions with an
 | Static analysis (CI) | All Go code | `golangci-lint run` and `golangci-lint fmt --diff` with the configuration of §15. CI MUST fail if a command reports a problem. |
 | Unit | `Match`, `Admit`, `Decide`, configuration validation | Table-driven tests. The `Decide` tests MUST have one case for each row of §7.2. |
 | Component | Full tick loop | In-memory fakes of `Stacks` and `Orchard`. The fakes model reservation expiry, VM phases, and injected failures. Property-based tests use random event sequences: jobs arrive and are cancelled, workers stop, and the controller restarts. The tests MUST assert these invariants: owned VMs do not exceed capacity or `maxInFlight`; each job has a maximum of one VM; the controller deletes each owned VM at the end; the controller does not finish a job that an agent acquired. |
-| Integration (CI, macOS on arm64) | Real Orchard API and scheduler | `orchard dev --synthetic --workers 5` (in-memory VMs, no Tart), and a fake Stacks API HTTP server. The fake server uses the `fake_agent_server` of `agent-stack-k8s` as a model. The host MUST be macOS on arm64: Orchard places a VM only on a worker of the same architecture and runtime, a macOS VM is arm64 and runs on Tart, and a synthetic worker takes its architecture from the host and its runtime from the host OS, Tart on macOS and Vetu on Linux. On Linux the scheduler never places the VM. |
+| Integration (CI, macOS on arm64) | Real Orchard API and scheduler | `orchard dev --synthetic` with one worker, and 50 for the load test (in-memory VMs, no Tart), and a fake Stacks API HTTP server. The fake server uses the `fake_agent_server` of `agent-stack-k8s` as a model. The host MUST be macOS on arm64: Orchard places a VM only on a worker of the same architecture and runtime, a macOS VM is arm64 and runs on Tart, and a synthetic worker takes its architecture from the host and its runtime from the host OS, Tart on macOS and Vetu on Linux. On Linux the scheduler never places the VM. |
 | Load (CI, nightly) | Target scale | Synthetic Orchard with 50 workers × 2 slots, and 500 generated jobs. The job arrivals follow the demand model of the system design baseline (SC-05). The test MUST assert the tick duration, the API call budget, and zero leaked VMs. |
 | End-to-end (development Mac) | Real Tart and a Buildkite test cluster | A scenario pipeline: normal sequence; unmatched tags; cancel during boot; incorrect image digest (`boot_timeout`); an image with an agent that does not start (`acquire_timeout`); 3 jobs with 2 slots; controller stop during work; Orchard controller restart; a job that uploads an artifact, to confirm the artifact destination (§7.6). The scenarios run with the `tart-guest-agent` transport. Run it before each release. |
 
@@ -1640,8 +1641,10 @@ Each item MUST have its own ADR before implementation:
 
 * **Go version:** 1.27.
 * **Dependency updates:** Renovate proposes the Go module, the image, and the action updates each
-  week, after a release is three days old. Its commit messages use the conventional types of the
-  contributing guide. A Go module update is a `fix`, because it changes the release artifacts.
+  week, after a release is three days old. A security update and a distroless digest, whose
+  registry gives no release date, do not wait. The commit messages of Renovate use the
+  conventional types of the contributing guide. A Go module update is a `fix`, because it changes
+  the release artifacts.
 * **Tool versions:** one `mise.toml` file pins Go, golangci-lint, GoReleaser, and
   Ansible. A developer and CI use the same versions. CI runs `mise install` before each task.
   The golangci-lint documentation gives `mise` as an installation method, and it states that
@@ -1735,8 +1738,9 @@ behaviour, and they are the only layer that can.
 
 **Build and release.** GoReleaser (v2.18 or later) MUST build the release binaries, the
 archives, the SBOMs of the archives, the checksums, and the container image. GoReleaser MUST use
-ko through its `kos` section to build the image. The image MUST be distroless. The repository
-MUST NOT have a `.ko.yaml` file, because GoReleaser sets all ko options.
+ko through its `kos` section to build the image. The image MUST be distroless. The release
+takes every ko option from `.goreleaser.yaml`. The repository has a `.ko.yaml` file only for the
+smoke deployment on kind, which builds with ko directly, and it names the same base image.
 
 The `.goreleaser.yaml` file ([`.goreleaser.yaml`](../../.goreleaser.yaml)) MUST hold the
 configuration that the rules below describe. `goreleaser check` validates it.
@@ -1796,13 +1800,13 @@ release pull request (`release-please--**`).
 the maintainers. The commit of the tag MUST be on `main`, and the version in `Chart.yaml` MUST be
 the version of the tag. The workflow checks both before it builds anything.
 
-The workflow has two jobs, and each one runs in the `release` environment. The `build` job runs
-the tools that build the release. It has `contents: read` and `packages: write`. The `publish` job
-signs and publishes. It has `id-token: write`, `contents: write`, and `packages: write`, and it
-installs only cosign and jq. Each job installs only the tools that it runs. The `publish` job gets
-the files of the `build` job as a workflow artifact, outside its checkout. It uses only the
-expected regular files, and it reads the digests of the `build` job as data, never as code. The
-jobs do these steps in this order:
+The workflow has two jobs, and each one runs in the `release` environment. The `build` job runs the
+tools that build the release. It has `contents: read` and `packages: write`. The `publish` job signs
+and publishes. It has `id-token: write`, `contents: write`, `packages: write`, and `attestations:
+write`, and it installs only cosign and jq. Each job installs only the tools that it runs. The
+`publish` job gets the files of the `build` job as a workflow artifact, outside its checkout. It
+uses only the expected regular files, and it reads the digests of the `build` job as data, never as
+code. The jobs do these steps in this order:
 
 1. `build`: GoReleaser builds the archives, an SPDX JSON SBOM of each archive (syft), and
    `checksums.txt`, which covers the archives and the SBOMs. GoReleaser pushes the image. Its
@@ -1860,9 +1864,12 @@ version: "2"
 
 run:
   go: "1.27"
-  # The integration test sits behind a build tag, and the analysis covers all Go code.
+  # The integration tests and the load test sit behind build tags, and the analysis covers all Go
+  # code.
   build-tags:
     - integration
+    - load
+    - tart
 
 linters:
   default: standard
@@ -1870,6 +1877,7 @@ linters:
     - bodyclose
     - contextcheck
     - errorlint
+    - forbidigo
     - gocritic
     - gosec
     - misspell

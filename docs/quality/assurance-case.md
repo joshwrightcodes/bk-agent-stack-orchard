@@ -18,7 +18,7 @@ protects, and the property of the release.
 | Claim | Statement | Evidence |
 |---|---|---|
 | Token isolation | A job VM receives a job acquisition token for its own job only. The cluster agent token and the Orchard credentials never enter a VM. | I-3; target design section 9.1 |
-| Network isolation | A job VM cannot reach the host, another VM, or a private network, except the CIDRs that its profile permits. | I-4; target design sections 9.1 and 11; the Softnet and pf tests on a real Mac |
+| Network isolation | A job VM cannot reach the host, another VM, or a private network, except the CIDRs that its profile permits. | I-4; target design sections 9.1 and 11; the Softnet and pf tests on a real Mac, which probe another VM only while a second VM runs |
 | One job for each VM | A job VM runs one job, and it has no host directory mounts. | I-1, I-4, I-6; target design section 9.1 |
 | Clean telemetry | Telemetry contains no source code, no token, and no job or VM identifier in metric attributes. | I-7; target design section 10 |
 | Trusted release | A release that an operator installs is the code on `main`, built and signed by the release workflow of this repository. | ADR-0013; `scripts/verify-release.sh`; T-100 to T-105 |

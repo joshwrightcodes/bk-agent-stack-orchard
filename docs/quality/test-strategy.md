@@ -9,7 +9,7 @@
   * [System design baseline](../architecture/system-design-baseline.md): driver identifiers such as
     `QA-01`, and quality scenarios such as `QS-1`
   * [Target design](../architecture/target-design.md)
-  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0019
+  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0020
 
 ## Conventions
 
@@ -64,10 +64,10 @@ Until all thirteen rows exist and T-020 passes, these limits apply:
 * The skeleton MUST NOT run against a production queue, and MUST NOT run against a host that serves
   other work (PR-031).
 * Each skeleton run MUST end with a check that no owned VM remains. T-060 makes this check.
-* T-060 checks the stack notifications that the skeleton sends, which is "VM requested". The
-  target design, section 10.5, names a notification for each later step of the VM, and W-16 owns
-  them. W-16 MUST extend T-060 with each notification that it adds, so that T-060 checks every
-  step when the design is whole.
+* T-060 checks the stack notifications that the skeleton sends: "VM requested", "placed on
+  <worker>", "booting", and "VM deleted: job_terminal". The target design, section 10.5, names a
+  notification for each step of the VM, and W-16 owns them. W-16 MUST extend T-060 with each
+  notification that it adds, so that T-060 checks every step when the design is whole.
 
 | Increment | Components | Evidence that ends the increment |
 |---|---|---|
@@ -116,7 +116,7 @@ have a different failure mode at each level.
 | L0 | Static analysis and build | Configuration drift, lint rules, image properties, dependency pins | CI, Linux | 3 min |
 | L1 | Unit | Decision logic in pure functions, and the generated VM specification | CI, Linux | 1 min |
 | L2 | Component | The tick loop with in-memory fakes: invariants over random event sequences, restart, outages | CI, Linux | 5 min |
-| L3 | Contract | The behaviour of the two clients against recorded responses and the real Orchard API | CI, Linux | 2 min |
+| L3 | Contract | The behaviour of the two clients against recorded responses and the real Orchard API | CI, Linux; CI, macOS arm64 for the Orchard client | 2 min |
 | L4 | Integration | The real Orchard API and scheduler with synthetic workers, and a fake Stacks server | CI, macOS arm64 | 10 min |
 | L5 | Load | Tick duration, API call budget, and leaks at the target scale | CI, macOS arm64, nightly | 30 min |
 | L6 | End-to-end | Real Tart VMs, the guest-agent transport, real Buildkite, and real isolation | One development Mac | 60 min |
@@ -242,7 +242,8 @@ These obligations are reviews, not automated tests. Both come from ADR confirmat
 
 | Environment | Contents | Used by |
 |---|---|---|
-| CI (Linux) | Go toolchain, `orchard dev --synthetic`, a fake Stacks API server, an OTLP collector that records | L0 to L5 |
+| CI (Linux) | Go toolchain, a fake Stacks API server | L0 to L3 |
+| CI (macOS arm64) | Go toolchain, `orchard dev --synthetic`, a fake Stacks API server, an OTLP collector that records | L3 (the Orchard client) to L5 |
 | Development Mac | Tart, one Orchard worker, a Buildkite test cluster and queue, one test pipeline | L6 |
 | Operator fleet | The fleet of an operator who shares its measurements, with telemetry | Section 8 |
 
@@ -331,8 +332,8 @@ Each item is a decision, not missing work.
   evidence for a fixed host pool.
 * **Warm pools, high availability, more than one queue, and more than one region.** These are
   product non-goals. Each needs its own ADR and its own evidence.
-* **Coverage percentage as a gate.** The gates use named obligations. A coverage report is
-  diagnostic only.
+* **Coverage percentage as evidence of an obligation.** The gates use named obligations. CI also
+  fails when the total statement coverage is below 85 % (`scripts/coverage.sh`), as a floor.
 
 ## 10. Review and retirement triggers
 

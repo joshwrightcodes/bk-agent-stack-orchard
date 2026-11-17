@@ -72,8 +72,9 @@ when the job ends.
 reach the Internet and DNS. It must not reach the LAN, another VM, or a service of the Mac itself.
 Softnet alone lets a VM reach the Mac through the gateway of its network, and the hosts close this
 path with pf (`deploy/hosts`). `deploy/hosts/test/pf.sh` loads the same rules on the Mac from the
-template of the role. It needs `ansible` and `jq` (from `mise install`), and sudo. The control of
-the test permits the router of the LAN, so the rules permit it too.
+template of the role. Run it through `mise x --`, because it needs `ansible` and `jq` from
+`mise install`. It also needs sudo. The control of the test permits the router of the LAN, so the
+rules permit it too.
 
 Softnet gives each VM a network from a few private ranges, and the gateway of that network is the
 Mac. With `--pools`, the rules also permit those ranges, as a profile with a wide `softnetAllow`
@@ -86,9 +87,23 @@ and on loopback. From any other interface, AirDrop and VPN tunnels included, it 
 DHCP. The rules go when the Mac restarts, or with `pf.sh unload`:
 
 ```sh
-deploy/hosts/test/pf.sh load --pools "$(route -n get default | awk '/gateway:/ {print $2}')/32"
+mise x -- deploy/hosts/test/pf.sh load --pools "$(route -n get default | awk '/gateway:/ {print $2}')/32"
 BKASO_TART_IMAGE=bkaso-agent mise run softnet-test
-deploy/hosts/test/pf.sh unload
+mise x -- deploy/hosts/test/pf.sh unload
+```
+
+The test probes another VM only when one runs on this Mac and answers on port 22. Otherwise it
+leaves that probe out, and its log says `the other machine is ""`. The agent image turns SSH off,
+so start the other VM from the vanilla base image of `images/build.sh` (`BASE`), which keeps SSH
+on. Run the test once with that VM on the shared network of Tart. Run it again with the VM on
+Softnet, as two job VMs of a host are:
+
+```sh
+tart clone "<BASE of images/build.sh>" bkaso-peer-test
+tart run --no-graphics bkaso-peer-test &                 # first run: the shared network of Tart
+tart stop bkaso-peer-test                                # after the first run
+tart run --no-graphics --net-softnet bkaso-peer-test &   # second run: Softnet
+tart stop bkaso-peer-test && tart delete bkaso-peer-test # after the second run
 ```
 
 `mise run hosts-test` needs the opposite: its test VM reaches an Orchard controller on the Mac,
@@ -106,7 +121,7 @@ labels, and resume it. Last, a drain-only run must leave the worker paused, and 
 resume it. Run the test from the repository root:
 
 ```sh
-deploy/hosts/test/pf.sh unload   # only when the rules of the hosts are loaded on this Mac
+mise x -- deploy/hosts/test/pf.sh unload   # only when the rules of the hosts are loaded on this Mac
 mise run hosts-test
 ```
 

@@ -121,8 +121,9 @@ The controller treats every build as untrusted:
 * Each VM runs one job, and is deleted after it.
 * The VM gets a token for its own job only. The cluster agent token and the Orchard token stay with
   the controller.
-* Softnet keeps the VM away from the Mac host, from the other VMs, and from private networks,
-  except the ranges that a profile allows.
+* Softnet keeps the VM away from the other VMs and from private networks, except the ranges that
+  a profile allows. On a Mac host that the playbook sets up, pf rules keep the VM away from the
+  host.
 * The VM has no shared folder with the host.
 
 ## What it does not do

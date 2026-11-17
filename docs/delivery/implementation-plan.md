@@ -9,9 +9,9 @@
   * [System design baseline](../architecture/system-design-baseline.md): identifiers such as
     `QA-01` and `SC-03`
   * [Target design](../architecture/target-design.md)
-  * [Test strategy](../quality/test-strategy.md): risks `R-01` to `R-21`, invariants `I-1` to
-    `I-8`, and obligations `T-001` to `T-141`
-  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0016
+  * [Test strategy](../quality/test-strategy.md): risks `R-01` to `R-22`, invariants `I-1` to
+    `I-9`, and obligations `T-001` to `T-141`
+  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0020
 
 ## Conventions
 
@@ -71,8 +71,8 @@ T-020 in the same way, so the suite runs the controller that ships.
 ### 3.1 Tool versions and tasks
 
 `mise` pins the tool versions and runs the tasks. One `mise.toml` file gives Go, golangci-lint,
-GoReleaser, and Ansible, so a developer and CI use the same versions. CI runs `mise
-install` and then `mise run check`.
+GoReleaser, and Ansible, so a developer and CI use the same versions. CI installs the tools
+with the mise action, and runs the tasks of `mise run ci` as separate jobs.
 
 The alternatives and the reason for this selection:
 
@@ -102,7 +102,7 @@ carries no release tag, so an import also pins an untagged commit of a Kubernete
 `test/fakestacks` therefore holds the file with its MIT notice and its provenance, and the module
 graph gains only `stacksapi` and the two small libraries that it needs.
 
-The copy carries eight changes, because the original models only the calls that its own controller
+The copy carries ten changes, because the original models only the calls that its own controller
 makes. Each change carries a comment in the file that starts with "Change of this project":
 
 1. The stack key is a field. The original writes `test-stack` into every route, and the stack key
@@ -119,6 +119,10 @@ makes. Each change carries a comment in the file that starts with "Change of thi
    (T-063).
 8. The routes are a handler that a test program serves itself, for the smoke deployment on
    Kubernetes (W-21).
+9. A reservation expires. A reserved job that no second reserve call extends returns to the
+   list and to the state `scheduled` after its `reservation_expiry_seconds`, on a clock that a
+   test can inject.
+10. A finish call of a job that the stack does not hold answers HTTP 422.
 
 The fake is not a conformance suite. Open item O-1 of the test strategy stays. The fixtures of
 T-040 come from recorded responses of a real Buildkite test cluster.
@@ -140,7 +144,7 @@ from their number.
 
 | ID | Outcome | Boundary | Depends on | Completion evidence | Requirements |
 |---|---|---|---|---|---|
-| W-01 | The repository builds, lints, and releases a snapshot image | `go.mod`, `cmd/`, `mise.toml`, `.golangci.yaml`, `.goreleaser.yaml`, `.github/workflows/ci.yml`, `.github/dependabot.yml`, `scripts/check-deps.py`, `scripts/check-image.sh` | W-26 | T-120 and T-122 pass in CI | CO-04, ADR-0005 |
+| W-01 | The repository builds, lints, and releases a snapshot image | `go.mod`, `cmd/`, `mise.toml`, `.golangci.yaml`, `.goreleaser.yaml`, `.github/workflows/ci.yml`, `.github/renovate.json5`, `scripts/check-deps.py`, `scripts/check-image.sh` | W-26 | T-120 and T-122 pass in CI | CO-04, ADR-0005 |
 | W-02 | A configuration file becomes validated types, and secrets come from the environment | `internal/config`, `internal/profile` | W-01 | T-002, T-006 | PR-020, PR-021, PR-022 |
 | W-03 | Job tags select one profile, or give a mismatch reason | `internal/match` | W-02 | T-001 | PR-003, PR-004 |
 | W-04 | A profile and a job become a valid Orchard VM specification | `internal/vmspec` | W-02 | T-003, and I-3 and I-4 hold | PR-030, PR-001 |

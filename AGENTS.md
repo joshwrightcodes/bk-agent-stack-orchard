@@ -48,7 +48,8 @@ Run each tool through mise, because `mise.toml` pins its version.
 - A change of behaviour starts in the requirements, not in the code.
 - Do not add an Orchard package to `go.mod`, and do not copy Orchard code.
 - Do not edit `internal/orchard/types_gen.go`. `tools/orchardgen` generates it.
-- Do not write a fake of the Buildkite Stacks API. Use `FakeAgentServer`.
+- Do not write a fake of the Buildkite Stacks API. Use `test/fakestacks`, the copy of Buildkite's
+  `FakeAgentServer`.
 - Start each Go, shell, and Python file with its SPDX licence and copyright lines.
 - Keep work unit, requirement, and test identifiers out of production code.
 - Pin a GitHub Action by commit. A new third-party Action fails CI until a maintainer allows it.

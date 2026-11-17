@@ -27,11 +27,11 @@ private registry that only your organisation can use.
 
 ## Tart and Orchard
 
-Tart and Orchard use the Fair Source License, version 1.1, with Apache 2.0 as the future licence
-(FSL-1.1-ALv2). It permits every purpose except a competing use: making the software available to
-others in a commercial product or service that substitutes for it, or that offers the same or
-similar features. Internal use is permitted. Each version changes to the Apache License 2.0 two
-years after its release.
+Tart and Orchard use the Functional Source License, version 1.1, with Apache 2.0 as the future
+licence (FSL-1.1-ALv2). It permits every purpose except a competing use: making the software
+available to others in a commercial product or service that substitutes for it, or that offers the
+same or similar features. Internal use is permitted. Each version changes to the Apache License 2.0
+two years after its release.
 
 If you offer a commercial macOS build service to others, read the licence text first.
 
