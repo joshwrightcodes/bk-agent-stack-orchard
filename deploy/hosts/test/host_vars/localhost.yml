@@ -1,0 +1,4 @@
+# The plays of select.yml run on this machine. They use the Python that runs ansible-playbook,
+# because the discovery of Ansible takes the newest pythonX.Y on the PATH, and a mise shim of a
+# version that mise.toml does not pin refuses to run.
+ansible_python_interpreter: "{{ ansible_playbook_python }}"
