@@ -3,8 +3,10 @@
 // scripts and host roles that the custom managers below find. The upstream watch (upstream.yml)
 // reports the pins that a document of the design names, and the pins of images/build.sh: Orchard,
 // Tart, the Buildkite agent, the guest agent, Homebrew, and the macOS base of the job VMs. Each of
-// those also carries a SHA-256 that Renovate cannot compute, so Renovate leaves Orchard to it. The
-// Helm chart has no dependency to update.
+// those also carries a SHA-256 that Renovate cannot compute, so Renovate leaves Orchard to it. For
+// the agent, the guest agent, and Homebrew, the same workflow opens a draft pull request with the
+// new version and its SHA-256 (scripts/bump-upstream.py). The Helm chart has no dependency to
+// update.
 //
 // Its commit messages use the conventional types of CONTRIBUTING.md, so the commit gate accepts
 // them.
@@ -130,6 +132,16 @@
       enabled: true,
     },
     {
+      // A new major version of a Go module has a new module path. The direct dependency that
+      // needs an indirect module names its path, so a major update of the indirect one adds an
+      // unused requirement that go mod tidy removes, and check-tidy fails. The direct
+      // dependency moves the indirect one when it changes its import.
+      matchManagers: ["gomod"],
+      matchDepTypes: ["indirect"],
+      matchUpdateTypes: ["major"],
+      enabled: false,
+    },
+    {
       // mise.toml pins the Go version, and target design section 15 states it.
       matchManagers: ["gomod"],
       matchDepTypes: ["golang", "toolchain"],
@@ -225,6 +237,14 @@
       matchDepNames: ["python"],
       matchUpdateTypes: ["minor", "major"],
       dependencyDashboardApproval: true,
+    },
+    {
+      // PyYAML 6.0.3, which ansible-core and ansible-lint need, has no wheel for Python 3.15, and
+      // the locked install builds no package from source, so no tool installs. Python stays below
+      // 3.15 until PyYAML publishes those wheels.
+      matchManagers: ["mise"],
+      matchDepNames: ["python"],
+      allowedVersions: "<3.15",
     },
     {
       // The target design names the minimum Orchard version, and scripts/check-deps.py keeps

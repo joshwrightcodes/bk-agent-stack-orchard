@@ -26,10 +26,17 @@ The build adds:
 | The iOS simulator runtime | `pilot` | `xcodebuild -downloadPlatform iOS`, from Apple, with no Apple ID |
 | Homebrew 7.0.12 | `pilot` | The package of its release, checked against its SHA-256 |
 | carthage, cocoapods, fastlane, swiftlint, xcbeautify | `pilot` | Homebrew formulae, at the versions that Homebrew gives on the day of the build |
-| `buildkite-agent` 4.9.0 | Both | Its release, checked against the SHA-256 of its `SHA256SUMS`, in `/usr/local/bin`. The controller runs it only for a profile with `agent.source: image`; by default, each VM downloads the same release when it starts |
+| `buildkite-agent` 4.10.2 | Both | Its release, checked against the SHA-256 of its `SHA256SUMS`, in `/usr/local/bin`. The controller runs it only for a profile with `agent.source: image`; by default, each VM downloads the same release when it starts |
 | The configuration of the agent | Both | `files/buildkite-agent.cfg`: the build, hooks, and plugins paths. The startup environment of the controller gives the token, the job, the name, and the tags |
 | The agent tags of the image | Both | `/usr/local/etc/bk-agent-stack-orchard/agent-tags`: `image-name`, `image-tag`, `macos`, and `macos-build`, and in the pilot `xcode` and `xcode-build`. The build reads the values in the VM after each install, and its check reads them again |
 | The `environment` hook | Both | `files/environment`: the artifacts of a job go to the optional owner-managed storage, if the build set one. In the pilot, it also puts Homebrew on the `PATH` and sets a UTF-8 locale |
+
+The weekly `upstream` workflow moves the pins of the Buildkite agent, the Tart guest agent, and
+Homebrew in `build.sh` when a new release comes out. `scripts/bump-upstream.py` downloads the
+archive and takes its SHA-256 only when GitHub, and the checksum file of the release if there is
+one, give the same value. The workflow opens a draft pull request. Build the images from that pull
+request on a Mac and run a job before it leaves draft. A new major version of the agent stays in
+the upstream issue, because the target design names the major version.
 
 The controller starts the agent in the VM through the Tart guest agent, with a startup
 script that is the same for each VM (target design, section 6.4). Before the agent starts, the
@@ -96,7 +103,7 @@ and a file that macOS wrote shortly before it is lost. The build then starts the
 the directory of the archive. It checks the VM as a job VM finds it:
 
 - The guest agent answers as `admin`.
-- `buildkite-agent` 4.9.0 runs from `/usr/local/bin`.
+- `buildkite-agent` 4.10.2 runs from `/usr/local/bin`.
 - The hook sets the destination.
 - Ports 22 and 5900 are closed.
 - The image holds only what its list names.

@@ -8,7 +8,9 @@ the Tart version, the Buildkite agent line, the Stacks API client, and the macOS
 job VM images build on. This script compares those facts with the current upstream state and
 writes a report.
 
-It reports only. A version change can need a decision, so it changes no document.
+It reports only. A version change can need a decision, so it changes no document. A pin of
+images/build.sh that scripts/bump-upstream.py moves gets a draft pull request from the same weekly
+job instead, so its row says "pull request" and does not count as a move that needs the issue.
 
 The expected values come from the documents themselves, not from a copy in this script. When a
 document changes its pinned version, this check follows it. When a document no longer states a
@@ -76,12 +78,20 @@ class Row(NamedTuple):
     current: str
     moved: bool
     problem: str = ""  # Why the check could not read the upstream state; empty when it could.
+    automated: bool = False  # scripts/bump-upstream.py opens a pull request for this move.
 
     @property
     def status(self) -> str:
         if self.problem:
             return "could not check"
+        if self.moved and self.automated:
+            return "pull request"
         return "yes" if self.moved else "no"
+
+    @property
+    def needs_answer(self) -> bool:
+        """A move that a person answers in the documents, not one that a pull request answers."""
+        return self.moved and not self.automated
 
 
 def sends_token(url: str) -> bool:
@@ -196,7 +206,12 @@ def collect() -> list[Row]:
         ("Buildkite agent", "buildkite/agent", agent_version),
         ("stacksapi", "buildkite/stacksapi", stacks_version),
     ):
-        rows.append(version_row(name, expected, *lookup(latest_release, repo)))
+        row = version_row(name, expected, *lookup(latest_release, repo))
+        # A release of the same major line of the agent gets a pull request. A new line changes
+        # the baseline (CO-06), so a person answers it.
+        if name == "Buildkite agent" and row.moved:
+            row = row._replace(automated=normalise(row.current)[:1] == normalise(expected)[:1])
+        rows.append(row)
 
     # The tools that images/build.sh adds to the images, pinned by version.
     for name, repo, variable in (
@@ -204,7 +219,8 @@ def collect() -> list[Row]:
         ("Homebrew", "Homebrew/brew", "HOMEBREW_VERSION"),
     ):
         expected = stated(IMAGE_BUILD, rf'(?m)^{variable}="([0-9.]+)"', f"the {name} version")
-        rows.append(version_row(name, expected, *lookup(latest_release, repo)))
+        row = version_row(name, expected, *lookup(latest_release, repo))
+        rows.append(row._replace(automated=True))
 
     # The base of the job VM images, pinned by digest in images/build.sh. A new digest of the tag
     # that it follows is a new macOS release to build and test against.
@@ -228,7 +244,8 @@ def table(rows: list[Row]) -> str:
 
 def report(rows: list[Row], output: pathlib.Path | None = None) -> int:
     """Print the table and the summary, write the outputs, and return the exit status."""
-    moved = [row for row in rows if row.moved]
+    moved = [row for row in rows if row.needs_answer]
+    automated = [row for row in rows if row.moved and row.automated]
     unchecked = [row for row in rows if row.problem]
     text = table(rows)
 
@@ -236,11 +253,13 @@ def report(rows: list[Row], output: pathlib.Path | None = None) -> int:
     print()
     if moved:
         print(f"check-upstream: {len(moved)} dependency change(s) need an answer in the documents")
+    if automated:
+        print(f"check-upstream: {len(automated)} pin(s) move in a pull request of bump-upstream")
     if unchecked:
         print(f"check-upstream: could not check {len(unchecked)} dependency(ies):", file=sys.stderr)
         for row in unchecked:
             print(f"  {row.name}: {row.problem}", file=sys.stderr)
-    if not moved and not unchecked:
+    if not moved and not automated and not unchecked:
         print("check-upstream: the documents agree with upstream")
 
     if output:
