@@ -1135,15 +1135,16 @@ The controller MUST treat all builds as untrusted (PR-030). Each VM MUST have th
   private ranges. The only exception is the CIDRs in `profile.softnetAllow`.
 * The VM cannot reach the host, except for DHCP and DNS. Softnet lets a VM reach the gateway of
   its network on every port, and the gateway is the host (2026-09-27, a probe from a VM of the
-  controller specification reached a service of the host through its gateway; Softnet 0.24.1
-  `lib/proxy/vm.rs` keeps that rule). A Softnet block of the gateway also blocks DNS, because the
-  gateway is the DNS server of the VM. pf rules on each host therefore close it (§11). Softnet 0.24
-  gives each VM a network of its own when the VM starts: a random /29 from `10.0.0.0/8`,
-  `172.16.0.0/12`, `192.168.0.0/18`, `192.168.64.0/19`, or `192.168.96.0/22` that does not
-  overlap a network of an interface of the host, with the first address of the /29 for the host
-  (Softnet 0.24.1 `lib/subnet_finder/mod.rs`, read 2026-11-03). pf on macOS has no interface
-  groups, its `(self)` matches nothing (2026-10-10, tested on a VM), and its `self` holds only the
-  addresses that the host has when the rules load. The rules therefore block by destination, and
+  controller specification reached a service of the host through its gateway; Softnet 0.25.0
+  `lib/proxy/vm.rs` keeps that rule, read 2026-11-17). A Softnet block of the gateway also
+  blocks DNS, because the gateway is the DNS server of the VM. pf rules on each host therefore
+  close it (§11). Softnet 0.25 gives each VM a network of its own when the VM starts: a random
+  /29 from `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/18`, `192.168.64.0/19`, or
+  `192.168.96.0/22` that does not overlap a network of an interface of the host, with the first
+  address of the /29 for the host (Softnet 0.25.0 `lib/subnet_finder/mod.rs`, unchanged since
+  0.24.1, read 2026-11-17). pf on macOS has no interface groups, its `(self)` matches nothing
+  (2026-10-10, tested on a VM), and its `self` holds only the addresses that the host has when
+  the rules load. The rules therefore block by destination, and
   the block MUST NOT depend on when an address of the host appears:
   * From any interface but the admin interfaces of the host, only DHCP and DNS reach the host,
     and only the `softnetAllow` CIDRs of the profiles of the host reach the private ranges.
