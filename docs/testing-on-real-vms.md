@@ -96,14 +96,24 @@ The test probes another VM only when one runs on this Mac and answers on port 22
 leaves that probe out, and its log says `the other machine is ""`. The agent image turns SSH off,
 so start the other VM from the vanilla base image of `images/build.sh` (`BASE`), which keeps SSH
 on. Run the test once with that VM on the shared network of Tart. Run it again with the VM on
-Softnet, as two job VMs of a host are:
+Softnet, as two job VMs of a host are. Load the rules before the first run, and unload them after
+the second. Before each run, wait until the other VM answers on port 22. If it does not answer, the
+test leaves the probe out and still passes:
 
 ```sh
+mise x -- deploy/hosts/test/pf.sh load --pools "$(route -n get default | awk '/gateway:/ {print $2}')/32"
 tart clone "<BASE of images/build.sh>" bkaso-peer-test
+
 tart run --no-graphics bkaso-peer-test &                 # first run: the shared network of Tart
-tart stop bkaso-peer-test                                # after the first run
+until nc -z -G 3 "$(tart ip bkaso-peer-test)" 22; do sleep 5; done
+BKASO_TART_IMAGE=bkaso-agent mise run softnet-test
+tart stop bkaso-peer-test
+
 tart run --no-graphics --net-softnet bkaso-peer-test &   # second run: Softnet
-tart stop bkaso-peer-test && tart delete bkaso-peer-test # after the second run
+until nc -z -G 3 "$(tart ip bkaso-peer-test)" 22; do sleep 5; done
+BKASO_TART_IMAGE=bkaso-agent mise run softnet-test
+tart stop bkaso-peer-test && tart delete bkaso-peer-test
+mise x -- deploy/hosts/test/pf.sh unload
 ```
 
 `mise run hosts-test` needs the opposite. Its test VM reaches an Orchard controller on the Mac, and

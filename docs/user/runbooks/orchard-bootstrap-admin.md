@@ -100,19 +100,22 @@ the old token from the PUT on.
 If your fleet has no planned change of a host, you can delete the account. This also takes a
 working admin token off the data volume of Orchard: the file `/data/orchard.yml` keeps the old
 token, which Orchard then refuses. Do the steps 1 and 2 of the procedure. Then run these commands.
-The first deletes the account, the second checks that Orchard refuses the token, and the third
-deletes the key:
+The first deletes the account, and the second checks that Orchard refuses the token:
 
 ```sh
 orchard_admin DELETE /v1/service-accounts/bootstrap-admin
 orchard_admin GET /v1/service-accounts
+```
+
+Check that the second command ends with `HTTP 401`. If it does not, stop, and keep the key. The
+account still works, and the key holds its token. After `HTTP 401`, delete the key:
+
+```sh
 kubectl -n orchard patch secret orchard-bootstrap --type json \
   -p '[{"op":"remove","path":"/data/bootstrap-admin-token"}]'
 ```
 
-Check that the second command ends with `HTTP 401`. Delete the key only after that check,
-because Orchard needs no key for it. After the deletion, the next change of a host needs the
-account back. To re-create it:
+After the deletion, the next change of a host needs the account back. To re-create it:
 
 1. Put a new token in the key `bootstrap-admin-token` of the Secret `orchard-bootstrap`, and add
    the component `deploy/orchard-overlays/first-start` to the overlay again. The component reads

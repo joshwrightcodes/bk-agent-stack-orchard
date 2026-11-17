@@ -1403,7 +1403,8 @@ These rules come from the conventions and MUST hold:
   Reaper that did not run. The window is the number of consecutive ticks in which this is true. It
   is 10 ticks (10 s with the default `pollInterval`). The delay before the controller sees that a
   job ended (up to `jobStatesInterval`) is not in the window. The Reaper tries a delete that
-  Orchard refuses again at each tick, so 10 ticks give 10 tries. A VM that is in the count for
+  Orchard refuses again at each tick, so 10 ticks give up to 10 tries. A tick gives no try when the
+  budget of the Reaper ends before the delete (§4). A VM that is in the count for
   more than 10 ticks is a leak, except while Buildkite is down: the Reaper waits for fresh job
   states (§7.2, row 3), so the count stays above 0 until the states are fresh again, and
   `bkaso.source.staleness` shows the period. The default export interval is 60 s, which is longer

@@ -63,7 +63,7 @@ are trusted platforms.
 | Principle | How the design applies it |
 |---|---|
 | Economy of mechanism | The controller keeps no state. The Matcher, the Admission function, and the Reaper decision function are pure functions with an injected clock. |
-| Fail-safe defaults | HTTPS only. The pf rules of the hosts deny a job VM the host and the LAN unless a profile permits a CIDR. A configuration that is not valid stops the controller. The controller leaves an unmatched job in the queue. |
+| Fail-safe defaults | HTTPS only. The pf rules of the hosts give a job VM only DHCP and DNS on the host, and a profile CIDR cannot open more of the host. They deny the VM the LAN unless a profile permits a CIDR. A configuration that is not valid stops the controller. The controller leaves an unmatched job in the queue. |
 | Complete mediation | Every call to Buildkite and Orchard carries its credential, and the platforms check it. The Reaper acts only on VMs with the name prefix of its own controller. pf checks every connection of a VM. |
 | Open design | The code and the design are public. Security rests on tokens and keyless signatures, not on secrecy of the design. |
 | Separation of privilege | A release needs a merge to `main` and two separate approvals. The publish job verifies the signatures and the attestations before it publishes. The tools that build a release run in a job without the signing identity. |
