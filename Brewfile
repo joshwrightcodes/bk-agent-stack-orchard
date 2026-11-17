@@ -6,7 +6,7 @@
 #   brew bundle
 #
 # Colima and the Docker CLI are one Docker runtime. If you have another one, or do not need the
-# three tasks that use Docker, skip them:
+# four tasks that use Docker, skip them:
 #   HOMEBREW_BUNDLE_BREW_SKIP="colima docker docker-buildx" brew bundle
 
 tap "openai/tools"
@@ -14,7 +14,7 @@ tap "openai/tools"
 brew "mise"                 # Go, Orchard, the linters, Helm, kind, ko, and the release tools
 brew "gh"                   # pull requests
 brew "jq"                   # scripts/verify-release.sh
-brew "colima"               # a Docker runtime for check-c4, snapshot, and smoke
+brew "colima"               # a Docker runtime for check-c4, orchard-image, snapshot, and smoke
 brew "docker"               # the Docker CLI
 brew "docker-buildx"        # docker buildx, for smoke and the release scripts
 brew "openai/tools/tart"    # the real-VM tests. The Mac hosts pin a version: see

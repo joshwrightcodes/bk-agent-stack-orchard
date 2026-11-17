@@ -15,8 +15,8 @@ This directory makes each Mac host an Orchard worker (target design, section 11)
    the two in agreement. Softnet gets the setuid bit, because Tart starts it for each VM with root.
    Only root and the worker user can run it: its mode is `04750`, and an access control entry
    lets the worker user in. Root owns every file of the tools. The playbook checks each program
-   that root runs, and each directory above it up to `/usr/local`. It stops when one is not owned
-   by root and the group wheel, or when a group or other user can write it.
+   that root runs, and each directory above it up to `/usr/local`. It stops when root and the
+   group wheel do not own one, or when a group or other user can write it.
    The same tools are in the `openai/tools` Homebrew tap, which a developer Mac uses
    (`docs/development.md`). A host does not use the tap, for these reasons:
    - The tap has one version of each tool.
@@ -53,17 +53,17 @@ This directory makes each Mac host an Orchard worker (target design, section 11)
 Do these steps by hand on each host, once. The playbook checks the last two.
 
 1. Make the worker user, for example `admin`, in Setup Assistant.
-2. Enable Remote Login for that user, and add the SSH key of the operator to
+2. Enable Remote Login for that user. Add the SSH key of the operator to
    `~/.ssh/authorized_keys`.
 3. Install the Command Line Tools: `xcode-select --install`.
 4. Enable the automatic login of the worker user: System Settings, Users and Groups,
    "Automatically log in as". Tart and the registry credentials need its login keychain. On
-   macOS 27, `sysadminctl -autologin set` failed and a written `/etc/kcpassword` was ignored
+   macOS 27, `sysadminctl -autologin set` failed, and macOS ignored a written `/etc/kcpassword`
    (2026-09-27), so this step is manual.
 
 ## The inventory
 
-Copy `inventory.example.yml`, and give the values of the fleet:
+Copy `inventory.example.yml`. Then give it the values of the fleet:
 
 | Variable | Value |
 |---|---|
@@ -87,9 +87,9 @@ pulls no other image, because a 1 TB host holds only a few Xcode images. For the
 removes each cached image that no profile of the host names, unless the controller lists a VM of
 the worker with that image. A profile names its image by digest. The image in the cache is
 therefore always the image of the profile. When the registry needs credentials, give
-`orchard_worker_registry_username` and
-`orchard_worker_registry_password`. The role gives the password to `tart login` on its standard
-input, and it logs out after the pull. The keychain of the host therefore keeps no credentials.
+`orchard_worker_registry_username` and `orchard_worker_registry_password`. The role gives the
+password to `tart login` on its standard input, and it logs out after the pull. The keychain of the
+host therefore keeps no credentials.
 
 Each `softnetAllow` entry of the profiles of a host is an address or a range inside the private
 ranges that the pf rules block, such as `10.20.30.40/32`. The playbook stops on a wider entry,
@@ -111,14 +111,14 @@ ansible-playbook -i inventory.yml site.yml
 
 The play changes one host at a time. To change more hosts at a time, add
 `-e orchard_worker_serial=<number or percentage>`, for example `-e orchard_worker_serial=10%`. The
-hosts of one batch drain together, so their capacity is out together. When a host fails, the play
-stops, so a change that breaks the worker does not reach the next host.
+hosts of one batch drain together, so their capacity is unavailable at the same time. When a host
+fails, the play stops, so a change that breaks the worker does not reach the next host.
 
 The check of the names and the tokens before the playbook covers the hosts of the run only. A run
 with `--limit mac-01.hosts.internal` does not compare that host with the other hosts of the
-inventory, so two hosts that share a name or a token pass when the operator runs them one at a
-time. The run of the whole fleet finds it. The operator therefore runs the whole fleet after a
-change of a name or a token.
+inventory, so two hosts that share a name or a token pass when you run them one at a time. The
+run of the whole fleet finds it. Because of this, after a change of a name or a token, run the
+playbook for the whole fleet.
 
 The worker writes its log to `/var/log/orchard-worker.log`, and launchd writes the output of a
 failed start to `/var/log/orchard-worker.stdout.log`.
@@ -155,7 +155,8 @@ host and fails. Run the play for those hosts again later.
 
 The play writes `/usr/local/etc/orchard-worker/drain` when it pauses the worker, and removes it when
 it resumes the worker. If a run stops between the two, for example on a failed check, the worker
-stays paused. Fix the cause and run the play for the host again: it restarts and resumes the worker.
+stays paused. Fix the cause. Then run the play for the host again. It restarts and resumes the
+worker.
 
 The play calls the API of Orchard from the host, with the account and the token of the host, and
 trusts only the CA of the inventory. The token goes only to the `uri` module, and `no_log` keeps it

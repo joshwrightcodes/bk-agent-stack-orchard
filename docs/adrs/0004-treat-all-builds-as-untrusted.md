@@ -8,7 +8,7 @@ decision-makers: Josh Wright
 
 ## Summary
 
-Each job runs in a new VM (ADR-0001), but a VM can still reach the host, other VMs, private
+Each job runs in a new VM ([ADR-0001](0001-provision-macos-job-vms-with-a-custom-stack-controller.md)), but a VM can still reach the host, other VMs, private
 networks, shared caches, and credentials. No process confirms that all code on the queue is
 trusted. The decision is to treat all builds as untrusted. Each job VM is isolated from the host,
 from other VMs, from private networks, and from long-lived credentials. The cost is slower builds,
@@ -16,7 +16,7 @@ because jobs cannot use shared host caches.
 
 ## Context
 
-ADR-0001 gives each job a new VM. Because of this, the file systems of different jobs are already
+[ADR-0001](0001-provision-macos-job-vms-with-a-custom-stack-controller.md) gives each job a new VM. Because of this, the file systems of different jobs are already
 isolated. File-system isolation alone does not stop a build from reaching other resources. If the
 VM configuration permits it, a build can reach the host, other VMs, and private networks. A build
 can also read the shared caches and the credentials that its VM receives.
@@ -24,17 +24,17 @@ can also read the shared caches and the credentials that its VM receives.
 Shared host caches make builds faster, but they also create a risk. One malicious build can corrupt
 a cache, and all later builds then use the corrupted content.
 
-No process confirms that all code on the queue is trusted. An isolation policy must also be easy to
-audit, and different trust levels for different pipelines make audits more difficult.
+No process confirms that all code on the queue is trusted. An isolation policy also has to be easy
+to audit, and different trust levels for different pipelines make audits more difficult.
 
 ## Goals and non-goals
 
 Goals:
 
-* **Containment.** A malicious build does not affect other jobs, hosts, or internal systems (SE-01,
-  PR-030).
+* **Containment.** A malicious build does not affect other jobs, hosts, or internal systems ([SE-01](../architecture/system-design-baseline.md#se-01),
+  [PR-030](../product/requirements.md#pr-030)).
 * **No long-lived credentials.** A build gets no credential with a longer life or a larger scope
-  than its job (SE-02).
+  than its job ([SE-02](../architecture/system-design-baseline.md#se-02)).
 * **Auditability.** The isolation policy is easy to understand and to audit.
 * **Build performance.** Builds are as fast as possible.
 
@@ -91,7 +91,7 @@ Good:
 
 Bad:
 
-* Builds cannot use shared host caches. They must use remote caches.
+* Builds cannot use shared host caches. They have to use remote caches.
 * Access to an internal service needs an explicit entry in the profile.
 * Telemetry from the agent in a VM needs a public ingest endpoint.
 

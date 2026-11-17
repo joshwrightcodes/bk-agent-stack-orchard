@@ -8,32 +8,32 @@ decision-makers: Josh Wright
 
 ## Summary
 
-ADR-0012 decided how the project builds the job VM images, and PR-026 asked the project for a
+[ADR-0012](0012-build-the-job-vm-images-from-a-vanilla-macos-image.md) decided how the project builds the job VM images, and [PR-026](../product/requirements.md#pr-026) asked the project for a
 pilot profile with Xcode 27. The project now delivers a controller to operators who run their own
 fleets, and it runs no pilot. The decision is that the project publishes no job VM image. Each
 operator builds the images of its fleet, and `images/` is a reference build for an operator who
 builds its own. The quick start keeps an upstream image as its default, for evaluation only. This
-ADR replaces the parts of ADR-0012 that assume that the project builds and delivers the images of
-the fleet, and ADR-0012 keeps its status. The cost is that each operator owns the security and
+ADR replaces the parts of [ADR-0012](0012-build-the-job-vm-images-from-a-vanilla-macos-image.md) that assume that the project builds and delivers the images of
+the fleet, and [ADR-0012](0012-build-the-job-vm-images-from-a-vanilla-macos-image.md) keeps its status. The cost is that each operator owns the security and
 the upkeep of its images.
 
 ## Context
 
-ADR-0012 builds each image from a vanilla macOS image and checks the result against an explicit
+[ADR-0012](0012-build-the-job-vm-images-from-a-vanilla-macos-image.md) builds each image from a vanilla macOS image and checks the result against an explicit
 list. It also plans a vanilla image of this project from the restore image of Apple, and it names
-the pilot image with Xcode 27 (PR-026). Those parts assume that the project builds the images that
+the pilot image with Xcode 27 ([PR-026](../product/requirements.md#pr-026)). Those parts assume that the project builds the images that
 a fleet runs.
 
 The owner decided on 2026-11-03 that the project publishes no VM image and runs no pilot. The
-implementation plan put W-23 (the pilot image) and W-25 (the pilot start) out of scope on the same
-day. ADR-0017 lets a VM download its agent, so an image with only the Tart guest agent can serve a
+implementation plan put [W-23](../delivery/implementation-plan.md#w-23) (the pilot image) and [W-25](../delivery/implementation-plan.md#w-25) (the pilot start) out of scope on the same
+day. [ADR-0017](0017-download-the-agent-when-the-vm-starts.md) lets a VM download its agent, so an image with only the Tart guest agent can serve a
 job, and an operator does not need an image of this project to try the controller.
 
 The upstream image `ghcr.io/cirruslabs/macos-golden-gate-base` runs the Tart guest agent, and the
 quick start uses it, pinned by digest. It keeps the well-known account `admin` with the password
 `admin`, it accepts that password over SSH (Remote Login), and it gives `admin` passwordless
-`sudo` (ADR-0017, spike of 2026-11-03; owner statement, 2026-11-03). It also carries tools that no
-job needs (ADR-0012). Target design §9.2 forbids an image that accepts a well-known credential
+`sudo` ([ADR-0017](0017-download-the-agent-when-the-vm-starts.md), spike of 2026-11-03; owner statement, 2026-11-03). It also carries tools that no
+job needs ([ADR-0012](0012-build-the-job-vm-images-from-a-vanilla-macos-image.md)). Target design §9.2 forbids an image that accepts a well-known credential
 over the network, and it asks an image for the guest-agent transport to turn off SSH and Screen
 Sharing.
 
@@ -51,7 +51,7 @@ Goals:
 * **An operator can still start quickly.** A trial needs no image build.
 * **A production image is safe by default.** The documents state the rules that a production image
   meets, and the quick start says that its default does not meet them.
-* **The image method of ADR-0012 stays available.** An operator who builds an image can start from
+* **The image method of [ADR-0012](0012-build-the-job-vm-images-from-a-vanilla-macos-image.md) stays available.** An operator who builds an image can start from
   a build that already checks its contents.
 
 Non-goals:
@@ -62,7 +62,7 @@ Non-goals:
 
 ## Options considered
 
-**The project builds and publishes the images (ADR-0012 as written).** An operator pulls a ready
+**The project builds and publishes the images ([ADR-0012](0012-build-the-job-vm-images-from-a-vanilla-macos-image.md) as written).** An operator pulls a ready
 image. However, the project then patches images for fleets that it does not run, it distributes
 Xcode, and it keeps a pilot that no work unit delivers.
 
@@ -87,23 +87,23 @@ agent image.
 Publish no job VM image, and keep `images/` as a reference build.
 
 * The project MUST NOT publish a job VM image. The release publishes the controller binaries, its
-  container image, and its chart only (ADR-0013).
+  container image, and its chart only ([ADR-0013](0013-sign-releases-with-keyless-cosign-signatures.md)).
 * The fleet operator supplies each image of its fleet. A production image MUST meet the image
   requirements of target design §5 and the image rules of target design §9.2.
 * `images/build.sh` is a reference for an operator who builds its own images. It keeps the method
-  of ADR-0012: a vanilla base pinned by digest, an explicit list, and a check that fails on
+  of [ADR-0012](0012-build-the-job-vm-images-from-a-vanilla-macos-image.md): a vanilla base pinned by digest, an explicit list, and a check that fails on
   anything else. The real-VM tests MAY use its images.
 * The quick start MAY use the upstream base image, pinned by digest, as its default. The quick
   start guide and the comment of its script MUST say that the default is for evaluation only, that
   it does not meet the image rules of §9.2, and that production uses an image that the operator
   builds.
-* PR-026, the pilot profile with Xcode 27, is out of the scope of the project.
+* [PR-026](../product/requirements.md#pr-026), the pilot profile with Xcode 27, is out of the scope of the project.
 
-This decision amends ADR-0012 by partial replacement, as ADR-0016 does for ADR-0006. It replaces
-these parts of ADR-0012: the assumption that the project builds the images of the fleet, the plan
+This decision amends [ADR-0012](0012-build-the-job-vm-images-from-a-vanilla-macos-image.md) by partial replacement, as [ADR-0016](0016-skip-a-job-that-matches-no-profile.md) does for [ADR-0006](0006-route-jobs-to-vm-profiles-by-agent-tags.md). It replaces
+these parts of [ADR-0012](0012-build-the-job-vm-images-from-a-vanilla-macos-image.md): the assumption that the project builds the images of the fleet, the plan
 to make a vanilla image of this project from the restore image of Apple, and the bullet that names
-the pilot image and its Xcode (PR-026). The method of ADR-0012 stays the method of the reference
-build, so ADR-0012 keeps its status. A full supersession would drop that method, which `images/`
+the pilot image and its Xcode ([PR-026](../product/requirements.md#pr-026)). The method of [ADR-0012](0012-build-the-job-vm-images-from-a-vanilla-macos-image.md) stays the method of the reference
+build, so [ADR-0012](0012-build-the-job-vm-images-from-a-vanilla-macos-image.md) keeps its status. A full supersession would drop that method, which `images/`
 still follows.
 
 ## Consequences
@@ -136,4 +136,4 @@ Review trigger:
 * The release workflow publishes no job VM image.
 * The quick start guide and `scripts/quickstart.sh` label the default image as evaluation only,
   and name the rules of §9.2 that it does not meet.
-* PR-026 has the status `out of scope` in the requirements.
+* [PR-026](../product/requirements.md#pr-026) has the status `out of scope` in the requirements.

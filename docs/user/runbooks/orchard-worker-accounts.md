@@ -36,8 +36,8 @@ in another terminal. A port-forward runs from the node of the pod, which the pol
 The Job needs the bootstrap admin, and that account stays after the first bootstrap
 (`docs/user/runbooks/orchard-bootstrap-admin.md`). Each change of a host below therefore runs the
 Job again, and it needs no restart of Orchard. Do not use the controller account for these calls:
-it serves the controller only. To run the Job again, delete it and apply the overlay:
-`kubectl -n orchard delete job orchard-bootstrap`, then apply the overlay.
+it serves the controller only. To run the Job again, delete it with
+`kubectl -n orchard delete job orchard-bootstrap`. Then apply the overlay.
 
 The Job reads the key `operator-token` of the Secret `orchard-bootstrap`, and it does not start
 when the Secret has no such key. The Secret of an older fleet can lack the key. Before the Job
@@ -57,18 +57,17 @@ account stays valid, with `compute:write`, until the operator deletes it. The mi
 complete only after step 4.
 
 1. Create the Secret `orchard-worker-tokens` with one key `worker-<host>` for each host, as in
-   "Add a host", steps 1 and 2. Add the key `operator-token` to the Secret `orchard-bootstrap`
-   if it has no such key (section "Access to the API and the Job"). Delete the Job
-   `orchard-bootstrap`, apply the overlay, and wait until the Job completes. The shared account
-   still works, so no host is out.
+   "Add a host", steps 1 and 2. If the Secret `orchard-bootstrap` has no key `operator-token`, add
+   it (section "Access to the API and the Job"). Delete the Job `orchard-bootstrap`. Apply the
+   overlay. Wait until the Job completes. The shared account still works, so no host is out.
 2. Move each host to its own token. Set `orchard_worker_name` and the new token for the host in
-   the inventory, and run the playbook for that host. Check with `orchard_operator GET /v1/workers`
-   that the worker is online. Do one host first. A worker name that was set from the host name
-   before can differ from the new name. Then delete the old worker record if the name changed
+   the inventory. Then run the playbook for that host. Check with `orchard_operator GET /v1/workers`
+   that the worker is online. Do one host first. A worker name that came from the host name before
+   can differ from the new name. Then, if the name changed, delete the old worker record
    (`orchard_operator DELETE /v1/workers/<old name>`).
 3. When all hosts are online with their own accounts, remove the key `worker-token` from the
-   Secret `orchard-bootstrap` and the old shared token from the inventory vault, and then delete
-   the shared account. The Job does not read `worker-token`, so this order is safe:
+   Secret `orchard-bootstrap`. Remove the old shared token from the inventory vault. Then delete the
+   shared account. The Job does not read `worker-token`, so this order is safe:
 
    ```sh
    orchard_admin DELETE /v1/service-accounts/worker
@@ -83,9 +82,9 @@ complete only after step 4.
 2. Put it in the Secret `orchard-worker-tokens` as the key `worker-<host>`. `<host>` is a DNS
    label, and it is the `orchard_worker_name` of the host.
 3. Put the same token in the inventory vault as `vault_orchard_worker_tokens[<host>]`.
-4. Check that the Secret `orchard-bootstrap` has the key `operator-token`, and add it if it has
-   no such key (section "Access to the API and the Job"). Run the Job again (delete it and apply
-   the overlay). Wait until the Job completes.
+4. If the Secret `orchard-bootstrap` has no key `operator-token`, add it (section "Access to the
+   API and the Job"). Run the Job again (delete it and apply the overlay). Wait until the Job
+   completes.
 5. Run the playbook for the host. Check that the worker is online
    (`orchard_operator GET /v1/workers`).
 6. Add `<host>` to the list of the alert "Unknown worker" (target design, section 10.6).
@@ -94,8 +93,7 @@ complete only after step 4.
 
 1. Make a new token. Replace the key `worker-<host>` in the Secret, and the entry in the vault.
 2. Run the Job again (delete it and apply the overlay). The Job sets the account again with the
-   new token. From
-   this point the old token fails, and the worker of the host fails to connect.
+   new token. From this point the old token fails, and the worker of the host fails to connect.
 3. Run the playbook for that host at once. The role writes the new bootstrap token and restarts
    the worker.
 4. Check that the worker is online again (`orchard_operator GET /v1/workers`).

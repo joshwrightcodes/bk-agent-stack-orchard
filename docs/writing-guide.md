@@ -1,6 +1,6 @@
 # Writing guide
 
-This guide tells you how to write the documents of this project. It is based on the
+This guide tells you how to write the documents of this project. It follows the
 [Kubernetes documentation style guide](https://kubernetes.io/docs/contribute/style/style-guide/)
 and the [Google developer documentation style guide](https://developers.google.com/style). Where
 this guide says nothing, follow the Google guide.
@@ -62,6 +62,9 @@ The design documents use identifiers such as `PR-001`, `T-100`, and `ADR-0006`. 
 [glossary](glossary.md) lists each family.
 
 * Use identifiers in the design documents, in tests, and in commit footers.
+* Link each identifier in a document to the place that defines it: an ADR to its file, and
+  any other identifier to its anchor in its document. Run `mise run docs-link-ids` to add the
+  links and the anchors. `mise run check-docs` fails on an identifier without a link.
 * Do not use them in guides. Describe the behaviour instead. A reader of a guide cannot resolve
   an identifier.
 * Do not use them in production code, configuration, or task descriptions, as
@@ -76,17 +79,34 @@ The design documents use identifiers such as `PR-001`, `T-100`, and `ADR-0006`. 
 * Link text says where the link goes: "[Install the controller](user/install.md)", not
   "[here](user/install.md)".
 * Write dates as `YYYY-MM-DD`.
+* A design document starts with YAML front matter: `status`, `date`, `approved`, and `owner`. An
+  ADR has `status`, `date`, and `decision-makers`, and `supersedes` when it replaces another ADR.
+  Links to other documents go in the body, under the heading "Related documents", so that they
+  stay links.
+
+## Accessibility
+
+The documents aim to meet the
+[Web Content Accessibility Guidelines 2.2](https://www.w3.org/TR/WCAG22/), level AA, for each part
+that an author controls. [ACCESSIBILITY.md](../ACCESSIBILITY.md) states this for readers.
+
+* Give each image alt text that says what the image means, not what it looks like.
+* Give each diagram alt text that names its elements and the main relationships between them.
+* Never let a meaning depend on colour alone. Say it in the text or the shape as well.
+* Use one top-level heading on each page, and do not skip a heading level.
+* Give each table a header row.
+* Keep text as text. Put a command or an output in a code block, never in an image.
 
 ## Generated pages
 
-`docs/user/configuration.md` is written from the comments of the configuration types. Do not edit
-it. Change the first paragraph of the comment of a field, which is the text that an operator
-reads, and run `mise run docs-reference`.
+`mise run docs-reference` writes `docs/user/configuration.md` from the comments of the
+configuration types. Do not edit that page. Change the first paragraph of the comment of a field,
+which is the text that an operator reads. Then run `mise run docs-reference`.
 
 ## Checks
 
 `mise run check-docs` checks the line width, that each link resolves, that each cited identifier
-exists, and that the glossary lists each identifier family.
+exists and links to its definition, and that the glossary lists each identifier family.
 
 It also runs [Vale](https://vale.sh) with the rules in `.vale/styles/Project`, which `.vale.ini`
 applies by folder:

@@ -13,7 +13,8 @@ Each ADR has these sections:
 
 1. **Summary.** The problem, the decision, and the main cost, in a few sentences.
 2. **Context.** The situation and the forces, as connected prose.
-3. **Goals and non-goals.** Named goals that the options must meet, and topics outside the decision.
+3. **Goals and non-goals.** Named goals that the options have to meet, and topics outside the
+   decision.
 4. **Options considered.** One paragraph for each option, and one table that compares the options
    against the goals.
 5. **Decision.** The chosen option and the reason for it.
@@ -56,7 +57,8 @@ The `status` field has one of these values:
 * `deprecated`: the decision no longer applies, and no new decision replaces it.
 * `superseded by ADR-NNNN`: a newer ADR replaces this decision.
 
-The content of an accepted ADR does not change, except for an Errata note. To replace a decision:
+The content of an accepted ADR does not change, except for an Errata note or an editorial change.
+To replace a decision:
 
 1. Create a new ADR with the new decision. Add `supersedes: ADR-NNNN` to its front matter.
 2. Change the status of the old ADR to `superseded by ADR-NNNN`.
@@ -66,11 +68,18 @@ as a version, a date, or a name. Each note in it states its date, the old fact, 
 An errata note cannot change the decision, or the meaning of an option or a consequence. It can
 correct a fact inside them. A change of the decision, or of a meaning, needs a new ADR.
 
+An editorial change keeps the decision, and the meaning of each option and consequence. Before
+release 1.0, an editorial change can make the text of an accepted ADR follow the
+[writing guide](../writing-guide.md), and it can link an identifier to its definition. From release
+1.0, an editorial change can only add or correct such a link. The reviewer of the pull request
+checks that the meaning stays the same.
+
 ## Index
 
 The status column gives the state of each decision, and the front matter of each ADR gives its
-date. The content of an accepted ADR does not change: a new ADR supersedes it. A row with the
-status `reserved` holds a number that no ADR has yet, so that a new ADR does not take it.
+date. Only an Errata note or an editorial change edits an accepted ADR: a new ADR supersedes it.
+A row with the status `reserved` holds a number that no ADR has yet, so that a new ADR does not
+take it.
 
 | ADR | Decision | Status |
 |---|---|---|
@@ -79,13 +88,13 @@ status `reserved` holds a number that no ADR has yet, so that a new ADR does not
 | [ADR-0003](0003-start-job-vms-on-demand.md) | Start job VMs on demand, without a pool of idle VMs | accepted |
 | [ADR-0004](0004-treat-all-builds-as-untrusted.md) | Treat all builds as untrusted and isolate each job VM | accepted |
 | [ADR-0005](0005-run-and-schedule-vms-with-tart-and-orchard.md) | Run and schedule the job VMs with Tart and Orchard | accepted |
-| [ADR-0006](0006-route-jobs-to-vm-profiles-by-agent-tags.md) | Route jobs to VM profiles by their agent tags | accepted (the "fails immediately" sentence is replaced by ADR-0016) |
-| [ADR-0007](0007-use-a-dedicated-queue-for-the-macos-fleet.md) | Use a dedicated queue for the macOS fleet | accepted (the rule that only VMs of this fleet serve the queue is replaced by ADR-0016) |
+| [ADR-0006](0006-route-jobs-to-vm-profiles-by-agent-tags.md) | Route jobs to VM profiles by their agent tags | accepted ([ADR-0016](0016-skip-a-job-that-matches-no-profile.md) replaces the "fails immediately" sentence) |
+| [ADR-0007](0007-use-a-dedicated-queue-for-the-macos-fleet.md) | Use a dedicated queue for the macOS fleet | accepted ([ADR-0016](0016-skip-a-job-that-matches-no-profile.md) replaces the rule that only VMs of this fleet serve the queue) |
 | [ADR-0008](0008-use-a-dedicated-cluster-agent-token.md) | Use a dedicated cluster agent token with an expiry and an IP allowlist | accepted |
 | [ADR-0009](0009-run-startup-scripts-over-the-tart-guest-agent.md) | Run VM startup scripts over the Tart guest agent | accepted |
-| [ADR-0010](0010-call-the-orchard-api-with-a-client-of-this-project.md) | Call the Orchard API with a client of this project | accepted |
-| [ADR-0011](0011-generate-the-orchard-wire-types.md) | Generate the Orchard wire types from the pinned version | superseded by ADR-0015 |
-| [ADR-0012](0012-build-the-job-vm-images-from-a-vanilla-macos-image.md) | Build the job VM images from a vanilla macOS image | accepted (the parts that assume that the project builds the images of the fleet are replaced by ADR-0020) |
+| [ADR-0010](0010-call-the-orchard-api-with-a-client-of-this-project.md) | Call the Orchard API with a client of this project | accepted ([ADR-0015](0015-generate-only-the-orchard-fields-the-controller-uses.md) replaces the sentence that forbids generating from an Orchard file) |
+| [ADR-0011](0011-generate-the-orchard-wire-types.md) | Generate the Orchard wire types from the pinned version | superseded by [ADR-0015](0015-generate-only-the-orchard-fields-the-controller-uses.md) |
+| [ADR-0012](0012-build-the-job-vm-images-from-a-vanilla-macos-image.md) | Build the job VM images from a vanilla macOS image | accepted ([ADR-0020](0020-leave-the-job-vm-images-to-the-operator.md) replaces the parts that assume that the project builds the images of the fleet) |
 | [ADR-0013](0013-sign-releases-with-keyless-cosign-signatures.md) | Sign releases with keyless cosign signatures | accepted |
 | [ADR-0014](0014-calculate-releases-with-release-please.md) | Calculate releases with release-please | accepted |
 | [ADR-0015](0015-generate-only-the-orchard-fields-the-controller-uses.md) | Generate only the Orchard fields that the controller uses | accepted |

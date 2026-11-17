@@ -22,7 +22,7 @@ You need a Mac with Apple silicon and [Homebrew](https://brew.sh).
 brew trust openai/tools   # once: the tap of Tart is not an official tap
 brew bundle               # host tools that mise does not pin (Brewfile)
 mise install              # Go, Orchard, the linters, and the release tools, at pinned versions
-mise run check            # every gate: documents, commits, dependencies, lint, tests, and an image
+mise run check            # every gate: documents, commits, C4 model, dependencies, lint, and tests
 ```
 
 The [development guide](docs/development.md) explains each step, the Docker runtime, and how to
@@ -45,21 +45,22 @@ These are the tasks that you use most. `mise tasks` lists all of them.
 ## Make a change
 
 1. **Agree the change first.** For more than a small correction, wait until a maintainer agrees in
-   the issue, because the documents decide before the code (next section).
+   the issue. The documents decide before the code, as
+   [Before code: the documents decide](#before-code-the-documents-decide) explains.
 2. **Fork the repository, and work on a branch.**
 3. **Change the documents, then the tests, then the code.** Each change of behaviour starts with a
    failing test.
 4. **Run `mise run check`.**
 5. **Open a pull request** from your fork, and complete the template. Put `Closes #<number>` in
    the pull request description, not only in a commit: the project squashes each pull request, and
-   the squash keeps only the description. The workflows of a first pull request from a fork start
-   after a maintainer approves them.
+   the squash keeps only the description. The workflows of a pull request from an outside
+   contributor start after a maintainer approves them.
 6. **A maintainer reviews and merges it.**
 
-Nothing goes to `main` directly. A pull request must be up to date with `main` before it merges,
-and a new push dismisses the approvals that it had. A pull request with no activity for 30 days
-gets the `stale` label, and it closes 14 days later unless somebody comments, pushes a commit, or
-removes the label. Dependency pull requests and the release pull request are exempt.
+Nothing goes to `main` directly. A pull request merges only when it is up to date with `main`, and
+a new push dismisses the approvals that it had. A pull request with no activity for 30 days gets
+the `stale` label. It closes 14 days later, unless somebody comments, pushes a commit, or removes
+the label. Dependency pull requests and the release pull request are exempt.
 
 ## How a change is reviewed
 
@@ -107,7 +108,7 @@ These documents describe the design:
 
 | Document | What it answers |
 |---|---|
-| [Product requirements](docs/product/requirements.md) | What must the controller do, and for whom? |
+| [Product requirements](docs/product/requirements.md) | What does the controller do, and for whom? |
 | [System design baseline](docs/architecture/system-design-baseline.md) | Which quality targets, constraints, and assumptions limit the design? |
 | [Target design](docs/architecture/target-design.md) | How does the controller work? |
 | [C4 model](docs/architecture/c4.md) | What are the parts of the system, at each level? |
@@ -136,24 +137,24 @@ merge.
   with an `SPDX-License-Identifier: AGPL-3.0-or-later` comment, after the shebang of a script,
   and an `SPDX-FileCopyrightText: <year> The bk-agent-stack-orchard Authors` comment on the next
   line. Each contributor keeps the copyright of their work and licenses it under the AGPL with
-  their sign-off, so the line names the authors together, and the history of the repository
-  records who wrote what. A test of `internal/repocheck` checks both lines. `REUSE.toml` gives
-  them for the files that cannot carry a comment.
+  their sign-off. Because of this, the line names the authors together, and the history of the
+  repository records who wrote what. A test of `internal/repocheck` checks both lines.
+  `REUSE.toml` gives them for the files that cannot carry a comment.
 * **Keep identifiers in the documents.** Production code, configuration, and task descriptions say
   what they do and why. They do not carry a work unit, a requirement, or a test identifier,
   because a reader of the code cannot resolve one. Test files can carry `T-nnn`, `I-n`, and `O-n`,
   because the tests are the evidence for them. A rule that exists for a recorded decision can name
   its ADR, because the reason is the useful part.
-* **Fuzz the inputs.** Code that reads input from outside the controller, such as the agent rules
-  of a job, a machine name from Orchard, or the configuration file, has a fuzz test that states a
-  property for any input. `go test` runs its seed inputs, and `mise run fuzz` fuzzes it.
+* **Fuzz the inputs.** Some code reads input from outside the controller, such as the agent rules
+  of a job, a machine name from Orchard, or the configuration file. That code has a fuzz test that
+  states a property for any input. `go test` runs its seed inputs, and `mise run fuzz` fuzzes it.
 * **Keep the decisions pure.** The Matcher, the Admission function, and the Reaper decision
   function stay pure, with an injected clock. The suppliers stay behind narrow interfaces, so
   tests replace them with fakes.
 * **Earn each test.** The [test strategy](docs/quality/test-strategy.md) decides the level of each
   test. A new test needs a defect signal that no cheaper test gives.
-* **Use the Buildkite fake.** Do not write a second fake of the Buildkite Stacks API. The project
-  uses the `FakeAgentServer` that Buildkite maintains.
+* **Use the Buildkite fake.** Do not write a second fake of the Buildkite Stacks API. Use
+  `test/fakestacks`, the copy of the `FakeAgentServer` that Buildkite maintains.
 
 ## Commits and pull requests
 
@@ -181,9 +182,9 @@ follows [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0
   ` (#NNN)` when it squashes.
 * The body says why the change is necessary, and it wraps at 72 characters.
 * A change of a workflow uses `ci:`, never `fix(ci)`. release-please hides a commit by its type,
-  not by its scope, so `fix(ci)` would show in the release notes.
-* A breaking change has `!` before the colon, and a `BREAKING CHANGE:` footer that says what a user
-  must do.
+  not by its scope, so `fix(ci)` shows in the release notes.
+* A breaking change has `!` before the colon, and a `BREAKING CHANGE:` footer that tells a user
+  what to do.
 * A fix of a vulnerability names its identifier (`GO-`, `GHSA-`, or `CVE-`) in the subject or the
   body. Renovate has no field for it, so a maintainer adds it when a vulnerability update merges.
 * A commit that an AI tool helped to write names it in a `Co-authored-by` trailer.
@@ -217,14 +218,14 @@ Two rules protect the licence:
 
 Each commit carries a sign-off under the
 [Developer Certificate of Origin 1.1](https://developercertificate.org/). The sign-off says that
-you wrote the contribution, or have the right to give it under the licence of the project, and
-that you know the project keeps a public record of it.
+you wrote the contribution, or that you have the right to give it under the licence of the
+project. It also says that you know that the project keeps a public record of it.
 
 * Add the sign-off with `git commit -s`. The email of the trailer is the email of the commit
   author.
 * To add the sign-off to the commits of a branch, run `git rebase --signoff <base>`. The rebase
-  removes the commit signatures, and `main` requires signed commits, so sign the commits again
-  before you push, for example with
+  removes the commit signatures, and `main` requires signed commits. Because of this, sign the
+  commits again before you push, for example with
   `git rebase --exec 'git commit --amend --no-edit -S' <base>`.
 * Bots that use a GitHub App (Renovate, release-please, and github-actions) are exempt. Their
   author email ends with `[bot]@users.noreply.github.com`. A maintainer checks during review that

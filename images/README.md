@@ -32,11 +32,11 @@ The build adds:
 | The `environment` hook | Both | `files/environment`: the artifacts of a job go to the optional owner-managed storage, if the build set one. In the pilot, it also puts Homebrew on the `PATH` and sets a UTF-8 locale |
 
 The weekly `upstream` workflow moves the pins of the Buildkite agent, the Tart guest agent, and
-Homebrew in `build.sh` when a new release comes out. `scripts/bump-upstream.py` downloads the
+Homebrew in `build.sh` when a new release appears. `scripts/bump-upstream.py` downloads the
 archive and takes its SHA-256 only when GitHub, and the checksum file of the release if there is
 one, give the same value. The workflow opens a draft pull request. Build the images from that pull
-request on a Mac and run a job before it leaves draft. A new major version of the agent stays in
-the upstream issue, because the target design names the major version.
+request on a Mac. Then run a job before the pull request leaves draft. A new major version of the
+agent stays in the upstream issue, because the target design names the major version.
 
 The controller starts the agent in the VM through the Tart guest agent, with a startup
 script that is the same for each VM (target design, section 6.4). Before the agent starts, the
@@ -93,10 +93,11 @@ those screens itself. `tart run --vnc` does not work, because it needs Screen Sh
 ## Build
 
 `build.sh` drives the VM with `tart exec`, through the guest agent. It uses SSH once, with the
-password of the vanilla image, to put the guest agent in place. The build needs an Apple silicon
-Mac with Tart 2.41.1 or later. A macOS VM cannot run a second macOS VM. A hosted GitHub macOS
-runner is a VM with 14 GB of disk (2026-10-10). For these reasons, a hosted runner cannot build
-the image.
+password of the vanilla image, to put the guest agent in place. The build needs an Apple silicon Mac
+with the Tart version that the Mac hosts pin (`orchard_worker_tart_version` in
+`deploy/hosts/roles/orchard_worker/defaults/main.yml`), or a later one. A macOS VM cannot run a
+second macOS VM. A hosted GitHub macOS runner is a VM with 14 GB of disk (2026-10-10). For these
+reasons, a hosted runner cannot build the image.
 
 The build stops the VM from inside the VM. `tart stop` does not wait for macOS to write its caches,
 and a file that macOS wrote shortly before it is lost. The build then starts the VM again, without
@@ -120,12 +121,11 @@ mise run pilot-image   # about 20 minutes, 59 GB
 tart run bkaso-pilot   # look at it
 ```
 
-The build makes the local Tart VM `bkaso-<image>` (`VM_NAME` changes it). With `IMAGE_REGISTRY`, for
-example `registry.example.internal/macos` (a private registry), it pushes
-`<registry>/bkaso-<image>:<tag>` (`IMAGE_TAG`, the commit by default, with `-dirty` when the
-tree has changes), with the credentials in
-`TART_REGISTRY_USERNAME` and `TART_REGISTRY_PASSWORD`.
-A profile names the image by the digest that the registry gives.
+The build makes the local Tart VM `bkaso-<image>` (`VM_NAME` changes it). With `IMAGE_REGISTRY`,
+for example `registry.example.internal/macos` (a private registry), it pushes
+`<registry>/bkaso-<image>:<tag>`. `IMAGE_TAG` sets the tag. By default, the tag is the commit, with
+`-dirty` when the tree has changes. The push uses the credentials in `TART_REGISTRY_USERNAME` and
+`TART_REGISTRY_PASSWORD`. A profile names the image by the digest that the registry gives.
 
 ## Known issue: boot the simulator before xcodebuild
 

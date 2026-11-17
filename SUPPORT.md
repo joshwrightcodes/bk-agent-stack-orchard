@@ -10,6 +10,11 @@ This file tells you where to ask for help.
 * Read [README.md](README.md) and the documents in [docs](docs) before you open an issue.
 * The maintainers answer when time permits. The project makes no promise of a response time.
 
+## Accessibility
+
+To report a barrier in a document or an output of the project, follow
+[ACCESSIBILITY.md](ACCESSIBILITY.md).
+
 ## Security reports
 
 Do not report a vulnerability in a public issue. Follow [SECURITY.md](SECURITY.md).

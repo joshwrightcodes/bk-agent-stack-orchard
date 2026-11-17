@@ -24,7 +24,7 @@ proves that a download is complete, but not who made it: a party that can change
 also change the checksums.
 
 The controller holds a Buildkite cluster agent token and an Orchard service account token
-(ADR-0008). A changed image gets both, and it can start VMs on the fleet. Operators deploy the
+([ADR-0008](0008-use-a-dedicated-cluster-agent-token.md)). A changed image gets both, and it can start VMs on the fleet. Operators deploy the
 image and the chart into Kubernetes. There, an admission controller can refuse an image without a
 valid signature, if it can read the signature format.
 
@@ -42,7 +42,7 @@ Goals:
 * **Provenance.** An operator can prove that each archive, image, and chart came from the release
   workflow of this repository at a given tag.
 * **No secret to keep.** One owner operates the project, and no long-lived signing key exists to
-  store, rotate, or lose (OP-01).
+  store, rotate, or lose ([OP-01](../architecture/system-design-baseline.md#op-01)).
 * **Admission control.** A Kubernetes admission controller can verify the image and the chart
   with tools that operators already use.
 * **Dependency inventory.** Each archive and each platform image has an SBOM that a scanner
@@ -50,7 +50,7 @@ Goals:
 
 Non-goals:
 
-* Signatures on the job VM images. The fleet builds them (ADR-0012), and they are not release
+* Signatures on the job VM images. The fleet builds them ([ADR-0012](0012-build-the-job-vm-images-from-a-vanilla-macos-image.md)), and they are not release
   artifacts.
 * Signed commits, which the repository rules require on `main`. The tags are not signed.
 * A SLSA build level. The workflow gives provenance through the certificate identity, and it also
@@ -65,7 +65,7 @@ no service. However, it gives no provenance, and an admission controller has not
 **cosign with a key pair.** The owner makes a cosign key pair, stores the private key as a
 repository secret, and publishes the public key. Verification works without a network service.
 However, the key is a long-lived secret: a leak lets anyone sign as the project until the owner
-sees it, and the owner must rotate it and publish each new public key.
+sees it, and the owner has to rotate it and publish each new public key.
 
 **cosign, keyless.** The release workflow signs with a short-lived certificate for its own
 identity. No key exists. The verification checks the identity: the workflow file and the exact

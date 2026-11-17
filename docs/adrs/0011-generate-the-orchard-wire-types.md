@@ -8,7 +8,7 @@ decision-makers: Josh Wright
 
 ## Summary
 
-ADR-0010 gave the controller its own Orchard client, and it forbade generating that client from an
+[ADR-0010](0010-call-the-orchard-api-with-a-client-of-this-project.md) gave the controller its own Orchard client, and it forbade generating that client from an
 Orchard file. A client that a person writes by hand has no way to learn that the API changed, and
 the check that the project wrote instead needed a second list that a person kept current. The
 decision is to generate the wire types from the Orchard resource types of the pinned version, and
@@ -18,11 +18,11 @@ comes from another project.
 
 ## Context
 
-The controller calls the Orchard REST API. ADR-0010 keeps the Orchard Go client out of the binary,
+The controller calls the Orchard REST API. [ADR-0010](0010-call-the-orchard-api-with-a-client-of-this-project.md) keeps the Orchard Go client out of the binary,
 because Orchard carries a licence with a field-of-use restriction and this project publishes an
 image under the AGPL-3.0. That decision holds, and this one does not change it.
 
-ADR-0010 went further: it forbade generating the client from an Orchard file, because generated
+[ADR-0010](0010-call-the-orchard-api-with-a-client-of-this-project.md) went further: it forbade generating the client from an Orchard file, because generated
 code from a file carries the terms of that file. The result was a client that a person wrote from
 reading the API, and three observations followed.
 
@@ -57,7 +57,7 @@ Non-goals:
 * The behaviour of the client: the retries, the errors, and the decisions about a conflict stay
   handwritten, because they are this project's behaviour and not Orchard's.
 * A client for the whole API. The generator writes the four types that the controller uses.
-* The Orchard Go client as a dependency, which ADR-0010 settled.
+* The Orchard Go client as a dependency, which [ADR-0010](0010-call-the-orchard-api-with-a-client-of-this-project.md) settled.
 
 ## Options considered
 
@@ -103,8 +103,8 @@ Generate the Orchard wire types from the Orchard resource types at the pinned ve
 * The behaviour of the client stays handwritten: the retries, the errors, the conflict on create,
   and the machine that is already gone on delete.
 
-This decision replaces the sentence of ADR-0010 that forbids generating from an Orchard file. The
-rest of ADR-0010 holds: no Orchard module in `go.mod`, no `replace` directive, and no file of the
+This decision replaces the sentence of [ADR-0010](0010-call-the-orchard-api-with-a-client-of-this-project.md) that forbids generating from an Orchard file. The
+rest of [ADR-0010](0010-call-the-orchard-api-with-a-client-of-this-project.md) holds: no Orchard module in `go.mod`, no `replace` directive, and no file of the
 Orchard repository in this repository.
 
 ## Consequences
@@ -114,11 +114,11 @@ Good:
 * A field that upstream renames fails a gate, with the old name and the new one in the difference.
 * The repository shows the shape of the API that the controller talks to.
 * One place describes the contract, and a person maintains none of it.
-* A candidate Orchard release can be checked before the documents pin it.
+* `-version` can check a candidate Orchard release before the documents pin it.
 
 Bad:
 
-* The repository holds a file whose shape another project decides, and a reviewer must read a
+* The repository holds a file whose shape another project decides, and a reviewer has to read a
   generated file when upstream moves.
 * The generator needs the network and a GitHub token for its rate limit, so it cannot run in an
   environment without either.

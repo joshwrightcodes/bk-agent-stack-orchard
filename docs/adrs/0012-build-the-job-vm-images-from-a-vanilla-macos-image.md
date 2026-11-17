@@ -10,7 +10,7 @@ decision-makers: Josh Wright
 
 The job VM images build on the published bases of Cirrus Labs, which carry the tools of many uses:
 other CI agents, AI assistants, Java, Android, and Flutter. Removing what a job does not need is a
-list that must follow every change upstream, and a tool that upstream adds stays in the image
+list that has to follow every change upstream, and a tool that upstream adds stays in the image
 until somebody sees it. The decision is to build each image from a vanilla macOS image, with only
 the software that an explicit list names, and to check the result against that list. The images
 build on the vanilla image of Cirrus Labs first, and on a vanilla image of this project from the
@@ -19,9 +19,9 @@ ID, and the upkeep of the setup of a new macOS.
 
 ## Context
 
-A job VM runs untrusted builds (ADR-0004), with a job acquisition token for one job, and the pilot
-image builds, tests, and publishes iOS and macOS apps (PR-026). A tool in the image that no job
-needs is code that runs with the rights of `admin`, and that the fleet must patch.
+A job VM runs untrusted builds ([ADR-0004](0004-treat-all-builds-as-untrusted.md)), with a job acquisition token for one job, and the pilot
+image builds, tests, and publishes iOS and macOS apps ([PR-026](../product/requirements.md#pr-026)). A tool in the image that no job
+needs is code that runs with the rights of `admin`, and that the fleet has to patch.
 
 Until this decision, `images/build.sh` built on `macos-golden-gate-base` and on
 `macos-golden-gate-xcode:27` of Cirrus Labs, pinned by digest. On 2026-10-10 these bases carried the
@@ -49,14 +49,14 @@ Goals:
 * **A change upstream cannot add software silently.** The build fails when the image contains
   something that the list does not name.
 * **A repeatable build.** The same script builds the image on any Apple silicon Mac.
-* **Little upkeep for one owner** (OP-01).
+* **Little upkeep for one owner** ([OP-01](../architecture/system-design-baseline.md#op-01)).
 
 Non-goals:
 
 * The contents of the list, which the images README records and which can change without a new
   decision.
 * Where the build runs. It needs an Apple silicon Mac, which the target design states.
-* The SSH transport, which ADR-0009 already leaves to a profile.
+* The SSH transport, which [ADR-0009](0009-run-startup-scripts-over-the-tart-guest-agent.md) already leaves to a profile.
 
 ## Options considered
 
@@ -106,7 +106,7 @@ Good:
 
 * A tool that upstream adds cannot reach a job VM: the check against the list fails the build.
 * The images README is the one record of what a job VM contains.
-* The image is smaller, so a 1 TB host holds more images (SC-09).
+* The image is smaller, so a 1 TB host holds more images ([SC-09](../architecture/system-design-baseline.md#sc-09)).
 
 Bad:
 
@@ -114,7 +114,7 @@ Bad:
   it. A new Xcode needs that step again.
 * The build installs what the bases gave before, so it takes longer and needs the network.
 * The vanilla image of this project needs the setup assistant automated with keys over VNC, which
-  the owner must repair when a macOS release changes the setup assistant.
+  the owner has to repair when a macOS release changes the setup assistant.
 * A tool that a pipeline needs and the list lacks fails that pipeline, until the list grows.
 
 Review trigger:

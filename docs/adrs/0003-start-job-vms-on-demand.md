@@ -8,28 +8,28 @@ decision-makers: Josh Wright
 
 ## Summary
 
-ADR-0001 starts one VM for each job, so each job waits for a VM to start. A pool of started, idle
+[ADR-0001](0001-provision-macos-job-vms-with-a-custom-stack-controller.md) starts one VM for each job, so each job waits for a VM to start. A pool of started, idle
 VMs would remove most of this wait. The decision is to start VMs only when jobs need them, and to
 keep no idle VMs. The cost is a VM start time for each job, with a target of 60 seconds and an
 estimate of 30 to 60 seconds.
 
 ## Context
 
-Each macOS host can run only two VMs at the same time (ADR-0001). The first fleet has 2 to 10
-Macs, so it has only 4 to 20 VM slots (SC-01, SC-02). An idle VM in a pool holds one of these
+Each macOS host can run only two VMs at the same time ([ADR-0001](0001-provision-macos-job-vms-with-a-custom-stack-controller.md)). The first fleet has 2 to 10
+Macs, so it has only 4 to 20 VM slots ([SC-01](../architecture/system-design-baseline.md#sc-01), [SC-02](../architecture/system-design-baseline.md#sc-02)). An idle VM in a pool holds one of these
 slots, and no job can use that slot.
 
-The VM start time target is 60 seconds (QA-01). The estimate is 30 to 60 seconds, and nobody has
-measured it. The controller records the duration of each start phase, and this data will show the
-real value.
+The VM start time target is 60 seconds ([QA-01](../architecture/system-design-baseline.md#qa-01)). The estimate is 30 to 60 seconds, and nobody has
+measured it. The controller records the duration of each start phase, and this data shows the real
+value.
 
 ## Goals and non-goals
 
 Goals:
 
-* **Capacity for jobs.** Every VM slot is available for a job (SC-02, QA-02).
-* **Acceptable start time.** The job start time meets the 60-second target (QA-01).
-* **Simplicity.** The controller stays small (OP-01).
+* **Capacity for jobs.** Every VM slot is available for a job ([SC-02](../architecture/system-design-baseline.md#sc-02), [QA-02](../architecture/system-design-baseline.md#qa-02)).
+* **Acceptable start time.** The job start time meets the 60-second target ([QA-01](../architecture/system-design-baseline.md#qa-01)).
+* **Simplicity.** The controller stays small ([OP-01](../architecture/system-design-baseline.md#op-01)).
 
 Non-goals:
 
@@ -42,10 +42,10 @@ available for jobs. However, each job waits for its VM to start.
 
 **Keep a pool of idle VMs.** The controller keeps started VMs for each VM profile, and gives an
 idle VM to a new job. Jobs start almost immediately. However, idle VMs hold slots that jobs cannot
-use, and the controller must decide the pool size for each profile.
+use, and the controller has to decide the pool size for each profile.
 
 **Start VMs on demand, with a design ready for a pool.** The controller starts VMs on demand, but
-its internal design separates VM creation from job assignment. A pool can then be added later.
+its internal design separates VM creation from job assignment. A later change can then add a pool.
 However, this design adds work for a pool that no measurement supports.
 
 | Goal | On demand | Pool of idle VMs | On demand, ready for a pool |
@@ -68,7 +68,7 @@ Good:
 Bad:
 
 * Each job waits for its VM to start. The upper estimate equals the target, so a small delay can
-  make a job miss the target (QA-01).
+  make a job miss the target ([QA-01](../architecture/system-design-baseline.md#qa-01)).
 * A pool needs a new ADR that supersedes this ADR, and a change to the controller.
 
 Review trigger:

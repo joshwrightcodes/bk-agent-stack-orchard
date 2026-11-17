@@ -23,8 +23,8 @@ docker push <registry of the fleet>/orchard:0.58.0
 ```
 
 The image carries the licence of Orchard, FSL-1.1-ALv2, in `/usr/share/doc/orchard/LICENSE`. It is
-not part of the image of the controller of this project, which carries no Orchard code
-Push it only to the registry of the fleet.
+not part of the image of the controller of this project, which carries no Orchard code. Push it
+only to the registry of the fleet.
 
 ## The Secrets
 
@@ -48,8 +48,8 @@ The keys are the list of hosts, so the tokens stay in a Secret and no ConfigMap 
 If your fleet has the shared account `worker`, follow "Migrate from the shared account" in
 `docs/user/runbooks/orchard-worker-accounts.md`, because the Job does not delete that account. The
 bootstrap Job refuses a key whose host is not a DNS label, and it fails when the Secret has no
-such key. Each host has its own token (`openssl rand -hex 24`). The operator keeps the same token
-in the inventory vault (`deploy/hosts/README.md`).
+such key. Each host has its own token (`openssl rand -hex 24`). Keep the same token in the
+inventory vault (`deploy/hosts/README.md`).
 
 `orchard-tls`, a TLS Secret with `tls.crt`, `tls.key`, and `ca.crt`, for example from
 cert-manager. The certificate names the Service (`orchard`, `orchard.<namespace>.svc`) and the
@@ -126,14 +126,14 @@ balancer public in an overlay.
   bootstrap".
 - `bootstrap-job.yaml`: sets the accounts `bk-agent-stack-orchard`, `operator`, and `worker-<host>`
   for each key of the Secret `orchard-worker-tokens`, each with `compute:read` and `compute:write`
-  only (target design section 9.2), through the REST API of Orchard.
-  It never deletes an account: a host that leaves the Secret keeps its account until the operator
-  revokes it (`docs/user/runbooks/orchard-worker-accounts.md`). It replaces an account
-  that exists and creates one that does not, so a run after a rotation of a token sets the new
-  token. Run it again after each change of a host: delete the Job and apply the overlay. It needs
-  the bootstrap admin, so that account and its Secret key stay (see "First start and after the
-  first bootstrap"). It gives the
-  token and the body to `curl` on standard input, so no token is on the argv of `curl`.
+  only (target design section 9.2), through the REST API of Orchard. It never deletes an account: a
+  host that leaves the Secret keeps its account until the operator revokes it
+  (`docs/user/runbooks/orchard-worker-accounts.md`). It replaces an account that exists and creates
+  one that does not, so a run after a rotation of a token sets the new token. Run it again after
+  each change of a host. To do this, delete the Job. Then apply the overlay. It needs the bootstrap
+  admin, so that account and its Secret key stay (see "First start and after the first
+  bootstrap"). It gives the token and the body to `curl` on standard input, so no token is on the
+  argv of `curl`.
 
 ## The NetworkPolicy
 
@@ -163,8 +163,7 @@ cluster, change the port or give an `ipBlock` peer in the overlay.
 
 The policy admits TCP 6120 only from the controller of this project, the bootstrap Job, and the
 Mac hosts. It refuses a workstation or a bastion, on the ClusterIP and on the internal load
-balancer. Do not add the CIDR of an office to the policy to get round this. Use a
-port-forward:
+balancer. Do not add the CIDR of an office to the policy as a workaround. Use a port-forward:
 
 ```sh
 kubectl -n orchard port-forward svc/orchard 16120:6120
@@ -274,8 +273,8 @@ only the first start uses the component. With this order, the safe state is the 
 environment of the pod of an overlay without the component holds no admin token.
 
 1. For the first start, add the component to the overlay, as the overlay example shows. Apply the
-   overlay, and wait for the bootstrap Job to complete.
-2. Remove the component from the overlay. Apply the overlay, and wait until the new pod is ready.
+   overlay. Wait for the bootstrap Job to complete.
+2. Remove the component from the overlay. Apply the overlay. Wait until the new pod is ready.
    Orchard then does not make the account again at each start, and the Orchard pod holds no admin
    token in its environment.
 3. Rotate the token now, so the token of the first start is not the standing one (the procedure
@@ -283,7 +282,7 @@ environment of the pod of an overlay without the component holds no admin token.
    of the operator and when a person who could read the Secret leaves.
 4. Check that no other pod mounts or reads the Secret. In this repository, only `bootstrap-job.yaml`
    references `orchard-bootstrap` after step 2, and the command below lists every user of it in the
-   namespace. Only the pods of the Job appear. If others do, stop and find out why:
+   namespace. Only the pods of the Job appear. If others do, stop. Find the reason:
 
    ```sh
    kubectl -n orchard get pods -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.volumes[*].secret.secretName}{"\t"}{.spec.containers[*].env[*].valueFrom.secretKeyRef.name}{"\n"}{end}' |
@@ -304,18 +303,19 @@ environment of the pod of an overlay without the component holds no admin token.
 
 If the first start ran without the component, Orchard made `bootstrap-admin` with a random token
 and printed that token in its log. The bootstrap Job then fails, and its log says that Orchard
-refused the token of `bootstrap-admin`. Add the component, apply the overlay, and wait until the
+refused the token of `bootstrap-admin`. Add the component. Apply the overlay. Wait until the
 Orchard pod restarts. Orchard then sets the account again with the token of the Secret, so the
-token of the log no longer works. If the Job has failed by then, delete it, and apply the overlay
+token of the log no longer works. If the Job has failed by then, delete it. Then apply the overlay
 again to run it. When the Job completes, continue with step 2. Treat the log of the first start
-as a secret, and purge it where the logging system allows it.
+as a secret. Purge it where the logging system allows it.
 
 ### Delete the account completely
 
 If your fleet has no planned change of a host, you can delete `bootstrap-admin` and its Secret key
-instead. This also takes a working admin token off the data volume of Orchard.
-First do steps 1 and 2. Then delete the account, check that the token of the Secret is refused
-(the answer ends with `HTTP 401`), and only then delete the key:
+instead. This also takes a working admin token off the data volume of Orchard. First do steps 1
+and 2. Then run these commands. The first deletes the account. The second checks that Orchard
+refuses the token of the Secret: the answer ends with `HTTP 401`. The third deletes the key. Run
+it only after that check:
 
 ```sh
 orchard_admin DELETE /v1/service-accounts/bootstrap-admin
@@ -326,8 +326,8 @@ kubectl -n orchard patch secret orchard-bootstrap --type json \
 
 To change a host later, re-create the account:
 
-1. Put the key `bootstrap-admin-token` back in the Secret, and add the component `first-start`
-   to the overlay.
+1. Put the key `bootstrap-admin-token` in the Secret again. Add the component `first-start` to
+   the overlay.
 2. Apply the overlay, which restarts Orchard. The API of Orchard is down for a short time for the
    workers and the controller.
 3. Run the Job.
@@ -347,9 +347,9 @@ log of the Orchard pod as a secret.
   `serviceAccountTokenToDisplay = "<hidden>"` when the variable is present. Do steps 2 and 3 after
   the bootstrap Job completes.
 - Recovery, if it already happened: set the account again with a new token (the rotation in the
-  runbook), and purge the log lines where the logging system allows it.
+  runbook). Purge the log lines where the logging system allows it.
 
-[`deploy/hosts`](../hosts/README.md) sets up the Mac hosts, and gives each worker its credentials. Orchard does not tie
-an account to a worker name, so a host with the token of another host can register as any name.
-The alert "Unknown worker" of the target design (section 10.6) sees only a name that the operator
-does not know. It does not see a known name that another host uses.
+[`deploy/hosts`](../hosts/README.md) sets up the Mac hosts, and gives each worker its credentials.
+Orchard does not tie an account to a worker name, so a host with the token of another host can
+register as any name. The alert "Unknown worker" of the target design (section 10.6) sees only a
+name that the operator does not know. It does not see a known name that another host uses.

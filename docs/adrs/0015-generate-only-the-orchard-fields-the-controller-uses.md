@@ -9,26 +9,26 @@ supersedes: ADR-0011
 
 ## Summary
 
-ADR-0011 decided to generate the Orchard wire types from the Orchard Go source at the pinned
+[ADR-0011](0011-generate-the-orchard-wire-types.md) decided to generate the Orchard wire types from the Orchard Go source at the pinned
 version. The generated file copied every field of four Orchard types, and it carried no notice of
 its source. At the same time, the contributing guide, the notice file, and the readme said that
 the project never generates code from a file under the FSL. Those statements were false, and the
 file copied more than the controller needs. The decision is to keep the generator, to limit it to
 an allow list of the fields that the controller uses, and to write a header in the generated file
 that names the source, the version, the commit, the licence, and the copyright notice of the
-source. This ADR restates the whole decision of ADR-0011 with these two changes, and it supersedes
-ADR-0011. The cost is a list that a person keeps current when the controller reads a new field.
+source. This ADR restates the whole decision of [ADR-0011](0011-generate-the-orchard-wire-types.md) with these two changes, and it supersedes
+[ADR-0011](0011-generate-the-orchard-wire-types.md). The cost is a list that a person keeps current when the controller reads a new field.
 
 ## Context
 
-The controller calls the Orchard REST API, and it imports no Orchard package. ADR-0010 keeps the
+The controller calls the Orchard REST API, and it imports no Orchard package. [ADR-0010](0010-call-the-orchard-api-with-a-client-of-this-project.md) keeps the
 Orchard Go client out of the binary. Orchard carries the FSL-1.1-ALv2 licence (copyright 2023-2026
 OpenAI, checked on 2026-11-01 in the LICENSE file of the pinned commit), which has a field-of-use
 restriction. This project publishes an image under the AGPL-3.0-or-later, which forbids a further
 restriction on a distributed work.
 
-ADR-0010 forbade generating the client from an Orchard file. A client that a person wrote by hand
-then had three problems, which ADR-0011 recorded and which still hold:
+[ADR-0010](0010-call-the-orchard-api-with-a-client-of-this-project.md) forbade generating the client from an Orchard file. A client that a person wrote by hand
+then had three problems, which [ADR-0011](0011-generate-the-orchard-wire-types.md) recorded and which still hold:
 
 * The handwritten client was wrong. It read the status message of a machine as `statusMessage`,
   and the server marshals `status_message`. The unit test did not catch it, because the same
@@ -39,7 +39,7 @@ then had three problems, which ADR-0011 recorded and which still hold:
   0.58.0 omits `randomSerial`, `createdAt`, `last_seen`, and `scheduling_paused`, which the
   controller uses, and its paths leave out the `/v1` prefix that the server serves.
 
-A review on 2026-11-01 found two faults in the state after ADR-0011:
+A review on 2026-11-01 found two faults in the state after [ADR-0011](0011-generate-the-orchard-wire-types.md):
 
 * The generated file `internal/orchard/types_gen.go` came from Orchard source, but
   `CONTRIBUTING.md`, `NOTICE`, `README.md`, and `internal/orchard/README.md` still said that the
@@ -73,7 +73,7 @@ Non-goals:
 * The behaviour of the client: the retries, the errors, and the decisions about a conflict stay
   handwritten.
 * A client for the whole API.
-* The Orchard Go client as a dependency, which ADR-0010 settled.
+* The Orchard Go client as a dependency, which [ADR-0010](0010-call-the-orchard-api-with-a-client-of-this-project.md) settled.
 * A legal opinion. This ADR records the position of the project.
 
 ## Options considered
@@ -86,7 +86,7 @@ lost a field name this way.
 the client with the upstream types. However, it checks only what the client already has, and a
 reader cannot see the shape of the API.
 
-**Generate every field of the four types (ADR-0011).** The file shows the whole shape, and every
+**Generate every field of the four types ([ADR-0011](0011-generate-the-orchard-wire-types.md)).** The file shows the whole shape, and every
 upstream change appears in the difference. However, the file copies fields that the controller
 does not read, which is more than interoperability needs, and it had no notice of its source.
 
@@ -99,7 +99,7 @@ starts to use it.
 **Generate from the OpenAPI description.** The description omits fields that the controller
 uses, so the result would not work.
 
-| Goal | Handwritten list | Reflection | All fields (ADR-0011) | Allow list and header | Description |
+| Goal | Handwritten list | Reflection | All fields ([ADR-0011](0011-generate-the-orchard-wire-types.md)) | Allow list and header | Description |
 |---|---|---|---|---|---|
 | Learns when the contract moves | Partly | Partly | Yes | Yes | Partly |
 | One description of the contract | No | Yes | Yes | Yes, with one short list | Yes |
@@ -132,8 +132,8 @@ only the fields that the controller uses.
 * A change that makes the controller read a new Orchard field adds that field to the allow list
   in the same change.
 
-This decision replaces ADR-0011, and it replaces the sentence of ADR-0010 that forbids generating
-from an Orchard file. The rest of ADR-0010 holds: no Orchard module in `go.mod`, no `replace`
+This decision replaces [ADR-0011](0011-generate-the-orchard-wire-types.md), and it replaces the sentence of [ADR-0010](0010-call-the-orchard-api-with-a-client-of-this-project.md) that forbids generating
+from an Orchard file. The rest of [ADR-0010](0010-call-the-orchard-api-with-a-client-of-this-project.md) holds: no Orchard module in `go.mod`, no `replace`
 directive, and no file of the Orchard repository in this repository.
 
 ## Consequences
@@ -163,7 +163,8 @@ Review trigger:
 
 ## Confirmation
 
-* A test of the generator confirms that a field that is not on the allow list is not written.
+* A test of the generator confirms that the generator does not write a field that is not on the
+  allow list.
 * A test of the generator confirms that the header names the source repository, the version, the
   licence, and the copyright notice.
 * A test of the generator confirms that the generator fails when a name on the allow list is not

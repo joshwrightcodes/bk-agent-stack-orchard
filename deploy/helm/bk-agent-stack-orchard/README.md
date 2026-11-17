@@ -34,8 +34,7 @@ The schema mirrors the rules of the controller that JSON Schema can express:
 * A profile name has only lower-case letters, digits, and dashes.
 * A `match` key is a lower-case literal, and it is not `queue`, `profile`, or `agent-stack`. A
   `match` value is a literal with no wildcard, comma, quote, or newline, and no ASCII white space
-  at an end.
-  `buildkite.queue` has the same limits, except for the wildcard.
+  at an end. `buildkite.queue` has the same limits, except for the wildcard.
 * Each duration is a Go duration as `time.ParseDuration` reads it, such as `500ms`, `5m`, `1h30m`,
   or `1.5m`. A bare number is not a duration. This includes `reservationExpiry` and
   `jobTokenLifetime`. The schema does not check the ranges of these two values. The controller
@@ -67,8 +66,8 @@ again when it starts, and it refuses a value that the schema cannot express. For
 * a `vmCredentials` block that does not agree with `startupTransport`;
 * a variable that holds no value in the Secret.
 
-A value that passes the schema can therefore still stop the controller. Read the log of the pod
-when it does.
+A value that passes the schema can therefore still stop the controller. When it does, read the log
+of the pod.
 
 CI runs `mise run check-deploy`. The task lints the chart with `ci/values.yaml` and each file in
 `ci/good/`, and it fails if a file in `ci/bad/` lints clean or fails for a reason other than the
@@ -84,8 +83,8 @@ names. With no `to` list, a destination allows any peer on its port. The notes o
 and `helm upgrade` then name each such destination in a warning.
 
 For production, give each destination its peers in `to`. This example is a values file. The
-addresses are placeholders from the documentation ranges of RFC 5737, and the operator replaces
-them:
+addresses are placeholders from the documentation ranges of RFC 5737. Replace them with your own
+addresses:
 
 ```yaml
 networkPolicy:
@@ -126,8 +125,8 @@ A peer CIDR for a public service is fragile, because the service can change its 
 cluster whose CNI supports a policy for DNS names can limit the egress to `agent.buildkite.com`
 instead. NetworkPolicies add up: a pod can send what any policy that selects it allows. A second
 policy therefore cannot narrow the port 443 rule of the chart. To limit the Stacks API by name,
-set `networkPolicy.enabled: false` and let the policy below carry all egress. This example is for
-Cilium. It is an example, and CI does not test it. The addresses are placeholders.
+set `networkPolicy.enabled: false`. Then let the policy below carry all egress. This example is
+for Cilium. It is an example, and CI does not test it. The addresses are placeholders.
 
 ```yaml
 apiVersion: cilium.io/v2
@@ -179,7 +178,7 @@ spec:
 
 Source: Cilium documentation, "Locking Down External Access with DNS-based Policies",
 <https://docs.cilium.io/en/stable/security/dns/> (checked 2026-11-02). Test the policy on the
-cluster before the first production run, and check that the probes still reach the pod.
+cluster before the first production run. Check that the probes still reach the pod.
 
 ## A change of the Secret
 
@@ -197,8 +196,8 @@ for the time of the restart.
 
 A controller that watches the Secret can do this restart. The Reloader of Stakater is an example.
 It restarts a workload when a Secret that the workload uses changes. It reads its annotations on
-the metadata of the Deployment, so set the annotation with `deploymentAnnotations`, if the
-Reloader runs in the cluster:
+the metadata of the Deployment. If the Reloader runs in the cluster, set the annotation with
+`deploymentAnnotations`:
 
 ```yaml
 deploymentAnnotations:

@@ -8,8 +8,8 @@ decision-makers: Josh Wright
 
 ## Summary
 
-The controller serves Buildkite jobs from one queue. Jobs for other agents must not reach the
-macOS fleet, and macOS jobs must not go to other agents. The decision is a dedicated self-hosted
+The controller serves Buildkite jobs from one queue. The fleet has to receive no job for other
+agents, and other agents have to receive no macOS job. The decision is a dedicated self-hosted
 queue for the fleet. The cluster MAY contain other queues. The cost is that a leaked cluster agent
 token reaches the other self-hosted queues of the cluster.
 
@@ -20,18 +20,17 @@ access to all self-hosted queues in its cluster. A pipeline belongs to one clust
 run only on agents of that cluster. Buildkite has no agent token with a scope smaller than a
 cluster. These facts are correct as of 2026-09-14.
 
-The controller of ADR-0001 registers one stack for one queue, and it holds a cluster agent token.
-All builds on its queue are untrusted (ADR-0004). Each additional region will use a new queue
-(SE-10).
+The controller of [ADR-0001](0001-provision-macos-job-vms-with-a-custom-stack-controller.md) registers one stack for one queue, and it holds a cluster agent token.
+All builds on its queue are untrusted ([ADR-0004](0004-treat-all-builds-as-untrusted.md)). Each additional region uses a new queue ([SE-10](../architecture/system-design-baseline.md#se-10)).
 
 ## Goals and non-goals
 
 Goals:
 
 * **Job separation.** Only VMs of this fleet run the jobs of this queue, and the fleet runs no
-  other jobs (PR-031).
+  other jobs ([PR-031](../product/requirements.md#pr-031)).
 * **Pipeline compatibility.** One build can use this queue and other queues of the same cluster.
-* **Small blast radius.** A leaked credential reaches as little as possible (SE-03).
+* **Small blast radius.** A leaked credential reaches as little as possible ([SE-03](../architecture/system-design-baseline.md#se-03)).
 * **Simple administration.** The number of clusters and queues stays small.
 
 Non-goals:
@@ -52,7 +51,7 @@ more cluster.
 
 **A shared queue.** The fleet takes jobs from a queue that other agents also serve. No new queue is
 necessary. However, another agent can take a macOS job, and the controller cannot select a VM for
-that job. The untrusted-build policy of ADR-0004 then applies to agents outside the fleet.
+that job. The untrusted-build policy of [ADR-0004](0004-treat-all-builds-as-untrusted.md) then applies to agents outside the fleet.
 
 | Goal | Dedicated queue, shared cluster | Dedicated cluster | Shared queue |
 |---|---|---|---|
@@ -67,7 +66,7 @@ Use a dedicated self-hosted queue for the macOS fleet. The cluster MAY contain o
 
 Only VMs of this fleet run the jobs of this queue. A leaked cluster agent token reaches the other
 self-hosted queues of the same cluster, because Buildkite has no smaller token scope. The
-credential decision must limit this risk with a short life and an address allowlist.
+credential decision has to limit this risk with a short life and an address allowlist.
 
 ## Consequences
 
@@ -75,7 +74,7 @@ Good:
 
 * Only VMs of this fleet run macOS jobs, and the fleet runs no other jobs.
 * One build can use the macOS queue and other queues of the same cluster.
-* Each additional region adds a new queue, and the cluster stays the same (SE-10).
+* Each additional region adds a new queue, and the cluster stays the same ([SE-10](../architecture/system-design-baseline.md#se-10)).
 
 Bad:
 

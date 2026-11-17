@@ -11,7 +11,7 @@ in these ways:
 
 * You can run at most two macOS VMs on one Apple computer at a time, and that computer must
   already run macOS.
-* The permitted purposes are limited. Software development and testing are among them.
+* The agreement permits only some purposes. Software development and testing are among them.
 * The agreement restricts services that give others access to virtualised macOS, such as a
   service bureau or time-sharing. If your fleet serves other teams or other organisations, check
   whether this applies. The exception for leased Macs needs leases of at least 24 hours, so a VM
@@ -27,11 +27,11 @@ private registry that only your organisation can use.
 
 ## Tart and Orchard
 
-Tart and Orchard use the Fair Source License, version 1.1, with Apache 2.0 as the future licence
-(FSL-1.1-ALv2). It permits every purpose except a competing use: making the software available to
-others in a commercial product or service that substitutes for it, or that offers the same or
-similar features. Internal use is permitted. Each version changes to the Apache License 2.0 two
-years after its release.
+Tart and Orchard use the Functional Source License, version 1.1, with Apache 2.0 as the future
+licence (FSL-1.1-ALv2). It permits every purpose except a competing use: making the software
+available to others in a commercial product or service that substitutes for it, or that offers the
+same or similar features. The licence permits internal use. Each version changes to the Apache
+License 2.0 two years after its release.
 
 If you offer a commercial macOS build service to others, read the licence text first.
 

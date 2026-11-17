@@ -8,7 +8,7 @@ decision-makers: Josh Wright
 
 ## Summary
 
-The controller talks to Orchard through its REST API. ADR-0005 selected the Orchard Go client
+The controller talks to Orchard through its REST API. [ADR-0005](0005-run-and-schedule-vms-with-tart-and-orchard.md) selected the Orchard Go client
 package for this work. That package carries the FSL-1.1-ALv2 licence, which permits every use
 except a competing use. The project publishes its own source under the AGPL-3.0, which forbids a
 further restriction on a distributed work. The decision is a small client in this project that
@@ -16,14 +16,14 @@ calls the Orchard REST API. The cost is the work to write and to maintain that c
 
 ## Context
 
-The fleet runs Orchard and Tart. This does not change: ADR-0005 selected them, and the controller
+The fleet runs Orchard and Tart. This does not change: [ADR-0005](0005-run-and-schedule-vms-with-tart-and-orchard.md) selected them, and the controller
 still needs them. The question is only how the controller code reaches the Orchard API.
 
 The Orchard Go client is a package in the Orchard repository. A binary that imports it contains
 Orchard code. The FSL-1.1-ALv2 grant of that code covers "any purpose other than a Competing Use",
-which is a restriction on the field of use. The AGPL-3.0 states that a distributed work must not
-carry a further restriction. Because of this, an image or a binary of this project cannot contain
-both this project under the AGPL-3.0 and the Orchard client under the FSL.
+which is a restriction on the field of use. The AGPL-3.0 forbids a further restriction on a
+distributed work. Because of this, an image or a binary of this project cannot contain both this
+project under the AGPL-3.0 and the Orchard client under the FSL.
 
 The project publishes a container image (target design, section 15), so this is a real conflict,
 not a theoretical one. Three facts limit the answer:
@@ -44,21 +44,21 @@ Orchard for an internal purpose, which the FSL permits.
 Goals:
 
 * **One licence for the distributed work.** An image or a binary of this project carries only the
-  licence of this project and of its permissive dependencies (PR-022).
+  licence of this project and of its permissive dependencies ([PR-022](../product/requirements.md#pr-022)).
 * **Same behaviour.** The controller uses the same endpoints and the same fields, and the
   integration evidence against a real Orchard does not weaken.
 * **Small surface.** The client covers only the calls of the design, not the whole API.
-* **Visible drift.** A change in the Orchard API fails a gate, not a production job (CO-02).
+* **Visible drift.** A change in the Orchard API fails a gate, not a production job ([CO-02](../architecture/system-design-baseline.md#co-02)).
 
 Non-goals:
 
-* The selection of Orchard and Tart, which ADR-0005 owns.
+* The selection of Orchard and Tart, which [ADR-0005](0005-run-and-schedule-vms-with-tart-and-orchard.md) owns.
 * The way that the fleet operator installs and runs Orchard.
 * A client for the whole Orchard API, or a client for other projects to use.
 
 ## Options considered
 
-**Import the Orchard Go client.** This is the mechanism that ADR-0005 assumed. It needs no client
+**Import the Orchard Go client.** This is the mechanism that [ADR-0005](0005-run-and-schedule-vms-with-tart-and-orchard.md) assumed. It needs no client
 work, and it follows upstream changes without effort. However, the Orchard module path is still
 `github.com/cirruslabs/orchard`, so `go.mod` needs a `replace` directive, and the repository has
 no semver tag, so the directive needs a pseudo-version. More important, the binary then contains
@@ -98,7 +98,7 @@ The client MUST define its own types for the fields that the design uses. The in
 MUST run against a real Orchard controller with synthetic workers, so that a change of the API
 fails a gate.
 
-This decision replaces the dependency mechanism of ADR-0005 and its `go.mod` confirmation. It does
+This decision replaces the dependency mechanism of [ADR-0005](0005-run-and-schedule-vms-with-tart-and-orchard.md) and its `go.mod` confirmation. It does
 not change the selection of Tart and Orchard.
 
 ## Consequences

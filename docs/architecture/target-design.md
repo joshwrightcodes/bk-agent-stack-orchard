@@ -1,13 +1,17 @@
+---
+status: accepted
+date: 2026-09-19
+approved: 2026-09-20
+owner: the maintainers
+---
 # bk-agent-stack-orchard — Target design
 
-* Status: accepted
-* Date: 2026-09-19
-* Approved: 2026-09-20
-* Companion documents:
-  * [Product requirements](../product/requirements.md): requirement identifiers such as `PR-005`
-  * [System design baseline](system-design-baseline.md): driver identifiers such
-    as `QA-01`
-  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0020
+## Related documents
+
+* [Product requirements](../product/requirements.md): requirement identifiers such as `PR-005`
+* [System design baseline](system-design-baseline.md): driver identifiers such
+  as `QA-01`
+* [Architecture decision records](../adrs/README.md): [ADR-0001](../adrs/0001-provision-macos-job-vms-with-a-custom-stack-controller.md) to [ADR-0020](../adrs/0020-leave-the-job-vm-images-to-the-operator.md)
 
 ## Conventions
 
@@ -46,11 +50,11 @@ The fleet is new. This project introduces Tart, Orchard, and the controller.
    plain process on other platforms.
 
 **Target scale.** The design MUST support 10 to 50 Macs (20 to 100 concurrent macOS VMs). The
-first rollout uses 2 to 10 Macs. Development uses one Mac (SC-01, SC-02).
+first rollout uses 2 to 10 Macs. Development uses one Mac ([SC-01](system-design-baseline.md#sc-01), [SC-02](system-design-baseline.md#sc-02)).
 
 **Quality targets.** The system design baseline owns the quality targets. The start time is 60 s
-or less (QA-01). The wait time is 15 min or less at planned capacity (QA-02). The recovery time is
-less than 15 min (QA-03). The design MUST meet these targets.
+or less ([QA-01](system-design-baseline.md#qa-01)). The wait time is 15 min or less at planned capacity ([QA-02](system-design-baseline.md#qa-02)). The recovery time is
+less than 15 min ([QA-03](system-design-baseline.md#qa-03)). The design MUST meet these targets.
 
 **Non-goals** (§14 gives the roadmap)
 
@@ -59,34 +63,35 @@ less than 15 min (QA-03). The design MUST meet these targets.
 * Host directory caches, or other state that jobs share.
 * Secret injection for each job. Jobs get secrets through standard Buildkite mechanisms.
 * Automatic rotation of secrets. Secret rotation is the responsibility of the fleet operator, and
-  the runbooks describe the procedures (§9.2, PR-023).
+  the runbooks describe the procedures (§9.2, [PR-023](../product/requirements.md#pr-023)).
 * Machine identity. An operator MAY put a machine-identity system, such as SPIFFE and SPIRE, in
   front of Orchard.
 * High availability of the controller or of Orchard. Instead, recovery takes less than 15 min
-  (QA-03).
+  ([QA-03](system-design-baseline.md#qa-03)).
 * Operation in more than one region. Each additional region uses a new queue with its own fleet
-  (SE-10).
+  ([SE-10](system-design-baseline.md#se-10)).
 
 ## 3. Background and constraints
 
-The design depends on these facts. Each fact was verified against source code or documentation.
+The design depends on these facts. The maintainers checked each fact against source code or
+documentation.
 
 | Fact | Source | Result for the design |
 |---|---|---|
 | The Stacks API accepts only a cluster agent token (`bkct_`). | Buildkite docs, `apis/agent_api/stacks.md` | The controller keeps a cluster agent token (§9.2). |
 | The scheduled-jobs list gives all jobs in the queue. It does not filter by other tags. It does not include reserved jobs. | Stacks API docs | The controller does the tag match (§5). |
-| The scheduled-jobs call takes `limit` (page size, maximum 1000) and `after` (a cursor). The answer has `page_info.has_next_page` and `page_info.end_cursor`. The API orders the jobs by `scheduled_at`, oldest first. A call returns one page, and the library does not read the next page. Paging does not cover a snapshot: new jobs can appear behind the cursor. The documentation advises to read the first few pages only, and to reserve the jobs. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01); `buildkite/stacksapi` v1.2.0 `scheduled_jobs.go` | The Poller asks for 1000 jobs in each call. It makes at most 3 calls in one tick: 2 pages from the head of the list, and 1 page of the sweep (§6.3, ADR-0019). |
-| The get-states call takes a list of job UUIDs (`job_uuids`). Its answer is `{"states": {"<uuid>": "<state>"}}`, and the library decodes a missing or renamed field as an empty map, with no error. Whether the answer leaves out a job that Buildkite does not know, and the largest list that one call accepts, are `UNKNOWN` (owner: the maintainers; trigger: the recording of O-6 in the test strategy). | `buildkite/stacksapi` v1.2.0 `get_job_states.go` (read 2026-11-03) | An answer that names none of the jobs is a failed call. A job is unknown to Buildkite only after two answers in a row leave it out (§7.1, rule 4). |
+| The scheduled-jobs call takes `limit` (page size, maximum 1000) and `after` (a cursor). The answer has `page_info.has_next_page` and `page_info.end_cursor`. The API orders the jobs by `scheduled_at`, oldest first. A call returns one page, and the library does not read the next page. Paging does not cover a snapshot: new jobs can appear behind the cursor. The documentation advises to read the first few pages only, and to reserve the jobs. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01); `buildkite/stacksapi` v1.2.0 `scheduled_jobs.go` | The Poller asks for 1000 jobs in each call. It makes at most 3 calls in one tick: 2 pages from the head of the list, and 1 page of the sweep (§6.3, [ADR-0019](../adrs/0019-sweep-the-queue-behind-a-long-head.md)). |
+| The get-states call takes a list of job UUIDs (`job_uuids`). Its answer is `{"states": {"<uuid>": "<state>"}}`, and the library decodes a missing or renamed field as an empty map, with no error. Whether the answer leaves out a job that Buildkite does not know, and the largest list that one call accepts, are `UNKNOWN` (owner: the maintainers; trigger: the recording of [O-6](../quality/test-strategy.md#o-6) in the test strategy). | `buildkite/stacksapi` v1.2.0 `get_job_states.go` (read 2026-11-03) | An answer that names none of the jobs is a failed call. A job is unknown to Buildkite only after two answers in a row leave it out (§7.1, rule 4). |
 | A reservation lasts 900 s by default and 3600 s maximum. A second reserve call extends it. When a reservation expires, the job becomes `scheduled` again. | Stacks API docs | The controller uses short reservations. It extends them while a VM starts (§6, §7). |
 | A job acquisition token (`bkjat_`) connects an agent to one reserved job. The token expires early if the reservation expires. At agent registration, Buildkite applies the expiry and the allowed IP addresses of the agent token that issued the JAT. | `buildkite/stacksapi` v1.2.0 `IssueJobAcquisitionTokens`; `buildkite/docs` `pages/agent/self_hosted/job_acquisition_tokens.md` (2026-08-26) | Only a job acquisition token goes into a VM (§9.1). The agent token allowlist MUST contain the job VM egress addresses (§9.2). |
 | `token_lifetime_seconds` of a job acquisition token has a minimum of 1, a maximum of 3600, and a default of 900. `reservation_expiry_seconds` has a default of 900 and a maximum of 3600. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The limits of 3600 s are the limits of the API. The controller refuses a `reservationExpiry` that is more than 3600 s. It refuses a `jobTokenLifetime` that is more than 1800 s, which is the security limit of §9.1. It refuses both values if they are less than 1 s, so that the refusal comes at start-up and not at the first job (§8). |
-| The `detail` of a stack notification must not be empty and cannot exceed 256 characters. The unit is characters. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The controller cuts a detail to 256 characters, counted as runes and cut between characters, and ends a cut detail with an ellipsis. It sends "(no detail)" in place of an empty detail (§10.5). |
+| The `detail` of a stack notification cannot be empty, and it cannot be longer than 256 characters. The unit is characters. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The controller cuts a detail to 256 characters, counted as runes and cut between characters, and ends a cut detail with an ellipsis. It sends "(no detail)" in place of an empty detail (§10.5). |
 | A stack notification needs no reservation, and the job does not have to be in a particular state. Only a job that finished more than 300 s ago cannot get one. A job can have at most 100 notifications. A request can carry at most 1000 notifications. When some lines fail, the response has `errors` entries with 0-based `indexes`, and the valid notifications are still created. The limit is 200 requests per second for each stack. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The controller sends a skip notice for a job that it does not hold. It sends at most 1000 lines in one call (`NotificationsPerRequest`), and it reads the refused indexes of a partial answer. A notice for each job is written once while the job stays listed (§5), so that the 100-line limit of one job stays far away. |
 | The `detail` of a finish request has a maximum of 4 KB. The documentation does not state the unit. `exit_status` defaults to -1. | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01) | The controller counts the 4 KB in bytes, which is never more than a count in characters, and it shortens the detail to the budget before it finishes a job (§6). |
-| The finish request has no `signal_reason` field, so the controller cannot set it. The Buildkite platform generates a `signal_reason` of `stack_error` for such a job. Pipeline authors use `signal_reason: stack_error` with `limit: 0` in their automatic retry rules. Whether the platform generates `stack_error` for every job that the controller finishes is `UNKNOWN` (owner: the maintainers; trigger: the first runs of T-100 to T-105). | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01); `buildkite/stacksapi` v1.2.0 `finish.go` | The controller finishes a failed job with exit status -1 and a detail (§7.6). |
-| `maxVMLifetime` is 25 h by default. The Reaper deletes a VM whose `createdAt` is older than this, for any job state (row 2 of §7.2, §7.1 rule 1). A restart of the controller does not extend this limit. A job that still runs at 25 h loses its VM and its agent. After the agent acquired the job, the Buildkite lost-agent procedure controls the result, and the controller does not finish the job (§7.1, rule 5). The job result that Buildkite gives in this case is `UNKNOWN` (owner: the maintainers; trigger: the first end-to-end run of a job that outlives `maxVMLifetime`). | Derived from `internal/reaper/decide.go` and §7.2, §7.1 (checked 2026-11-01) | A pipeline step with a run time near 25 h MUST set a lower job timeout. The default of 25 h is the safety limit in SC-06, not a job limit. |
+| The finish request has no `signal_reason` field, so the controller cannot set it. The Buildkite platform generates a `signal_reason` of `stack_error` for such a job. Pipeline authors use `signal_reason: stack_error` with `limit: 0` in their automatic retry rules. Whether the platform generates `stack_error` for every job that the controller finishes is `UNKNOWN` (owner: the maintainers; trigger: the first runs of [T-100](../quality/test-strategy.md#t-100) to [T-105](../quality/test-strategy.md#t-105)). | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01); `buildkite/stacksapi` v1.2.0 `finish.go` | The controller finishes a failed job with exit status -1 and a detail (§7.6). |
+| `maxVMLifetime` is 25 h by default. The Reaper deletes a VM whose `createdAt` is older than this, for any job state (row 2 of §7.2, §7.1 rule 1). A restart of the controller does not extend this limit. A job that still runs at 25 h loses its VM and its agent. After the agent acquired the job, the Buildkite lost-agent procedure controls the result, and the controller does not finish the job (§7.1, rule 5). The job result that Buildkite gives in this case is `UNKNOWN` (owner: the maintainers; trigger: the first end-to-end run of a job that outlives `maxVMLifetime`). | Derived from `internal/reaper/decide.go` and §7.2, §7.1 (checked 2026-11-01) | A pipeline step with a run time near 25 h MUST set a lower job timeout. The default of 25 h is the safety limit in [SC-06](system-design-baseline.md#sc-06), not a job limit. |
 | `buildkite-agent start --acquire-job` exits with code 27 if the job is already taken, cancelled, or complete (HTTP 422). | `buildkite/agent` v4.0.3 release notes (2026-09-10); `core/client.go` | The rule "the job is terminal, delete the VM" covers this case. |
-| Buildkite agent v4 is the stable line (v4.0.0 on 2026-09-01; v4.10.2 on 2026-11-09, checked 2026-11-17). v4.7.0 is a security release: it rejects compromised eMudhra certificate chains (CVE-2026-111943). v4.10.0 stops a plugin cache collision from running the hooks of another plugin. v4 exits immediately when a flag is not defined. v4 keeps `--acquire-job`, `BUILDKITE_AGENT_ACQUIRE_JOB`, and `BUILDKITE_OPENTELEMETRY_TRACING`, and it adds `BUILDKITE_OPENTELEMETRY_METRICS`. v4 removes the OpenTracing and Datadog backends. | `buildkite/agent` releases and `clicommand/agent_start.go` at v4.0.4 (2026-09-19) | The image MUST contain agent v4.7.0 or later (§5). The startup script uses only v4 flags. |
+| Buildkite agent v4 is the stable line (v4.0.0 on 2026-09-01; v4.10.2 on 2026-11-09, checked 2026-11-17). v4.7.0 is a security release: it rejects compromised eMudhra certificate chains (CVE-2026-111943). v4.10.0 stops a plugin cache collision from running the hooks of another plugin. v4 exits immediately when a flag is not defined. v4 keeps `--acquire-job`, `BUILDKITE_AGENT_ACQUIRE_JOB`, and `BUILDKITE_OPENTELEMETRY_TRACING`, and it adds `BUILDKITE_OPENTELEMETRY_METRICS`. v4 removes the OpenTracing and Datadog backends. | `buildkite/agent` releases and `clicommand/agent_start.go` at v4.0.4 (2026-09-19) | An agent in the image (`agent.source: image`) MUST be v4.7.0 or later (§5). The startup script uses only v4 flags. |
 | Orchard `startup_script.transport` accepts `ssh` (the default) and `tart-guest-agent`. The guest-agent transport operates only on the Tart runtime, and the worker connects through the VM control socket. For both transports, the worker builds the same script: `set -e`, one `export` line for each `env` entry, then `script_content`. | Orchard `pkg/resource/v1/v1.go` and `internal/worker/vmmanager/base` at tag 0.57.0 | §6.4 uses the guest-agent transport. VM specifications need no SSH credentials. |
 | Apple permits 2 concurrent macOS VMs on each host. Orchard models this limit with the worker resource `org.cirruslabs.tart-vms: 2`. | Orchard `api_vms.go`; Apple EULA | Capacity is small. Admission examines capacity before it reserves a job (§6.3). |
 | Orchard VM `labels` are placement constraints. Orchard puts a VM only on a worker whose labels contain all VM labels. | Orchard `scheduler.go` | Labels contain only worker constraints. The VM name identifies the owner (§6.1). |
@@ -97,10 +102,10 @@ The design depends on these facts. Each fact was verified against source code or
 | Orchard releases before 0.57.0 can release worker capacity before a VM stops. Pull requests #465 and #470 correct this. Orchard 0.57.0 (2026-09-15) contains both. | Orchard 0.57.0 release notes | §9.2 sets the minimum Orchard version. |
 | Orchard exports OTel metrics through OTLP. If the endpoint is not set, Orchard uses `localhost:4318`. | Orchard `internal/opentelemetry` | Each Orchard process MUST have an explicit endpoint (§11). |
 | Tart and Orchard use the FSL-1.1-ALv2 licence (since 2026-06-05). The licence permits all use except a competing commercial product. | `LICENSE` in `openai/tart` and `openai/orchard` | This project can use Tart and Orchard without cost. The tart.run licensing page is out of date. The `LICENSE` file is the authority. |
-| Orchard and its Go client carry the FSL-1.1-ALv2 licence, which permits every purpose except a competing use. This project uses the AGPL-3.0, which forbids a further restriction on a distributed work. The Orchard OpenAPI file is also under the FSL. | `LICENSE` of `openai/orchard`; AGPL-3.0 section 10 (2026-09-19) | The controller imports no Orchard package, and `go.mod` has no Orchard module. `tools/orchardgen` generates only the field names, the JSON tags, and the types of the Orchard fields that the controller uses, from the Orchard resource types of the pinned version, and the generated file carries no Orchard logic (ADR-0015). §15 gives the client rule. |
+| Orchard and its Go client carry the FSL-1.1-ALv2 licence, which permits every purpose except a competing use. This project uses the AGPL-3.0, which forbids a further restriction on a distributed work. The Orchard OpenAPI file is also under the FSL. | `LICENSE` of `openai/orchard`; AGPL-3.0 section 10 (2026-09-19) | The controller imports no Orchard package, and `go.mod` has no Orchard module. `tools/orchardgen` generates only the field names, the JSON tags, and the types of the Orchard fields that the controller uses, from the Orchard resource types of the pinned version, and the generated file carries no Orchard logic ([ADR-0015](../adrs/0015-generate-only-the-orchard-fields-the-controller-uses.md)). §15 gives the client rule. |
 
-**References.** ADR-0005 records the selection of Tart and Orchard. ADR-0006 records the tag
-match. ADR-0007 records the dedicated queue. ADR-0008 records the cluster agent token. ADR-0009
+**References.** [ADR-0005](../adrs/0005-run-and-schedule-vms-with-tart-and-orchard.md) records the selection of Tart and Orchard. [ADR-0006](../adrs/0006-route-jobs-to-vm-profiles-by-agent-tags.md) records the tag
+match. [ADR-0007](../adrs/0007-use-a-dedicated-queue-for-the-macos-fleet.md) records the dedicated queue. [ADR-0008](../adrs/0008-use-a-dedicated-cluster-agent-token.md) records the cluster agent token. [ADR-0009](../adrs/0009-run-startup-scripts-over-the-tart-guest-agent.md)
 records the startup-script transport.
 
 ## 4. Architecture
@@ -140,6 +145,15 @@ show HTML labels. CI MUST run the script and MUST fail if the committed file is 
 
 ### Overview
 
+The overview diagram has three groups: Buildkite, Kubernetes, and the Mac hosts. Buildkite holds
+the Stacks API. Kubernetes holds the controller, the Orchard controller, and the OTel Collector.
+Each Mac host runs an Orchard worker with Tart, and a macOS VM. The controller calls the Stacks
+API to poll, reserve jobs, get job acquisition tokens, read job states, and finish jobs. It also
+lists workers and VMs in the Orchard controller, and creates and deletes VMs there. The worker
+opens an outbound gRPC connection to the Orchard controller, and it runs the VM. The agent in the
+VM runs `buildkite-agent --acquire-job`, acquires its job from the Stacks API, and runs the build.
+The controller, the Orchard controller, and the worker send OTLP telemetry to the OTel Collector.
+
 ```mermaid
 flowchart LR
     subgraph BK[Buildkite]
@@ -175,8 +189,8 @@ In-memory data is only a cache. The loss of this cache is always safe.
 
 | Component | Function | Dependencies |
 |---|---|---|
-| **Stack** | Registers one stack at start-up: `type: custom`, `key = controllerID`, `queue_key = buildkite.queue`. Deregisters the stack at shutdown. Gives the `dispatch_paused` value. | `Stacks` client |
-| **Poller** | Lists the first page of scheduled jobs at each `pollInterval` (1 s). Obeys `Retry-After`. | `Stacks` client |
+| **Stack** | Registers one stack at start-up: `type: custom`, `key = controllerID`, `queue_key = buildkite.queue`. Deregisters the stack at shutdown. | `Stacks` client |
+| **Poller** | Lists up to 3 pages of scheduled jobs at each `pollInterval` (1 s): 2 from the head and 1 of the sweep (§6.3). Gives the `dispatch_paused` value. Obeys `Retry-After`. | `Stacks` client |
 | **Matcher** | Pure function. Converts the job `agent_query_rules` to exactly one profile, or to a mismatch reason. | Configuration |
 | **Inventory** | Lists Orchard workers and VMs at each `inventoryInterval` (1 s). Selects owned VMs by name prefix. Parses the job UUIDs. | `Orchard` client |
 | **JobStates** | Gets the Buildkite job states of owned VMs in one batch at each `jobStatesInterval` (5 s). Records the observation time for each job, whether Buildkite named the job, and how many answers in a row left it out. A call that fails keeps the states before it, with their times. An answer that names none of the jobs is a failed call. | `Stacks` client |
@@ -280,7 +294,7 @@ the length of the queue (§6.3), and each batch of at most 1000 notice lines add
 All rate limits are higher. The Stacks API limits are 10 requests/s for list and reserve, and 20
 requests/s for get-states.
 
-**Implements.** PR-001, PR-005, PR-010, QA-01, QA-04, DR-01, OP-04.
+**Implements.** [PR-001](../product/requirements.md#pr-001), [PR-005](../product/requirements.md#pr-005), [PR-010](../product/requirements.md#pr-010), [QA-01](system-design-baseline.md#qa-01), [QA-04](system-design-baseline.md#qa-04), [DR-01](system-design-baseline.md#dr-01), [OP-04](system-design-baseline.md#op-04).
 
 ## 5. VM profiles and job match
 
@@ -309,9 +323,9 @@ profiles:
     startupTransport: tart-guest-agent
 ```
 
-The CPU and memory values are examples. Measurements of a fleet set the real VM size (SC-08). Two
-VMs run on each host, so the two VMs together MUST NOT need more than the host has (SC-02, SC-04).
-The fleet operator builds each image, and the project publishes none (ADR-0020).
+The CPU and memory values are examples. Measurements of a fleet set the real VM size ([SC-08](system-design-baseline.md#sc-08)). Two
+VMs run on each host, so the two VMs together MUST NOT need more than the host has ([SC-02](system-design-baseline.md#sc-02), [SC-04](system-design-baseline.md#sc-04)).
+The fleet operator builds each image, and the project publishes none ([ADR-0020](../adrs/0020-leave-the-job-vm-images-to-the-operator.md)).
 
 **Match rule.** The Matcher MUST use exact match:
 
@@ -335,8 +349,8 @@ other than `queue`.
   both tags on every agent. The `queue` rule is not in this group: the matcher reads it and
   takes it out of the tags.
 
-The controller MUST skip an unmatched job (ADR-0016). It MUST NOT reserve the job, MUST NOT finish
-it, and MUST NOT give it capacity (I-8). The job stays `scheduled`, so that another stack or agent
+The controller MUST skip an unmatched job ([ADR-0016](../adrs/0016-skip-a-job-that-matches-no-profile.md)). It MUST NOT reserve the job, MUST NOT finish
+it, and MUST NOT give it capacity ([I-8](../quality/test-strategy.md#i-8)). The job stays `scheduled`, so that another stack or agent
 of the queue can carry it. Buildkite times the job out, or a person cancels it.
 
 For each unmatched job that has no entry in the notified set, the controller MUST do these things:
@@ -346,7 +360,7 @@ For each unmatched job that has no entry in the notified set, the controller MUS
   (`NotificationLimit`), so the long message does not fit.
 * Write the full message at info level in the log. It has the job identifier, the tags of the job,
   and the `match` map of each profile. The job identifier is in the log, and not in a metric
-  (I-7).
+  ([I-7](../quality/test-strategy.md#i-7)).
 * Add 1 to the counter `bkaso.job.skipped` (§10.1), for each notice that it writes.
 
 The controller writes these notices after it reserves and starts the admitted jobs of the same
@@ -365,7 +379,7 @@ these rules:
   still sends the later calls of the tick, so that a fixed refusal of one call cannot starve the
   jobs behind it. It writes one warning for each tick that has a failed call. If a call is partly
   refused, the response has the 0-based indexes of the refused lines. The accepted jobs enter the
-  set, and only the refused jobs are tried again at the next tick.
+  set, and the controller tries only the refused jobs again at the next tick.
 * The controller evicts jobs from the set only after a complete listing: the pages of the read
   follow one another from the head to the end of the list (§6.3). After a complete listing, a
   job that is not unmatched in the decision leaves the set. A job that comes back is notified
@@ -395,7 +409,7 @@ notifications for unmatched jobs.
   are not keys, because the controller sets these tags. No value has a comma, a quote, a newline,
   a carriage return, or white space at an end, because the agent reads its tags as one
   comma-separated list.
-* `startupTransport` is `tart-guest-agent` (the default) or `ssh` (ADR-0009).
+* `startupTransport` is `tart-guest-agent` (the default) or `ssh` ([ADR-0009](../adrs/0009-run-startup-scripts-over-the-tart-guest-agent.md)).
 * A profile with `startupTransport: ssh` has `vmCredentials`, and both referenced environment
   variables exist and are not empty. Orchard uses `admin/admin` when a VM specification has no
   credentials. Because of this, a missing value is a fatal error for this transport. A profile
@@ -436,17 +450,17 @@ warning that names the address, because the pf rules of the hosts refuse a conne
 address on a port on which the host listens (§9.1).
 
 The fleet operator MUST set `diskSizeGB` to at least the disk size of the profile image. The Xcode
-27 reference image of `images/` has a 104 GB disk, and other Xcode images up to 140 GB (SC-07). Tart
-refuses a disk that is smaller than the disk of the image, in bytes. A macOS 27 guest grows its APFS
-container to the disk at boot (2026-10-10), so a larger `diskSizeGB` gives a job more space.
+27 reference image of `images/` has a 104 GB disk, and other Xcode images up to 140 GB ([SC-07](system-design-baseline.md#sc-07)).
+Tart refuses a disk that is smaller than the disk of the image, in bytes. A macOS 27 guest grows its
+APFS container to the disk at boot (2026-10-10), so a larger `diskSizeGB` gives a job more space.
 
 **Image contents.** An image for the guest-agent transport MUST run the Tart guest agent. The
-reference build of `images/` installs it and its launchd jobs (ADR-0012, 2026-11-01). The upstream
+reference build of `images/` installs it and its launchd jobs ([ADR-0012](../adrs/0012-build-the-job-vm-images-from-a-vanilla-macos-image.md), 2026-11-01). The upstream
 image `ghcr.io/cirruslabs/macos-golden-gate-base` runs it too, and the upstream vanilla image does
-not (checked 2026-11-03). A production image MUST also meet the image rules of §9.2 (ADR-0020).
+not (checked 2026-11-03). A production image MUST also meet the image rules of §9.2 ([ADR-0020](../adrs/0020-leave-the-job-vm-images-to-the-operator.md)).
 The upstream base image does not meet them, so only the quick start uses it, for evaluation.
 
-**Agent source.** `agent.source` selects where the agent of a VM comes from (CO-06):
+**Agent source.** `agent.source` selects where the agent of a VM comes from ([CO-06](system-design-baseline.md#co-06)):
 
 * `download`, the default: the startup script downloads the archive at `agent.url`, checks it
   against `agent.sha256`, and runs the `buildkite-agent` of the archive (§6.4). The image needs no
@@ -464,7 +478,7 @@ the same pin as `images/build.sh`). The controller MUST refuse an `agent.url` th
 and an `agent.sha256` that is not 64 lower-case hexadecimal characters. YAML reads a value of
 digits as a number, so the examples put the SHA-256 in quotes.
 
-**Implements.** PR-003, PR-004, PR-020, PR-021, QA-05, SC-07, SC-08.
+**Implements.** [PR-003](../product/requirements.md#pr-003), [PR-004](../product/requirements.md#pr-004), [PR-020](../product/requirements.md#pr-020), [PR-021](../product/requirements.md#pr-021), [QA-05](system-design-baseline.md#qa-05), [SC-07](system-design-baseline.md#sc-07), [SC-08](system-design-baseline.md#sc-08).
 
 ## 6. Job lifecycle
 
@@ -487,6 +501,16 @@ digits as a number, so the examples put the SHA-256 in quotes.
   and the metrics for the profile attribute (§10.1).
 
 ### 6.2 Normal sequence
+
+The sequence diagram shows one job J between the Buildkite Stacks API, the controller, Orchard,
+and the macOS VM. The controller reads the scheduled jobs, matches the profile `xcode-27`, and
+finds a free slot. It reserves J for 300 s and gets a job acquisition token with a lifetime of
+1800 s. It creates the VM `bk-ID-J` in Orchard, and sends the notification "VM requested".
+Orchard schedules the VM on the worker `mac-03`, clones the image, and boots the VM. When the VM
+list shows the VM `running` on `mac-03`, the controller sends "placed on mac-03" and "booting".
+Orchard runs the startup script over the Tart guest agent. The VM runs
+`buildkite-agent start --acquire-job J`, and job J runs and finishes. The agent and the script
+exit. The get-states call returns `finished` for J, and the controller deletes the VM `bk-ID-J`.
 
 ```mermaid
 sequenceDiagram
@@ -547,7 +571,7 @@ Admission does these steps:
    tries again at the next tick after a delete that failed, so the count is conservative and it
    lasts a short time. The default value of `maxInFlight` is 0, which means the total VM slots of
    the eligible workers. Because of this, the limit follows the fleet, and it does not hold slots
-   empty at the target scale (SC-01, QA-02). A value more than 0 limits the controller to that
+   empty at the target scale ([SC-01](system-design-baseline.md#sc-01), [QA-02](system-design-baseline.md#qa-02)). A value more than 0 limits the controller to that
    number of VMs, for example while an operator tries the controller on a few hosts.
 3. **Eligible workers for each profile.** A worker is eligible if it is online, it is not paused
    for scheduling, and its labels contain the profile `workerLabels`.
@@ -587,11 +611,11 @@ admitted jobs only.
 **Reading the queue.** The Poller asks for 1000 jobs in each call, which is the largest page
 that the API accepts (§3). The size is a constant and it does not follow the slots of the fleet,
 because the list holds jobs that never leave it: unmatched jobs, which the controller skips
-(ADR-0016), jobs for other tags, and jobs that the API refuses with 422. The API has no filter and
+([ADR-0016](../adrs/0016-skip-a-job-that-matches-no-profile.md)), jobs for other tags, and jobs that the API refuses with 422. The API has no filter and
 no other order, so the only way to a job is to read the pages in front of it.
 
 One read MUST make at most 3 list requests (`MaxPages`), whatever the length of the queue
-(ADR-0019):
+([ADR-0019](../adrs/0019-sweep-the-queue-behind-a-long-head.md)):
 
 1. **Head.** The Poller reads the first 2 pages (`HeadPages`) from the head of the list.
 2. **Sweep.** If the head has a next page, the Poller reads 1 more page from the sweep cursor. The
@@ -651,7 +675,7 @@ For the admitted jobs, the Launcher MUST do these steps:
    stale, row 13 extends the reservations of the VMs that start and no timeout applies (§7.1,
    rule 3). After a restart, a VM whose tags name no profile of the configuration gets the widest
    timeouts (§7.2). The lifetime also bounds the token if Buildkite does not end it with the
-   reservation, which the project has not tested (O-6 of the test strategy).
+   reservation, which the project has not tested ([O-6](../quality/test-strategy.md#o-6) of the test strategy).
 3. Send `POST /v1/vms` for each job, with the specification below. The creates run at most 8 at
    a time, inside a budget of 3 call limits, and a create that finds Orchard not answering stops
    the creates that have not started (§4). The job of a create that did not start keeps its
@@ -710,7 +734,7 @@ transports use the same script (`internal/worker/vmmanager/base/base.go` of Orch
 through the GitHub API on 2026-11-01). The order of the `export` lines is the order of a Go map,
 so it is not stable, and no value can depend on another.
 
-The transport is `tart-guest-agent` (ADR-0009). With this transport, the Orchard worker uses the
+The transport is `tart-guest-agent` ([ADR-0009](../adrs/0009-run-startup-scripts-over-the-tart-guest-agent.md)). With this transport, the Orchard worker uses the
 VM control socket, and the VM specification contains no credentials. A profile with
 `startupTransport: ssh` gets `username` and `password` from its `vmCredentials` instead. The
 `env` values and the event log are the same for both transports.
@@ -753,7 +777,8 @@ The startup script is the same text for each VM, so no value of a job is in it
 4. It finds the agent, as `agent.source` says (§5):
    * `download`: it makes a new temporary directory, downloads `BKASO_AGENT_URL` there with
      `curl` (three retries, a 120 s limit), checks the file against `BKASO_AGENT_SHA256` with
-     `shasum -a 256`, and extracts only `buildkite-agent`. It sets `BUILDKITE_BUILD_PATH`,
+     `shasum -a 256`, extracts the archive, and checks that it holds an executable
+     `buildkite-agent`. It sets `BUILDKITE_BUILD_PATH`,
      `BUILDKITE_HOOKS_PATH`, and `BUILDKITE_PLUGINS_PATH` to `~/buildkite/builds`,
      `~/.buildkite-agent/hooks`, and `~/buildkite/plugins`, which are the paths of the images of
      this project, so a configuration file in the image cannot move them. If the download, the
@@ -775,7 +800,7 @@ the environment, never script text. The controller MUST add only the environment
 above, and for `download` also `BKASO_AGENT_URL` and `BKASO_AGENT_SHA256`. When
 `profile.otel.enabled` is true, the controller also adds the OTel variables of §10.4.
 
-**Implements.** PR-001, PR-005, PR-006, PR-007, PR-009, QA-01, QA-02, DR-01, SC-02.
+**Implements.** [PR-001](../product/requirements.md#pr-001), [PR-005](../product/requirements.md#pr-005), [PR-006](../product/requirements.md#pr-006), [PR-007](../product/requirements.md#pr-007), [PR-009](../product/requirements.md#pr-009), [QA-01](system-design-baseline.md#qa-01), [QA-02](system-design-baseline.md#qa-02), [DR-01](system-design-baseline.md#dr-01), [SC-02](system-design-baseline.md#sc-02).
 
 ## 7. Failures and recovery
 
@@ -841,7 +866,7 @@ above, and for `download` also `BKASO_AGENT_URL` and `BKASO_AGENT_SHA256`. When
    action, and row 13 applies to a `pending` or `running` VM.
 4. **Permanent errors are not proof.** If a finish returns 404 or 422, the job may have ended,
    Buildkite may not know it, or an agent may have acquired it after the state that the finish
-   read (the real answer for an acquired job is `UNKNOWN`, O-6 of the test strategy). The
+   read (the real answer for an acquired job is `UNKNOWN`, [O-6](../quality/test-strategy.md#o-6) of the test strategy). The
    controller MUST NOT delete the VM in the same pass, because the VM can carry a running build.
    It MUST mark the job in memory and MUST NOT send the finish again. The next job state of a
    later tick decides: an agent keeps the VM (row 8, or row 7 if the VM failed), a terminal job
@@ -1000,16 +1025,17 @@ The controller finishes a job that it fails with exit status -1 and a detail. It
 the `signal_reason` `stack_error` for such a job. Pipeline authors use `signal_reason:
 stack_error` with `limit: 0` in the automatic retry rules of their steps (Buildkite Stacks API
 documentation, read 2026-11-01). Whether the platform generates `stack_error` for every job that
-the controller finishes is `UNKNOWN` (owner: the maintainers; trigger: the first runs of T-100 to
-T-105). The pipeline author guide gives the retry guidance.
+the controller finishes is `UNKNOWN` (owner: the maintainers; trigger: the first runs of [T-100](../quality/test-strategy.md#t-100) to
+[T-105](../quality/test-strategy.md#t-105)). The pipeline author guide gives the retry guidance.
 
-**Artifact destination.** Build artifacts MAY go to Buildkite-managed storage (PR-032, SE-08;
+**Artifact destination.** Build artifacts MAY go to Buildkite-managed storage ([PR-032](../product/requirements.md#pr-032), [SE-08](system-design-baseline.md#se-08);
 owner statement, 2026-11-02). An image does not need an artifact hook, and the default upload
 destination of the agent applies. A pipeline MAY set `BUILDKITE_ARTIFACT_UPLOAD_DESTINATION` to
 another storage, but this design does not require it. The end-to-end scenarios (§12) MUST confirm
 that an artifact upload succeeds, and that the artifact is visible on the job page.
 
-**Implements.** PR-002, PR-007, PR-008, PR-010, PR-011, PR-012, QA-03, QA-05, QA-06, DR-02.
+**Implements.** [PR-002](../product/requirements.md#pr-002), [PR-007](../product/requirements.md#pr-007), [PR-008](../product/requirements.md#pr-008), [PR-010](../product/requirements.md#pr-010), [PR-011](../product/requirements.md#pr-011), [PR-012](../product/requirements.md#pr-012), [QA-03](system-design-baseline.md#qa-03), [QA-05](system-design-baseline.md#qa-05), [QA-06](system-design-baseline.md#qa-06),
+[DR-02](system-design-baseline.md#dr-02).
 
 ## 8. Configuration
 
@@ -1089,12 +1115,12 @@ to 16 streams, and each request to 4 KiB. It closes a connection that pings more
 minute, and a connection that holds no stream for 5 minutes. Each `Watch` is a stream without an
 end, and the pod has a small memory limit, so these limits protect the pod from one client.
 
-`buildkite.endpoint` and `orchard.url` MUST use `https`, because a token travels with each
-request. The controller refuses a configuration that does not. Plain `http` is accepted only on a
-loopback address (`localhost`, `127.0.0.0/8`, `::1`), where the integration tests run, and for
-`buildkite.endpoint` only when `buildkite.plainHTTPEndpoint: true` permits it. That setting is for
-a test cluster with a fake Stacks API, and the controller warns at start that the agent token
-travels unencrypted.
+`buildkite.endpoint` and `orchard.url` MUST use `https`, because a token travels with each request.
+The controller refuses a configuration that does not. Plain `http` is accepted only on a loopback
+address (`localhost`, `127.0.0.0/8`, `::1`), where the integration tests run. For
+`buildkite.endpoint`, `buildkite.plainHTTPEndpoint: true` also permits it on another host. That
+setting is for a test cluster with a fake Stacks API, and the controller warns at start that the
+agent token travels unencrypted.
 
 The configuration MUST set `pollInterval`, `jobStatesInterval`, and `inventoryInterval` shorter
 than `stateFreshness`. Admission and the Reaper act only on data newer than `stateFreshness`, so a
@@ -1113,7 +1139,7 @@ JSON encoder, or a format verb writes `[redacted]`.
 | `BK_AGENT_STACK_ORCHARD_BUILDKITE_AGENT_TOKEN` | The cluster agent token (`bkct_…`). |
 | `BK_AGENT_STACK_ORCHARD_ORCHARD_TOKEN` | The Orchard service account token. |
 | `BK_AGENT_STACK_ORCHARD_ORCHARD_CA_CERT` | The PEM of the Orchard controller certificate or CA. The calls to Orchard trust it only, and not the authorities of the system, because a public authority can issue a certificate for the name of Orchard. The calls to Buildkite do not trust it. Text that holds no certificate fails the start. |
-| Profile variables (for example, `XCODE_VM_PASSWORD`) | The VM image SSH credentials. Only for a profile with `startupTransport: ssh`. |
+| Profile variables (for example, `VM_XCODE_PASSWORD`) | The VM image SSH credentials. Only for a profile with `startupTransport: ssh`. |
 | `OTEL_*` | The standard OpenTelemetry SDK configuration. |
 
 Configuration changes apply after a restart. The controller MUST NOT reload the configuration
@@ -1121,13 +1147,13 @@ while it runs. In the Kubernetes reference deployment, the Helm chart MUST add a
 annotation of the ConfigMap to the Deployment. Because of this, ArgoCD restarts the Deployment
 when the ConfigMap changes.
 
-**Implements.** PR-020, PR-021, PR-022, CO-04.
+**Implements.** [PR-020](../product/requirements.md#pr-020), [PR-021](../product/requirements.md#pr-021), [PR-022](../product/requirements.md#pr-022), [CO-04](system-design-baseline.md#co-04).
 
 ## 9. Security
 
 ### 9.1 Trust model
 
-The controller MUST treat all builds as untrusted (PR-030). Each VM MUST have these properties:
+The controller MUST treat all builds as untrusted ([PR-030](../product/requirements.md#pr-030)). Each VM MUST have these properties:
 
 * The VM is for one job only. The controller MUST NOT use the VM again. `restart_policy` is
   `Never`.
@@ -1165,7 +1191,7 @@ The controller MUST treat all builds as untrusted (PR-030). Each VM MUST have th
   that selects a profile with `softnetAllow` can therefore reach those CIDRs, whoever wrote the
   pipeline. The CIDRs MUST be narrow (§5), and a profile MUST NOT permit an address that only a
   trusted pipeline may reach. A separate trust level needs a separate queue, with its own
-  controller and its own profiles. ADR-0004 (accepted, so it stays unchanged) treats all builds
+  controller and its own profiles. [ADR-0004](../adrs/0004-treat-all-builds-as-untrusted.md) (accepted, so it stays unchanged) treats all builds
   as untrusted, and this rule follows from it.
 * The VM has no host directory mounts. Profiles cannot configure them.
 * The VM gets only a job acquisition token for its own job. The token lasts the start timeouts of
@@ -1188,17 +1214,17 @@ The cluster agent token and the Orchard credentials MUST NOT go into a VM.
 | Orchard service account `worker-<host>`, one for each Mac host | Mac host, in a file that only root reads (§11). The token is in Ansible Vault, and in the Kubernetes Secret `orchard-worker-tokens` | Roles: `compute:read` and `compute:write` only, the roles that an Orchard worker needs (2026-11-02, Orchard 0.58.0: the worker creates, reads, and updates its worker record, lists its VMs, and updates VM states, `internal/worker/worker.go`; the API needs `compute:write` for the first group and for state updates, and `compute:read` for the reads). A host has its own account and its own token, so the operator revokes one host without a change on the other hosts. **Orchard does not bind an account to a worker name.** `createWorker` in `internal/controller/api_workers.go` (tag 0.58.0, read on 2026-11-02) needs `compute:write` and a valid name, and it stores no account on the worker record. A stolen host token can therefore register, update, and delete any worker name, and it can read and write VMs. This risk is accepted, and the alert "Unknown worker" (§10.6) is the control. The playbook of the hosts uses the same account, from the host, to pause, read, and resume the worker record of its host and to list the VMs of the worker during a drain (§11), so the drain needs no other account or role. |
 | Orchard service account `operator` | Key `operator-token` of the Kubernetes Secret `orchard-bootstrap`, which only the bootstrap Job mounts. A person reads it into the standard input of `curl` (runbooks) | Roles: `compute:read` and `compute:write` only. No `compute:connect`, no `host-process:*`, and no `admin:*`. The runbooks use it to list and delete workers and to list VMs, because the rotated bootstrap admin has no `compute` role and Orchard 0.58.0 needs the exact role for each call (`authorize` in `internal/controller/api.go` checks that the account has every named role; a worker read and the VM list need `compute:read`, and a worker delete needs `compute:write`, `internal/controller/api_workers.go` and `api_vms.go`, tag 0.58.0, commit `22bd63c34674`, read on 2026-11-03). The bootstrap Job sets it on every run, like the other accounts. The operator rotates it by replacing the key and running the Job again. |
 | Job acquisition token | VM specification and VM environment | One job. Maximum 30 min. Orchard accounts with `compute:read` can read it. |
-| VM image SSH credentials | Controller environment; VM specification | Only for a profile with `startupTransport: ssh`. The Orchard worker then uses the username and password in the VM specification to run the startup script. An image MUST NOT accept a well-known credential, such as `admin/admin`, over the network. The Tart guest agent needs the automatic login of `admin`, and macOS 27 does not log in automatically after a change of the password (2026-09-27), so an image for the guest-agent transport keeps the local password and turns off SSH (Remote Login) and Screen Sharing. An image for the `ssh` transport MUST change the password, and the profile gives the new one. Softnet limits the exposure to the worker host. The guest-agent transport (ADR-0009) removes this credential. |
+| VM image SSH credentials | Controller environment; VM specification | Only for a profile with `startupTransport: ssh`. The Orchard worker then uses the username and password in the VM specification to run the startup script. An image MUST NOT accept a well-known credential, such as `admin/admin`, over the network. The Tart guest agent needs the automatic login of `admin`, and macOS 27 does not log in automatically after a change of the password (2026-09-27), so an image for the guest-agent transport keeps the local password and turns off SSH (Remote Login) and Screen Sharing. An image for the `ssh` transport MUST change the password, and the profile gives the new one. Softnet limits the exposure to the worker host. The guest-agent transport ([ADR-0009](../adrs/0009-run-startup-scripts-over-the-tart-guest-agent.md)) removes this credential. |
 | Orchard bootstrap admin token | Key `bootstrap-admin-token` of the Kubernetes Secret `orchard-bootstrap`. The Orchard StatefulSet holds it only for the first bootstrap, through the kustomize component `deploy/orchard-overlays/first-start` | Role `admin:write` is the need of the bootstrap Job, which creates and sets the service accounts, and the account has all roles until the operator rotates it to `admin:read` and `admin:write`. After the rotation it MUST NOT serve the calls about workers and VMs: the `operator` account serves them. The base StatefulSet does not carry `ORCHARD_BOOTSTRAP_ADMIN_TOKEN`. The component adds it for the first start, and after the first bootstrap the operator removes the component, so the environment of the Orchard pod holds no token. While the account exists, Orchard 0.58.0 keeps its token in the database and writes it in plain text to `/data/orchard.yml` at each start (`createBootstrapContext`, `internal/command/controller/run.go`, tag 0.58.0, read on 2026-11-03), so the PVC holds the token until the operator deletes the account. If an overlay forgets the component at the first start, Orchard writes a random admin token to its log, and the bootstrap Job fails with a message that names the component. When the operator adds the component, Orchard sets the account again with the token of the Secret, and the logged token stops working. The account and its token stay in the Secret, which only the Job mounts, because each add, rotation, migration, or revocation of a host runs the Job again. Kubernetes RBAC limits who reads Secrets of the namespace. The operator rotates the token (runbook `orchard-bootstrap-admin`). |
 
-**Production images.** The fleet operator builds the image of each profile (ADR-0020). A
+**Production images.** The fleet operator builds the image of each profile ([ADR-0020](../adrs/0020-leave-the-job-vm-images-to-the-operator.md)). A
 production image MUST meet the image requirements of §5. It MUST NOT accept a well-known
 credential, such as `admin/admin`, over the network. An image for the guest-agent transport MUST
 turn off SSH (Remote Login) and Screen Sharing (row "VM image SSH credentials" above). The
 upstream image `ghcr.io/cirruslabs/macos-golden-gate-base`, which the quick start uses, keeps the
 account `admin` with the password `admin`, accepts it over SSH, and gives `admin` passwordless
 `sudo` (owner statement, 2026-11-03). It is for evaluation only. The reference build of `images/`
-turns off SSH and Screen Sharing, and checks the image against an explicit list (ADR-0012).
+turns off SSH and Screen Sharing, and checks the image against an explicit list ([ADR-0012](../adrs/0012-build-the-job-vm-images-from-a-vanilla-macos-image.md)).
 
 **Worker accounts.** The Secret `orchard-worker-tokens` holds one key `worker-<host>` for each Mac
 host. The bootstrap Job reads the keys, checks that each host is a DNS label, and sets one account
@@ -1218,8 +1244,8 @@ would delete the account of a live host. The operator therefore removes a host b
 
 The controller MUST fail its readiness check when the Stacks API returns HTTP 401.
 
-**Queue separation.** The controller MUST serve a dedicated queue (PR-031). Other agents or stacks
-MAY also serve the queue (ADR-0016). Admission counts only the workers that the profiles of this
+**Queue separation.** The controller MUST serve a dedicated queue ([PR-031](../product/requirements.md#pr-031)). Other agents or stacks
+MAY also serve the queue ([ADR-0016](../adrs/0016-skip-a-job-that-matches-no-profile.md)). Admission counts only the workers that the profiles of this
 controller select, so a job that another runner takes is not a concern of this controller, and a
 job that no profile carries stays for the other runners (§5). Each other runner of the queue runs
 untrusted builds too, and the operator decides its isolation. The cluster MAY contain other
@@ -1240,7 +1266,7 @@ The Orchard worker lists its VMs with `tart list`, so a worker with an older Tar
 one VM runs (2026-09-27, Tart 2.38.0 with Orchard 0.57.0).
 
 **Startup-script transport.** The controller MUST use the `tart-guest-agent` transport for
-startup scripts (ADR-0009). Orchard 0.57.0 contains this transport
+startup scripts ([ADR-0009](../adrs/0009-run-startup-scripts-over-the-tart-guest-agent.md)). Orchard 0.57.0 contains this transport
 ([pull request #490](https://github.com/openai/orchard/pull/490), merged 2026-09-09). The VM
 specification then contains no credentials. A profile MAY select `ssh` when its image does not
 run the Tart guest agent.
@@ -1248,18 +1274,19 @@ run the Tart guest agent.
 ### 9.3 Data sovereignty
 
 * Source code checkouts, build data, and job VMs MUST stay on owner infrastructure, in the
-  operating country (PR-032, SE-05).
+  operating country ([PR-032](../product/requirements.md#pr-032), [SE-05](system-design-baseline.md#se-05)).
 * Pipelines MAY upload build artifacts to Buildkite-managed artifact storage. The owner accepts
-  the region of Buildkite (PR-032, SE-08; owner statement, 2026-11-02).
-* Job logs MAY go to Buildkite SaaS (PR-033, SE-07).
-* The location of the Git provider is outside the scope of this design (SE-09).
+  the region of Buildkite ([PR-032](../product/requirements.md#pr-032), [SE-08](system-design-baseline.md#se-08); owner statement, 2026-11-02).
+* Job logs MAY go to Buildkite SaaS ([PR-033](../product/requirements.md#pr-033), [SE-07](system-design-baseline.md#se-07)).
+* The location of the Git provider is outside the scope of this design ([SE-09](system-design-baseline.md#se-09)).
 * Telemetry MUST NOT contain source code, because the telemetry provider can be outside owner
-  infrastructure (OP-05).
+  infrastructure ([OP-05](system-design-baseline.md#op-05)).
 
-**Implements.** PR-030, PR-031, PR-032, PR-033, SE-01, SE-02, SE-03, SE-05, SE-07, SE-08, SE-10.
+**Implements.** [PR-030](../product/requirements.md#pr-030), [PR-031](../product/requirements.md#pr-031), [PR-032](../product/requirements.md#pr-032), [PR-033](../product/requirements.md#pr-033), [SE-01](system-design-baseline.md#se-01), [SE-02](system-design-baseline.md#se-02), [SE-03](system-design-baseline.md#se-03), [SE-05](system-design-baseline.md#se-05), [SE-07](system-design-baseline.md#se-07), [SE-08](system-design-baseline.md#se-08),
+[SE-10](system-design-baseline.md#se-10).
 
-**References.** ADR-0004 records the decision to treat all builds as untrusted. ADR-0007 records
-the dedicated queue. ADR-0008 records the cluster agent token. ADR-0009 records the
+**References.** [ADR-0004](../adrs/0004-treat-all-builds-as-untrusted.md) records the decision to treat all builds as untrusted. [ADR-0007](../adrs/0007-use-a-dedicated-queue-for-the-macos-fleet.md) records
+the dedicated queue. [ADR-0008](../adrs/0008-use-a-dedicated-cluster-agent-token.md) records the cluster agent token. [ADR-0009](../adrs/0009-run-startup-scripts-over-the-tart-guest-agent.md) records the
 startup-script transport.
 
 ## 10. Observability
@@ -1375,13 +1402,14 @@ These rules come from the conventions and MUST hold:
   that Orchard refused, a VM that row 3 of §7.2 holds because the job states are not fresh, or a
   Reaper that did not run. The window is the number of consecutive ticks in which this is true. It
   is 10 ticks (10 s with the default `pollInterval`). The delay before the controller sees that a
-  job ended (up to `jobStatesInterval`) is not in the window. A delete that Orchard refuses is tried
-  again at each tick, so 10 ticks give 10 tries. A VM that is in the count for more than 10 ticks is
-  a leak, except while Buildkite is down: the Reaper waits for fresh job states (§7.2, row 3), so
-  the count stays above 0 until the states are fresh again, and `bkaso.source.staleness` shows the
-  period. The default export interval is 60 s, which is longer than the window. Because of this, one
-  export that is more than 0 can be inside the window, and two exports in a row that are more than 0
-  are not.
+  job ended (up to `jobStatesInterval`) is not in the window. The Reaper tries a delete that
+  Orchard refuses again at each tick, so 10 ticks give up to 10 tries. A tick gives no try when the
+  budget of the Reaper ends before the delete (§4). A VM that is in the count for
+  more than 10 ticks is a leak, except while Buildkite is down: the Reaper waits for fresh job
+  states (§7.2, row 3), so the count stays above 0 until the states are fresh again, and
+  `bkaso.source.staleness` shows the period. The default export interval is 60 s, which is longer
+  than the window. Because of this, one export that is more than 0 can be inside the window, and
+  two exports in a row that are more than 0 are not.
 * **`finished_to_deleted` is the lag of the Reaper.** It starts at the first tick that saw the job
   in a terminal state, and it ends at the deletion that Orchard accepted. A failed deletion does
   not end it. A restart loses the start, so the first tick after a restart starts the time again.
@@ -1391,8 +1419,8 @@ These rules come from the conventions and MUST hold:
 
 `bkaso.job.failed` and `bkaso.vm.deletions` carry the profile and the Mac host of the VM, so that a
 bad image and a broken host each show apart from the fleet. The host is `none` for a VM that no
-worker took. The profiles are bounded by the configuration and the hosts by the fleet, so both are
-allowed on a metric.
+worker took. The configuration bounds the profiles and the fleet bounds the hosts, so a metric can
+carry both.
 
 Metric attributes MUST NOT contain job UUIDs or VM names. The `bkaso.pool` attribute is the value
 of the worker `pool` label. If the worker has no `pool` label, the value is `none`.
@@ -1404,7 +1432,7 @@ and a restart loses the start times of the jobs of the process before it, so tho
 `total`. Outgoing HTTP clients MUST use `otelhttp`, which gives `http.client.request.duration` and
 `http.client.request.body.size`, one record for each try of a call.
 
-**Cold or warm start: `UNKNOWN`.** The target of QA-01 is for an image that is on the host, but the
+**Cold or warm start: `UNKNOWN`.** The target of [QA-01](system-design-baseline.md#qa-01) is for an image that is on the host, but the
 controller cannot say if a start pulled the image. The events of a VM from Orchard 0.58.0 have one
 kind, `log_line`, and it carries the lines of the startup script. The worker sets the status message
 "pulling VM image..." only while it pulls an image, and the next status message replaces it, so a
@@ -1412,8 +1440,8 @@ poll can miss it. The worker also records a pull time in its own metric
 `org.cirruslabs.orchard.worker.vm.pull_time`, which the controller cannot read. Source: the Orchard
 repository at tag 0.58.0, `pkg/resource/v1/v1.go` and `internal/worker/vmmanager/tart/tart.go`
 (checked 2026-11-02). The controller therefore has no attribute for it, and the start phases include
-the cold starts. Owner: the maintainers. Trigger: O-7 of the test strategy records the events of
-real VMs; the attribute is added when they show a pull.
+the cold starts. Owner: the maintainers. Trigger: [O-7](../quality/test-strategy.md#o-7) of the test strategy records the events of
+real VMs; the maintainers add the attribute when the events show a pull.
 
 ### 10.2 Traces
 
@@ -1427,12 +1455,12 @@ real VMs; the attribute is added when they show a pull.
   `orchard.vm.delete`. Each of these spans MUST be in the trace of its job. Orchard state changes
   (placement on a worker, `running`) are events of `orchard.vm.change`. The HTTP client spans come
   from `otelhttp`.
-  `job.match` is written once for each job that a process sees in the queue, with
-  `bkaso.job.matched` and `bkaso.profile`. When no profile matches, it also has the attribute
+  The controller writes `job.match` once for each job that the process sees in the queue, with
+  `bkaso.job.matched` and `bkaso.profile`. When no profile matches, the span also has the attribute
   `bkaso.job.skipped` set to true, and the event `no profile` with the reason in
   `bkaso.match.reason`. A skip is not an error of the controller, so the span has no error status.
-  `job.admit` is written when admission starts the job. `stacks.notify_skipped` is written when the
-  controller writes the skip notice of the job. A span at each tick would put one span each second
+  The controller writes `job.admit` when admission starts the job, and `stacks.notify_skipped`
+  when it writes the skip notice of the job. A span at each tick would put one span each second
   into the trace of a job that waits.
 * **One call for several jobs.** One call to Buildkite reserves, extends, gets the tokens of, or
   writes the skip notices of several jobs. A span can be in one trace only, and the trace of each
@@ -1475,7 +1503,7 @@ When `profile.otel.enabled` is true, the VM environment MUST also contain these 
 
 * `BUILDKITE_OPENTELEMETRY_TRACING=true`. Agent v4 keeps this variable and adds
   `BUILDKITE_OPENTELEMETRY_METRICS`. Agent v4 has no OpenTracing backend and no Datadog backend,
-  so OTLP is the only export (CO-06).
+  so OTLP is the only export ([CO-06](system-design-baseline.md#co-06)).
 * `OTEL_EXPORTER_OTLP_ENDPOINT` with the value of `profile.otel.endpoint`.
 * `OTEL_EXPORTER_OTLP_HEADERS` from the environment variable that `profile.otel.headersEnv`
   names.
@@ -1528,9 +1556,9 @@ or paragraph separator, before it counts the characters. A detail with only blan
 
 ### 10.6 Alert conditions
 
-The design defines these alertable conditions and the signal of each one (PR-025). It sets no
+The design defines these alertable conditions and the signal of each one ([PR-025](../product/requirements.md#pr-025)). It sets no
 threshold and no window. The fleet operator sets each threshold and each window from its own
-objectives. The quality targets of the baseline (QA-01 to QA-06) are product goals, and they are
+objectives. The quality targets of the baseline ([QA-01](system-design-baseline.md#qa-01) to [QA-06](system-design-baseline.md#qa-06)) are product goals, and they are
 not the thresholds of these alerts. Rule files and dashboards for a specific backend are out of
 scope, because they depend on the backend behind the collector.
 
@@ -1547,9 +1575,9 @@ scope, because they depend on the backend behind the collector.
 | Fleet is full | `bkaso.slot.count{bkaso.slot.state="free"}` stays at 0. | Admission has no slot for a new VM, so new jobs wait. `reserved` and `unavailable` say whether VMs are on their way or workers are paused. |
 | Workers are lost | `bkaso.host.count{bkaso.host.state="offline"}` increases. | A worker stopped answering Orchard, and its slots are gone. |
 | Queue is longer than one read | `bkaso.queue.truncated` keeps increasing. | Jobs behind the head of the queue wait for the sweep (§6.3). The usual cause is a flood of jobs that no profile carries. The warning of the read names the pipeline that has the most jobs of the read. |
-| Unknown worker | The Orchard metric `org.cirruslabs.orchard.controller.worker_resource` shows a `worker` value that is not in the list of hosts of the operator. | Orchard 0.58.0 does not tie a worker name to an account (§9.2), so this is the only signal of a stolen token that registers an unknown name. The metric has the attributes `worker`, `resource`, and `type`, and no account, so the alert does not see a host that registers a name that the operator knows, for example a stolen token that takes over the record of `mac-01`. That impersonation is not detected (residual risk, SECURITY.md). The operator keeps the list of host names in the alert rule, for example as a comparison that matches every `worker` value that is not one of `mac-01` and `mac-02`. The list MUST agree with the Secret. The metric is in `internal/controller/controller.go` (tag 0.58.0, read on 2026-11-02). Nobody has yet seen it in a running collector (test strategy, O-8). |
+| Unknown worker | The Orchard metric `org.cirruslabs.orchard.controller.worker_resource` shows a `worker` value that is not in the list of hosts of the operator. | Orchard 0.58.0 does not tie a worker name to an account (§9.2), so this is the only signal of a stolen token that registers an unknown name. The metric has the attributes `worker`, `resource`, and `type`, and no account, so the alert does not see a host that registers a name that the operator knows, for example a stolen token that takes over the record of `mac-01`. That impersonation is not detected (residual risk, SECURITY.md). The operator keeps the list of host names in the alert rule, for example as a comparison that matches every `worker` value that is not one of `mac-01` and `mac-02`. The list MUST agree with the Secret. The metric is in `internal/controller/controller.go` (tag 0.58.0, read on 2026-11-02). Nobody has yet seen it in a running collector (test strategy, [O-8](../quality/test-strategy.md#o-8)). |
 
-**Implements.** PR-009, PR-025, QA-01, QA-02, OP-05.
+**Implements.** [PR-009](../product/requirements.md#pr-009), [PR-025](../product/requirements.md#pr-025), [QA-01](system-design-baseline.md#qa-01), [QA-02](system-design-baseline.md#qa-02), [OP-05](system-design-baseline.md#op-05).
 
 ## 11. Deployment
 
@@ -1560,9 +1588,9 @@ APIs.
 
 | Component | Location | Configuration |
 |---|---|---|
-| bk-agent-stack-orchard | Kubernetes | A Helm chart that ArgoCD deploys. A `Deployment` with 1 replica and `strategy: Recreate`. A termination grace of 45 s, because at a stop the controller withdraws its stack in at most 10 s and then stops its telemetry in at most 10 s. A ConfigMap for the configuration. Secrets as environment variables. gRPC probes of the health service on `healthAddress`: `liveness` (the process is alive and its loop finishes its ticks) and `readiness` (all sources synchronized within `stateFreshness`). `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME=bk-agent-stack-orchard`, and `OTEL_RESOURCE_ATTRIBUTES` (`controller.id`, and `k8s.*` from the downward API). A NetworkPolicy that permits egress only to `agent.buildkite.com:443`, Orchard `:6120`, and the collector. The image comes from §15. |
+| bk-agent-stack-orchard | Kubernetes | A Helm chart that ArgoCD deploys. A `Deployment` with 1 replica and `strategy: Recreate`. A termination grace of 45 s, because at a stop the controller withdraws its stack in at most 10 s and then stops its telemetry in at most 10 s. A ConfigMap for the configuration. Secrets as environment variables. gRPC probes of the health service on `healthAddress`: `liveness` (the process is alive and its loop finishes its ticks) and `readiness` (all sources synchronized within `stateFreshness`). `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME=bk-agent-stack-orchard`, and `OTEL_RESOURCE_ATTRIBUTES` (`k8s.*` from the downward API; the controller sets `service.instance.id` to `controllerID`). A NetworkPolicy that permits egress only to DNS, `agent.buildkite.com:443`, Orchard `:6120`, and the collector. The image comes from §15. |
 | Orchard controller | Kubernetes | `deploy/orchard`, a kustomize base. The image is the Orchard release at the version of §9.2, built by `deploy/orchard/image` for the registry of the fleet, because `ghcr.io/openai/orchard` does not answer a pull without credentials (2026-09-26, [openai/orchard#501](https://github.com/openai/orchard/issues/501)). A 1-replica StatefulSet with a PVC at `/data`, a headless governing Service, and the certificate and key of a Secret that an authority of the operator signs. A StatefulSet, because Orchard keeps its state in an embedded database with one scheduler and no leader election, so at most one pod may write to `/data`, and a StatefulSet starts no replacement until the old pod is gone. A deletion of the StatefulSet leaves the PVC. A ClusterIP Service on port 6120 in the base, so the API of Orchard stays inside the cluster by default, and a NetworkPolicy that admits TCP 6120 only from the controller, the bootstrap Job, and the CIDRs of the Mac hosts, and egress only to DNS and to OTLP on TCP 4317, because the Orchard controller dials nothing else (the workers dial it). An operator reaches the API through `kubectl port-forward`, which the policy admits. An overlay (`deploy/orchard-overlays/internal-lb` is the example) adds an internal LoadBalancer with `externalTrafficPolicy: Local`, so that the policy sees the address of a Mac host. `ORCHARD_BOOTSTRAP_ADMIN_TOKEN` from a Secret, for the first bootstrap only, through the component `deploy/orchard-overlays/first-start`, which the base does not include: the operator then removes the component, so Orchard 0.58.0 does not make the account again at each start and the environment of the pod holds no admin token. The `bootstrap-admin` account stays, with its token in the Secret `orchard-bootstrap`, which only the bootstrap Job mounts, so a change of a host needs the Job and no restart of Orchard. While the account exists, the PVC also holds its token: in the database, and in `/data/orchard.yml`, which Orchard writes at each start. The operator rotates the token, and MAY delete the account for a fleet with no planned change of a host (runbook `orchard-bootstrap-admin`). A bootstrap Job that sets the `bk-agent-stack-orchard` service account, the `operator` service account, and one `worker-<host>` service account for each key of the Secret `orchard-worker-tokens`, through the REST API, on every run, with the credentials on standard input of `curl`. The Job never deletes an account (§9.2). An explicit `OTEL_EXPORTER_OTLP_ENDPOINT`. The loss of the PVC is recoverable, because workers register again and the controller removes in-flight VMs. A backup is not necessary. |
-| Mac hosts | Mac mini with M5 Pro, 64 GB memory, and 1 TB storage (SC-04) | Ansible and launchd (`deploy/hosts`). Install Tart, Softnet, and Orchard at pinned versions, from their release archives, checked against their SHA-256. Softnet has the setuid bit, because Tart starts it with root for each VM (§9.1), and without the bit Tart asks for a password on a terminal. Only root and the worker user MAY run Softnet: its mode is `04750` and an access control entry permits the worker user. A group of the worker user would not work, because Orchard drops to the worker user with `setregid` and `setreuid` and keeps the groups of root (`cirruslabs/chacha` `pkg/privdrop` v0.16.3, which Orchard 0.58.0 uses, read 2026-11-03). Each program that root runs, each file that root reads, and each directory above them up to `/usr/local` MUST be owned by root and the group wheel, with no write permission for a group or other users, because a VM escape lands as the worker user. The release archives of Tart and Softnet give their files uid 501, the first user of a Mac, so the playbook unpacks them with `--no-same-owner`. Turn off the sleep of the system and the disks, and start the host again after a power failure (`pmset`): Orchard fails the VMs of a worker that does not report for its offline timeout, so a host that sleeps fails its jobs. Load a pf anchor at each start of the host, at each change of the network, and every 30 seconds, that blocks traffic from the VM networks to the host, except DHCP and DNS, and to the private ranges, except the `softnetAllow` CIDRs of the profiles of the host (§9.1). The same launchd job enables pf again, and logs it, when pf is not enabled. The anchor is under `com.apple/`, which `/etc/pf.conf` evaluates, so the host keeps the `/etc/pf.conf` of macOS. Run `orchard worker run --bootstrap-token-stdin --labels pool=<pool>` as root with `--user`. Each host has its own worker name and its own account `worker-<name>` (§9.2). The playbook MUST change one host at a time by default (`serial: 1`, which the operator MAY raise), and a failed host MUST stop it, so that a change that breaks the worker reaches no other host. A change that restarts the worker (a new Orchard, Tart, or Softnet, a new token, labels, or controller URL) MUST drain the host first, because the worker stops and deletes every VM on the host when it stops (`Worker.Close`, `internal/worker/worker.go`, Orchard tag 0.58.0, read on 2026-11-03). The drain pauses the worker (`scheduling_paused`, which the Orchard scheduler and the admission of §6.3 honour), waits until no VM of the worker is pending or running (the test of `orchard pause worker --wait`), makes the change, waits until the worker reports again, and resumes it. A worker that registers again keeps `scheduling_paused` (`createWorker`, `internal/controller/api_workers.go`, tag 0.58.0, read on 2026-11-03). A run that restarts nothing MUST NOT drain. The drain time limit is an operator setting, by default 90 min: the default boot and acquire timeouts (20 min), the longest job of SC-06 (60 min), and 10 min to spare. When the limit comes first, the playbook MUST resume the worker, apply no change that restarts it, continue with the next host, and name the host at the end. A worker that an operator paused before the run stays paused. The calls to the API run on the host with the account of the host, and the token is in no command line and no output. An upgrade of Orchard changes the hosts first and the Orchard controller after them, because the Orchard 0.58.0 worker keeps code for an older controller (`internal/worker/worker.go`, `pkg/client/vms.go`); a rollback takes the reverse order. The old version directories stay on the host, so a rollback pins the previous version and runs the drained playbook again (runbook `mac-host-changes`). A host leaves service through a drain, the removal of its files, and the revocation of its account (runbook `mac-host-removal`). The bootstrap token carries the CA of the controller certificate, so a host trusts that CA with no change of its trust settings, and a new certificate of the same CA needs no new token. The token is in a file that only root can read, not in an argument. The automatic login of the worker user unlocks the login keychain. On macOS 27, `sysadminctl -autologin set` failed and a written `/etc/kcpassword` was ignored (2026-09-27), so the operator turns it on in System Settings, and the playbook checks it. Set `OTEL_EXPORTER_OTLP_ENDPOINT`. Run `tart pull` for the image of each profile whose `workerLabels` the worker labels contain. Read the image list from the controller configuration file. A new image MUST reach each host before the controller applies the profile that uses it, because otherwise each VM pulls the image inside its boot timeout, and an image leaves the hosts only after the controller stops using it (runbook `mac-host-changes`). Remove each cached image that no profile of the host names and no VM of the worker uses, so that old images do not fill the disk; the removal keeps a tag or a digest that a kept image can depend on, because `tart delete` also removes a digest that no tag links to (`VMStorageOCI.gc`, Tart 2.41.1, read on 2026-11-03). The fleet operator builds the images (ADR-0020), and each image MUST meet the image requirements of §5 and the image rules of §9.2. The Xcode 27 reference image of `images/` has a 104 GB disk, of which the host stores 59 GB, and other Xcode images up to 140 GB, so a 1 TB host holds only a few images (SC-09). The reference build starts from a vanilla macOS image with only the software of an explicit list, and it fails on anything else (ADR-0012). Its Xcode variant is `images/build.sh pilot`: Xcode 27 from an archive that the operator downloads with an Apple ID, so that no build signs in to Apple, its iOS simulator runtime, and the Homebrew formulae of its list. Each host MUST run macOS 27.2 or later, because the job VMs run macOS 27.2 and a macOS guest needs a host of the same version or later (CO-07). The playbook refuses an older host. |
+| Mac hosts | Mac mini with M5 Pro, 64 GB memory, and 1 TB storage ([SC-04](system-design-baseline.md#sc-04)) | Ansible and launchd (`deploy/hosts`). The playbook installs Tart, Softnet, and Orchard at pinned versions, from their release archives, checked against their SHA-256. Softnet has the setuid bit, because Tart starts it with root for each VM (§9.1), and without the bit Tart asks for a password on a terminal. Only root and the worker user MAY run Softnet: its mode is `04750` and an access control entry permits the worker user. A group of the worker user would not work, because Orchard drops to the worker user with `setregid` and `setreuid` and keeps the groups of root (`cirruslabs/chacha` `pkg/privdrop` v0.16.3, which Orchard 0.58.0 uses, read 2026-11-03). Each program that root runs, each file that root reads, and each directory above them up to `/usr/local` MUST be owned by root and the group wheel, with no write permission for a group or other users, because a VM escape lands as the worker user. The release archives of Tart and Softnet give their files uid 501, the first user of a Mac, so the playbook unpacks them with `--no-same-owner`. The playbook turns off the sleep of the system and the disks, and sets the host to start again after a power failure (`pmset`): Orchard fails the VMs of a worker that does not report for its offline timeout, so a host that sleeps fails its jobs. A launchd job loads a pf anchor at each start of the host, at each change of the network, and every 30 seconds. The anchor blocks traffic from the VM networks to the host, except DHCP and DNS, and to the private ranges, except the `softnetAllow` CIDRs of the profiles of the host (§9.1). The same launchd job enables pf again, and logs it, when pf is not enabled. The anchor is under `com.apple/`, which `/etc/pf.conf` evaluates, so the host keeps the `/etc/pf.conf` of macOS. Another launchd job runs `orchard worker run --bootstrap-token-stdin --labels pool=<pool>` as root with `--user`. Each host has its own worker name and its own account `worker-<name>` (§9.2). The playbook MUST change one host at a time by default (`serial: 1`, which the operator MAY raise), and a failed host MUST stop it, so that a change that breaks the worker reaches no other host. A change that restarts the worker (a new Orchard, Tart, or Softnet, a new token, labels, or controller URL) MUST drain the host first, because the worker stops and deletes every VM on the host when it stops (`Worker.Close`, `internal/worker/worker.go`, Orchard tag 0.58.0, read on 2026-11-03). The drain pauses the worker (`scheduling_paused`, which the Orchard scheduler and the admission of §6.3 honour), waits until no VM of the worker is pending or running (the test of `orchard pause worker --wait`), makes the change, waits until the worker reports again, and resumes it. A worker that registers again keeps `scheduling_paused` (`createWorker`, `internal/controller/api_workers.go`, tag 0.58.0, read on 2026-11-03). A run that restarts nothing MUST NOT drain. The drain time limit is an operator setting, by default 90 min: the default boot and acquire timeouts (20 min), the longest job of [SC-06](system-design-baseline.md#sc-06) (60 min), and 10 min to spare. When the limit comes first, the playbook MUST resume the worker, apply no change that restarts it, continue with the next host, and name the host at the end. A worker that an operator paused before the run stays paused. The calls to the API run on the host with the account of the host, and the token is in no command line and no output. An upgrade of Orchard changes the hosts first and the Orchard controller after them, because the Orchard 0.58.0 worker keeps code for an older controller (`internal/worker/worker.go`, `pkg/client/vms.go`); a rollback takes the reverse order. The old version directories stay on the host, so a rollback pins the previous version and runs the drained playbook again (runbook `mac-host-changes`). A host leaves service through a drain, the removal of its files, and the revocation of its account (runbook `mac-host-removal`). The bootstrap token carries the CA of the controller certificate, so a host trusts that CA with no change of its trust settings, and a new certificate of the same CA needs no new token. The token is in a file that only root can read, not in an argument. The automatic login of the worker user unlocks the login keychain. On macOS 27, `sysadminctl -autologin set` failed and a written `/etc/kcpassword` was ignored (2026-09-27), so the operator turns it on in System Settings, and the playbook checks it. The playbook sets `OTEL_EXPORTER_OTLP_ENDPOINT`. It runs `tart pull` for the image of each profile whose `workerLabels` the worker labels contain. It reads the image list from the controller configuration file. A new image MUST reach each host before the controller applies the profile that uses it, because otherwise each VM pulls the image inside its boot timeout, and an image leaves the hosts only after the controller stops using it (runbook `mac-host-changes`). The playbook removes each cached image that no profile of the host names and no VM of the worker uses, so that old images do not fill the disk; the removal keeps a tag or a digest that a kept image can depend on, because `tart delete` also removes a digest that no tag links to (`VMStorageOCI.gc`, Tart 2.41.1, read on 2026-11-03). The fleet operator builds the images ([ADR-0020](../adrs/0020-leave-the-job-vm-images-to-the-operator.md)), and each image MUST meet the image requirements of §5 and the image rules of §9.2. The Xcode 27 reference image of `images/` has a 104 GB disk, of which the host stores 59 GB, and other Xcode images up to 140 GB, so a 1 TB host holds only a few images ([SC-09](system-design-baseline.md#sc-09)). The reference build starts from a vanilla macOS image with only the software of an explicit list, and it fails on anything else ([ADR-0012](../adrs/0012-build-the-job-vm-images-from-a-vanilla-macos-image.md)). Its Xcode variant is `images/build.sh pilot`: Xcode 27 from an archive that the operator downloads with an Apple ID, so that no build signs in to Apple, its iOS simulator runtime, and the Homebrew formulae of its list. Each host MUST run macOS 27.2 or later, because the job VMs run macOS 27.2 and a macOS guest needs a host of the same version or later ([CO-07](system-design-baseline.md#co-07)). The playbook refuses an older host. |
 | Local development | One Mac | `orchard dev` and `bk-agent-stack-orchard` with a configuration file. A separate Buildkite test cluster and queue. |
 
 The chart is `deploy/helm/bk-agent-stack-orchard`. A standard Kubernetes NetworkPolicy matches
@@ -1594,7 +1622,7 @@ run. The VM that Orchard cannot place waits until the `unplaced` timeout deletes
 repeat" alert (§10.6) shows it. Each controller also lists every VM and every worker of the
 Orchard at each refresh, so the load on Orchard grows with the number of controllers.
 
-**Implements.** PR-022, PR-023, PR-024, OP-03, OP-04, CO-02, CO-06.
+**Implements.** [PR-022](../product/requirements.md#pr-022), [PR-023](../product/requirements.md#pr-023), [PR-024](../product/requirements.md#pr-024), [OP-03](system-design-baseline.md#op-03), [OP-04](system-design-baseline.md#op-04), [CO-02](system-design-baseline.md#co-02), [CO-06](system-design-baseline.md#co-06).
 
 ## 12. Testing
 
@@ -1605,24 +1633,24 @@ The Matcher, Admission, and Reaper decision logic MUST be pure functions with an
 | Static analysis (CI) | All Go code | `golangci-lint run` and `golangci-lint fmt --diff` with the configuration of §15. CI MUST fail if a command reports a problem. |
 | Unit | `Match`, `Admit`, `Decide`, configuration validation | Table-driven tests. The `Decide` tests MUST have one case for each row of §7.2. |
 | Component | Full tick loop | In-memory fakes of `Stacks` and `Orchard`. The fakes model reservation expiry, VM phases, and injected failures. Property-based tests use random event sequences: jobs arrive and are cancelled, workers stop, and the controller restarts. The tests MUST assert these invariants: owned VMs do not exceed capacity or `maxInFlight`; each job has a maximum of one VM; the controller deletes each owned VM at the end; the controller does not finish a job that an agent acquired. |
-| Integration (CI, macOS on arm64) | Real Orchard API and scheduler | `orchard dev --synthetic --workers 5` (in-memory VMs, no Tart), and a fake Stacks API HTTP server. The fake server uses the `fake_agent_server` of `agent-stack-k8s` as a model. The host MUST be macOS on arm64: Orchard places a VM only on a worker of the same architecture and runtime, a macOS VM is arm64 and runs on Tart, and a synthetic worker takes its architecture from the host and its runtime from the host OS, Tart on macOS and Vetu on Linux. On Linux the scheduler never places the VM. |
-| Load (CI, nightly) | Target scale | Synthetic Orchard with 50 workers × 2 slots, and 500 generated jobs. The job arrivals follow the demand model of the system design baseline (SC-05). The test MUST assert the tick duration, the API call budget, and zero leaked VMs. |
+| Integration (CI, macOS on arm64) | Real Orchard API and scheduler | `orchard dev --synthetic` with one worker, and 50 for the load test (in-memory VMs, no Tart), and a fake Stacks API HTTP server. The fake server uses the `fake_agent_server` of `agent-stack-k8s` as a model. The host MUST be macOS on arm64: Orchard places a VM only on a worker of the same architecture and runtime, a macOS VM is arm64 and runs on Tart, and a synthetic worker takes its architecture from the host and its runtime from the host OS, Tart on macOS and Vetu on Linux. On Linux the scheduler never places the VM. |
+| Load (CI, nightly) | Target scale | Synthetic Orchard with 50 workers × 2 slots, and 500 generated jobs. The job arrivals follow the demand model of the system design baseline ([SC-05](system-design-baseline.md#sc-05)). The test MUST assert the tick duration, the API call budget, and zero leaked VMs. |
 | End-to-end (development Mac) | Real Tart and a Buildkite test cluster | A scenario pipeline: normal sequence; unmatched tags; cancel during boot; incorrect image digest (`boot_timeout`); an image with an agent that does not start (`acquire_timeout`); 3 jobs with 2 slots; controller stop during work; Orchard controller restart; a job that uploads an artifact, to confirm the artifact destination (§7.6). The scenarios run with the `tart-guest-agent` transport. Run it before each release. |
 
 Development MUST use TDD. Each change of behavior MUST start with a failing test.
 
-**Implements.** QA-04, DR-01, PR-001, PR-002, PR-005.
+**Implements.** [QA-04](system-design-baseline.md#qa-04), [DR-01](system-design-baseline.md#dr-01), [PR-001](../product/requirements.md#pr-001), [PR-002](../product/requirements.md#pr-002), [PR-005](../product/requirements.md#pr-005).
 
 ## 13. Rollout
 
 | Phase | Scope | Exit criteria |
 |---|---|---|
 | 0 — Development | One Mac, `orchard dev`, a Buildkite test cluster | The end-to-end scenarios and the synthetic load test pass. The release gate runs the end-to-end scenarios before each release. |
-| 1 — First fleet (the operator) | The project runs no pilot (ADR-0020). The fleet operator starts its first fleet: Orchard on Kubernetes, 2 to 4 Macs, one queue, 1 or 2 profiles, and images that the operator builds (§9.2). Only non-critical pipelines that opt in. Telemetry is active, and the operator sets its alerts and their thresholds (§10.6). The operator decides the start date. | The operator decides. The fleet evidence of the test strategy (E-1 to E-5) gives the measures: two weeks with `bkaso.vm.leftover` at 0 outside its window (§10.1), zero jobs that the controller failed incorrectly, and the start time and the wait time against the product goals QA-01 and QA-02. |
-| 2 — Adoption | Increase to 10 Macs and more profiles. Move pipelines to the queue. Adjust timeouts from telemetry. The date of adoption and scale is `UNKNOWN` (SC-03; same owner and trigger). On 2026-09-14, the plan estimated approximately 3 months. | The warm-pool decision is examined again with measured `job.phase.duration` data. |
+| 1 — First fleet (the operator) | The project runs no pilot ([ADR-0020](../adrs/0020-leave-the-job-vm-images-to-the-operator.md)). The fleet operator starts its first fleet: Orchard on Kubernetes, 2 to 4 Macs, one queue, 1 or 2 profiles, and images that the operator builds (§9.2). Only non-critical pipelines that opt in. Telemetry is active, and the operator sets its alerts and their thresholds (§10.6). The operator decides the start date. | The operator decides. The fleet evidence of the test strategy ([E-1](../quality/test-strategy.md#e-1) to [E-5](../quality/test-strategy.md#e-5)) gives the measures: two weeks with `bkaso.vm.leftover` at 0 outside its window (§10.1), zero jobs that the controller failed incorrectly, and the start time and the wait time against the product goals [QA-01](system-design-baseline.md#qa-01) and [QA-02](system-design-baseline.md#qa-02). |
+| 2 — Adoption | Increase to 10 Macs and more profiles. Move pipelines to the queue. Adjust timeouts from telemetry. The date of adoption and scale is `UNKNOWN` ([SC-03](system-design-baseline.md#sc-03); same owner and trigger). On 2026-09-14, the plan estimated approximately 3 months. | The warm-pool decision is examined again with measured `job.phase.duration` data. |
 | 3 — Scale | 10 to 50 Macs | The load test agrees with production behavior. High availability and controller placement are decided only if telemetry shows a need. |
 
-**Implements.** SC-01, SC-03, QA-01, QA-02.
+**Implements.** [SC-01](system-design-baseline.md#sc-01), [SC-03](system-design-baseline.md#sc-03), [QA-01](system-design-baseline.md#qa-01), [QA-02](system-design-baseline.md#qa-02).
 
 ## 14. Out of scope and roadmap
 
@@ -1640,8 +1668,10 @@ Each item MUST have its own ADR before implementation:
 
 * **Go version:** 1.27.
 * **Dependency updates:** Renovate proposes the Go module, the image, and the action updates each
-  week, after a release is three days old. Its commit messages use the conventional types of the
-  contributing guide. A Go module update is a `fix`, because it changes the release artifacts.
+  week, after a release is three days old. A security update and a distroless digest, whose
+  registry gives no release date, do not wait. The commit messages of Renovate use the
+  conventional types of the contributing guide. A Go module update is a `fix`, because it changes
+  the release artifacts.
 * **Tool versions:** one `mise.toml` file pins Go, golangci-lint, GoReleaser, and
   Ansible. A developer and CI use the same versions. CI runs `mise install` before each task.
   The golangci-lint documentation gives `mise` as an installation method, and it states that
@@ -1650,7 +1680,7 @@ Each item MUST have its own ADR before implementation:
 * **Module path:** `github.com/joshwrightcodes/bk-agent-stack-orchard`.
 * **One clock:** each component MUST read the time from the clock that `internal/app` gives it,
   and it MUST NOT read the clock of the machine. A component without a clock refuses to start.
-  Because of this, the component suite (T-020) runs the controller in its own time, and a test
+  Because of this, the component suite ([T-020](../quality/test-strategy.md#t-020)) runs the controller in its own time, and a test
   passes at every moment. The `forbidigo` linter refuses `time.Now`, `time.Since`, and
   `time.Until` outside tests. The binary gives `time.Now`. A measure of real elapsed time, such as
   the duration of a tick step, is the only exception, and it carries a `nolint` comment.
@@ -1658,7 +1688,7 @@ Each item MUST have its own ADR before implementation:
 * **Configuration dependency:** `github.com/goccy/go-yaml`. It decodes `time.Duration`, it
   refuses a key that the configuration does not declare, and its errors name the line and the
   column. `gopkg.in/yaml.v3` is archived (2025-04-01).
-* **Test dependency:** `pgregory.net/rapid` runs the property-based component suite (T-020). It
+* **Test dependency:** `pgregory.net/rapid` runs the property-based component suite ([T-020](../quality/test-strategy.md#t-020)). It
   draws random sequences of events, and it shrinks a sequence that breaks an invariant to a short
   one. Only tests import it, so the binary does not carry it. It uses the MPL-2.0, which permits
   use with the AGPL-3.0.
@@ -1671,7 +1701,7 @@ Each item MUST have its own ADR before implementation:
   binary.
 
 **Orchard client.** The controller MUST call the Orchard REST API with the client in
-`internal/orchard` (ADR-0010). The licence makes this necessary: Orchard carries FSL-1.1-ALv2,
+`internal/orchard` ([ADR-0010](../adrs/0010-call-the-orchard-api-with-a-client-of-this-project.md)). The licence makes this necessary: Orchard carries FSL-1.1-ALv2,
 which restricts the field of use, and this project uses the AGPL-3.0, which forbids a further
 restriction on a distributed work.
 
@@ -1680,7 +1710,7 @@ These rules apply:
 * `go.mod` MUST NOT contain an Orchard dependency, and it MUST NOT contain a `replace` directive
   for one.
 * The repository MUST NOT contain a file of the Orchard repository. The project MUST NOT generate
-  code from an Orchard file, except the wire types of the allow list below (ADR-0015).
+  code from an Orchard file, except the wire types of the allow list below ([ADR-0015](../adrs/0015-generate-only-the-orchard-fields-the-controller-uses.md)).
 * The client MUST cover only these calls: create a VM, list VMs, delete a VM, list workers, and
   read the events of a VM.
 * The client MUST use the generated wire types for the fields of §6.4, and it MUST ignore the
@@ -1711,7 +1741,7 @@ goroutine, so a call that waits holds the whole loop (§4). These rules apply:
 The next tick is the real retry of a call that fails.
 
 **Wire types.** `tools/orchardgen` writes the wire types from the Orchard resource types of the
-pinned commit, and `go generate ./internal/orchard/` runs it (ADR-0015). The directive MUST carry
+pinned commit, and `go generate ./internal/orchard/` runs it ([ADR-0015](../adrs/0015-generate-only-the-orchard-fields-the-controller-uses.md)). The directive MUST carry
 a commit, not a tag, because a tag can move, and the generator MUST stop when the tag of the
 minimum version no longer points at that commit. The generated file
 carries the field names, the JSON tags, and a type for each field, and no behaviour of Orchard. It
@@ -1735,8 +1765,9 @@ behaviour, and they are the only layer that can.
 
 **Build and release.** GoReleaser (v2.18 or later) MUST build the release binaries, the
 archives, the SBOMs of the archives, the checksums, and the container image. GoReleaser MUST use
-ko through its `kos` section to build the image. The image MUST be distroless. The repository
-MUST NOT have a `.ko.yaml` file, because GoReleaser sets all ko options.
+ko through its `kos` section to build the image. The image MUST be distroless. The release
+takes every ko option from `.goreleaser.yaml`. The repository has a `.ko.yaml` file only for the
+smoke deployment on kind, which builds with ko directly, and it names the same base image.
 
 The `.goreleaser.yaml` file ([`.goreleaser.yaml`](../../.goreleaser.yaml)) MUST hold the
 configuration that the rules below describe. `goreleaser check` validates it.
@@ -1757,8 +1788,8 @@ These rules apply to the configuration:
 * The image has the tags `v<version>` and `<version>`. It has no `latest` tag, because that tag
   would move before the workflow signs the image.
 * In `--snapshot` mode, GoReleaser loads the image into the local Docker daemon as
-  `goreleaser.ko.local`. It does not push the image. Use `goreleaser release --snapshot --clean`
-  to build the image locally.
+  `goreleaser.ko.local`. It does not push the image. The command
+  `goreleaser release --snapshot --clean` builds the image locally.
 * In release mode, GoReleaser pushes the image to
   `ghcr.io/joshwrightcodes/bk-agent-stack-orchard`. The push needs a registry login, for
   example `docker login ghcr.io`.
@@ -1796,13 +1827,13 @@ release pull request (`release-please--**`).
 the maintainers. The commit of the tag MUST be on `main`, and the version in `Chart.yaml` MUST be
 the version of the tag. The workflow checks both before it builds anything.
 
-The workflow has two jobs, and each one runs in the `release` environment. The `build` job runs
-the tools that build the release. It has `contents: read` and `packages: write`. The `publish` job
-signs and publishes. It has `id-token: write`, `contents: write`, and `packages: write`, and it
-installs only cosign and jq. Each job installs only the tools that it runs. The `publish` job gets
-the files of the `build` job as a workflow artifact, outside its checkout. It uses only the
-expected regular files, and it reads the digests of the `build` job as data, never as code. The
-jobs do these steps in this order:
+The workflow has two jobs, and each one runs in the `release` environment. The `build` job runs the
+tools that build the release. It has `contents: read` and `packages: write`. The `publish` job signs
+and publishes. It has `id-token: write`, `contents: write`, `packages: write`, and `attestations:
+write`, and it installs only cosign and jq. Each job installs only the tools that it runs. The
+`publish` job gets the files of the `build` job as a workflow artifact, outside its checkout. It
+uses only the expected regular files, and it reads the digests of the `build` job as data, never as
+code. The jobs do these steps in this order:
 
 1. `build`: GoReleaser builds the archives, an SPDX JSON SBOM of each archive (syft), and
    `checksums.txt`, which covers the archives and the SBOMs. GoReleaser pushes the image. Its
@@ -1828,7 +1859,7 @@ jobs do these steps in this order:
    platforms `linux/amd64` and `linux/arm64`, because a loop over no platform signs nothing and
    passes.
 4. `publish`: the job attests the SLSA build provenance of `checksums.txt`, the image, and the
-   chart (ADR-0013). It uploads the bundle of the attestation of `checksums.txt` to the draft as
+   chart ([ADR-0013](../adrs/0013-sign-releases-with-keyless-cosign-signatures.md)). It uploads the bundle of the attestation of `checksums.txt` to the draft as
    `checksums.txt.intoto.jsonl`. Then `scripts/verify-release.sh` verifies each signature and each
    attestation, that bundle included, and checks that the tags in the registry give the digests
    that step 3 signed.
@@ -1839,7 +1870,7 @@ jobs do these steps in this order:
    After the publish, the script downloads the assets again and compares the notes with the notes
    before the check, and it fails the run on a difference. The same step sets the pre-release flag
    from the tag: a tag `v0.*` is a pre-release and not the latest release, and any other tag is
-   neither. The tag decides at publication (ADR-0014).
+   neither. The tag decides at publication ([ADR-0014](../adrs/0014-calculate-releases-with-release-please.md)).
 
 Each signature MUST be keyless. cosign gets a short-lived certificate from Sigstore for the OIDC
 token of the workflow, and records the signature in the Rekor transparency log. A verification
@@ -1860,9 +1891,12 @@ version: "2"
 
 run:
   go: "1.27"
-  # The integration test sits behind a build tag, and the analysis covers all Go code.
+  # The integration tests and the load test sit behind build tags, and the analysis covers all Go
+  # code.
   build-tags:
     - integration
+    - load
+    - tart
 
 linters:
   default: standard
@@ -1870,6 +1904,7 @@ linters:
     - bodyclose
     - contextcheck
     - errorlint
+    - forbidigo
     - gocritic
     - gosec
     - misspell

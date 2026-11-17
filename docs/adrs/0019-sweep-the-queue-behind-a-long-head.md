@@ -9,8 +9,8 @@ decision-makers: Josh Wright
 ## Summary
 
 The controller reads at most 3 pages of 1000 scheduled jobs in one tick, from the head of the
-list. ADR-0016 leaves a job that matches no profile in the list. A pipeline author can therefore
-put more than 3000 such jobs at the head of the queue, and every job behind them is never read.
+list. [ADR-0016](0016-skip-a-job-that-matches-no-profile.md) leaves a job that matches no profile in the list. A pipeline author can therefore
+put more than 3000 such jobs at the head of the queue, and the controller reads no job behind them.
 The fleet then stays idle for every pipeline of the queue. The decision is to read 2 pages from
 the head and 1 page from a sweep. The sweep moves through the rest of the list, one page in each
 tick, and starts again after the head at the end of the list. A read still makes at most 3 list
@@ -32,7 +32,7 @@ at each tick of 1 s. The time budget of a tick (§4 of the target design) counts
 queue as one call that can hang, because a page that fails ends the read. These two facts limit
 the requests of one read to a small, fixed number.
 
-ADR-0016 keeps an unmatched job in the list until another runner of the queue takes it, Buildkite
+[ADR-0016](0016-skip-a-job-that-matches-no-profile.md) keeps an unmatched job in the list until another runner of the queue takes it, Buildkite
 times it out, or a person cancels it. Such a job stays at the head, because new jobs arrive behind
 it. A security review on 2026-11-03 found that one pipeline upload of 3000 or more steps with tags
 that no profile carries hides every later job of the queue. The counter `bkaso.queue.truncated` and
@@ -56,7 +56,7 @@ Goals:
 
 Non-goals:
 
-* Finishing or cancelling unmatched jobs. ADR-0016 holds.
+* Finishing or cancelling unmatched jobs. [ADR-0016](0016-skip-a-job-that-matches-no-profile.md) holds.
 * Fair shares between pipelines. Admission keeps the order by priority and age.
 * A filter on the server side. The API has none.
 
@@ -113,7 +113,7 @@ Read 2 pages from the head and 1 page of a sweep. Alert on a read that is not wh
 * An operator MUST alert when `bkaso.queue.truncated` keeps increasing (§10.6 of the target
   design). The operator sets the window of the alert.
 
-The decision changes only how the poll reads the list. ADR-0016 still decides what the controller
+The decision changes only how the poll reads the list. [ADR-0016](0016-skip-a-job-that-matches-no-profile.md) still decides what the controller
 does with an unmatched job.
 
 ## Consequences
@@ -159,5 +159,5 @@ Bad:
   the end is whole. A unit test confirms that a failed sweep page leaves the head pages as the
   answer.
 * A unit test confirms that the warning names the pipeline with the most jobs of the read.
-* The component test T-026 confirms that a job behind 6500 unmatched jobs gets a VM, inside the
+* The component test [T-026](../quality/test-strategy.md#t-026) confirms that a job behind 6500 unmatched jobs gets a VM, inside the
   request budget of the Stacks API.
