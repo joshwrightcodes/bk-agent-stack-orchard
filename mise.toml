@@ -90,7 +90,8 @@ macos-arm64 = { asset_pattern = "orchard-darwin-arm64.tar.gz", checksum = "sha25
 
 [tasks.check-docs]
 description = "Check that the document set stays whole, and the language rules of the writing guide (Vale)"
-run = ["python3 scripts/check-docs.py", "vale --glob='!{build,dist}/**' ."]
+# Vale reads only the Markdown files that git tracks, so worktrees and notes in the checkout stay out.
+run = ["python3 scripts/check-docs.py", "git ls-files -z '*.md' | xargs -0 vale"]
 
 [tasks.check-commits]
 description = "Check the commit messages of this branch"
