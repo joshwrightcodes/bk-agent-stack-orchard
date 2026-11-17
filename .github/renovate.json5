@@ -181,6 +181,15 @@
       groupName: "release base image",
     },
     {
+      // Distroless images are reproducible builds, so their creation time is 1970-01-01 and the
+      // registry gives no release timestamp. minimumReleaseAgeBehaviour defaults to
+      // timestamp-required, so the three days of minimumReleaseAge would hold every digest of
+      // the release base image as pending, and Renovate would never rebase its pull request.
+      matchDatasources: ["docker"],
+      matchPackageNames: ["gcr.io/distroless/**"],
+      minimumReleaseAgeBehaviour: "timestamp-optional",
+    },
+    {
       // Structurizr runs in the c4 model check. A new release can change the rendered views, and
       // the check then shows the difference in c4.md on the same pull request.
       matchManagers: ["custom.regex"],
