@@ -158,35 +158,87 @@ CITATION = re.compile(
 # The parts of a document where a citation needs no link: front matter, code, comments,
 # headings, the text and the target of an existing link, a reference definition, and an anchor.
 FRONT_MATTER = re.compile(r"\A---\n.*?\n---\n", re.S)
-FENCE = re.compile(r"^ *(?:```|~~~)")
+FENCE = re.compile(r"^ *(`{3,}|~{3,})")
 COMMENT = re.compile(r"<!--.*?-->", re.S)
 HEADING = re.compile(r"^ {0,3}#{1,6} .*$", re.M)
 CODE = re.compile(r"(`+)[^`]*?\1")
 LINK = re.compile(r"!?\[[^\]\n]*\]\((?:[^()\s]|\([^()\s]*\))*\)")
-REFERENCE = re.compile(r"^ {0,3}\[[^\]\n]+\]:.*$", re.M)
+REFERENCE = re.compile(r"^ {0,3}\[([^\]\n]+)\]:[ \t]*<?([^\s>]+)>?.*$", re.M)
+# A full or collapsed reference link, [text][label] or [text][], and a shortcut one, [label].
+REFERENCE_LINK = re.compile(r"!?\[([^\]\n]+)\]\[([^\]\n]*)\]|!?\[([^\]\n]+)\](?![\[(:])")
 ANCHOR_TAG = re.compile(r'<a id="[a-z0-9-]+"></a>')
 ID_LINK = re.compile(r"\[(" + CITATION.pattern[3:-3] + r")\]\(([^)\s]+)\)")
 
 
-def protected(path: pathlib.Path, text: str) -> list[tuple[int, int]]:
-    """The spans of a document where a citation stays as it is."""
+def fenced(lines: list[str]) -> list[bool]:
+    """For each line, whether it is in a fenced code block, its fences included. As in CommonMark,
+    only a fence of the same character, at least as long as the opening one, and with nothing after
+    it, closes the block."""
+    inside, opening = [], None
+    for line in lines:
+        fence = FENCE.match(line)
+        if opening is None:
+            opening = fence.group(1) if fence else None
+            inside.append(opening is not None)
+            continue
+        inside.append(True)
+        if (
+            fence
+            and fence.group(1)[0] == opening[0]
+            and len(fence.group(1)) >= len(opening)
+            and not line[fence.end() :].strip()
+        ):
+            opening = None
+    return inside
+
+
+def code_spans(text: str) -> list[tuple[int, int]]:
+    """The spans that a reader does not see as text: front matter, code, and comments."""
     spans: list[tuple[int, int]] = []
     front = FRONT_MATTER.match(text)
     if front:
         spans.append(front.span())
-    offset, fence_start = 0, None
-    for line in text.split("\n"):
-        if FENCE.match(line):
-            if fence_start is None:
-                fence_start = offset
-            else:
-                spans.append((fence_start, offset + len(line)))
-                fence_start = None
+    offset = 0
+    for line, inside in zip(text.split("\n"), fenced(text.split("\n")), strict=True):
+        if inside:
+            spans.append((offset, offset + len(line)))
         offset += len(line) + 1
-    if fence_start is not None:
-        spans.append((fence_start, len(text)))
-    for pattern in (COMMENT, HEADING, CODE, LINK, REFERENCE, ANCHOR_TAG):
+    for pattern in (COMMENT, CODE):
         spans += [m.span() for m in pattern.finditer(text)]
+    return spans
+
+
+def inside(spans: list[tuple[int, int]], start: int, end: int) -> bool:
+    return any(a <= start and end <= b for a, b in spans)
+
+
+def reference_links(text: str) -> list[tuple[re.Match, str, str]]:
+    """Each reference link with a definition in the document, outside code: its match, its text,
+    and the target of its definition."""
+    code = code_spans(text)
+    targets = {
+        m.group(1).lower(): m.group(2)
+        for m in REFERENCE.finditer(text)
+        if not inside(code, *m.span())
+    }
+    links = []
+    for match in REFERENCE_LINK.finditer(text):
+        if inside(code, *match.span()):
+            continue
+        label_text = match.group(1) or match.group(3)
+        label = match.group(2) or label_text
+        target = targets.get(label.lower())
+        if target is not None:
+            links.append((match, label_text, target))
+    return links
+
+
+def protected(path: pathlib.Path, text: str) -> list[tuple[int, int]]:
+    """The spans of a document where a citation stays as it is."""
+    spans = code_spans(text)
+    for pattern in (HEADING, LINK, REFERENCE, ANCHOR_TAG):
+        spans += [m.span() for m in pattern.finditer(text)]
+    spans += [match.span() for match, _text, _target in reference_links(text)]
     # The definition of an identifier is its target, not a citation.
     for source, pattern in definitions().values():
         if source.resolve() == path.resolve():
@@ -198,9 +250,7 @@ def unlinked_citations(path: pathlib.Path, text: str, known: set[str]) -> list[r
     """The citations of known identifiers that are not links, in the order of the text."""
     spans = protected(path, text)
     return [
-        m
-        for m in CITATION.finditer(text)
-        if m.group(1) in known and not any(a <= m.start() and m.end() <= b for a, b in spans)
+        m for m in CITATION.finditer(text) if m.group(1) in known and not inside(spans, *m.span())
     ]
 
 
@@ -251,14 +301,24 @@ def check_citation_links(defined: dict[str, set[str]]) -> None:
         for match in unlinked_citations(path, text, known):
             number = text.count("\n", 0, match.start()) + 1
             fail(path, number, f"cites {match.group(1)} without a link to its definition")
-        for match in ID_LINK.finditer(text):
-            identifier, target = match.group(1), match.group(2)
+        code = code_spans(text)
+        links = [
+            (match.start(), match.group(1), match.group(2))
+            for match in ID_LINK.finditer(text)
+            if not inside(code, *match.span())
+        ]
+        links += [
+            (match.start(), label_text, target)
+            for match, label_text, target in reference_links(text)
+            if CITATION.fullmatch(label_text)
+        ]
+        for start, identifier, target in links:
             source = source_of(identifier)
             if source is None:
                 continue
             file, _, fragment = target.partition("#")
             reached = (path.parent / file).resolve() if file else path.resolve()
-            number = text.count("\n", 0, match.start()) + 1
+            number = text.count("\n", 0, start) + 1
             if reached != source.resolve():
                 fail(path, number, f"links {identifier} to {target}, not to its definition")
             elif not identifier.startswith("ADR-") and fragment != anchor_name(identifier):
@@ -311,11 +371,8 @@ def check_width() -> None:
     for path in markdown_files():
         if path in GENERATED:
             continue
-        in_fence = False
-        for number, line in enumerate(read(path).split("\n"), 1):
-            if line.lstrip().startswith("```"):
-                in_fence = not in_fence
-                continue
+        lines = read(path).split("\n")
+        for number, (line, in_fence) in enumerate(zip(lines, fenced(lines), strict=True), 1):
             if in_fence or line.startswith("|"):
                 continue
             # Only the URL and the anchor are exempt, because a reader cannot wrap them. The prose

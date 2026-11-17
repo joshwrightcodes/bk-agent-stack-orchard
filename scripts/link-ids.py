@@ -81,6 +81,8 @@ def link_citations() -> int:
 
 LIST_ITEM = re.compile(r"^( *)(?:[*+-]|\d+\.) ")
 BREAK = re.compile(r"^ *(?:$|#|\||```|~~~|>|<!--|[*+-] |\d+\. )")
+# The line that add_anchors puts above a requirement. It stays on its own line.
+ANCHOR_LINE = re.compile(r'^ *<a id="[a-z0-9-]+"></a> *$')
 
 
 def width(text: str) -> int:
@@ -92,10 +94,20 @@ def rewrap(lines: list[str], index: int) -> int:
     """Wrap again the paragraph or list item that holds the line at index, and return the number
     of lines that it has now. A word never splits, so a link stays whole."""
     start = index
-    while start > 0 and not BREAK.match(lines[start]) and lines[start - 1].strip():
+    while (
+        start > 0
+        and not BREAK.match(lines[start])
+        and lines[start - 1].strip()
+        and not ANCHOR_LINE.match(lines[start - 1])
+    ):
         start -= 1
     end = index
-    while end + 1 < len(lines) and lines[end + 1].strip() and not BREAK.match(lines[end + 1]):
+    while (
+        end + 1 < len(lines)
+        and lines[end + 1].strip()
+        and not BREAK.match(lines[end + 1])
+        and not ANCHOR_LINE.match(lines[end + 1])
+    ):
         end += 1
     first = lines[start]
     item = LIST_ITEM.match(first)
@@ -128,13 +140,12 @@ def wrap_long_lines() -> int:
         if path in check_docs.GENERATED:
             continue
         lines = check_docs.read(path).split("\n")
-        in_fence, index, touched = False, 0, False
+        index, touched = 0, False
         while index < len(lines):
             line = lines[index]
-            if check_docs.FENCE.match(line):
-                in_fence = not in_fence
-            elif (
-                not in_fence
+            # A rewrap changes the number of lines, so the fences are found again for each line.
+            if (
+                not check_docs.fenced(lines[: index + 1])[index]
                 and not line.lstrip().startswith("|")
                 and width(line) > check_docs.MAX_WIDTH
             ):

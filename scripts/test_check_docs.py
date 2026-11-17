@@ -244,6 +244,42 @@ class CheckDocsTest(unittest.TestCase):
         )
         self.assertEqual([], check_docs.errors)
 
+    def test_a_reference_link_around_a_citation_needs_no_inline_link(self) -> None:
+        self.documents(
+            '| ID |\n|---|\n| <a id="t-001"></a>T-001 |\n',
+            "See [T-001][t] and [T-001].\n\n[t]: ../quality/test-strategy.md#t-001\n"
+            "[T-001]: ../quality/test-strategy.md#t-001\n",
+        )
+        self.assertEqual([], check_docs.errors)
+
+    def test_a_reference_link_to_the_wrong_anchor_fails(self) -> None:
+        self.documents(
+            '| ID |\n|---|\n| <a id="t-001"></a>T-001 |\n',
+            "See [T-001][t].\n\n[t]: ../quality/test-strategy.md#t-002\n",
+        )
+        self.assertEqual(1, len(check_docs.errors), check_docs.errors)
+        self.assertIn("target-design.md:1: links T-001", check_docs.errors[0])
+        self.assertIn("not to its anchor", check_docs.errors[0])
+
+    def test_a_fence_closes_only_on_its_own_kind_of_fence(self) -> None:
+        self.documents(
+            '| ID |\n|---|\n| <a id="t-001"></a>T-001 |\n',
+            "````md\n```\nT-001\n```\nT-001\n````\n\n~~~\n```\nT-001\n~~~\n",
+        )
+        self.assertEqual([], check_docs.errors)
+
+    def test_a_link_in_code_or_a_comment_is_not_checked(self) -> None:
+        self.documents(
+            '| ID |\n|---|\n| <a id="t-001"></a>T-001 |\n',
+            "Write `[T-001](x.md)`.\n\n<!-- [T-001](x.md) -->\n\n```\n[T-001](x.md)\n```\n",
+        )
+        self.assertEqual([], check_docs.errors)
+
+    def test_a_long_line_in_a_tilde_fence_is_not_measured(self) -> None:
+        self.write("README.md", "~~~\n" + "x" * 101 + "\n~~~\n")
+        check_docs.check_width()
+        self.assertEqual([], check_docs.errors)
+
     def test_a_linked_adr_range_is_still_checked(self) -> None:
         self.write(
             "docs/x.md",
