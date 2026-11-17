@@ -128,6 +128,10 @@ run = "./scripts/check-c4.sh"
 description = "Write the generated files, including the Orchard wire types"
 run = "go generate ./..."
 
+[tasks.docs-link-ids]
+description = "Link each identifier in the documents to the place that defines it"
+run = "python3 scripts/link-ids.py"
+
 [tasks.docs-reference]
 description = "Write docs/user/configuration.md from the comments of the configuration types"
 run = "go test ./internal/config -run '^TestTheConfigurationReferenceIsCurrent$' -update"

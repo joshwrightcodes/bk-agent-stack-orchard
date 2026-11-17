@@ -17,11 +17,14 @@ Checks:
   5. every line outside a table row or a fenced block is 100 characters or less;
   6. each ADR file name matches its title, and its status is a lifecycle value;
   7. no "ADR-0001 to ADR-NNNN" range stops below the highest ADR that exists;
-  8. the glossary lists every identifier family that this script knows, with its digits.
+  8. the glossary lists every identifier family that this script knows, with its digits;
+  9. every citation of an identifier links to the place that defines it, and each such link
+     reaches that place. scripts/link-ids.py adds the missing links and anchors.
 """
 
 from __future__ import annotations
 
+import os
 import pathlib
 import re
 import sys
@@ -74,21 +77,55 @@ def find_all(path: pathlib.Path, pattern: str) -> set[str]:
     return set(re.findall(pattern, read(path), re.M)) if path.exists() else set()
 
 
+# The anchor that marks where an identifier is defined, so that a citation can link to it.
+ANCHOR = r'(?:<a id="[a-z0-9-]+"></a>)?'
+
+
+def anchor_name(identifier: str) -> str:
+    return identifier.lower()
+
+
+def definitions() -> dict[str, tuple[pathlib.Path, str]]:
+    """Each family, the document that defines it, and the pattern of a definition. The pattern
+    allows the anchor of the definition, and its group is the identifier. A requirement keeps its
+    anchor on the line before the requirement, so its pattern needs none."""
+    return {
+        "PR": (REQUIREMENTS, r"^\*\*(PR-\d{3}):"),
+        "driver": (BASELINE, rf"^\| {ANCHOR}((?:BD|SC|QA|DR|SE|OP|CO)-\d{{2}}) \|"),
+        "QS": (BASELINE, rf"^\| {ANCHOR}(QS-\d) \|"),
+        "T": (STRATEGY, rf"^\| {ANCHOR}(T-\d{{3}}) \|"),
+        "R": (STRATEGY, rf"^\| {ANCHOR}(R-\d{{2}}) \|"),
+        "I": (STRATEGY, rf"^\* {ANCHOR}\*\*(I-\d):\*\*"),
+        "E": (STRATEGY, rf"^\* {ANCHOR}\*\*(E-\d):\*\*"),
+        "O": (STRATEGY, rf"^\| {ANCHOR}(O-\d) \|"),
+        "W": (PLAN, rf"^\| {ANCHOR}(W-\d{{2}}) \|"),
+        "D": (PLAN, rf"^\| {ANCHOR}(D-\d) \|"),
+    }
+
+
 def defined_identifiers() -> dict[str, set[str]]:
     adrs = {f"ADR-{p.name[:4]}" for p in ADR_DIR.glob("0*.md")}
-    return {
-        "PR": find_all(REQUIREMENTS, r"^\*\*(PR-\d{3}):"),
-        "driver": find_all(BASELINE, r"^\| ((?:BD|SC|QA|DR|SE|OP|CO)-\d{2}) \|"),
-        "QS": find_all(BASELINE, r"^\| (QS-\d) \|"),
-        "T": find_all(STRATEGY, r"^\| (T-\d{3}) \|"),
-        "R": find_all(STRATEGY, r"^\| (R-\d{2}) \|"),
-        "I": find_all(STRATEGY, r"^\* \*\*(I-\d):\*\*"),
-        "E": find_all(STRATEGY, r"^\* \*\*(E-\d):\*\*"),
-        "O": find_all(STRATEGY, r"^\| (O-\d) \|"),
-        "W": find_all(PLAN, r"^\| (W-\d{2}) \|"),
-        "D": find_all(PLAN, r"^\| (D-\d) \|"),
-        "ADR": adrs,
-    }
+    found = {family: find_all(path, pattern) for family, (path, pattern) in definitions().items()}
+    return {**found, "ADR": adrs}
+
+
+def source_of(identifier: str) -> pathlib.Path | None:
+    """The document that defines an identifier: its ADR file, or the document of its family."""
+    if identifier.startswith("ADR-"):
+        files = sorted(ADR_DIR.glob(f"{identifier[4:]}-*.md"))
+        return files[0] if files else None
+    for path, pattern in definitions().values():
+        if identifier in find_all(path, pattern):
+            return path
+    return None
+
+
+def link_target(identifier: str, source: pathlib.Path, citing: pathlib.Path) -> str:
+    """The relative link from the citing document to the definition of an identifier."""
+    fragment = "" if identifier.startswith("ADR-") else f"#{anchor_name(identifier)}"
+    if source == citing:
+        return fragment or source.name
+    return os.path.relpath(source, citing.parent).replace(os.sep, "/") + fragment
 
 
 # The identifier families: the prefix, and the number of digits. The citation pattern and the
@@ -117,6 +154,54 @@ FAMILIES = {
 CITATION = re.compile(
     r"\b(" + "|".join(rf"{prefix}-\d{{{width}}}" for prefix, width in FAMILIES.items()) + r")\b"
 )
+
+# The parts of a document where a citation needs no link: front matter, code, comments,
+# headings, the text and the target of an existing link, a reference definition, and an anchor.
+FRONT_MATTER = re.compile(r"\A---\n.*?\n---\n", re.S)
+FENCE = re.compile(r"^ *(?:```|~~~)")
+COMMENT = re.compile(r"<!--.*?-->", re.S)
+HEADING = re.compile(r"^ {0,3}#{1,6} .*$", re.M)
+CODE = re.compile(r"(`+)[^`]*?\1")
+LINK = re.compile(r"!?\[[^\]\n]*\]\((?:[^()\s]|\([^()\s]*\))*\)")
+REFERENCE = re.compile(r"^ {0,3}\[[^\]\n]+\]:.*$", re.M)
+ANCHOR_TAG = re.compile(r'<a id="[a-z0-9-]+"></a>')
+ID_LINK = re.compile(r"\[(" + CITATION.pattern[3:-3] + r")\]\(([^)\s]+)\)")
+
+
+def protected(path: pathlib.Path, text: str) -> list[tuple[int, int]]:
+    """The spans of a document where a citation stays as it is."""
+    spans: list[tuple[int, int]] = []
+    front = FRONT_MATTER.match(text)
+    if front:
+        spans.append(front.span())
+    offset, fence_start = 0, None
+    for line in text.split("\n"):
+        if FENCE.match(line):
+            if fence_start is None:
+                fence_start = offset
+            else:
+                spans.append((fence_start, offset + len(line)))
+                fence_start = None
+        offset += len(line) + 1
+    if fence_start is not None:
+        spans.append((fence_start, len(text)))
+    for pattern in (COMMENT, HEADING, CODE, LINK, REFERENCE, ANCHOR_TAG):
+        spans += [m.span() for m in pattern.finditer(text)]
+    # The definition of an identifier is its target, not a citation.
+    for source, pattern in definitions().values():
+        if source.resolve() == path.resolve():
+            spans += [m.span(1) for m in re.finditer(pattern, text, re.M)]
+    return spans
+
+
+def unlinked_citations(path: pathlib.Path, text: str, known: set[str]) -> list[re.Match]:
+    """The citations of known identifiers that are not links, in the order of the text."""
+    spans = protected(path, text)
+    return [
+        m
+        for m in CITATION.finditer(text)
+        if m.group(1) in known and not any(a <= m.start() and m.end() <= b for a, b in spans)
+    ]
 
 
 def check_identifiers(defined: dict[str, set[str]]) -> None:
@@ -148,6 +233,36 @@ def out_of_scope_requirements() -> set[str]:
         for block in blocks
         if block.startswith("**PR-") and requirement_status(block) == "out of scope"
     }
+
+
+def check_citation_links(defined: dict[str, set[str]]) -> None:
+    """Each citation links to its definition, each such link reaches it, and each definition
+    carries the anchor that the links use. scripts/link-ids.py repairs the first and the last."""
+    known = set().union(*defined.values())
+    for family, (source, _pattern) in definitions().items():
+        text = read(source) if source.exists() else ""
+        for identifier in sorted(defined.get(family, set())):
+            if f'<a id="{anchor_name(identifier)}"></a>' not in text:
+                fail(source, None, f"defines {identifier} without its anchor")
+    for path in markdown_files():
+        if path in GENERATED:
+            continue
+        text = read(path)
+        for match in unlinked_citations(path, text, known):
+            number = text.count("\n", 0, match.start()) + 1
+            fail(path, number, f"cites {match.group(1)} without a link to its definition")
+        for match in ID_LINK.finditer(text):
+            identifier, target = match.group(1), match.group(2)
+            source = source_of(identifier)
+            if source is None:
+                continue
+            file, _, fragment = target.partition("#")
+            reached = (path.parent / file).resolve() if file else path.resolve()
+            number = text.count("\n", 0, match.start()) + 1
+            if reached != source.resolve():
+                fail(path, number, f"links {identifier} to {target}, not to its definition")
+            elif not identifier.startswith("ADR-") and fragment != anchor_name(identifier):
+                fail(path, number, f"links {identifier} to {target}, not to its anchor")
 
 
 def check_requirement_coverage(defined: dict[str, set[str]]) -> None:
@@ -203,13 +318,18 @@ def check_width() -> None:
                 continue
             if in_fence or line.startswith("|"):
                 continue
-            # Only the URL is exempt, because a reader cannot wrap it. The prose is not.
-            width = len(URL.sub("", line))
+            # Only the URL and the anchor are exempt, because a reader cannot wrap them. The prose
+            # is not.
+            width = len(ANCHOR_TAG.sub("", URL.sub("", line)))
             if width > MAX_WIDTH:
                 fail(path, number, f"line is {width} characters, the limit is {MAX_WIDTH}")
 
 
-ADR_RANGE = re.compile(r"`?ADR-0001`?\s+(?:to|through)\s+`?ADR-(\d{4})`?")
+# A range can link each end to its ADR.
+ADR_LINK = r"(?:\]\([^)\s]*\))?"
+ADR_RANGE = re.compile(
+    rf"[`\[]?ADR-0001`?{ADR_LINK}\s+(?:to|through)\s+[`\[]?ADR-(\d{{4}})`?{ADR_LINK}"
+)
 DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 
 
@@ -296,6 +416,7 @@ def main() -> int:
     check_adr_ranges()
     check_adr_metadata()
     check_glossary_families()
+    check_citation_links(defined)
 
     if errors:
         print(f"check-docs: {len(errors)} problem(s)\n", file=sys.stderr)

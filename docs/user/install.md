@@ -112,8 +112,8 @@ variable.
 ### Check signatures in the cluster
 
 You do not need this step to run the controller. Helm does not check signatures. If you want your
-cluster to refuse an image that the release workflow did not sign, use an admission controller
-that checks cosign signatures when a pod starts, for example the
+cluster to refuse an image that the release workflow did not sign, use an admission controller.
+Choose one that checks cosign signatures when a pod starts, for example the
 [Sigstore policy controller](https://docs.sigstore.dev/policy-controller/overview/) or
 [Kyverno](https://kyverno.io/docs/policy-types/image-validating-policy/). Give it the issuer
 `https://token.actions.githubusercontent.com`, and the identity of the release workflow for any
@@ -121,8 +121,8 @@ that checks cosign signatures when a pod starts, for example the
 
 ## The agent in each VM
 
-By default, the startup script of each VM downloads the `buildkite-agent` release that this
-controller was tested with, checks its SHA-256, and runs it. A changed archive fails the job before
+By default, the startup script of each VM downloads the `buildkite-agent` release that the project
+tested with this controller, checks its SHA-256, and runs it. A changed archive fails the job before
 an agent starts, and the job page says which step failed.
 
 To use another release, or your own mirror, set the URL and the SHA-256 of the archive together:
@@ -150,8 +150,8 @@ Each download is about 31 MB. If your fleet runs many jobs a day, use a mirror.
 ### Git credential helpers in the image
 
 Git Credential Manager writes two `credential.helper` lines in `~/.gitconfig`: an empty one, then
-the manager. The upstream `macos-golden-gate-base` image has them. `buildkite-agent` v4.10.2 cannot
-replace two helpers with its own, so a checkout with the repository credentials of Buildkite would
+the manager. The upstream `macos-golden-gate-base` image has them. `buildkite-agent` cannot replace
+two helpers with its own, so a checkout with the repository credentials of Buildkite would
 fail with `cannot overwrite multiple values with a single value`.
 
 When the image has more than one helper, the startup script removes them before the agent starts,
@@ -197,10 +197,11 @@ The release workflow of this repository signs each release with a keyless
 To verify all the artifacts of a release, download these files of the release into one
 directory: `checksums.txt`, `checksums.txt.sigstore.json`, at least one archive, and the chart
 package `bk-agent-stack-orchard-<version>.tgz` with its signature file `.tgz.sigstore.json`. For
-example, with the GitHub CLI:
+example, with the GitHub CLI. In this command and the commands below, replace `<version>` with the
+version of the release:
 
 ```sh
-gh release download v0.1.0 --repo joshwrightcodes/bk-agent-stack-orchard --dir downloads \
+gh release download v<version> --repo joshwrightcodes/bk-agent-stack-orchard --dir downloads \
   --pattern 'checksums.txt*' --pattern '*_linux_amd64.tar.gz' --pattern '*.tgz*'
 ```
 
@@ -209,7 +210,7 @@ curl, and the GitHub CLI (`gh`). `gh` reads the provenance attestations through 
 so it needs a login: run `gh auth login`, or set `GH_TOKEN`.
 
 ```sh
-scripts/verify-release.sh v0.1.0 ./downloads
+scripts/verify-release.sh v<version> ./downloads
 ```
 
 The command:
@@ -233,9 +234,9 @@ does not check that the commit is on `main`. The script does.
 
 ```sh
 cosign verify \
-  --certificate-identity "https://github.com/joshwrightcodes/bk-agent-stack-orchard/.github/workflows/release.yml@refs/tags/v0.1.0" \
+  --certificate-identity "https://github.com/joshwrightcodes/bk-agent-stack-orchard/.github/workflows/release.yml@refs/tags/v<version>" \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-  ghcr.io/joshwrightcodes/bk-agent-stack-orchard:v0.1.0
+  ghcr.io/joshwrightcodes/bk-agent-stack-orchard:v<version>
 ```
 
 ### Verify the provenance
@@ -256,11 +257,11 @@ and give it to `gh attestation verify` with the release workflow and the tag. Li
 command above, this does not check that the commit is on `main`.
 
 ```sh
-commit="$(gh api repos/joshwrightcodes/bk-agent-stack-orchard/commits/refs/tags/v0.1.0 --jq .sha)"
+commit="$(gh api repos/joshwrightcodes/bk-agent-stack-orchard/commits/refs/tags/v<version> --jq .sha)"
 gh attestation verify downloads/checksums.txt \
   --repo joshwrightcodes/bk-agent-stack-orchard \
   --signer-workflow joshwrightcodes/bk-agent-stack-orchard/.github/workflows/release.yml \
-  --source-ref refs/tags/v0.1.0 --source-digest "$commit"
+  --source-ref refs/tags/v<version> --source-digest "$commit"
 ```
 
 Then check your archive against `checksums.txt`, for example with `shasum -a 256 --check
@@ -299,5 +300,5 @@ profile of a host names. Change an image in this order:
 3. Apply the configuration to the controller.
 4. Run the playbook again. Each host removes the old image.
 
-To remove a profile, change the controller first, then run the playbook. The runbook [Change the
+To remove a profile, change the controller first. Then run the playbook. The runbook [Change the
 Mac hosts](runbooks/mac-host-changes.md) gives the details, and the order for `softnetAllow`.

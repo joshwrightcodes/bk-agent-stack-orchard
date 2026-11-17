@@ -1,6 +1,6 @@
 # Writing guide
 
-This guide tells you how to write the documents of this project. It is based on the
+This guide tells you how to write the documents of this project. It follows the
 [Kubernetes documentation style guide](https://kubernetes.io/docs/contribute/style/style-guide/)
 and the [Google developer documentation style guide](https://developers.google.com/style). Where
 this guide says nothing, follow the Google guide.
@@ -62,6 +62,9 @@ The design documents use identifiers such as `PR-001`, `T-100`, and `ADR-0006`. 
 [glossary](glossary.md) lists each family.
 
 * Use identifiers in the design documents, in tests, and in commit footers.
+* Link each identifier in a document to the place that defines it: an ADR to its file, and
+  any other identifier to its anchor in its document. Run `mise run docs-link-ids` to add the
+  links and the anchors. `mise run check-docs` fails on an identifier without a link.
 * Do not use them in guides. Describe the behaviour instead. A reader of a guide cannot resolve
   an identifier.
 * Do not use them in production code, configuration, or task descriptions, as
@@ -96,14 +99,14 @@ that an author controls. [ACCESSIBILITY.md](../ACCESSIBILITY.md) states this for
 
 ## Generated pages
 
-`docs/user/configuration.md` is written from the comments of the configuration types. Do not edit
-it. Change the first paragraph of the comment of a field, which is the text that an operator
-reads, and run `mise run docs-reference`.
+`mise run docs-reference` writes `docs/user/configuration.md` from the comments of the
+configuration types. Do not edit that page. Change the first paragraph of the comment of a field,
+which is the text that an operator reads. Then run `mise run docs-reference`.
 
 ## Checks
 
 `mise run check-docs` checks the line width, that each link resolves, that each cited identifier
-exists, and that the glossary lists each identifier family.
+exists and links to its definition, and that the glossary lists each identifier family.
 
 It also runs [Vale](https://vale.sh) with the rules in `.vale/styles/Project`, which `.vale.ini`
 applies by folder:

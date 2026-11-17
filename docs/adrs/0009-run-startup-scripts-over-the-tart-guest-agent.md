@@ -12,20 +12,20 @@ The Orchard worker runs a startup script in each job VM, and this script starts 
 agent. Until now the worker reached the VM through SSH, so each VM specification contained a
 username and a password. Orchard 0.57.0 adds a second transport that uses the Tart guest agent.
 The decision is to use the guest-agent transport. The cost is a new image requirement: each image
-must run the Tart guest agent.
+has to run the Tart guest agent.
 
 ## Context
 
-The controller creates one VM for each job and gives it a startup script (ADR-0001). The script
+The controller creates one VM for each job and gives it a startup script ([ADR-0001](0001-provision-macos-job-vms-with-a-custom-stack-controller.md)). The script
 receives the job acquisition token in its environment, and it starts `buildkite-agent` with
 `--acquire-job`. The worker, not the controller, runs the script.
 
-With the SSH transport, the VM specification must contain a username and a password for the image.
+With the SSH transport, the VM specification has to contain a username and a password for the image.
 The controller reads these values from its environment and writes them into each VM specification.
 Orchard service accounts with the `compute:read` role can read VM specifications, so the image
 credentials have a larger audience than the job. The credentials are also long-lived, because they
 belong to the image and not to the job. This conflicts with the rule that a VM gets only a
-credential for its own job (ADR-0004, PR-030). Images that keep the well-known `admin/admin`
+credential for its own job ([ADR-0004](0004-treat-all-builds-as-untrusted.md), [PR-030](../product/requirements.md#pr-030)). Images that keep the well-known `admin/admin`
 credentials make the problem worse.
 
 Orchard 0.57.0 (2026-09-15) adds the field `startup_script.transport` with the values `ssh` (the
@@ -45,18 +45,18 @@ the agent. An older image, or an image from a different source, can have no gues
 Goals:
 
 * **No standing credential in a VM specification.** A VM specification contains only a credential
-  for its own job (PR-030, SE-02).
+  for its own job ([PR-030](../product/requirements.md#pr-030), [SE-02](../architecture/system-design-baseline.md#se-02)).
 * **No image credential management.** The fleet operator does not create, store, or rotate image
-  credentials (OP-01).
+  credentials ([OP-01](../architecture/system-design-baseline.md#op-01)).
 * **Same failure information.** The startup-script log stays available for the acquire timeout and
-  for the job failure message (PR-008).
+  for the job failure message ([PR-008](../product/requirements.md#pr-008)).
 * **Reversibility.** A profile can return to SSH without a change to the controller.
 
 Non-goals:
 
 * The contents of the startup script.
 * The build of the VM images.
-* The network policy of the VM, which Softnet sets (ADR-0004).
+* The network policy of the VM, which Softnet sets ([ADR-0004](0004-treat-all-builds-as-untrusted.md)).
 
 ## Options considered
 
@@ -67,13 +67,13 @@ resource can see them.
 
 **Tart guest agent transport.** The worker connects to the guest agent through the VM control
 socket. The VM specification carries no credentials, and the VM needs no SSH server and no
-password. However, the image must run the guest agent, and the transport needs Orchard 0.57.0 or
+password. However, the image has to run the guest agent, and the transport needs Orchard 0.57.0 or
 later.
 
 **SSH transport with a credential for each VM.** The controller generates a password for each VM
 and writes it into the specification and into the guest with a cloud-init-like mechanism. The
 credential then has the life of the job. However, macOS images have no such mechanism, so the
-image must contain a program that reads the password. This is more work than the guest agent, and
+image has to contain a program that reads the password. This is more work than the guest agent, and
 the credential is still in the specification.
 
 | Goal | SSH | Tart guest agent | SSH with a credential for each VM |
@@ -104,14 +104,14 @@ Good:
 
 Bad:
 
-* Each image must run the Tart guest agent. An image without it needs the SSH transport.
+* Each image has to run the Tart guest agent. An image without it needs the SSH transport.
 * The minimum Orchard version is 0.57.0 for the workers and the controller.
 * A guest agent that does not start gives a different failure than an SSH failure, and the
   acquire timeout is the only signal.
 
 Review trigger:
 
-* Review this decision if Orchard removes a transport, or if the fleet must use images that
+* Review this decision if Orchard removes a transport, or if the fleet has to use images that
   cannot run the guest agent.
 
 ## Confirmation

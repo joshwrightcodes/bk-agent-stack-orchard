@@ -1,6 +1,7 @@
 # Releasing
 
-This guide tells the maintainers how versions are calculated and how to make a release.
+This guide tells the maintainers how release-please calculates the versions, and how to make a
+release.
 Operators read [Install the controller](user/install.md) for the versioning rules that affect
 them.
 
@@ -49,7 +50,7 @@ version in `Chart.yaml`. The pull request collects all changes until the maintai
    VM, so CI does not run the quick start.
 3. Write the release notes in the body of the release pull request. release-please takes the
    notes of the GitHub release from the body of the merged release pull request, and not from
-   `CHANGELOG.md`. Make this edit last: release-please writes the body again on the next push to
+   `CHANGELOG.md`. Make this edit last. release-please writes the body again on the next push to
    `main`, so merge nothing else between the edit and step 4. Keep these parts of the body:
    * The two lines that are `---`. The notes are the text between them.
    * The version heading, for example `## 0.4.0 (2027-01-15)`, as the first line of the notes.
@@ -72,7 +73,7 @@ version in `Chart.yaml`. The pull request collects all changes until the maintai
       notes after this approval: the job compares them before and after it publishes, and fails
       when they differ, but the published release is then immutable.
 
-After the release is published, run the quick start again with the release
+After the workflow publishes the release, run the quick start again with the release
 (`mise run quickstart -- --queue <queue> --version v<version>`). It downloads the archive, checks
 its signature and checksum, and runs one job with it.
 
@@ -107,5 +108,5 @@ If the workflow fails before it publishes, the release stays a draft.
 * If the cause needs a change in the repository, the version is lost, because the tag cannot move.
   Delete the draft, merge the correction, and release the next version.
 
-ADR-0013 records why releases use keyless signatures, and ADR-0014 records why release-please
+[ADR-0013](adrs/0013-sign-releases-with-keyless-cosign-signatures.md) records why releases use keyless signatures, and [ADR-0014](adrs/0014-calculate-releases-with-release-please.md) records why release-please
 calculates the versions.

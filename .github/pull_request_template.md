@@ -44,7 +44,7 @@ only this description, not the messages of the commits.
       states in "Accessibility".
 - [ ] No secret, token, or customer source code is in the diff or in the test data.
 - [ ] No code with a field-of-use restriction entered the repository, and `go.mod` has no Orchard
-      dependency (ADR-0010).
+      dependency ([ADR-0010](../docs/adrs/0010-call-the-orchard-api-with-a-client-of-this-project.md)).
 - [ ] I have the right to give this contribution under the AGPL-3.0-or-later, and my sign-off
       certifies this under the Developer Certificate of Origin, as CONTRIBUTING.md states in
       "Licence of contributions".

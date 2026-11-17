@@ -43,7 +43,7 @@ each setting of the drain.
    takes jobs. Then run it for the fleet.
 2. Plan the time. Each host drains for about the length of the jobs that run on it when the
    playbook pauses it. To drain more hosts at a time, add `-e orchard_worker_serial=<number or
-   percentage>`. The capacity of those hosts is out together.
+   percentage>`. The capacity of those hosts is unavailable at the same time.
 3. Do not run two playbooks against the same host at the same time.
 
 ## Upgrade Orchard, Tart, or Softnet
@@ -63,9 +63,10 @@ The SHA-256 is that of the release archive for Apple silicon, as the release pub
 1. Read the release notes of the new version. Look for a change that needs the Orchard controller
    and the workers in a set order, or a change of the minimum macOS version.
 2. For Orchard: the Orchard controller and the workers run the same version. In Orchard 0.58.0, the
-   worker keeps code for an older controller, so upgrade the hosts first and the Orchard controller
-   after them, unless the release notes say otherwise. Keep the time between the two short. The
-   Orchard controller is in [`deploy/orchard`](../../../deploy/orchard/README.md).
+   worker keeps code for an older controller. Because of this, unless the release notes say
+   otherwise, upgrade the hosts first and the Orchard controller after them. Keep the time between
+   the two short. The Orchard controller is in
+   [`deploy/orchard`](../../../deploy/orchard/README.md).
 3. Set the new version and its SHA-256. Run the playbook for one host:
 
    ```sh
@@ -81,8 +82,8 @@ The SHA-256 is that of the release archive for Apple silicon, as the release pub
 5. Run the playbook for the fleet.
 
 If the new worker does not report within 300 seconds, the playbook stops on that host, and the
-worker stays paused. No other host changes. Read `/var/log/orchard-worker.log` on the host, then
-fix the cause or roll back.
+worker stays paused. No other host changes. Read `/var/log/orchard-worker.log` on the host. Then
+fix the cause, or roll back.
 
 ## Roll back an upgrade
 
@@ -114,12 +115,12 @@ To add a profile, or to give a profile a new image:
 5. Run the playbook again, without `orchard_worker_prune_images=false`. Each host removes the old
    image. A host keeps an image while the controller lists a VM of the worker with it.
 
-To remove a profile, apply the configuration to the controller first, then run the playbook. The
+To remove a profile, apply the configuration to the controller first. Then run the playbook. The
 hosts then remove its image.
 
 The same order applies to `softnetAllow`, because the playbook writes the pf rules of a host from
-the profiles. To permit more addresses, run the playbook first, then apply the configuration. To
-permit fewer, apply the configuration first, then run the playbook.
+the profiles. To permit more addresses, run the playbook first. Then apply the configuration. To
+permit fewer, apply the configuration first. Then run the playbook.
 
 These runs restart no worker, so they drain no host.
 
@@ -144,7 +145,7 @@ controller. Drain the host before the token changes:
 
 ## Change the labels or the address of the controller
 
-Set the new value in the inventory, and run the playbook. It drains each host before it restarts
+Set the new value in the inventory. Then run the playbook. It drains each host before it restarts
 the worker. The playbook calls the API of Orchard at the address in the inventory, so the new
 address must reach the controller before the run.
 

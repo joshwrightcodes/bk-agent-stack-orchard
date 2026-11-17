@@ -8,11 +8,10 @@ decision-makers: Josh Wright
 
 ## Summary
 
-The controller of ADR-0001 must reserve a job before it can issue a job acquisition token for that
-job. A reserved job disappears from the scheduled-jobs list until the reservation ends. The
-decision is to calculate the free VM capacity first, and to reserve only the jobs that fit. The
-cost is capacity accounting in the controller that can disagree with the orchestrator for a short
-time.
+The controller of [ADR-0001](0001-provision-macos-job-vms-with-a-custom-stack-controller.md) has to reserve a job before it can issue a job acquisition token for
+that job. A reserved job disappears from the scheduled-jobs list until the reservation ends. The
+decision is to calculate the free VM capacity first, and to reserve only the jobs that fit. The cost
+is capacity accounting in the controller that can disagree with the orchestrator for a short time.
 
 ## Context
 
@@ -21,12 +20,12 @@ runs the job. A reserved job does not appear in the scheduled-jobs list. A reser
 seconds by default and 3600 seconds at most. When a reservation expires, the job becomes
 `scheduled` again. These values are correct as of 2026-09-13.
 
-A stack must reserve a job before it can request a job acquisition token for the job. The token
+A stack has to reserve a job before it can request a job acquisition token for the job. The token
 expires early if the reservation expires.
 
 `agent-stack-k8s`, the Buildkite stack controller for Kubernetes, reserves jobs first, and then
 waits for free capacity. A code comment in `agent-stack-k8s` accepts that reservations can expire
-while jobs wait. Each macOS host has only two VM slots (ADR-0001), so free slots are few. With the
+while jobs wait. Each macOS host has only two VM slots ([ADR-0001](0001-provision-macos-job-vms-with-a-custom-stack-controller.md)), so free slots are few. With the
 `agent-stack-k8s` order, a job can stay reserved and hidden while it waits. Its token can also
 expire before a slot is free.
 
@@ -35,11 +34,11 @@ expire before a slot is free.
 Goals:
 
 * **No hidden waiting jobs.** A job that cannot start stays visible in the `scheduled` state
-  (PR-005).
+  ([PR-005](../product/requirements.md#pr-005)).
 * **Valid tokens.** A VM gets a job acquisition token that is still valid when the agent starts
-  (SE-02).
-* **Buildkite order.** Jobs start in Buildkite priority order, and then oldest first (PR-006).
-* **Low complexity.** The controller logic stays small (OP-01).
+  ([SE-02](../architecture/system-design-baseline.md#se-02)).
+* **Buildkite order.** Jobs start in Buildkite priority order, and then oldest first ([PR-006](../product/requirements.md#pr-006)).
+* **Low complexity.** The controller logic stays small ([OP-01](../architecture/system-design-baseline.md#op-01)).
 
 Non-goals:
 
@@ -55,7 +54,7 @@ slot is free.
 
 **Check capacity, then reserve.** The controller calculates the free slots from the orchestrator
 inventory, and it reserves only the jobs that fit. Jobs that do not fit stay scheduled. The
-controller issues the token just before it creates the VM. However, the controller must count the
+controller issues the token just before it creates the VM. However, the controller has to count the
 capacity itself, and its count can disagree with the orchestrator for a short time.
 
 **Reserve nothing.** The controller starts a VM, and the agent in the VM takes any scheduled job
@@ -85,14 +84,14 @@ design](../architecture/target-design.md) gives the capacity calculation.
 Good:
 
 * Jobs that do not fit stay scheduled and visible.
-* Each VM gets its token just before the VM is created.
+* Each VM gets its token just before the controller creates the VM.
 * Other stacks on the queue can still see the jobs that this controller cannot start.
 
 Bad:
 
 * The controller duplicates the capacity accounting of the orchestrator. The two counts can
   disagree for a short time, so a VM can wait without a host and needs a timeout.
-* The controller must read the orchestrator inventory before each reservation.
+* The controller has to read the orchestrator inventory before each reservation.
 
 Review trigger:
 

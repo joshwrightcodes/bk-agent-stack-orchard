@@ -68,8 +68,8 @@ The project has no second holder for these items yet:
 
 * Owner of the `UNKNOWN` values: the maintainers.
 * Trigger: before version 1.0.0, or when a second maintainer joins, whichever is first.
-* If no maintainer is available, no release can be made, and no pull request can merge. The
-  project pauses, and the repository settings and the key stay as they are until a successor is
-  named here.
+* If no maintainer is available, nobody can make a release, and no pull request can merge. The
+  project pauses, and the repository settings and the key stay as they are until this file names a
+  successor.
 
 The project does not name a person for these items until that person agrees.

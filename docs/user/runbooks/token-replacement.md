@@ -95,7 +95,7 @@ orchard_operator GET /v1/vms |
 
 `set -o pipefail` makes a failed call fail the whole command, so a failed call does not look like
 an empty list. Use the answer only if the command exits with the status 0 and the terminal shows
-`HTTP 200`. Otherwise, do not go to step 5: find the cause and run the command again.
+`HTTP 200`. Otherwise, do not go to step 5. Find the cause. Then run the command again.
 
 Compare the `createdAt` of each VM with the time of the restart. Wait until no VM has a
 `createdAt` before the restart.
@@ -114,7 +114,7 @@ old token, which means that step 2 did not supply the new token.
 
 If the controller with the new token is not ready because Buildkite refused the token:
 
-1. Supply the old token again, in the same way as step 2, and restart the controller.
+1. Supply the old token again, in the same way as step 2. Then restart the controller.
 2. Confirm that the controller is ready.
 3. Do not revoke the old token.
 4. Find why Buildkite refused the new token, for example a token for a different cluster.

@@ -17,7 +17,7 @@ server that holds the release.
 
 ## Context
 
-ADR-0012 builds the job VM images from a vanilla macOS image, and the image build installs the
+[ADR-0012](0012-build-the-job-vm-images-from-a-vanilla-macos-image.md) builds the job VM images from a vanilla macOS image, and the image build installs the
 Tart guest agent and `buildkite-agent` 4.9.0. The fleet operator supplies each image, and the
 project publishes no image (owner decision, 2026-11-03). An operator can use an upstream Tart image
 or build one.
@@ -36,8 +36,8 @@ A spike on 2026-11-03 checked the upstream images on a Mac with Softnet on, as t
 * The downloaded agent read the configuration file of the Homebrew agent of the image. The
   environment of the startup script took precedence over the file.
 
-ADR-0004 treats each build as untrusted, and the target design gives a VM no host directory.
-ADR-0009 runs the startup script over the Tart guest agent.
+[ADR-0004](0004-treat-all-builds-as-untrusted.md) treats each build as untrusted, and the target design gives a VM no host directory.
+[ADR-0009](0009-run-startup-scripts-over-the-tart-guest-agent.md) runs the startup script over the Tart guest agent.
 
 ## Goals and non-goals
 
@@ -59,18 +59,18 @@ Non-goals:
 
 ## Options considered
 
-**The agent in the image.** The current state. No network is needed at the start of a job.
+**The agent in the image.** The current state. A job needs no network at its start.
 However, the agent version and the image are one thing, and no upstream image works: the base
 image has agent v3.
 
 **Download at the start.** The startup script downloads the pinned archive, checks its SHA-256,
 and runs the binary from a new temporary directory. Any image with the guest agent works, and the
 agent version changes with the configuration. However, each job downloads about 31 MB, and the
-release server, or a mirror that the operator sets, must be reachable from the VM.
+release server, or a mirror that the operator sets, has to be reachable from the VM.
 
 **Mount the agent from the host.** A read-only Orchard host directory that holds only the agent.
 No download, and one copy for each host. However, it gives the untrusted build a file-sharing path
-to the host, which the target design forbids, and each host must hold the right binary.
+to the host, which the target design forbids, and each host has to hold the right binary.
 
 | Goal | In the image | Download at the start | Mount from the host |
 |---|---|---|---|
@@ -132,7 +132,7 @@ Bad:
   downloaded agent. It also confirms that a wrong SHA-256 fails the job before an agent acquires
   it, and that the job page shows the line of the script that names the failed check.
 
-**Evidence (2026-11-03).** T-107 ran on real Tart VMs on the Buildkite test queue, in builds 25 to
+**Evidence (2026-11-03).** [T-107](../quality/test-strategy.md#t-107) ran on real Tart VMs on the Buildkite test queue, in builds 25 to
 30 of the test pipeline. The commit messages of the change that added the download and of the
 change that removes extra Git credential helpers record the runs:
 

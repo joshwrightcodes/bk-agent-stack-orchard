@@ -6,8 +6,9 @@ the maintainers as well.
 
 ## What you do
 
-* **Disclose the tool.** State which tool you used and what it did if it produced more than a
-  line completion, a spelling fix, or formatting. Use the AI section of the pull request template.
+* **Disclose the tool.** If a tool produced more than a line completion, a spelling fix, or
+  formatting, state which tool you used and what it did. Use the AI section of the pull request
+  template.
   In an issue, a comment, or a report, add one line.
 * **Add the commit trailer.** If you disclose a tool, each commit that it helped to write names it
   in a `Co-authored-by` trailer, for example
@@ -36,7 +37,7 @@ project squashes each pull request and keeps its description, so the AI tools se
 
 An agent can add your `Signed-off-by` trailer when you tell it to commit. The sign-off is still
 your certification under the Developer Certificate of Origin, and you are responsible for it. Do
-not let an agent sign off a commit that you will not review.
+not let an agent sign off a commit that you do not review.
 
 ## Licences
 

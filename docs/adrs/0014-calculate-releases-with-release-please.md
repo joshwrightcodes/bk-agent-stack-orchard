@@ -8,7 +8,7 @@ decision-makers: Josh Wright
 
 ## Summary
 
-A release needs a version that follows the 0.x rules of the contributing guide, and it must
+A release needs a version that follows the 0.x rules of the contributing guide, and it has to
 collect all changes since the last release. A person who selects the version from a table and
 pushes a tag can select the wrong version. The decision is to let release-please calculate the
 version from the Conventional Commits on `main`, and to keep a release pull request that collects
@@ -22,8 +22,8 @@ becomes the squashed commit. So the commits since the last release contain enoug
 the next version: a breaking change or a `feat` gives the next minor version while the major
 version is 0, and a `fix` or a `perf` gives the next patch version.
 
-A release tag starts the signed release of ADR-0013. The repository makes a published release
-immutable, so the assets go to a draft release first. The version of the chart must be the
+A release tag starts the signed release of [ADR-0013](0013-sign-releases-with-keyless-cosign-signatures.md). The repository makes a published release
+immutable, so the assets go to a draft release first. The version of the chart has to be the
 version of the release.
 
 GitHub starts no workflow for a pull request, a tag, or a release that the `GITHUB_TOKEN` of a
@@ -52,13 +52,13 @@ Goals:
 
 Non-goals:
 
-* The signatures and the SBOMs, which ADR-0013 decides.
+* The signatures and the SBOMs, which [ADR-0013](0013-sign-releases-with-keyless-cosign-signatures.md) decides.
 * Version 1.0.0, which the maintainers decide.
 
 ## Options considered
 
 **A tag from the maintainers.** The maintainers select the version from the table of the
-contributing guide, and pushes a tag. It needs no tool and no credential. However, a person can
+contributing guide, and push a tag. It needs no tool and no credential. However, a person can
 select the wrong version, the chart version needs a separate step, and nothing writes a
 changelog.
 
@@ -67,7 +67,7 @@ releases each change alone, unless a person starts it by hand, and then it does 
 release before it happens.
 
 **An action that calculates a tag.** Actions such as `mathieudutour/github-tag-action` calculate
-the next version and push a tag. However, the maintainers must still decide when to run one, and
+the next version and push a tag. However, the maintainers still have to decide when to run one, and
 these actions write no changelog and update no other file.
 
 **release-please.** It keeps a release pull request that shows the next version and the
@@ -90,7 +90,7 @@ pull request.
   of 0.1.0. Without the initial version, its first release is 1.0.0. It writes the version into
   `CHANGELOG.md` and into both versions of `Chart.yaml`.
 * It creates the release as a draft with the changelog, and it creates the tag at once. The tag
-  starts the release workflow of ADR-0013, which adds the assets and publishes the draft.
+  starts the release workflow of [ADR-0013](0013-sign-releases-with-keyless-cosign-signatures.md), which adds the assets and publishes the draft.
 * Every 0.x release is a pre-release, and it is not marked as the latest release.
   `scripts/release-finish.sh` decides this from the tag when it publishes the draft, because a
   published release is immutable and a tag rule cannot be forgotten at version 1.0.0. Sources,
@@ -132,7 +132,7 @@ Bad:
 
 * A GitHub App with write access to the repository exists, and its private key is a credential
   to protect and to rotate.
-* The release pull request adds commits from the App, and the maintainers must review them.
+* The release pull request adds commits from the App, and the maintainers have to review them.
 * The release has two approvals: the merge of the release pull request, and the deployment to the
   `release` environment. With one maintainer, the same person gives both. The approver compares
   the SHA of the tag with the merge commit of the release pull request.

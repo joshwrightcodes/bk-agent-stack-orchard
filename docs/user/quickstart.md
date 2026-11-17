@@ -23,7 +23,7 @@ You need:
 
 * **A Mac with Apple silicon**, with about 60 GB of free disk space. The Mac is the host of the
   VMs. Apple permits at most two macOS VMs on one Mac at a time.
-* **Tart and Softnet.** Install them from Homebrew, then give Softnet the set-user-ID bit, so that
+* **Tart and Softnet.** Install them from Homebrew. Then give Softnet the set-user-ID bit, so that
   a VM can start without a password prompt:
 
   ```sh
@@ -66,8 +66,8 @@ The command:
      has only the roles that it needs.
    * Each run makes a new certificate and new tokens. The command does not put them on a command
      line, so the process list does not show them. It deletes them with its work directory.
-4. Downloads the newest release of the controller for macOS. It checks that the release was
-   built from a commit on the `main` branch of this repository. It checks the signature of the
+4. Downloads the newest release of the controller for macOS. It checks that the release comes
+   from a commit on the `main` branch of this repository. It checks the signature of the
    release, which must come from the release workflow of this repository for that commit, and the
    checksum of the archive. If the GitHub CLI (`gh`) is installed and logged in, it also checks the
    provenance attestation of the release, from the same workflow and commit. It stops if one of
@@ -131,7 +131,7 @@ tart delete ghcr.io/cirruslabs/macos-golden-gate-base@sha256:14f4fc32a778763ccae
 | `something already answers on port 6120` | Another program, often another Orchard, listens on port 6120 of this Mac. Stop it, or give the address of your Orchard with `--orchard-url`. |
 | `Softnet needs the set-user-ID bit` | Run the two commands that the message shows. |
 | The controller stops with `buildkite did not accept the agent token` | The token is not a cluster agent token. Create one for the cluster of the queue. |
-| The job stays `scheduled`, and the log says `the controller skips a job that no profile carries` | The tags of the job must be the queue and the `--match` tags, and no others. |
+| The job stays `scheduled`, and the log says `the controller skips a job that no profile carries` | Give the job the queue tag and the `--match` tags, and no other tags. |
 | The job fails with `the image has "buildkite-agent version 3…"` | The profile uses the agent of the image. The quick start downloads the agent, so this happens only with your own configuration. |
 
 ## Next steps

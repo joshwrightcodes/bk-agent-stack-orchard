@@ -8,7 +8,7 @@ decision-makers: Josh Wright
 
 ## Summary
 
-ADR-0006 decided that a job that matches no profile fails immediately, with a message. A queue can
+[ADR-0006](0006-route-jobs-to-vm-profiles-by-agent-tags.md) decided that a job that matches no profile fails immediately, with a message. A queue can
 carry more than one stack or agent, and a job that this controller cannot carry may be the job of
 another runner. The decision is to skip such a job: the controller never reserves it, never
 finishes it, and gives it no VM slot. It writes one notification on the job page, one log line,
@@ -17,16 +17,16 @@ failure: the job waits.
 
 ## Context
 
-ADR-0006 selects a VM profile by an exact match of the agent tags. It also says that a job with no
-matching profile fails at once, and that the message lists the profiles. ADR-0007 gives the fleet
+[ADR-0006](0006-route-jobs-to-vm-profiles-by-agent-tags.md) selects a VM profile by an exact match of the agent tags. It also says that a job with no
+matching profile fails at once, and that the message lists the profiles. [ADR-0007](0007-use-a-dedicated-queue-for-the-macos-fleet.md) gives the fleet
 a dedicated queue, but the queue is a Buildkite object, and the owner can run another stack or a
 plain agent on it. Every stack of a queue reads the same list of scheduled jobs. A job that this
 controller does not carry is therefore not an error of the job: another runner can carry it.
 
-ADR-0007 and PR-031 also say that only VMs of this fleet serve the queue. Under that rule, no
+[ADR-0007](0007-use-a-dedicated-queue-for-the-macos-fleet.md) and [PR-031](../product/requirements.md#pr-031) also say that only VMs of this fleet serve the queue. Under that rule, no
 other runner exists, and a skipped job can only wait until Buildkite expires it. The owner decided
 on 2026-11-03 that unmatched jobs stay skipped, so that another runner can take them, and that
-the macOS queue may also be served by other agents or stacks.
+other agents or stacks can also serve the macOS queue.
 
 If this controller reserves such a job and finishes it, it ends a job that a second runner could
 have run. The owner decided on 2026-11-01 (decision D1) that this controller always skips an
@@ -34,7 +34,7 @@ unmatched job. A job is unmatched if its tags match no profile, if a rule is not
 `key=value`, or if a tag value is one that the matcher refuses (a comma, a newline, a carriage
 return, a quote, padding, or a reserved key).
 
-Invariant I-8 stays: an unmatched job uses no VM slot. The Stacks API notification of a job
+Invariant [I-8](../quality/test-strategy.md#i-8) stays: an unmatched job uses no VM slot. The Stacks API notification of a job
 accepts a detail of up to 256 characters (read 2026-11-01), so the old message that listed the
 `match` map of every profile does not fit.
 
@@ -55,7 +55,7 @@ Non-goals:
 
 ## Options considered
 
-**Fail the job (ADR-0006).** The pipeline author sees a fast failure. However, the controller
+**Fail the job ([ADR-0006](0006-route-jobs-to-vm-profiles-by-agent-tags.md)).** The pipeline author sees a fast failure. However, the controller
 fails jobs that another runner could carry, and a queue with two stacks cannot work.
 
 **Fail the job unless an option says to skip.** One option for each queue. However, the default
@@ -90,21 +90,21 @@ Skip a job that matches no profile.
   once more.
 * While the queue is `dispatch_paused`, the controller does nothing new.
 
-This decision replaces only the sentence of ADR-0006 that says that a job with no matching
+This decision replaces only the sentence of [ADR-0006](0006-route-jobs-to-vm-profiles-by-agent-tags.md) that says that a job with no matching
 profile fails immediately, and the consequence "A mismatch fails immediately with a message". The
-rest of ADR-0006 holds, so ADR-0006 keeps its status. ADR-0015 did the same for ADR-0010.
+rest of [ADR-0006](0006-route-jobs-to-vm-profiles-by-agent-tags.md) holds, so [ADR-0006](0006-route-jobs-to-vm-profiles-by-agent-tags.md) keeps its status. [ADR-0015](0015-generate-only-the-orchard-fields-the-controller-uses.md) did the same for [ADR-0010](0010-call-the-orchard-api-with-a-client-of-this-project.md).
 
-This decision also amends ADR-0007:
+This decision also amends [ADR-0007](0007-use-a-dedicated-queue-for-the-macos-fleet.md):
 
-* The macOS queue MAY also be served by other agents or stacks. This replaces the rule of ADR-0007
+* Other agents or stacks MAY also serve the macOS queue. This replaces the rule of [ADR-0007](0007-use-a-dedicated-queue-for-the-macos-fleet.md)
   that only VMs of this fleet run the jobs of the queue: the goal "Job separation", its Decision
   sentence "Only VMs of this fleet run the jobs of this queue", the consequence "Only VMs of this
   fleet run macOS jobs", and its Confirmation.
 * The capacity accounting of this controller MUST count only the workers that its profiles
   select. A job that another runner can take is not a concern of this controller.
-* The rest of ADR-0007 holds: the fleet has a dedicated self-hosted queue, the cluster MAY contain
+* The rest of [ADR-0007](0007-use-a-dedicated-queue-for-the-macos-fleet.md) holds: the fleet has a dedicated self-hosted queue, the cluster MAY contain
   other queues, the fleet runs no job of another queue, and a leaked cluster agent token reaches
-  the other self-hosted queues of the cluster. ADR-0007 keeps its status.
+  the other self-hosted queues of the cluster. [ADR-0007](0007-use-a-dedicated-queue-for-the-macos-fleet.md) keeps its status.
 
 ## Consequences
 
@@ -123,7 +123,7 @@ Bad:
   the target design). More than 3 pages of 1000 skipped jobs make the jobs behind them wait for
   later reads, and the counter `bkaso.queue.truncated` is the sign.
 * After a restart, the controller can write a second notification for a job.
-* Another agent or stack on the queue runs untrusted macOS builds as well. ADR-0004 binds the VMs
+* Another agent or stack on the queue runs untrusted macOS builds as well. [ADR-0004](0004-treat-all-builds-as-untrusted.md) binds the VMs
   of this fleet only. The operator decides the isolation of each other runner of the queue.
 * The waiting jobs that this controller reports cover only the jobs that its profiles carry. The
   free slots that it reports (`bkaso.slot.count`) cover every online worker that Orchard returns,
@@ -138,11 +138,11 @@ Bad:
 ## Confirmation
 
 * A launcher test confirms that an unmatched job is not in the reserve call, has no finish call,
-  gets one notification, and is not notified at a second tick.
+  gets one notification, and gets no second notification at a later tick.
 * A launcher test confirms the same for a rule that is not a literal, and for a refused value.
 * A launcher test confirms that a batch of matched and unmatched jobs reserves only the matched
   jobs.
 * A test confirms that the set of notified jobs has a bound and evicts jobs that left the list.
-* The property tests (I-8) confirm that an unmatched job has no VM.
+* The property tests ([I-8](../quality/test-strategy.md#i-8)) confirm that an unmatched job has no VM.
 * Before the controller goes live, a review of the queue lists each agent and stack that serves
-  it (T-140).
+  it ([T-140](../quality/test-strategy.md#t-140)).

@@ -20,9 +20,9 @@ Mac.
 
 Tart and Softnet come from the `openai/tools` Homebrew tap
 ([openai/homebrew-tools](https://github.com/openai/homebrew-tools#tart-related-projects)), and the
-[`Brewfile`](../Brewfile) installs them. The `cirruslabs/cli` tap is no longer where they are
-published. Homebrew 7 loads a formula from a tap that is not official only after you trust the
-tap, so run `brew trust openai/tools` before `brew bundle`.
+[`Brewfile`](../Brewfile) installs them. They are no longer in the `cirruslabs/cli` tap. Homebrew
+7 loads a formula from a tap that is not official only after you trust the tap. Because of this,
+run `brew trust openai/tools` before `brew bundle`.
 
 Homebrew installs `softnet` without the setuid bit. The first time that a VM uses Softnet, Tart
 asks for a sudo password on a terminal to set the bit. Set the bit once after each install or
@@ -33,11 +33,10 @@ softnet_bin=$(realpath "$(brew --prefix)/bin/softnet")
 sudo chown root "$softnet_bin" && sudo chmod u+s "$softnet_bin"
 ```
 
-The Tart test below needs Tart and Softnet. Install Tart at version
-2.41.1. The pin is `orchard_worker_tart_version` in
-`deploy/hosts/roles/orchard_worker/defaults/main.yml` (checked 2026-11-01), and the Mac hosts use
-the same version. The minimum version is 2.39.0 (target design, section 9.2). Install the release
-archive of the pinned version, and check it against the SHA-256 in the same file
+The Tart test below needs Tart and Softnet. Install the Tart version that
+`orchard_worker_tart_version` in `deploy/hosts/roles/orchard_worker/defaults/main.yml` pins. The Mac
+hosts use the same version. The minimum version is 2.39.0 (target design, section 9.2). Install the
+release archive of the pinned version, and check it against the SHA-256 in the same file
 (`orchard_worker_tart_sha256`). A Homebrew formula can replace the archive when it gives the same
 version. Then check the version:
 
@@ -51,7 +50,7 @@ Orchard comes from `mise install` (the version of `mise.toml`), so it needs no f
 
 `mise run tart-test` runs one job on a real Tart VM of this Mac: the controller, `orchard dev` with
 a real worker, and the agent image. It is the evidence that the Tart guest agent runs the startup
-script (test strategy, open item O-2). Build the image with `mise run agent-image`, and name it:
+script (test strategy, open item [O-2](quality/test-strategy.md#o-2)). Build the image with `mise run agent-image`, and name it:
 
 ```sh
 BKASO_TART_IMAGE=bkaso-agent mise run tart-test
@@ -64,12 +63,13 @@ run a macOS VM.
 image digest that does not exist, an agent that exits, and an agent that runs and acquires nothing.
 The test checks what each job page says, and that no VM remains. It takes about five minutes.
 
-`mise run restart-test` crashes the controller while the agent of a job runs in a real VM. The VM
-must continue. The next process must take it over without a second VM, and it must delete the VM
-when the job ends.
+`mise run restart-test` crashes the controller while the agent of a job runs in a real VM. The test
+checks that the VM continues. It also checks that the next process manages the VM without a second
+VM, and deletes the VM when the job ends.
 
-`mise run softnet-test` probes the network from a VM of the controller specification. The VM must
-reach the Internet and DNS. It must not reach the LAN, another VM, or a service of the Mac itself.
+`mise run softnet-test` probes the network from a VM of the controller specification. The test
+checks that the VM reaches the Internet and DNS. It also checks that the VM cannot reach the LAN,
+another VM, or a service of the Mac itself.
 Softnet alone lets a VM reach the Mac through the gateway of its network, and the hosts close this
 path with pf (`deploy/hosts`). `deploy/hosts/test/pf.sh` loads the same rules on the Mac from the
 template of the role. Run it through `mise x --`, because it needs `ansible` and `jq` from
@@ -106,19 +106,19 @@ tart run --no-graphics --net-softnet bkaso-peer-test &   # second run: Softnet
 tart stop bkaso-peer-test && tart delete bkaso-peer-test # after the second run
 ```
 
-`mise run hosts-test` needs the opposite: its test VM reaches an Orchard controller on the Mac,
-which the rules block, so remove them before it. Besides the playbook, it disables pf and removes
-the rules in its VM, and checks that the launchd job of the hosts restores them within a minute. It
-also checks that only the worker user can run Softnet, and that the playbook removes a cached
-image that no profile names.
+`mise run hosts-test` needs the opposite. Its test VM reaches an Orchard controller on the Mac, and
+the rules block that path. Because of this, remove the rules before you run the test. Besides the
+playbook, it disables pf and removes the rules in its VM, and checks that the launchd job of the
+hosts restores them within a minute. It also checks that only the worker user can run Softnet, and
+that the playbook removes a cached image that no profile names.
 
 The test also checks the drain of a host before a change that restarts the worker. Its VM cannot
 start a job VM, so the test suspends the worker process and gives Orchard a VM, which stays pending
-on the worker, as the VM of a starting job does. A change of the labels then runs into the drain
-time limit: the playbook must resume the worker, change nothing, and fail with the name of the
-host. When the test removes the VM, the same change must pause the worker, restart it with the new
-labels, and resume it. Last, a drain-only run must leave the worker paused, and the next run must
-resume it. Run the test from the repository root:
+on the worker, as the VM of a starting job does. A change of the labels then reaches the drain
+time limit. The test checks that the playbook then resumes the worker, changes nothing, and fails
+with the name of the host. When the test removes the VM, it checks that the same change pauses the
+worker, restarts it with the new labels, and resumes it. Last, it checks that a drain-only run
+leaves the worker paused, and that the next run resumes it. Run the test from the repository root:
 
 ```sh
 mise x -- deploy/hosts/test/pf.sh unload   # only when the rules of the hosts are loaded on this Mac

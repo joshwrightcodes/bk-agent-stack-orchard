@@ -15,10 +15,10 @@ replacement procedure.
 
 ## Context
 
-The controller from ADR-0001 calls the Buildkite Stacks API, and the Stacks API accepts only a
+The controller from [ADR-0001](0001-provision-macos-job-vms-with-a-custom-stack-controller.md) calls the Buildkite Stacks API, and the Stacks API accepts only a
 cluster agent token. The token gives access to all self-hosted queues of its cluster. The cluster
-can contain other queues (ADR-0007), so a leaked token reaches them. A leaked token also lets an
-attacker register agents and take macOS jobs. The token must never go into a job VM (ADR-0004).
+can contain other queues ([ADR-0007](0007-use-a-dedicated-queue-for-the-macos-fleet.md)), so a leaked token reaches them. A leaked token also lets an
+attacker register agents and take macOS jobs. [ADR-0004](0004-treat-all-builds-as-untrusted.md) forbids this token in a job VM.
 
 The token also affects each job VM. A job VM agent registers with a job acquisition token that the
 controller issues. At that registration, Buildkite applies the expiry and the IP allowlist of the
@@ -26,20 +26,21 @@ agent token that issued the job acquisition token.
 
 As of 2026-09-13, Buildkite OAuth Token Exchange issues short-lived tokens for the REST API and the
 GraphQL API only. A REST API token with the `write_clusters` scope can create cluster agent tokens.
-The controller can run on different platforms, so the token must not depend on one secret store.
+The controller can run on different platforms, so the token has to be independent of any one secret
+store.
 
 ## Goals and non-goals
 
 Goals:
 
 * **Small blast radius.** A leaked credential is useful for a short time, from few addresses
-  (SE-03).
-* **Least privilege.** The controller holds no privilege that it does not need (SE-03).
+  ([SE-03](../architecture/system-design-baseline.md#se-03)).
+* **Least privilege.** The controller holds no privilege that it does not need ([SE-03](../architecture/system-design-baseline.md#se-03)).
 * **Reliable job registration.** Agents in job VMs can always register with their job acquisition
-  tokens (PR-023).
-* **Portability.** The solution does not depend on a specific platform or secret store (PR-022,
-  OP-04).
-* **Simple operation.** The solution is simple to operate (OP-01).
+  tokens ([PR-023](../product/requirements.md#pr-023)).
+* **Portability.** The solution does not depend on a specific platform or secret store ([PR-022](../product/requirements.md#pr-022),
+  [OP-04](../architecture/system-design-baseline.md#op-04)).
+* **Simple operation.** The solution is simple to operate ([OP-01](../architecture/system-design-baseline.md#op-01)).
 * **Reversibility.** A later change of the credential model needs no change to jobs or pipelines.
 
 Non-goals:
@@ -53,13 +54,13 @@ Non-goals:
 token for this controller only, with `expires_at` and `allowed_ip_addresses`. The platform supplies
 the token to the controller through an environment variable. The controller needs no REST API
 scopes, and the allowlist can include the addresses of the job VMs. However, the token lives for up
-to 90 days, and a person must replace it.
+to 90 days, and a person has to replace it.
 
 **A token that the controller creates through OAuth Token Exchange.** The controller uses OAuth
 Token Exchange as a bot user to get a REST API token with the `write_clusters` scope. With that
 token, it creates a cluster agent token that expires after 24 hours, and it replaces the token
 before expiry. Each cluster agent token lives for only 24 hours. However, the `write_clusters`
-scope can change queues and revoke other tokens. Tokens that job VMs still need must stay valid
+scope can change queues and revoke other tokens. Tokens that job VMs still need have to stay valid
 during each replacement. The controller still stores a signing key and its orchestrator token, so
 the number of stored secrets does not decrease. The controller also needs code to create, replace,
 and revoke tokens.
@@ -96,9 +97,9 @@ Good:
 Bad:
 
 * A static secret with a life of up to 90 days exists.
-* A leaked token reaches the other self-hosted queues of the cluster (ADR-0007).
+* A leaked token reaches the other self-hosted queues of the cluster ([ADR-0007](0007-use-a-dedicated-queue-for-the-macos-fleet.md)).
 * Token replacement is a manual procedure, or needs external automation.
-* The allowlist must change when the egress addresses of the controller or the hosts change.
+* The allowlist has to change when the egress addresses of the controller or the hosts change.
 
 Review trigger:
 

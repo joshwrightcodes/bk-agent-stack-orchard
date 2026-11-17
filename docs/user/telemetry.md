@@ -57,9 +57,9 @@ call is one request, so a retry shows there and not in `cicd.system.errors`.
 
 Each series exists from the start of the process, with 0 where nothing is counted. A pool is
 known only from the workers, so its series start with the first read of Orchard. A series that
-falls to zero reports 0, and does not stop. The ages are computed when the collector reads them,
-so they keep rising while the loop is stuck. The liveness check fails after 15 minutes without a
-finished tick, and the platform then restarts the process.
+falls to zero reports 0, and does not stop. The controller computes the ages when the collector
+reads them, so they keep rising while the loop is stuck. The liveness check fails after 15 minutes
+without a finished tick, and the platform then restarts the process.
 
 An alert that compares a value does not fire on a series that does not exist. For each alert on
 the controller, also alert when its series is absent for the `service.instance.id` of the
@@ -86,7 +86,7 @@ host carries more VMs than it advertises:
 |---|---|
 | `total` | Every slot of the online hosts. |
 | `used` | Slots that a VM of any owner holds. |
-| `reserved` | Open slots that a VM will take: a VM that Orchard holds and no host runs yet, or a VM that the controller asked for and has not seen yet. |
+| `reserved` | Open slots for a VM that does not run yet: a VM that Orchard holds and no host runs yet, or a VM that the controller asked for and has not seen yet. |
 | `unavailable` | Open slots of a host that admission does not use: an operator paused it, or no profile has its labels. |
 | `free` | Open slots that admission can give a new VM, when the host also has the cores and the memory of the profile. |
 
@@ -132,7 +132,7 @@ The phases of `bk_agent_stack_orchard.job.phase.duration`:
 | `reserved_to_placed` | the reservation | Orchard gives the VM a host |
 | `placed_to_running` | the host | the VM runs |
 | `running_to_accepted` | the VM runs | the agent takes the job |
-| `finished_to_deleted` | the job ends | the VM is deleted |
+| `finished_to_deleted` | the job ends | the controller deletes the VM |
 | `total` | the job is scheduled | the agent takes the job |
 
 The controller sees a change at each read, so each phase is accurate to about `jobStatesInterval`

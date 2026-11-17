@@ -50,8 +50,8 @@ the runbook [Orchard worker accounts](orchard-worker-accounts.md) describes.
    ```
 
    `/usr/local/etc/orchard-worker` holds the token of the host, so its removal takes the token off
-   the host. The power settings of the playbook stay. Change them with `pmset` if the host gets
-   another use.
+   the host. The power settings of the playbook stay. If the host gets another use, change them
+   with `pmset`.
 5. Remove the host from the inventory, and its token from the inventory vault.
 6. Revoke the account of the host: follow "Revoke one host" in the runbook [Orchard worker
    accounts](orchard-worker-accounts.md). It removes the key of the host from the Secret, deletes

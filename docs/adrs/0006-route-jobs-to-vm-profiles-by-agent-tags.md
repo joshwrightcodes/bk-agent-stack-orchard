@@ -20,21 +20,22 @@ allowlists. A VM profile describes one such VM.
 
 The Stacks API gives all scheduled jobs of a queue, and it does not filter them by agent tags. The
 agent in the VM also ignores agent tags when it acquires its job. Because of this, the controller
-must map each job to a profile.
+has to map each job to a profile.
 
-Two earlier decisions limit the choice. Hosts must pull each image before use (ADR-0005), so the
-set of images must be finite. Builds are untrusted (ADR-0004), so pipelines must not select any
-image that they want.
+Two earlier decisions limit the choice. Hosts have to pull each image before use ([ADR-0005](0005-run-and-schedule-vms-with-tart-and-orchard.md)), so
+the set of images has to be finite. Builds are untrusted ([ADR-0004](0004-treat-all-builds-as-untrusted.md)), so pipelines cannot select
+any image that they want.
 
 ## Goals and non-goals
 
 Goals:
 
-* **Standard tags.** Pipeline authors state requirements with standard `agents:` tags (PR-003).
+* **Standard tags.** Pipeline authors state requirements with standard `agents:` tags ([PR-003](../product/requirements.md#pr-003)).
 * **Predictable mapping.** Each job maps to exactly one profile, or it fails with a clear message
-  (PR-003, PR-004).
-* **Finite images.** The set of images is finite, so hosts can pull them before use (SC-07, SC-09).
-* **No arbitrary images.** Pipelines cannot select an arbitrary image (SE-01).
+  ([PR-003](../product/requirements.md#pr-003), [PR-004](../product/requirements.md#pr-004)).
+* **Finite images.** The set of images is finite, so hosts can pull them before use ([SC-07](../architecture/system-design-baseline.md#sc-07),
+  [SC-09](../architecture/system-design-baseline.md#sc-09)).
+* **No arbitrary images.** Pipelines cannot select an arbitrary image ([SE-01](../architecture/system-design-baseline.md#se-01)).
 * **Few queues.** The number of Buildkite queues stays small.
 * **Reversibility.** A later change of the routing model needs few pipeline changes.
 
@@ -73,8 +74,8 @@ image. The image set also has no limit, so hosts cannot pull the images before u
 Use one Buildkite queue, and let the agent tags of each job select a VM profile. It is the only
 option that meets all goals.
 
-The match is exact. The agent tags of the job, without `queue`, must be equal to the `match` map of
-one profile. A subset match or a best-fit match could let a job with an extra tag run on a less
+The match is exact. The agent tags of the job, without `queue`, have to be equal to the `match` map
+of one profile. A subset match or a best-fit match could let a job with an extra tag run on a less
 specific profile. Exact match prevents this. A job that matches no profile fails immediately, and
 the message lists the available profiles. The [target design](../architecture/target-design.md)
 gives the full algorithm.
@@ -89,7 +90,7 @@ Good:
 
 Bad:
 
-* The controller must parse and compare tags.
+* The controller has to parse and compare tags.
 * Each tag combination in use needs a profile.
 * Wildcard and negated tag rules do not work.
 

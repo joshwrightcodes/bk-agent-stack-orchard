@@ -17,11 +17,11 @@ is a controller to build and operate.
 ## Context
 
 The new macOS CI fleet uses self-hosted Apple Silicon Macs. The first fleet has 2 to 10 Macs, and
-the target is 10 to 50 Macs (SC-01). The hosts have no VM tooling yet.
+the target is 10 to 50 Macs ([SC-01](../architecture/system-design-baseline.md#sc-01)). The hosts have no VM tooling yet.
 
 The [product requirements](../product/requirements.md) and the
 [system design baseline](../architecture/system-design-baseline.md) own the requirements and the
-measurable drivers. Identifiers in this ADR, such as PR-005 and QA-01, refer to these documents.
+measurable drivers. Identifiers in this ADR, such as [PR-005](../product/requirements.md#pr-005) and [QA-01](../architecture/system-design-baseline.md#qa-01), refer to these documents.
 
 The owner states three reasons to run the jobs on owned hardware: cost, data sovereignty, and
 performance. Source code and build artefacts stay on hardware that the owner controls, and the
@@ -30,7 +30,7 @@ One person builds and operates the whole system.
 
 Buildkite runs the pipelines. Jobs that need macOS go to a self-hosted queue. A job stays in the
 `scheduled` state until an agent acquires it, so the number of scheduled jobs shows the demand for
-agents. Buildkite does not start agents for a self-hosted queue, so the fleet must supply them.
+agents. Buildkite does not start agents for a self-hosted queue, so the fleet has to supply them.
 
 The simplest solution is a permanent agent on each host. That solution does not isolate jobs,
 because each job runs directly on the host operating system. Each job therefore needs a new VM that
@@ -39,26 +39,26 @@ macOS VMs on one host at the same time. A fleet of 10 to 50 Macs has only 20 to 
 a VM without a job blocks half of a host.
 
 Two more facts affect the decision. Some jobs cannot run, for example when no VM type matches the
-job, or when a VM does not start. These jobs must fail with a message, and must not wait in the
-queue until they expire. The VM start time target is 60 seconds for each job (QA-01). The estimate
-is 30 to 60 seconds, and telemetry will measure it after adoption.
+job, or when a VM does not start. These jobs have to fail with a message. A wait in the queue until
+they expire is not acceptable. The VM start time target is 60 seconds for each job ([QA-01](../architecture/system-design-baseline.md#qa-01)). The
+estimate is 30 to 60 seconds, and telemetry measures it after adoption.
 
 ## Goals and non-goals
 
 Goals:
 
 * **Follow demand.** Start a VM only for a scheduled job, and never start more VMs than the free
-  slots (PR-005, QA-02).
-* **Clean environment.** Run each job in a new VM that no earlier job changed (PR-001, PR-002).
-* **No long-lived credentials in VMs.** Give a VM only a credential for its own job (SE-02).
-* **VM selection.** Let each job ask for a VM image and size (PR-003).
-* **Visible failure.** Fail a job that cannot run, with a message in Buildkite (PR-004, PR-008).
+  slots ([PR-005](../product/requirements.md#pr-005), [QA-02](../architecture/system-design-baseline.md#qa-02)).
+* **Clean environment.** Run each job in a new VM that no earlier job changed ([PR-001](../product/requirements.md#pr-001), [PR-002](../product/requirements.md#pr-002)).
+* **No long-lived credentials in VMs.** Give a VM only a credential for its own job ([SE-02](../architecture/system-design-baseline.md#se-02)).
+* **VM selection.** Let each job ask for a VM image and size ([PR-003](../product/requirements.md#pr-003)).
+* **Visible failure.** Fail a job that cannot run, with a message in Buildkite ([PR-004](../product/requirements.md#pr-004), [PR-008](../product/requirements.md#pr-008)).
 * **Self-hosted.** Run the jobs on the self-hosted Apple Silicon hosts, for cost, data sovereignty,
-  and performance (BD-01, BD-02, PR-032).
+  and performance ([BD-01](../architecture/system-design-baseline.md#bd-01), [BD-02](../architecture/system-design-baseline.md#bd-02), [PR-032](../product/requirements.md#pr-032)).
 * **Recovery.** Recover after a restart without a database, and remove VMs whose jobs ended
-  (PR-010, QA-03).
+  ([PR-010](../product/requirements.md#pr-010), [QA-03](../architecture/system-design-baseline.md#qa-03)).
 * **Low ownership cost.** Build and operate as little software as possible, because one person
-  maintains the system (OP-01).
+  maintains the system ([OP-01](../architecture/system-design-baseline.md#op-01)).
 * **Reversibility.** A later change of the approach or of the VM technology has a low cost.
 
 Non-goals:
@@ -73,11 +73,11 @@ Non-goals:
 
 ## Options considered
 
-**Buildkite hosted macOS agents.** Buildkite runs macOS agents on its own infrastructure, with
-the instance shapes `MACOS_ARM64_M4_6X28` and `MACOS_ARM64_M4_12X56` (as of 2026-09-13). There is
-no build infrastructure to operate. However, the builds and their data run on Buildkite
-infrastructure, not on the self-hosted hosts, so source code checkouts leave owner infrastructure
-(PR-032). The agents do not accept custom base images, and the plan vCPU limit sets the concurrency.
+**Buildkite hosted macOS agents.** Buildkite runs macOS agents on its own infrastructure, with the
+instance shapes `MACOS_ARM64_M4_6X28` and `MACOS_ARM64_M4_12X56` (as of 2026-09-13). There is no
+build infrastructure to operate. However, the builds and their data run on Buildkite infrastructure,
+not on the self-hosted hosts, so source code checkouts leave owner infrastructure ([PR-032](../product/requirements.md#pr-032)). The
+agents do not accept custom base images, and the plan vCPU limit sets the concurrency.
 
 **A permanent agent on each host.** A Buildkite agent runs on each host and runs jobs directly on
 the host operating system. This option is the simplest, and it needs no VM tooling. However, a job
@@ -89,7 +89,7 @@ get the same host environment.
 `veertuinc/anka-buildkite-plugin` or `cirruslabs/tart-buildkite-plugin` clones a VM for each step.
 Each step gets a clean VM, and no controller is necessary. However, the number of VMs does not
 follow demand, because each host agent takes jobs directly. A long-lived agent token stays on each
-host, and the Anka plugin mounts the host build directory into the VM. Each pipeline step must
+host, and the Anka plugin mounts the host build directory into the VM. Each pipeline step has to
 declare the plugin. The Tart plugin has had no update since 2023-12.
 
 **A pool autoscaler that reads queue metrics.** The autoscaler changes the size of a pool of VMs
@@ -141,10 +141,10 @@ Good:
 Bad:
 
 * The controller needs development, tests, and operation.
-* Each job waits for a VM to start. The target is 60 seconds (QA-01), and nobody has measured the
+* Each job waits for a VM to start. The target is 60 seconds ([QA-01](../architecture/system-design-baseline.md#qa-01)), and nobody has measured the
   estimate of 30 to 60 seconds.
 * One controller replica serves one queue, so there is no high availability.
-* The platform must run only one controller replica, and nothing detects a second replica with the
+* The platform has to run only one controller replica, and nothing detects a second replica with the
   same identity. Two replicas can reserve more jobs than the free slots. The unplaced-VM timeout
   then releases these jobs, but the jobs start late.
 

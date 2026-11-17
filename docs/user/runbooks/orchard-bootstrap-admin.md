@@ -57,7 +57,7 @@ bootstrap admin has no `compute` role.
    ```
 
    The first command shows only pods of the Job. The second prints nothing. If either shows more,
-   stop and find the other user of the Secret.
+   stop. Find the other user of the Secret.
 5. Check the account: `orchard_admin GET /v1/service-accounts` lists `bootstrap-admin`.
 6. Limit who can read the Secret. Give `get`, `list`, and `watch` on Secrets of the namespace
    `orchard` to few people only, and to no workload.
@@ -99,8 +99,9 @@ the old token from the PUT on.
 
 If your fleet has no planned change of a host, you can delete the account. This also takes a
 working admin token off the data volume of Orchard: the file `/data/orchard.yml` keeps the old
-token, which Orchard then refuses. Do the steps 1 and 2 of the procedure. Then delete the
-account, check that the token is refused, and delete the key:
+token, which Orchard then refuses. Do the steps 1 and 2 of the procedure. Then run these commands.
+The first deletes the account, the second checks that Orchard refuses the token, and the third
+deletes the key:
 
 ```sh
 orchard_admin DELETE /v1/service-accounts/bootstrap-admin
@@ -118,7 +119,7 @@ account back. To re-create it:
    that key.
 2. Apply the overlay, which restarts Orchard. The API is out for a short time, and the workers and
    the controller connect again after it.
-3. Run the bootstrap Job (delete it, apply the overlay) and wait until it completes.
+3. Run the bootstrap Job (delete it, apply the overlay). Wait until it completes.
 4. Retire again with the steps 2 to 6 of the procedure.
 
 ## Warning: a start with an empty PVC can log an admin token

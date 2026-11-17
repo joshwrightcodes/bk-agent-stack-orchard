@@ -87,7 +87,7 @@ Three layers, from cheapest to strongest:
 ## If Orchard publishes a client or a specification under a permissive licence
 
 That removes the reason for this client. The change needs a new decision record that supersedes
-ADR-0010 and ADR-0015, and the client then becomes their package with a pinned version.
+[ADR-0010](../../docs/adrs/0010-call-the-orchard-api-with-a-client-of-this-project.md) and [ADR-0015](../../docs/adrs/0015-generate-only-the-orchard-fields-the-controller-uses.md), and the client then becomes their package with a pinned version.
 
 ## Running the generator
 

@@ -63,7 +63,7 @@ and the tags of the image, so the job page shows what the VM stands for.
 
 Apple permits at most two macOS VMs on one Mac at a time, so each Mac host has two VM slots. The
 controller counts the free slots of the hosts that can run a profile before it reserves a job. It
-never reserves a job that has no slot, because a reserved job is hidden from other runners.
+never reserves a job that has no slot, because other runners cannot see a reserved job.
 
 The controller does not add or remove Mac hosts. To run more jobs at once, add hosts to Orchard.
 
@@ -73,10 +73,10 @@ Each phase of a start has a time limit, which a profile can change:
 
 | Phase | Limit | What happens |
 |---|---|---|
-| Waiting for a host | `unplaced`, 2 min | The VM is deleted, and the job goes back to the queue. |
-| Image pull, clone, and VM start | `boot`, 15 min | The job fails, and the VM is deleted. |
+| The wait for a host | `unplaced`, 2 min | The controller deletes the VM, and the job returns to the queue. |
+| Image pull, clone, and VM start | `boot`, 15 min | The job fails, and the controller deletes the VM. |
 | macOS boot and agent start | `acquire`, 5 min | The job fails with the last lines of the startup script. |
-| The whole life of a VM | `maxVMLifetime`, 25 h | The VM is deleted, whatever the job does. |
+| The whole life of a VM | `maxVMLifetime`, 25 h | The controller deletes the VM, whatever the job does. |
 
 The controller measures each start limit on its own clock, from the moment that it first sees the
 VM in that phase. After a restart, each start limit starts again, so a VM can wait longer than its
@@ -93,32 +93,30 @@ the job, and the controller only deletes the VM.
 ## Restarts and outages
 
 The controller keeps no state of its own. After a restart, it reads the jobs from Buildkite and the
-VMs from Orchard, and carries on: it keeps a VM whose job still runs, and deletes a VM whose job
+VMs from Orchard, and continues: it keeps a VM whose job still runs, and deletes a VM whose job
 ended while it was down.
 
-If Buildkite or Orchard does not answer, the controller stops starting VMs, and reports that it is
-not ready. VMs that run keep running. When the answers come back, it carries on.
+If Buildkite or Orchard does not answer, the controller starts no new VMs, and reports that it is
+not ready. VMs that run continue to run. When the answers return, the controller continues.
 
 An answer about the jobs of the VMs that names none of them counts as no answer, because the
 controller cannot tell it from an answer that lost its data. A job counts as unknown to Buildkite
 only when two answers in a row leave it out, and only then does the controller delete its VM.
 
-Each call to Buildkite or Orchard has a time limit of 10 seconds. An API that stops answering
-therefore cannot stop the controller. While Buildkite does not answer, the controller still deletes
+Each call to Buildkite or Orchard has a time limit of 10 seconds. Because of this, an API that does
+not answer cannot stop the controller. While Buildkite does not answer, the controller still deletes
 a VM whose name has its prefix but no job, and a VM older than `maxVMLifetime`. While Orchard does
-not answer, the controller still keeps the reservations of the jobs whose VMs start, and it fails
-no job on what it saw of a VM before Orchard stopped answering. The
-controller makes up to 8 calls for VMs at the same time, and it stops them at the first call that
-gets no answer. In one tick it reserves at most 24 jobs, which is what it can start in that tick.
-When
-Buildkite or Orchard asks the controller to wait, it waits up to 30 seconds before it reads the
-same data again.
+not answer, the controller still keeps the reservations of the jobs whose VMs start. It also fails
+no job on what it saw of a VM before the Orchard outage. The controller makes up to 8 calls for VMs
+at the same time, and it stops them at the first call that gets no answer. In one tick it reserves
+at most 24 jobs, which is what it can start in that tick. When Buildkite or Orchard asks the
+controller to wait, it waits up to 30 seconds before it reads the same data again.
 
 ## Isolation
 
 The controller treats every build as untrusted:
 
-* Each VM runs one job, and is deleted after it.
+* Each VM runs one job, and the controller deletes it after the job.
 * The VM gets a token for its own job only. The cluster agent token and the Orchard token stay with
   the controller.
 * Softnet keeps the VM away from the other VMs and from private networks, except the ranges that
@@ -129,6 +127,6 @@ The controller treats every build as untrusted:
 ## What it does not do
 
 * It serves one queue. Run one controller for each queue.
-* It runs as one replica. A restart takes a few seconds, and the jobs that run keep running.
+* It runs as one replica. A restart takes a few seconds, and the jobs that run continue to run.
 * It does not keep warm VMs. Each job waits for its VM to boot.
 * It does not scale the Mac hosts.

@@ -8,20 +8,20 @@ decision-makers: Josh Wright
 
 ## Summary
 
-The controller from ADR-0001 needs software that runs macOS VMs on the self-hosted hosts and
+The controller from [ADR-0001](0001-provision-macos-job-vms-with-a-custom-stack-controller.md) needs software that runs macOS VMs on the self-hosted hosts and
 schedules the VMs across the hosts. The decision is to use Tart to run the VMs and Orchard to
 schedule them. Both have no licence cost for this use, and Orchard can run tests with synthetic
 workers instead of Mac hosts. The cost is a dependency on one Orchard controller and on Orchard
-fixes that are not released yet.
+fixes that are not in a release yet.
 
 ## Context
 
-ADR-0001 decides that a controller creates one VM for each job through a VM orchestrator. No
+[ADR-0001](0001-provision-macos-job-vms-with-a-custom-stack-controller.md) decides that a controller creates one VM for each job through a VM orchestrator. No
 orchestrator exists yet.
 
-Apple permits a maximum of two macOS VMs on one host. The orchestrator must enforce this limit and
-report the free capacity to the controller. It must also isolate the network of each VM and keep
-host directories out of the VM (ADR-0004). Finally, it must start the Buildkite agent in the VM.
+Apple permits a maximum of two macOS VMs on one host. The orchestrator has to enforce this limit and
+report the free capacity to the controller. It also has to isolate the network of each VM and keep
+host directories out of the VM ([ADR-0004](0004-treat-all-builds-as-untrusted.md)). Finally, it has to start the Buildkite agent in the VM.
 
 The controller is a Go program, so a Go client or a documented REST API decreases the integration
 work. The tests of the controller run in CI, where no Mac hosts exist.
@@ -31,12 +31,12 @@ work. The tests of the controller run in CI, where no Mac hosts exist.
 Goals:
 
 * **Capabilities.** An API creates, lists, and deletes VMs, and gives data for free capacity
-  (SC-02).
-* **Isolation.** Each VM can have an isolated network and no host mounts (PR-030).
-* **Low licence cost.** The software has a low licence cost for this use (CO-02).
+  ([SC-02](../architecture/system-design-baseline.md#sc-02)).
+* **Isolation.** Each VM can have an isolated network and no host mounts ([PR-030](../product/requirements.md#pr-030)).
+* **Low licence cost.** The software has a low licence cost for this use ([CO-02](../architecture/system-design-baseline.md#co-02)).
 * **Testability.** Tests can use the real orchestrator API without Mac hosts.
-* **Integration.** A Go client or a documented REST API exists (CO-04).
-* **Low ownership cost.** As little orchestration logic as possible needs development (OP-01).
+* **Integration.** A Go client or a documented REST API exists ([CO-04](../architecture/system-design-baseline.md#co-04)).
+* **Low ownership cost.** As little orchestration logic as possible needs development ([OP-01](../architecture/system-design-baseline.md#op-01)).
 * **Reversibility.** A later change of the orchestrator has a low cost.
 
 Non-goals:
@@ -58,7 +58,7 @@ Orchard controller is one instance with an embedded database. Orchard releases b
 release worker capacity before a VM stops, and Orchard does not delete failed VMs.
 
 **Tart without an orchestrator.** The controller runs `tart` commands on each host through SSH.
-There is no orchestrator to operate. However, the controller must implement host inventory,
+There is no orchestrator to operate. However, the controller has to implement host inventory,
 placement, VM lifecycle, and host failure detection. The controller also needs SSH access to each
 host, and tests need real Mac hosts or a custom fake.
 
@@ -101,12 +101,12 @@ Good:
 * Softnet isolates the network of each VM.
 * CI can test against the real Orchard API with synthetic workers.
 * The Cirrus Labs image templates build Tart images with a selected Xcode version, such as the
-  Xcode 27 pilot image (PR-026).
+  Xcode 27 pilot image ([PR-026](../product/requirements.md#pr-026)).
 
 Bad:
 
-* The Orchard controller is one instance with no high availability. Its recovery must take less
-  than 15 minutes (QA-03).
+* The Orchard controller is one instance with no high availability. Its recovery has to take less
+  than 15 minutes ([QA-03](../architecture/system-design-baseline.md#qa-03)).
 * The worker capacity and overcommit corrections need Orchard 0.57.0 or later. This release
   contains pull requests #465 and #470.
 * The startup script uses SSH, so the VM specification contains VM credentials. Orchard 0.57.0
@@ -114,7 +114,7 @@ Bad:
 * The controller needs the Orchard `compute:write` role, and this role also permits the creation
   and deletion of workers. Orchard 0.57.0 has no narrower role.
 * Each Xcode image needs a disk of 85 to 140 GB, and each host has 1 TB storage. A host can hold
-  only a few images (SC-07, SC-09).
+  only a few images ([SC-07](../architecture/system-design-baseline.md#sc-07), [SC-09](../architecture/system-design-baseline.md#sc-09)).
 
 Review trigger:
 

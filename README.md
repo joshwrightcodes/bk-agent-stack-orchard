@@ -1,6 +1,6 @@
 # bk-agent-stack-orchard
 
-[![ci](https://github.com/joshwrightcodes/bk-agent-stack-orchard/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/joshwrightcodes/bk-agent-stack-orchard/actions/workflows/ci.yml)
+[![CI status](https://github.com/joshwrightcodes/bk-agent-stack-orchard/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/joshwrightcodes/bk-agent-stack-orchard/actions/workflows/ci.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/joshwrightcodes/bk-agent-stack-orchard/badge)](https://scorecard.dev/viewer/?uri=github.com/joshwrightcodes/bk-agent-stack-orchard)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/16316/badge)](https://www.bestpractices.dev/projects/16316)
 [![OpenSSF Baseline](https://www.bestpractices.dev/projects/16316/baseline)](https://www.bestpractices.dev/projects/16316)
@@ -39,11 +39,11 @@ mise run quickstart -- --queue macos-quickstart
 ```
 
 The command downloads and verifies the newest release of the controller, starts it with a local
-Orchard, and prints a pipeline step. Run the step in
-Buildkite: the job runs in a new VM, and the VM is deleted when the job ends. Press Ctrl-C to stop.
-The first run downloads a macOS image of about 40 GB. That upstream image is for evaluation only:
-it does not meet the production image rules of the design. The
-[quick start](docs/user/quickstart.md) gives each step, the Buildkite setup included.
+Orchard, and prints a pipeline step. Run the step in Buildkite: the job runs in a new VM, and the
+controller deletes the VM when the job ends. Press Ctrl-C to stop. The first run downloads a macOS
+image of about 40 GB. That upstream image is for evaluation only: it does not meet the production
+image rules of the design. The [quick start](docs/user/quickstart.md) gives each step, the
+Buildkite setup included.
 
 ## How it works
 

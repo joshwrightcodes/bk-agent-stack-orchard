@@ -13,7 +13,7 @@ behaviour of the project, and the code follows them. A change starts in a docume
    say what the product does, and for whom.
 4. The [target design](architecture/target-design.md), sections 4 to 7. They give the components,
    the job lifecycle, and the Reaper decision table.
-5. The [decision records](adrs/README.md). Read ADR-0001, ADR-0002, ADR-0004, and ADR-0006 first.
+5. The [decision records](adrs/README.md). Read [ADR-0001](adrs/0001-provision-macos-job-vms-with-a-custom-stack-controller.md), [ADR-0002](adrs/0002-check-capacity-before-reserving-jobs.md), [ADR-0004](adrs/0004-treat-all-builds-as-untrusted.md), and [ADR-0006](adrs/0006-route-jobs-to-vm-profiles-by-agent-tags.md) first.
 6. The [development guide](development.md). Run the tools, and follow the quick start "Run the
    controller locally".
 7. The [test strategy](quality/test-strategy.md), sections 3 to 5. They give the risks and the
@@ -27,7 +27,7 @@ a number, such as the demand model or a quality target.
 
 | Document | Question that it answers |
 |---|---|
-| [Product requirements](product/requirements.md) | What must the product do? |
+| [Product requirements](product/requirements.md) | What does the product do? |
 | [System design baseline](architecture/system-design-baseline.md) | Which drivers, targets, and assumptions limit the design? |
 | [Target design](architecture/target-design.md) | How does the controller work? |
 | [C4 model](architecture/c4.md) | What are the levels of the architecture? The file is generated from [`workspace.dsl`](architecture/workspace.dsl). |
@@ -61,7 +61,7 @@ The direction of the set is from the requirements to the design, the tests, and 
 ## Access checklist
 
 A new contributor needs these items. The maintainers grant them. Ask in a GitHub issue or
-discussion, and do not send a secret in it.
+discussion. Do not send a secret in it.
 
 * [ ] **A Buildkite test cluster.** The cluster gives a queue and a cluster agent token for the
   controller. Only a run against real Buildkite needs it. The local quick start does not.

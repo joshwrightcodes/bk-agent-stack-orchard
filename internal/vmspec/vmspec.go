@@ -199,9 +199,9 @@ const ImageTagsPath = "/usr/local/etc/bk-agent-stack-orchard/agent-tags"
 //     not go to the agent;
 //   - removes the credential helpers of ~/.gitconfig when it holds more than one. Git Credential
 //     Manager writes two (an empty one that resets the list, then itself), and buildkite-agent
-//     v4.10.2 sets its own helper with git config --global and no --replace-all, which git refuses
-//     while two exist. The machine then has the helper of the system, as an image without the
-//     manager has, and the agent adds its own;
+//     (v4.10.2, read 2026-11-17) sets its own helper with git config --global and no
+//     --replace-all, which git refuses while two exist. The machine then has the helper of the
+//     system, as an image without the manager has, and the agent adds its own;
 //   - finds the agent: it downloads the archive of the profile and checks its SHA-256, or it
 //     checks that the agent of the image is v4. A failure here ends the script before any agent
 //     starts, with a line that names the step, and Orchard then fails the machine.

@@ -113,11 +113,11 @@ The token of a pull request from a fork cannot write to code scanning, so that r
 The `main` ruleset requires a result from CodeQL, golangci-lint, and govulncheck before a pull
 request merges, so the jobs that run golangci-lint and govulncheck run on each pull request. A pull
 request from a fork has no results, so it needs a maintainer to merge it. When the filter skips
-`lint scripts`, the ruff, actionlint, and zizmor findings of the pull request are not uploaded, and
-its gate does not run. The upload does not change the result of a job. The gates (`lint`, `vuln`,
-and `lint-scripts`) fail on a finding. ShellCheck has no SARIF output, and `mise` has no converter
-with a published checksum, so the ShellCheck findings for the shell scripts are only in the log of
-`lint scripts`. To write the same reports locally, set `SARIF_DIR`, for example
+`lint scripts`, CI does not upload the ruff, actionlint, and zizmor findings of the pull request,
+and the `lint scripts` gate does not run. The upload does not change the result of a job. The gates
+(`lint`, `vuln`, and `lint-scripts`) fail on a finding. ShellCheck has no SARIF output, and `mise`
+has no converter with a published checksum, so the ShellCheck findings for the shell scripts are
+only in the log of `lint scripts`. To write the same reports locally, set `SARIF_DIR`, for example
 `SARIF_DIR=build/sarif mise run lint-scripts` or `SARIF_DIR=build/sarif mise run vuln`.
 
 `mise run coverage` runs the tests of `mise run test` with a coverage profile. It writes
@@ -260,8 +260,8 @@ registers, becomes ready, and polls. To see a job go from `scheduled` to a delet
 ## Change checklist: a new profile field
 
 A profile field reaches the VM specification that the controller sends to Orchard. Do these steps
-in order, because the documents decide the behaviour (CONTRIBUTING, section "Before code: the
-documents decide"):
+in order, because the documents decide the behaviour, as
+[Before code: the documents decide](../CONTRIBUTING.md#before-code-the-documents-decide) explains:
 
 1. Change `docs/product/requirements.md` when a pipeline author or an operator can see the new
    behaviour. Write an ADR when the change replaces an approach.
@@ -276,13 +276,13 @@ documents decide"):
    only a name that starts with `VM_`. The controller pod holds other secrets.
 4. Map the field to the specification in `internal/vmspec/vmspec.go`, and test it in
    `internal/vmspec/vmspec_test.go`.
-5. Add the field to the specification test (T-064, `test/integration/specification_test.go`), so
+5. Add the field to the specification test ([T-064](quality/test-strategy.md#t-064), `test/integration/specification_test.go`), so
    that Orchard returns it unchanged.
 6. Add the field to the values schema of `deploy/helm/bk-agent-stack-orchard`, and run
    `mise run check-deploy`.
 7. When the specification needs a field that the generated Orchard types lack, add the field to
    the allow list of its type in `tools/orchardgen/main.go`, run `mise run generate`, and commit
-   the result (ADR-0015).
+   the result ([ADR-0015](adrs/0015-generate-only-the-orchard-fields-the-controller-uses.md)).
 8. Run `mise run test`, `mise x -- golangci-lint run ./...`, `mise run lint-format`, and
    `mise run check-docs`.
 
@@ -331,7 +331,7 @@ CI runs it on a pull request that changes its inputs, and on each push to `main`
 
 ## The component suite
 
-The component suite (T-020) runs the controller that `internal/app` builds against in-memory fakes
+The component suite ([T-020](quality/test-strategy.md#t-020)) runs the controller that `internal/app` builds against in-memory fakes
 of both APIs, on a clock that the suite moves. `pgregory.net/rapid` draws random sequences of
 events. The events are:
 
@@ -353,17 +353,17 @@ one to three workers with drawn slots, cores, and memory, and a limit of machine
 configuration goes through the real configuration loader. A drawn input that the rules refuse
 fails the sequence, and the suite never repairs it.
 
-After each event the suite checks the invariants I-1, I-2, I-5, and I-8. At the end of each
-sequence it checks I-6. The creates of one tick reach Orchard in any order, so the suite checks
-the room of I-2 once for each tick, after its last create. The order of the goroutines decides
+After each event the suite checks the invariants [I-1](quality/test-strategy.md#i-1), [I-2](quality/test-strategy.md#i-2), [I-5](quality/test-strategy.md#i-5), and [I-8](quality/test-strategy.md#i-8). At the end of each
+sequence it checks [I-6](quality/test-strategy.md#i-6). The creates of one tick reach Orchard in any order, so the suite checks
+the room of [I-2](quality/test-strategy.md#i-2) once for each tick, after its last create. The order of the goroutines decides
 nothing in the fakes, so rapid can replay a sequence.
 
 Beside the random sequences, the suite runs the outages of the target design, section 7.5, as
-scenarios on the same fakes (T-024). Buildkite, Orchard, or only the job states are not available.
+scenarios on the same fakes ([T-024](quality/test-strategy.md#t-024)). Buildkite, Orchard, or only the job states are not available.
 Buildkite or Orchard accepts calls and never answers, also while a burst of jobs arrives. A worker
 stops reporting. Each scenario
 also checks the request budget of the Stacks API in each second of the run. The client tests
-prove that the controller waits for `Retry-After` (T-040).
+prove that the controller waits for `Retry-After` ([T-040](quality/test-strategy.md#t-040)).
 
 `go test ./...` runs it, on any host, in under a minute. The component suite also fails when a
 goroutine remains after the tests end (`go.uber.org/goleak`). When an invariant breaks, rapid
@@ -382,7 +382,7 @@ go test ./test/component/ -rapid.checks=10000 -rapid.steps=200
 
 ## The load test
 
-The load test (T-080) runs the controller at the target scale. It uses `orchard dev` with 50
+The load test ([T-080](quality/test-strategy.md#t-080)) runs the controller at the target scale. It uses `orchard dev` with 50
 synthetic workers of two slots each. It sends 500 jobs in the pattern of the demand model of the
 system design baseline, section 4.2. The demand model runs fifteen times faster than a workday, so
 the test takes about 25 minutes. The test is also the agents. It takes each job whose VM runs, and
@@ -394,9 +394,9 @@ mise run load
 
 The test reports four values in its log and in the summary of the `load` workflow. They are the tick
 duration, the busiest second of each Stacks API endpoint, the most VMs at one time, and the wait for
-a VM. It fails on a broken invariant (I-1, I-2, I-6) or on a second above the limits of the Stacks
-API. It judges the tick only when `LOAD_TICK_BUDGET` parses as a duration. The repository variable
-is `34ms`, two times the hosted p95 of 17 ms (open item O-5, closed on 2026-11-02).
+a VM. It fails on a broken invariant ([I-1](quality/test-strategy.md#i-1), [I-2](quality/test-strategy.md#i-2), [I-6](quality/test-strategy.md#i-6)) or on a second above the limits of the
+Stacks API. It judges the tick only when `LOAD_TICK_BUDGET` parses as a duration. The repository
+variable is `34ms`, two times the hosted p95 of 17 ms (open item [O-5](quality/test-strategy.md#o-5), closed on 2026-11-02).
 
 `LOAD_JOBS` runs fewer jobs, for example `LOAD_JOBS=60`, while a developer works on the test. The
 test writes a progress line each minute. On a failure it shows the end of the controller log.
@@ -405,14 +405,15 @@ Keep the host awake for the whole run. A Mac that sleeps pauses the run, and the
 go offline. The result is then not a measurement. Run the test with `caffeinate -dims` and the lid
 open.
 
-The `load` workflow runs it each night, on demand, and on a pull request that changes it, on the
-same runner as the integration tests, a hosted macOS runner. No branch protection requires it. When
+The `load` workflow runs it each night, on demand, and on a pull request that changes it. It runs
+on the same runner as the integration tests, a hosted macOS runner. No branch protection requires
+it. When
 a scheduled or manual run fails, the workflow opens an issue titled "Nightly load test failed", or
 comments on the issue that is open.
 
 ## The fuzz tests
 
-Each fuzz test states a property that must hold for any input, at a place where input comes from
+Each fuzz test states a property that holds for any input, at a place where input comes from
 outside the controller:
 
 | Fuzz test | Input | Property |
@@ -438,8 +439,9 @@ A failed night opens an issue titled "Nightly fuzz run failed", or comments on t
 open. The `fuzz` workflow also runs the long property run of the component suite each night, with
 `-rapid.checks=20000 -rapid.steps=200`. It takes about 20 minutes on a development Mac
 (2026-11-07, estimated from a run of 2,000 checks) and about 60 minutes on a hosted runner
-(estimated from the last full run). rapid stops near the deadline of the test and reports a pass,
-so read the line `[rapid] OK, passed <number> tests` in the log to see how many checks ran. When it
+(estimated from the last full run). rapid stops near the deadline of the test and reports a pass.
+Because of this, read the line `[rapid] OK, passed <number> tests` in the log to see how many
+checks ran. When it
 fails, the workflow keeps `test/component/testdata/rapid/` as an artifact. Replay a fail file as the
 component suite section describes.
 
@@ -448,28 +450,28 @@ component suite section describes.
 The integration tests run against a real Orchard in synthetic mode, at the version that `mise.toml`
 pins:
 
-* The skeleton journey (T-060) runs the controller binary with the fake Stacks API server. One job
+* The skeleton journey ([T-060](quality/test-strategy.md#t-060)) runs the controller binary with the fake Stacks API server. One job
   goes from `scheduled` to a deleted VM. The job page shows each step. At the end, no VM of the
-  controller remains (I-6).
-* The admission journeys run the controller binary in the same way. In T-061, three jobs wait for
-  a worker with two slots: the third job stays `scheduled` until a slot is free. In T-062, a job
+  controller remains ([I-6](quality/test-strategy.md#i-6)).
+* The admission journeys run the controller binary in the same way. In [T-061](quality/test-strategy.md#t-061), three jobs wait for
+  a worker with two slots: the third job stays `scheduled` until a slot is free. In [T-062](quality/test-strategy.md#t-062), a job
   that no profile matches stays `scheduled` over 2 ticks, with one notification on its job page,
   and no VM starts.
-* The restart journey (T-021) kills the controller with SIGKILL and starts it again, at each crash
+* The restart journey ([T-021](quality/test-strategy.md#t-021)) kills the controller with SIGKILL and starts it again, at each crash
   window of the target design, section 7.4. Each job keeps at most one VM. The VM of a job that
   ended while no controller ran goes. The first pass extends every reservation.
-* The readiness journey (T-063) revokes the agent token while the controller runs. The gRPC
+* The readiness journey ([T-063](quality/test-strategy.md#t-063)) revokes the agent token while the controller runs. The gRPC
   `readiness` service then stops serving, the log names the token, and `liveness` serves. Each
   controller of the integration tests serves its probes on a free port of its own.
-* The interruption journeys cover two cases. When the queue is paused (T-022), no VM starts, and
+* The interruption journeys cover two cases. When the queue is paused ([T-022](quality/test-strategy.md#t-022)), no VM starts, and
   the controller does not reserve or finish a job. The VMs in progress continue. When a job is
-  cancelled while its VM boots (T-023), the controller deletes the VM and does not take the job
+  cancelled while its VM boots ([T-023](quality/test-strategy.md#t-023)), the controller deletes the VM and does not take the job
   again.
-* The Orchard client test (T-041) sends each call of the client of this project to the real API.
+* The Orchard client test ([T-041](quality/test-strategy.md#t-041)) sends each call of the client of this project to the real API.
   The calls are create, a second create of the same name, list, events, and delete. A synthetic
   worker writes each line of the startup script as an event. The test therefore also proves the
   events of a VM.
-* The specification test (T-064) sends the VM specification of each startup transport, with every
+* The specification test ([T-064](quality/test-strategy.md#t-064)) sends the VM specification of each startup transport, with every
   optional field of a profile set. It then reads the stored VM back. Orchard ignores a field that
   it does not know. The test therefore checks that every field of the specification comes back with
   the same value.
