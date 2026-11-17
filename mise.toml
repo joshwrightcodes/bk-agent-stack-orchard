@@ -47,7 +47,7 @@ kubectl = "1.37.2"
 # sync --frozen, so a cache miss gets the same packages as a cache hit. A locked environment uses
 # the Python of mise, not one that uv downloads, so a CI cache restores the environment with its
 # interpreter. Renovate moves both ansible-core pins below in one pull request.
-python = "3.13.15"
+python = "3.14.10"
 uv = "0.13.8"
 "pypi:ansible-core" = "2.22.0"
 "pypi:ansible-lint" = { version = "26.11.0", with = ["ansible-core==2.22.0"] }
