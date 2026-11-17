@@ -86,7 +86,7 @@ The design depends on these facts. Each fact was verified against source code or
 | The finish request has no `signal_reason` field, so the controller cannot set it. The Buildkite platform generates a `signal_reason` of `stack_error` for such a job. Pipeline authors use `signal_reason: stack_error` with `limit: 0` in their automatic retry rules. Whether the platform generates `stack_error` for every job that the controller finishes is `UNKNOWN` (owner: the maintainers; trigger: the first runs of T-100 to T-105). | Buildkite Stacks API documentation, https://buildkite.com/docs/apis/agent-api/stacks (read 2026-11-01); `buildkite/stacksapi` v1.2.0 `finish.go` | The controller finishes a failed job with exit status -1 and a detail (§7.6). |
 | `maxVMLifetime` is 25 h by default. The Reaper deletes a VM whose `createdAt` is older than this, for any job state (row 2 of §7.2, §7.1 rule 1). A restart of the controller does not extend this limit. A job that still runs at 25 h loses its VM and its agent. After the agent acquired the job, the Buildkite lost-agent procedure controls the result, and the controller does not finish the job (§7.1, rule 5). The job result that Buildkite gives in this case is `UNKNOWN` (owner: the maintainers; trigger: the first end-to-end run of a job that outlives `maxVMLifetime`). | Derived from `internal/reaper/decide.go` and §7.2, §7.1 (checked 2026-11-01) | A pipeline step with a run time near 25 h MUST set a lower job timeout. The default of 25 h is the safety limit in SC-06, not a job limit. |
 | `buildkite-agent start --acquire-job` exits with code 27 if the job is already taken, cancelled, or complete (HTTP 422). | `buildkite/agent` v4.0.3 release notes (2026-09-10); `core/client.go` | The rule "the job is terminal, delete the VM" covers this case. |
-| Buildkite agent v4 is the stable line (v4.0.0 on 2026-09-01; v4.9.0 on 2026-10-30, checked 2026-11-01). v4.7.0 is a security release: it rejects compromised eMudhra certificate chains (CVE-2026-111943). v4 exits immediately when a flag is not defined. v4 keeps `--acquire-job`, `BUILDKITE_AGENT_ACQUIRE_JOB`, and `BUILDKITE_OPENTELEMETRY_TRACING`, and it adds `BUILDKITE_OPENTELEMETRY_METRICS`. v4 removes the OpenTracing and Datadog backends. | `buildkite/agent` releases and `clicommand/agent_start.go` at v4.0.4 (2026-09-19) | The image MUST contain agent v4.7.0 or later (§5). The startup script uses only v4 flags. |
+| Buildkite agent v4 is the stable line (v4.0.0 on 2026-09-01; v4.10.2 on 2026-11-09, checked 2026-11-17). v4.7.0 is a security release: it rejects compromised eMudhra certificate chains (CVE-2026-111943). v4.10.0 stops a plugin cache collision from running the hooks of another plugin. v4 exits immediately when a flag is not defined. v4 keeps `--acquire-job`, `BUILDKITE_AGENT_ACQUIRE_JOB`, and `BUILDKITE_OPENTELEMETRY_TRACING`, and it adds `BUILDKITE_OPENTELEMETRY_METRICS`. v4 removes the OpenTracing and Datadog backends. | `buildkite/agent` releases and `clicommand/agent_start.go` at v4.0.4 (2026-09-19) | The image MUST contain agent v4.7.0 or later (§5). The startup script uses only v4 flags. |
 | Orchard `startup_script.transport` accepts `ssh` (the default) and `tart-guest-agent`. The guest-agent transport operates only on the Tart runtime, and the worker connects through the VM control socket. For both transports, the worker builds the same script: `set -e`, one `export` line for each `env` entry, then `script_content`. | Orchard `pkg/resource/v1/v1.go` and `internal/worker/vmmanager/base` at tag 0.57.0 | §6.4 uses the guest-agent transport. VM specifications need no SSH credentials. |
 | Apple permits 2 concurrent macOS VMs on each host. Orchard models this limit with the worker resource `org.cirruslabs.tart-vms: 2`. | Orchard `api_vms.go`; Apple EULA | Capacity is small. Admission examines capacity before it reserves a job (§6.3). |
 | Orchard VM `labels` are placement constraints. Orchard puts a VM only on a worker whose labels contain all VM labels. | Orchard `scheduler.go` | Labels contain only worker constraints. The VM name identifies the owner (§6.1). |
@@ -458,8 +458,8 @@ A profile that sets no `agent` takes `defaults.agent` (§8). `agent.url` and `ag
 pair: a profile or the defaults that set either one set both, and the controller refuses a pair
 with one value. When neither the profile nor the defaults set the pair, the controller uses its
 built-in pair, the release of `buildkite-agent` that the controller release was tested with:
-`https://github.com/buildkite/agent/releases/download/v4.9.0/buildkite-agent-darwin-arm64-4.9.0.tar.gz`,
-SHA-256 `faaf0084edf08a92a877253620604fbd6ce496d2851a7ae5126dd19f27429e76` (checked 2026-11-03,
+`https://github.com/buildkite/agent/releases/download/v4.10.2/buildkite-agent-darwin-arm64-4.10.2.tar.gz`,
+SHA-256 `9dd2d573995f4d4ebc7c8c6334b36ce2bb90ef68d939631fa17a2994a9c71117` (checked 2026-11-17,
 the same pin as `images/build.sh`). The controller MUST refuse an `agent.url` that is not `https`,
 and an `agent.sha256` that is not 64 lower-case hexadecimal characters. YAML reads a value of
 digits as a number, so the examples put the SHA-256 in quotes.
@@ -719,7 +719,7 @@ VM control socket, and the VM specification contains no credentials. A profile w
 `agent-stack=orchard`, and `profile=<profile name>`, in this order, and then each `key=value` of
 the literal tags of the job, without the `queue` tag, sorted by key. A comma joins the entries.
 The agent reads `BUILDKITE_AGENT_TAGS` as the source of its `--tags` option (`buildkite/agent`,
-`clicommand/agent_start.go` at v4.9.0, checked 2026-11-01). Because of this, the startup script
+`clicommand/agent_start.go` at v4.10.2, checked 2026-11-17). Because of this, the startup script
 has no tag text, and no tag value is ever part of shell text. The controller MUST refuse a tag
 whose key or value is empty, has white space at an end, or has a comma, a newline, a carriage
 return, or a quote, and a tag named `queue`, `agent-stack`, or `profile`. The
@@ -745,8 +745,8 @@ The startup script is the same text for each VM, so no value of a job is in it
 3. If the global git configuration of the image has more than one `credential.helper` value, it
    removes them all with `git config --global --unset-all credential.helper`, and writes a line to
    the event log. Git Credential Manager writes two values: an empty one that resets the list, and
-   itself. `buildkite-agent` v4.9.0 sets its own helper with `git config --global` and no
-   `--replace-all` (`internal/job/checkout_ssh.go`, read 2026-11-03), and git refuses to replace
+   itself. `buildkite-agent` v4.10.2 sets its own helper with `git config --global` and no
+   `--replace-all` (`internal/job/checkout_ssh.go`, read 2026-11-17), and git refuses to replace
    two values with one, so the checkout would fail. After this step the VM has the helper of the
    system, as an image without the manager has, and the agent adds its own. The VM serves one job,
    so the change ends with the VM.
@@ -1045,8 +1045,8 @@ defaults:
     maxVMLifetime: 25h
   agent: # see §5; a profile can set its own agent
     source: download # download or image
-    url: https://github.com/buildkite/agent/releases/download/v4.9.0/buildkite-agent-darwin-arm64-4.9.0.tar.gz
-    sha256: "faaf0084edf08a92a877253620604fbd6ce496d2851a7ae5126dd19f27429e76" # in quotes
+    url: https://github.com/buildkite/agent/releases/download/v4.10.2/buildkite-agent-darwin-arm64-4.10.2.tar.gz
+    sha256: "9dd2d573995f4d4ebc7c8c6334b36ce2bb90ef68d939631fa17a2994a9c71117" # in quotes
 profiles: [] # see §5
 ```
 
