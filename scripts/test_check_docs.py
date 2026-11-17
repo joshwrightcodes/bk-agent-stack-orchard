@@ -27,23 +27,15 @@ class CheckDocsTest(unittest.TestCase):
         (self.root / "docs/adrs").mkdir(parents=True)
         for number in range(1, 15):
             (self.root / f"docs/adrs/{number:04d}-x.md").write_text("# x\n")
-        self.saved = (
-            check_docs.ROOT,
-            check_docs.ADR_DIR,
-            check_docs.GENERATED,
-            check_docs.GLOSSARY,
-        )
+        self.saved = (check_docs.ROOT, check_docs.ADR_DIR, check_docs.GLOSSARY)
         check_docs.ROOT = self.root
         check_docs.ADR_DIR = self.root / "docs/adrs"
-        check_docs.GENERATED = set()
         check_docs.GLOSSARY = self.root / "docs/glossary.md"
         check_docs.errors.clear()
         self.addCleanup(self.restore)
 
     def restore(self) -> None:
-        (check_docs.ROOT, check_docs.ADR_DIR, check_docs.GENERATED, check_docs.GLOSSARY) = (
-            self.saved
-        )
+        (check_docs.ROOT, check_docs.ADR_DIR, check_docs.GLOSSARY) = self.saved
         check_docs.errors.clear()
 
     def write(self, name: str, text: str) -> None:
@@ -71,6 +63,16 @@ class CheckDocsTest(unittest.TestCase):
         self.write("README.md", f"{'word ' * 15}[the page]({target}) end.\n")
         check_docs.check_width()
         self.assertEqual([], check_docs.errors)
+
+    def test_an_image_with_wrapped_text_has_its_target_checked(self) -> None:
+        self.write("docs/a.svg", "<svg/>\n")
+        self.write("docs/x.md", "Intro.\n\n![The first line\nand the second.](a.svg)\n")
+        check_docs.check_links()
+        self.assertEqual([], check_docs.errors)
+        self.write("docs/x.md", "Intro.\n\n![The first line\nand the second.](b.svg)\n")
+        check_docs.check_links()
+        self.assertEqual(1, len(check_docs.errors), check_docs.errors)
+        self.assertIn("docs/x.md:3", check_docs.errors[0])
 
     def test_an_adr_range_must_match_the_files(self) -> None:
         self.write("README.md", "The set runs from ADR-0001 to ADR-0009.\n")

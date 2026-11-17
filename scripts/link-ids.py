@@ -62,8 +62,6 @@ def link_citations() -> int:
     sources = {identifier: check_docs.source_of(identifier) for identifier in known}
     linked = 0
     for path in check_docs.markdown_files():
-        if path in check_docs.GENERATED:
-            continue
         text = check_docs.read(path)
         matches = check_docs.unlinked_citations(path, text, known)
         for match in reversed(matches):
@@ -137,8 +135,6 @@ def wrap_long_lines() -> int:
     """Wrap again each paragraph that a link made longer than the limit."""
     changed = 0
     for path in check_docs.markdown_files():
-        if path in check_docs.GENERATED:
-            continue
         lines = check_docs.read(path).split("\n")
         index, touched = 0, False
         while index < len(lines):

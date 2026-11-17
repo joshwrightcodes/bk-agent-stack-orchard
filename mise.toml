@@ -122,8 +122,14 @@ description = "Test the check scripts"
 run = "python3 -m unittest discover -s scripts -p 'test_*.py'"
 
 [tasks.check-c4]
-description = "Validate the C4 workspace and the generated views"
+description = "Validate the C4 workspace"
 run = "./scripts/check-c4.sh"
+
+# The draw.io desktop app does the export, so this task runs on a computer with the Brewfile
+# installed, and CI does not run it.
+[tasks.diagrams]
+description = "Export each draw.io drawing in docs/diagrams to an SVG file"
+run = "./scripts/export-diagrams.sh"
 
 [tasks.generate]
 description = "Write the generated files, including the Orchard wire types"

@@ -20,3 +20,4 @@ brew "docker-buildx"        # docker buildx, for smoke and the release scripts
 brew "openai/tools/tart"    # the real-VM tests. The Mac hosts pin a version: see
                             # docs/testing-on-real-vms.md
 brew "openai/tools/softnet" # the real-VM tests. It needs the setuid bit: see the same guide
+cask "drawio"               # mise run diagrams: exports the drawings in docs/diagrams to SVG

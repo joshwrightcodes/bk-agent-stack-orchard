@@ -18,7 +18,7 @@ This guide tells you how to set up your Mac, run the gates, and run the tests th
 
 * [`mise`](https://mise.jdx.dev/), from the `Brewfile`. It installs every other tool, Go and
   Orchard included.
-* A Docker runtime, for four tasks: `check-c4` (it renders the C4 model), `orchard-image` (it
+* A Docker runtime, for four tasks: `check-c4` (it validates the C4 model), `orchard-image` (it
   builds the image of the Orchard controller), `snapshot` (it builds the image), and `smoke` (it
   runs kind). `mise run check` runs `check-c4`, so it also needs
   Docker. `mise run ci` skips these tasks when Docker is absent, and CI runs them. The `Brewfile`
@@ -30,6 +30,9 @@ This guide tells you how to set up your Mac, run the gates, and run the tests th
   ```
 * Tart and Softnet, from the `Brewfile`. Only the tests in
   [Testing on real VMs](testing-on-real-vms.md) need them.
+* The draw.io desktop app, from the `Brewfile`. Only `mise run diagrams` needs it. The task
+  exports each drawing in `docs/diagrams` to an SVG file. After you edit a drawing, run the task.
+  Commit the drawing and the SVG file together.
 
 ## Tools
 

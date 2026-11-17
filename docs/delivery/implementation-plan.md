@@ -205,41 +205,7 @@ from their number.
 The diagram shows each work unit as a node, with an arrow from each unit to the units that depend
 on it. The "Depends on" column of the tables in section 4 gives each dependency as text.
 
-```mermaid
-flowchart LR
-    W26[W-26 docs gate] --> W01[W-01 repo]
-    W27[W-27 upstream watch]
-    W01 --> W02[W-02 config]
-    W01 --> W05[W-05 stacks client]
-    W01 --> W06[W-06 orchard client]
-    W01 --> W07[W-07 telemetry]
-    W02 --> W03[W-03 matcher]
-    W02 --> W04[W-04 vm spec]
-    W03 --> W08[W-08 tick loop]
-    W04 --> W08
-    W05 --> W08
-    W06 --> W08
-    W07 --> W08
-    W08 --> W09[W-09 skeleton journey]
-    W08 --> W10[W-10 job states]
-    W10 --> W11[W-11 reaper table]
-    W10 --> W12[W-12 admission]
-    W11 --> W13[W-13 lifecycle edges]
-    W12 --> W13
-    W13 --> W14[W-14 invariants]
-    W13 --> W15[W-15 health]
-    W13 --> W16[W-16 telemetry full]
-    W15 --> W17[W-17 outages]
-    W15 --> W18[W-18 token runbook]
-    W14 --> W20[W-20 load]
-    W06 --> W19[W-19 drift checks]
-    W01 --> W19
-    W16 --> W21[W-21 kubernetes]
-    W21 --> W24[W-24 end to end]
-    W22[W-22 mac hosts] --> W24
-    W23[W-23 pilot image] --> W24
-    W24 --> W25[W-25 pilot start]
-```
+![Diagram of the order of the work units. The paragraph above describes it.](../diagrams/implementation-order.svg)
 
 The critical path is [W-26](#w-26), [W-01](#w-01), [W-02](#w-02), [W-04](#w-04), [W-08](#w-08), [W-10](#w-10), [W-11](#w-11), [W-13](#w-13), [W-16](#w-16), [W-21](#w-21), [W-24](#w-24).
 [W-25](#w-25) is out of scope (section 4.4). [W-27](#w-27) is on no path, and it runs on a schedule after it exists.

@@ -38,9 +38,6 @@ PLAN = ROOT / "docs/delivery/implementation-plan.md"
 ADR_DIR = ROOT / "docs/adrs"
 GLOSSARY = ROOT / "docs/glossary.md"
 
-# Generated files. Their producer owns their shape.
-GENERATED = {ROOT / "docs/architecture/c4.md"}
-
 MAX_WIDTH = 100
 ADR_STATUS = {"proposed", "accepted", "rejected", "deprecated"}
 
@@ -162,7 +159,7 @@ FENCE = re.compile(r"^ *(`{3,}|~{3,})")
 COMMENT = re.compile(r"<!--.*?-->", re.S)
 HEADING = re.compile(r"^ {0,3}#{1,6} .*$", re.M)
 CODE = re.compile(r"(`+)[^`]*?\1")
-LINK = re.compile(r"!?\[[^\]\n]*\]\((?:[^()\s]|\([^()\s]*\))*\)")
+LINK = re.compile(r"!?\[[^\]]*\]\((?:[^()\s]|\([^()\s]*\))*\)")
 REFERENCE = re.compile(r"^ {0,3}\[([^\]\n]+)\]:[ \t]*<?([^\s>]+)>?.*$", re.M)
 # A full or collapsed reference link, [text][label] or [text][], and a shortcut one, [label].
 REFERENCE_LINK = re.compile(r"!?\[([^\]\n]+)\]\[([^\]\n]*)\]|!?\[([^\]\n]+)\](?![\[(:])")
@@ -295,8 +292,6 @@ def check_citation_links(defined: dict[str, set[str]]) -> None:
             if f'<a id="{anchor_name(identifier)}"></a>' not in text:
                 fail(source, None, f"defines {identifier} without its anchor")
     for path in markdown_files():
-        if path in GENERATED:
-            continue
         text = read(path)
         for match in unlinked_citations(path, text, known):
             number = text.count("\n", 0, match.start()) + 1
@@ -352,16 +347,24 @@ def check_adr_direction() -> None:
 
 def check_links() -> None:
     link = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+    # The alternative text of an image can wrap over lines, so no single line holds the link.
+    wrapped_image = re.compile(r"!\[[^\]]*\n[^\]]*\]\(([^)\s]+)\)")
     code_span = re.compile(r"`[^`]*`")
     for path in markdown_files():
-        for number, line in enumerate(read(path).split("\n"), 1):
+        text = read(path)
+        targets = []
+        for number, line in enumerate(text.split("\n"), 1):
             # A regular expression inside backticks can look like a link. Code is not a link.
             for target in link.findall(code_span.sub("``", line)):
-                if target.startswith(("http://", "https://", "#", "mailto:")):
-                    continue
-                resolved = (path.parent / target.split("#", 1)[0]).resolve()
-                if not resolved.exists():
-                    fail(path, number, f"link target does not exist: {target}")
+                targets.append((number, target))
+        for match in wrapped_image.finditer(text):
+            targets.append((text.count("\n", 0, match.start()) + 1, match.group(1)))
+        for number, target in targets:
+            if target.startswith(("http://", "https://", "#", "mailto:")):
+                continue
+            resolved = (path.parent / target.split("#", 1)[0]).resolve()
+            if not resolved.exists():
+                fail(path, number, f"link target does not exist: {target}")
 
 
 URL = re.compile(r"\]\((?:[^()\s]|\([^()\s]*\))*\)|(?:https?|ftp)://[^\s)>\]]+")
@@ -369,8 +372,6 @@ URL = re.compile(r"\]\((?:[^()\s]|\([^()\s]*\))*\)|(?:https?|ftp)://[^\s)>\]]+")
 
 def check_width() -> None:
     for path in markdown_files():
-        if path in GENERATED:
-            continue
         lines = read(path).split("\n")
         for number, (line, in_fence) in enumerate(zip(lines, fenced(lines), strict=True), 1):
             if in_fence or line.startswith("|"):

@@ -47,14 +47,9 @@ Buildkite setup included.
 
 ## How it works
 
-```mermaid
-flowchart LR
-    BK[Buildkite] -- scheduled jobs --> C[bk-agent-stack-orchard]
-    C -- create and delete VMs --> O[Orchard]
-    O -- schedule --> W[Mac host with Tart]
-    W -- start --> VM[macOS VM with buildkite-agent]
-    VM -- run the job --> BK
-```
+![A loop of five parts. Buildkite sends scheduled jobs to bk-agent-stack-orchard. The controller
+creates and deletes VMs in Orchard. Orchard schedules each VM on a Mac host with Tart. The host
+starts a macOS VM with buildkite-agent. The VM runs the job for Buildkite.](docs/diagrams/readme-how-it-works.svg)
 
 1. The controller polls Buildkite for the scheduled jobs of one queue.
 2. It matches the agent tags of each job to a profile. A profile sets the image and the size of

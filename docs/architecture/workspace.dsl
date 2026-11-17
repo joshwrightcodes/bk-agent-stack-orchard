@@ -115,7 +115,7 @@ workspace "bk-agent-stack-orchard" "C4 model of the Buildkite agent stack that r
         stack.controller.reaper -> stack.controller.orchardClient "Deletes VMs and reads VM events through."
         stack.controller.launcher -> stack.controller.stacksClient "Reserves jobs, gets tokens, and sends notifications through."
         stack.controller.launcher -> stack.controller.orchardClient "Creates VMs through."
-        stack.controller.stackRegistration -> stack.controller.stacksClient "Registers the stack through."
+        stack.controller.stackRegistration -> stack.controller.stacksClient "Registers and deregisters the stack through."
         stack.controller.poller -> stack.controller.stacksClient "Lists scheduled jobs through."
         stack.controller.jobStates -> stack.controller.stacksClient "Gets job states through."
         stack.controller.inventory -> stack.controller.orchardClient "Lists workers and VMs through."
