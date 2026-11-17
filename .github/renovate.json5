@@ -130,6 +130,16 @@
       enabled: true,
     },
     {
+      // A new major version of a Go module has a new module path. The direct dependency that
+      // needs an indirect module names its path, so a major update of the indirect one adds an
+      // unused requirement that go mod tidy removes, and check-tidy fails. The direct
+      // dependency moves the indirect one when it changes its import.
+      matchManagers: ["gomod"],
+      matchDepTypes: ["indirect"],
+      matchUpdateTypes: ["major"],
+      enabled: false,
+    },
+    {
       // mise.toml pins the Go version, and target design section 15 states it.
       matchManagers: ["gomod"],
       matchDepTypes: ["golang", "toolchain"],
@@ -225,6 +235,14 @@
       matchDepNames: ["python"],
       matchUpdateTypes: ["minor", "major"],
       dependencyDashboardApproval: true,
+    },
+    {
+      // PyYAML 6.0.3, which ansible-core and ansible-lint need, has no wheel for Python 3.15, and
+      // the locked install builds no package from source, so no tool installs. Python stays below
+      // 3.15 until PyYAML publishes those wheels.
+      matchManagers: ["mise"],
+      matchDepNames: ["python"],
+      allowedVersions: "<3.15",
     },
     {
       // The target design names the minimum Orchard version, and scripts/check-deps.py keeps
