@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.2](https://github.com/joshwrightcodes/bk-agent-stack-orchard/compare/v0.1.1...v0.1.2) (2026-11-17)
+
+
+### Fixes
+
+* **config:** report YAML that the library panics on as an error ([#235](https://github.com/joshwrightcodes/bk-agent-stack-orchard/issues/235)) ([8135e48](https://github.com/joshwrightcodes/bk-agent-stack-orchard/commit/8135e4884578c011216eee3c11317932f04f50f8))
+* **deps:** update gcr.io/distroless/static-debian13:nonroot docker digest to aafe993 ([#233](https://github.com/joshwrightcodes/bk-agent-stack-orchard/issues/233)) ([9117330](https://github.com/joshwrightcodes/bk-agent-stack-orchard/commit/911733087e68e49654eee830decd199e964ce94d))
+* **deps:** update Go to 1.27.4 and fix a racy heartbeat test ([#234](https://github.com/joshwrightcodes/bk-agent-stack-orchard/issues/234)) ([c9087d8](https://github.com/joshwrightcodes/bk-agent-stack-orchard/commit/c9087d89c723e2293bfa54328a6431811c73bece))
+* **deps:** update module golang.org/x/sys to v0.50.0 ([#212](https://github.com/joshwrightcodes/bk-agent-stack-orchard/issues/212)) ([0d9ad78](https://github.com/joshwrightcodes/bk-agent-stack-orchard/commit/0d9ad7868ba29403b75f9ba5decd06d96f74039c))
+* **deps:** update module golang.org/x/text to v0.44.0 ([#231](https://github.com/joshwrightcodes/bk-agent-stack-orchard/issues/231)) ([8a94970](https://github.com/joshwrightcodes/bk-agent-stack-orchard/commit/8a94970f946c05a61fb68a2589612c46cd123215))
+* **deps:** update the Buildkite agent to 4.10.2 ([#236](https://github.com/joshwrightcodes/bk-agent-stack-orchard/issues/236)) ([1793bcc](https://github.com/joshwrightcodes/bk-agent-stack-orchard/commit/1793bcc34eeea732725d23471522312a87dba6c2))
+
 ## [0.1.1](https://github.com/joshwrightcodes/bk-agent-stack-orchard/compare/v0.1.0...v0.1.1) (2026-11-04)
 
 
