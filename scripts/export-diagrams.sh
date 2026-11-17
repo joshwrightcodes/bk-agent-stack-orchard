@@ -27,5 +27,5 @@ fi
 # scheme of the operating system, which can differ from the theme of the page that shows it.
 for source in "$root"/docs/diagrams/*.drawio; do
 	"$drawio" --export --format svg --transparent --theme light --border 8 \
-		--disable-update --output "${source%.drawio}.svg" "$source" 2>/dev/null
+		--disable-update --output "${source%.drawio}.svg" "$source"
 done
