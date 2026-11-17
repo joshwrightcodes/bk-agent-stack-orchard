@@ -123,6 +123,7 @@ The repository also has examples that you can adapt:
   [issue form](https://github.com/joshwrightcodes/bk-agent-stack-orchard/issues/new/choose).
   [SUPPORT.md](SUPPORT.md) tells you where to ask for help.
 * Report a vulnerability privately, as [SECURITY.md](SECURITY.md) says.
+* Report an accessibility barrier, as [ACCESSIBILITY.md](ACCESSIBILITY.md) says.
 * Read [CONTRIBUTING.md](CONTRIBUTING.md) before you open a pull request. The project follows the
   [Contributor Covenant](CODE_OF_CONDUCT.md).
 

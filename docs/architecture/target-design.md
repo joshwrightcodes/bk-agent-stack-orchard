@@ -1,13 +1,17 @@
+---
+status: accepted
+date: 2026-09-19
+approved: 2026-09-20
+owner: the maintainers
+---
 # bk-agent-stack-orchard — Target design
 
-* Status: accepted
-* Date: 2026-09-19
-* Approved: 2026-09-20
-* Companion documents:
-  * [Product requirements](../product/requirements.md): requirement identifiers such as `PR-005`
-  * [System design baseline](system-design-baseline.md): driver identifiers such
-    as `QA-01`
-  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0020
+## Related documents
+
+* [Product requirements](../product/requirements.md): requirement identifiers such as `PR-005`
+* [System design baseline](system-design-baseline.md): driver identifiers such
+  as `QA-01`
+* [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0020
 
 ## Conventions
 

@@ -76,6 +76,23 @@ The design documents use identifiers such as `PR-001`, `T-100`, and `ADR-0006`. 
 * Link text says where the link goes: "[Install the controller](user/install.md)", not
   "[here](user/install.md)".
 * Write dates as `YYYY-MM-DD`.
+* A design document starts with YAML front matter: `status`, `date`, `approved`, and `owner`. An
+  ADR has `status`, `date`, and `decision-makers`, and `supersedes` when it replaces another ADR.
+  Links to other documents go in the body, under the heading "Related documents", so that they
+  stay links.
+
+## Accessibility
+
+The documents aim to meet the
+[Web Content Accessibility Guidelines 2.2](https://www.w3.org/TR/WCAG22/), level AA, for each part
+that an author controls. [ACCESSIBILITY.md](../ACCESSIBILITY.md) states this for readers.
+
+* Give each image alt text that says what the image means, not what it looks like.
+* Give each diagram alt text that names its elements and the main relationships between them.
+* Never let a meaning depend on colour alone. Say it in the text or the shape as well.
+* Use one top-level heading on each page, and do not skip a heading level.
+* Give each table a header row.
+* Keep text as text. Put a command or an output in a code block, never in an image.
 
 ## Generated pages
 

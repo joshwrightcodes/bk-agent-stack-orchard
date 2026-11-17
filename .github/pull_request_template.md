@@ -40,6 +40,8 @@ only this description, not the messages of the commits.
       `render-c4-md.sh` regenerated `c4.md`.
 - [ ] I disclosed each AI tool that AI_POLICY.md covers, I read the whole change, and I can explain
       it myself.
+- [ ] Each new image has alt text, and no meaning depends on colour alone, as the writing guide
+      states in "Accessibility".
 - [ ] No secret, token, or customer source code is in the diff or in the test data.
 - [ ] No code with a field-of-use restriction entered the repository, and `go.mod` has no Orchard
       dependency (ADR-0010).

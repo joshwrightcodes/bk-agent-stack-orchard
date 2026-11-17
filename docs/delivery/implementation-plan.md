@@ -1,17 +1,20 @@
+---
+status: accepted
+date: 2026-09-19
+approved: 2026-09-20
+owner: the maintainers
+---
 # bk-agent-stack-orchard — Implementation plan
 
-* Status: accepted
-* Date: 2026-09-19
-* Approved: 2026-09-20
-* Owner: the maintainers
-* Related documents:
-  * [Product requirements](../product/requirements.md): identifiers such as `PR-005`
-  * [System design baseline](../architecture/system-design-baseline.md): identifiers such as
-    `QA-01` and `SC-03`
-  * [Target design](../architecture/target-design.md)
-  * [Test strategy](../quality/test-strategy.md): risks `R-01` to `R-22`, invariants `I-1` to
-    `I-9`, and obligations `T-001` to `T-141`
-  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0020
+## Related documents
+
+* [Product requirements](../product/requirements.md): identifiers such as `PR-005`
+* [System design baseline](../architecture/system-design-baseline.md): identifiers such as
+  `QA-01` and `SC-03`
+* [Target design](../architecture/target-design.md)
+* [Test strategy](../quality/test-strategy.md): risks `R-01` to `R-22`, invariants `I-1` to
+  `I-9`, and obligations `T-001` to `T-141`
+* [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0020
 
 ## Conventions
 

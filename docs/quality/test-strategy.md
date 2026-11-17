@@ -1,15 +1,18 @@
+---
+status: accepted
+date: 2026-09-19
+approved: 2026-09-20
+owner: the maintainers
+---
 # bk-agent-stack-orchard — Test strategy
 
-* Status: accepted
-* Date: 2026-09-19
-* Approved: 2026-09-20
-* Owner: the maintainers
-* Related documents:
-  * [Product requirements](../product/requirements.md): requirement identifiers such as `PR-005`
-  * [System design baseline](../architecture/system-design-baseline.md): driver identifiers such as
-    `QA-01`, and quality scenarios such as `QS-1`
-  * [Target design](../architecture/target-design.md)
-  * [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0020
+## Related documents
+
+* [Product requirements](../product/requirements.md): requirement identifiers such as `PR-005`
+* [System design baseline](../architecture/system-design-baseline.md): driver identifiers such as
+  `QA-01`, and quality scenarios such as `QS-1`
+* [Target design](../architecture/target-design.md)
+* [Architecture decision records](../adrs/README.md): ADR-0001 to ADR-0020
 
 ## Conventions
 

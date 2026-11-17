@@ -1,13 +1,16 @@
+---
+status: accepted
+date: 2026-09-19
+approved: 2026-09-20
+owner: the maintainers
+---
 # bk-agent-stack-orchard — Product requirements
 
-* Status: accepted
-* Date: 2026-09-19
-* Approved: 2026-09-20
-* Owner: the maintainers
-* Related documents:
-  * [Target design](../architecture/target-design.md)
-  * [Architecture decision records](../adrs/README.md)
-  * [System design baseline](../architecture/system-design-baseline.md)
+## Related documents
+
+* [Target design](../architecture/target-design.md)
+* [Architecture decision records](../adrs/README.md)
+* [System design baseline](../architecture/system-design-baseline.md)
 
 ## Conventions
 
