@@ -74,6 +74,11 @@ class CheckDocsTest(unittest.TestCase):
         self.assertEqual(1, len(check_docs.errors), check_docs.errors)
         self.assertIn("docs/x.md:3", check_docs.errors[0])
 
+    def test_a_wrapped_image_in_code_is_not_checked(self) -> None:
+        self.write("docs/x.md", "Intro.\n\n`![The first line\nand the second.](b.svg)`\n")
+        check_docs.check_links()
+        self.assertEqual([], check_docs.errors)
+
     def test_an_adr_range_must_match_the_files(self) -> None:
         self.write("README.md", "The set runs from ADR-0001 to ADR-0009.\n")
         check_docs.check_adr_ranges()
@@ -243,6 +248,21 @@ class CheckDocsTest(unittest.TestCase):
         self.documents(
             '| ID |\n|---|\n| <a id="t-001"></a>T-001 |\n',
             "---\nnote: T-001\n---\n# T-001\n\n`T-001`\n\n<!-- T-001 -->\n\n```\nT-001\n```\n",
+        )
+        self.assertEqual([], check_docs.errors)
+
+    def test_a_link_does_not_reach_over_a_blank_line(self) -> None:
+        self.documents(
+            '| ID |\n|---|\n| <a id="t-001"></a>T-001 |\n',
+            "[unfinished\n\nSee T-001.\n\n[details](x.md)\n",
+        )
+        self.assertEqual(1, len(check_docs.errors), check_docs.errors)
+        self.assertIn("target-design.md:3: cites T-001 without a link", check_docs.errors[0])
+
+    def test_a_link_with_wrapped_text_around_a_citation_needs_no_other_link(self) -> None:
+        self.documents(
+            '| ID |\n|---|\n| <a id="t-001"></a>T-001 |\n',
+            "![The flow of\nT-001](x.svg)\n",
         )
         self.assertEqual([], check_docs.errors)
 

@@ -159,7 +159,9 @@ FENCE = re.compile(r"^ *(`{3,}|~{3,})")
 COMMENT = re.compile(r"<!--.*?-->", re.S)
 HEADING = re.compile(r"^ {0,3}#{1,6} .*$", re.M)
 CODE = re.compile(r"(`+)[^`]*?\1")
-LINK = re.compile(r"!?\[[^\]]*\]\((?:[^()\s]|\([^()\s]*\))*\)")
+# The text of a link can wrap over lines, but it ends at a blank line, as its paragraph does.
+LINK_TEXT = r"\[(?:[^\]\n]|\n(?![ \t]*\n))*\]"
+LINK = re.compile(r"!?" + LINK_TEXT + r"\((?:[^()\s]|\([^()\s]*\))*\)")
 REFERENCE = re.compile(r"^ {0,3}\[([^\]\n]+)\]:[ \t]*<?([^\s>]+)>?.*$", re.M)
 # A full or collapsed reference link, [text][label] or [text][], and a shortcut one, [label].
 REFERENCE_LINK = re.compile(r"!?\[([^\]\n]+)\]\[([^\]\n]*)\]|!?\[([^\]\n]+)\](?![\[(:])")
@@ -348,7 +350,7 @@ def check_adr_direction() -> None:
 def check_links() -> None:
     link = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
     # The alternative text of an image can wrap over lines, so no single line holds the link.
-    wrapped_image = re.compile(r"!\[[^\]]*\n[^\]]*\]\(([^)\s]+)\)")
+    wrapped_image = re.compile(r"!(?=\[[^\]\n]*\n)" + LINK_TEXT + r"\(([^)\s]+)\)")
     code_span = re.compile(r"`[^`]*`")
     for path in markdown_files():
         text = read(path)
@@ -357,7 +359,10 @@ def check_links() -> None:
             # A regular expression inside backticks can look like a link. Code is not a link.
             for target in link.findall(code_span.sub("``", line)):
                 targets.append((number, target))
+        code = code_spans(text)
         for match in wrapped_image.finditer(text):
+            if inside(code, *match.span()):
+                continue
             targets.append((text.count("\n", 0, match.start()) + 1, match.group(1)))
         for number, target in targets:
             if target.startswith(("http://", "https://", "#", "mailto:")):
