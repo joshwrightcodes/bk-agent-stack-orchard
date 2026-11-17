@@ -57,7 +57,8 @@ The `status` field has one of these values:
 * `deprecated`: the decision no longer applies, and no new decision replaces it.
 * `superseded by ADR-NNNN`: a newer ADR replaces this decision.
 
-The content of an accepted ADR does not change, except for an Errata note. To replace a decision:
+The content of an accepted ADR does not change, except for an Errata note or an editorial change.
+To replace a decision:
 
 1. Create a new ADR with the new decision. Add `supersedes: ADR-NNNN` to its front matter.
 2. Change the status of the old ADR to `superseded by ADR-NNNN`.
@@ -67,11 +68,18 @@ as a version, a date, or a name. Each note in it states its date, the old fact, 
 An errata note cannot change the decision, or the meaning of an option or a consequence. It can
 correct a fact inside them. A change of the decision, or of a meaning, needs a new ADR.
 
+An editorial change keeps the decision, and the meaning of each option and consequence. Before
+release 1.0, an editorial change can make the text of an accepted ADR follow the
+[writing guide](../writing-guide.md), and it can link an identifier to its definition. From release
+1.0, an editorial change can only add or correct such a link. The reviewer of the pull request
+checks that the meaning stays the same.
+
 ## Index
 
 The status column gives the state of each decision, and the front matter of each ADR gives its
-date. The content of an accepted ADR does not change: a new ADR supersedes it. A row with the
-status `reserved` holds a number that no ADR has yet, so that a new ADR does not take it.
+date. Only an Errata note or an editorial change edits an accepted ADR: a new ADR supersedes it.
+A row with the status `reserved` holds a number that no ADR has yet, so that a new ADR does not
+take it.
 
 | ADR | Decision | Status |
 |---|---|---|
