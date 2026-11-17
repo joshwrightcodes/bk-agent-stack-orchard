@@ -31,6 +31,13 @@ The build adds:
 | The agent tags of the image | Both | `/usr/local/etc/bk-agent-stack-orchard/agent-tags`: `image-name`, `image-tag`, `macos`, and `macos-build`, and in the pilot `xcode` and `xcode-build`. The build reads the values in the VM after each install, and its check reads them again |
 | The `environment` hook | Both | `files/environment`: the artifacts of a job go to the optional owner-managed storage, if the build set one. In the pilot, it also puts Homebrew on the `PATH` and sets a UTF-8 locale |
 
+The weekly `upstream` workflow moves the pins of the Buildkite agent, the Tart guest agent, and
+Homebrew in `build.sh` when a new release comes out. `scripts/bump-upstream.py` downloads the
+archive and takes its SHA-256 only when GitHub, and the checksum file of the release if there is
+one, give the same value. The workflow opens a draft pull request. Build the images from that pull
+request on a Mac and run a job before it leaves draft. A new major version of the agent stays in
+the upstream issue, because the target design names the major version.
+
 The controller starts the agent in the VM through the Tart guest agent, with a startup
 script that is the same for each VM (target design, section 6.4). Before the agent starts, the
 script sets the host name to the name of the VM with passwordless `sudo`, so Buildkite shows which

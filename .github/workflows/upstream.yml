@@ -83,11 +83,90 @@ jobs:
           # The script finds the open issue with this exact title, and adds the link to the run.
           ./scripts/report-failure.sh --label upstream "Upstream releases moved" "$(cat upstream-issue.md)"
 
+  # A pin of images/build.sh that moved gets a draft pull request with the new version and the
+  # SHA-256 of its archive (scripts/bump-upstream.py), because Renovate cannot compute the
+  # SHA-256. The watch above marks these rows "pull request". A hosted runner cannot start a macOS
+  # VM, so a person tests the change on a Mac before it leaves draft, and a draft cannot
+  # auto-merge.
+  bump:
+    name: bump ${{ matrix.dependency }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # The client ID and the private key of the release App are secrets of this environment, which
+    # permits only main. A pull request that the App opens runs CI, and one that GITHUB_TOKEN
+    # opens would not.
+    environment: release-please
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        dependency: [buildkite-agent, homebrew, tart-guest-agent]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      # The same mise as release.yml (see ci.yml), for the Python that runs the script.
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+        with:
+          version: 2026.11.8
+          install_args: python
+      - id: bump
+        env:
+          # Only the GitHub API gets the token (scripts/check-upstream.py, sends_token).
+          GITHUB_TOKEN: ${{ github.token }}
+          DEPENDENCY: ${{ matrix.dependency }}
+        run: mise x python -- python3 scripts/bump-upstream.py "$DEPENDENCY"
+      - id: app
+        if: steps.bump.outputs.changed == 'true'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - name: open or update the pull request
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          # Context values reach the shell through the environment, never by interpolation.
+          APP_SLUG: ${{ steps.app.outputs.app-slug }}
+          BRANCH: ${{ steps.bump.outputs.branch }}
+          TITLE: ${{ steps.bump.outputs.title }}
+          BODY: ${{ steps.bump.outputs.body }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # An open pull request with the same title already proposes this version. Pushing it
+          # again would only run its CI again.
+          existing=$(gh pr list --repo "$REPOSITORY" --head "$BRANCH" --state open \
+            --json number,title --jq '.[0] // empty')
+          if [ -n "$existing" ] && [ "$(jq -r .title <<<"$existing")" = "$TITLE" ]; then
+            echo "bump: $(jq -r .number <<<"$existing") already proposes this version"
+            exit 0
+          fi
+          # The commit is the App's, so check-commits.py needs no sign-off, and AI_POLICY.md
+          # exempts the account from the disclosure.
+          id=$(gh api "users/${APP_SLUG}%5Bbot%5D" --jq .id)
+          git -c user.name="${APP_SLUG}[bot]" \
+            -c user.email="${id}+${APP_SLUG}[bot]@users.noreply.github.com" \
+            commit -a -q -m "$TITLE" -m "Made by scripts/bump-upstream.py in the upstream workflow."
+          # The branch holds only this commit on main, so a newer version replaces it.
+          git push --force -q "https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git" \
+            "HEAD:refs/heads/${BRANCH}"
+          if [ -n "$existing" ]; then
+            gh pr edit "$(jq -r .number <<<"$existing")" --repo "$REPOSITORY" \
+              --title "$TITLE" --body-file "$BODY"
+          else
+            gh pr create --repo "$REPOSITORY" --draft --base main --head "$BRANCH" \
+              --title "$TITLE" --body-file "$BODY" --label dependencies
+          fi
+
   # A failed run opens an issue, or comments on the one that is open: the check could not read an
-  # upstream release, or the Orchard contract moved.
+  # upstream release, the Orchard contract moved, or a pin could not be moved.
   report:
     name: report failure
-    needs: watch
+    needs: [watch, bump]
     if: failure()
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -105,5 +184,5 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: >-
           ./scripts/report-failure.sh "Weekly upstream check failed"
-          "The upstream check failed: an upstream release could not be read, or the Orchard
-          contract moved."
+          "The upstream check failed: an upstream release could not be read, the Orchard
+          contract moved, or a pin of images/build.sh could not be moved."

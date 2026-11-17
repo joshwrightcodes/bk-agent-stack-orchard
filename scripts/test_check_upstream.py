@@ -143,6 +143,44 @@ class ReportTest(unittest.TestCase):
         self.assertIn("1 dependency change(s)", out)
         self.assertEqual(outputs, "moved=true\nunchecked=true\n")
 
+    def test_a_move_that_a_pull_request_answers_does_not_need_the_issue(self) -> None:
+        rows = [check_upstream.Row("Homebrew", "1.0.0", "1.0.1", True, automated=True)]
+        code, out, _, outputs = self.run_report(rows)
+        self.assertEqual(code, 0)
+        self.assertIn("| Homebrew | 1.0.0 | 1.0.1 | pull request |", out)
+        self.assertIn("1 pin(s) move in a pull request", out)
+        self.assertNotIn("the documents agree", out)
+        self.assertEqual(outputs, "moved=false\nunchecked=false\n")
+
+    def test_a_new_major_line_of_the_agent_needs_the_issue(self) -> None:
+        def release(repo: str) -> str:
+            return {"buildkite/agent": "v5.0.0"}.get(repo, "v0.0.1")
+
+        with (
+            mock.patch.object(check_upstream, "latest_release", release),
+            mock.patch.object(check_upstream, "ghcr_digest", lambda *_: "sha256:" + "0" * 64),
+        ):
+            rows = {row.name: row for row in check_upstream.collect()}
+        self.assertTrue(rows["Buildkite agent"].needs_answer)
+        self.assertEqual(rows["Buildkite agent"].status, "yes")
+
+    def test_a_release_of_the_same_agent_line_gets_a_pull_request(self) -> None:
+        stated = check_upstream.stated(
+            check_upstream.BASELINE, r"v(\d+\.\d+\.\d+) current", "a Buildkite agent version"
+        )
+        major = stated.split(".")[0]
+
+        def release(repo: str) -> str:
+            return {"buildkite/agent": f"v{major}.999.0"}.get(repo, "v0.0.1")
+
+        with (
+            mock.patch.object(check_upstream, "latest_release", release),
+            mock.patch.object(check_upstream, "ghcr_digest", lambda *_: "sha256:" + "0" * 64),
+        ):
+            rows = {row.name: row for row in check_upstream.collect()}
+        self.assertFalse(rows["Buildkite agent"].needs_answer)
+        self.assertEqual(rows["Buildkite agent"].status, "pull request")
+
     def test_main_reads_the_documents_and_reports_an_outage(self) -> None:
         def down(*_args):
             raise urllib.error.URLError("no network")

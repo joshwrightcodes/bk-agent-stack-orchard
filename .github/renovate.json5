@@ -3,8 +3,10 @@
 // scripts and host roles that the custom managers below find. The upstream watch (upstream.yml)
 // reports the pins that a document of the design names, and the pins of images/build.sh: Orchard,
 // Tart, the Buildkite agent, the guest agent, Homebrew, and the macOS base of the job VMs. Each of
-// those also carries a SHA-256 that Renovate cannot compute, so Renovate leaves Orchard to it. The
-// Helm chart has no dependency to update.
+// those also carries a SHA-256 that Renovate cannot compute, so Renovate leaves Orchard to it. For
+// the agent, the guest agent, and Homebrew, the same workflow opens a draft pull request with the
+// new version and its SHA-256 (scripts/bump-upstream.py). The Helm chart has no dependency to
+// update.
 //
 // Its commit messages use the conventional types of CONTRIBUTING.md, so the commit gate accepts
 // them.
