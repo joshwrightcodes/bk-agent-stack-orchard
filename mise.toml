@@ -2,6 +2,10 @@
 #
 # One file gives a developer and CI the same versions (target design, section 15).
 
+# mise.lock uses lockfile format 4, and a mise older than 2026.11.1 refuses to read it. This line
+# makes such a mise name the version it needs.
+min_version = "2026.11.1"
+
 # mise.lock records, for each tool and platform, the download URL and the checksum of the file
 # that the version resolved to on the day of the lock. Without it, mise resolves each install again
 # and trusts whatever the release or the registry publishes at that time. For each PyPI tool, the
