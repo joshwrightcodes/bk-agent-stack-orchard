@@ -246,7 +246,7 @@ const widestAllow = 16
 // softnetPools are the ranges from which Softnet picks the network of each virtual machine: a /29
 // at random, which does not overlap a network of an interface of the host. The host takes the
 // first address of that network, which is the gateway of the virtual machine. These are the ranges
-// of Softnet 0.24.1 (lib/subnet_finder/mod.rs), and a test checks that the hosts install that
+// of Softnet 0.25.0 (lib/subnet_finder/mod.rs), and a test checks that the hosts install that
 // version and give the pf rules the same ranges.
 var softnetPools = []netip.Prefix{
 	netip.MustParsePrefix("10.0.0.0/8"),

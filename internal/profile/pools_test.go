@@ -14,7 +14,7 @@ import (
 // poolsOfSoftnet is the Softnet version whose subnet finder softnetPools copies. A new Softnet can
 // pick the networks of the VMs from other ranges, so an upgrade of the hosts fails this test until
 // a person reads lib/subnet_finder/mod.rs of the new version and changes both copies.
-const poolsOfSoftnet = "0.24.1"
+const poolsOfSoftnet = "0.25.0"
 
 const (
 	hostDefaults = "../../deploy/hosts/roles/orchard_worker/defaults/main.yml"
