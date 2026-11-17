@@ -150,7 +150,7 @@ Each download is about 31 MB. If your fleet runs many jobs a day, use a mirror.
 ### Git credential helpers in the image
 
 Git Credential Manager writes two `credential.helper` lines in `~/.gitconfig`: an empty one, then
-the manager. The upstream `macos-golden-gate-base` image has them. `buildkite-agent` v4.9.0 cannot
+the manager. The upstream `macos-golden-gate-base` image has them. `buildkite-agent` v4.10.2 cannot
 replace two helpers with its own, so a checkout with the repository credentials of Buildkite would
 fail with `cannot overwrite multiple values with a single value`.
 

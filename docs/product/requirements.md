@@ -447,7 +447,7 @@ Dependencies:
   of 2026-09-13).
 * Each VM runs `buildkite-agent` v4: a pinned release that the VM downloads when it starts, or the
   agent of the image (target design, section 5; ADR-0017). Buildkite made v4 the stable line on
-  2026-09-01, and v4.9.0 is current (2026-10-30, checked 2026-11-01). Agent v4 stops immediately
+  2026-09-01, and v4.10.2 is current (2026-11-09, checked 2026-11-17). Agent v4 stops immediately
   when a flag is not defined. The release archives are on GitHub, and a VM that downloads the agent
   reaches GitHub or a mirror that the operator sets.
 * The VM image runs the Tart guest agent, which the startup-script transport needs (ADR-0009).

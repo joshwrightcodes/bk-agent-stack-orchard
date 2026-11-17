@@ -66,8 +66,8 @@ REGISTRY="${IMAGE_REGISTRY:-}"
 TAG="${IMAGE_TAG:-$(git -C "$HERE" describe --always --dirty --abbrev=12 --exclude='*' 2>/dev/null || date -u +%Y%m%d%H%M%S)}"
 
 # buildkite-agent, and the SHA-256 that its release publishes in its SHA256SUMS.
-AGENT_VERSION="4.9.0"
-AGENT_SHA256="faaf0084edf08a92a877253620604fbd6ce496d2851a7ae5126dd19f27429e76"
+AGENT_VERSION="4.10.2"
+AGENT_SHA256="9dd2d573995f4d4ebc7c8c6334b36ce2bb90ef68d939631fa17a2994a9c71117"
 
 # The Tart guest agent, and the SHA-256 that its release publishes. The vanilla image has none.
 GUEST_AGENT_VERSION="0.15.0"
