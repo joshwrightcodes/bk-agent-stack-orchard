@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/joshwrightcodes/bk-agent-stack-orchard/compare/v0.1.2...v0.2.0) (2026-11-18)
+
+
+### Features
+
+* **config:** allow a plain HTTP orchard.url on request ([#246](https://github.com/joshwrightcodes/bk-agent-stack-orchard/issues/246)) ([e4f3f0f](https://github.com/joshwrightcodes/bk-agent-stack-orchard/commit/e4f3f0fa114237c62fa5f2b0a6535f576a7e7d30))
+
 ## [0.1.2](https://github.com/joshwrightcodes/bk-agent-stack-orchard/compare/v0.1.1...v0.1.2) (2026-11-17)
 
 
