@@ -36,8 +36,8 @@ only this description, not the messages of the commits.
 - [ ] The evidence above passes in CI, and a new behaviour started with a failing test.
 - [ ] The documents follow the change: a new behaviour updates the product requirements, a new
       approach has an ADR, and a new mechanism updates the target design.
-- [ ] A change to a component, a container, or a relationship updates `workspace.dsl`, and
-      `render-c4-md.sh` regenerated `c4.md`.
+- [ ] A change to a component, a container, or a relationship updates `workspace.dsl` and the
+      matching drawing in `docs/diagrams`, and `mise run diagrams` exported the drawing.
 - [ ] I disclosed each AI tool that AI_POLICY.md covers, I read the whole change, and I can explain
       it myself.
 - [ ] Each new image has alt text, and no meaning depends on colour alone, as the writing guide

@@ -101,8 +101,8 @@ product requirements  ->  decision records  ->  target design  ->  implementatio
 * A change of **approach** needs a [decision record](docs/adrs/README.md). One ADR holds one
   decision, names its options, and records the consequences.
 * A change of **mechanism** goes in the [target design](docs/architecture/target-design.md).
-* A change to the **C4 model** goes in `docs/architecture/workspace.dsl` in the same commit, and
-  `docs/architecture/render-c4-md.sh` regenerates `docs/architecture/c4.md`.
+* A change to the **C4 model** goes in `docs/architecture/workspace.dsl` and in the matching
+  drawing in `docs/diagrams`, in the same pull request. `mise run diagrams` exports the drawing.
 
 These documents describe the design:
 

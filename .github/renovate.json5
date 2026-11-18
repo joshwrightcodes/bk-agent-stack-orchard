@@ -43,10 +43,9 @@
       datasourceTemplate: "docker",
     },
     {
-      // The Structurizr image of the C4 check and the C4 render, pinned by its tag and its digest.
-      // Both scripts carry the same line, so one pull request updates both.
+      // The Structurizr image of the C4 check, pinned by its tag and its digest.
       customType: "regex",
-      managerFilePatterns: ["/^scripts/check-c4\\.sh$/", "/^docs/architecture/render-c4-md\\.sh$/"],
+      managerFilePatterns: ["/^scripts/check-c4\\.sh$/"],
       matchStrings: [
         'structurizr_image="(?<depName>[^:@"]+):(?<currentValue>[^@"]+)@(?<currentDigest>sha256:[a-f0-9]{64})"',
       ],
@@ -190,8 +189,8 @@
       minimumReleaseAgeBehaviour: "timestamp-optional",
     },
     {
-      // Structurizr runs in the c4 model check. A new release can change the rendered views, and
-      // the check then shows the difference in c4.md on the same pull request.
+      // Structurizr runs in the c4 model check. A new release can change which workspaces it
+      // accepts, and the check then fails on the same pull request.
       matchManagers: ["custom.regex"],
       matchDepNames: ["structurizr/structurizr"],
       semanticCommitType: "build",

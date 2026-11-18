@@ -30,7 +30,7 @@ a number, such as the demand model or a quality target.
 | [Product requirements](product/requirements.md) | What does the product do? |
 | [System design baseline](architecture/system-design-baseline.md) | Which drivers, targets, and assumptions limit the design? |
 | [Target design](architecture/target-design.md) | How does the controller work? |
-| [C4 model](architecture/c4.md) | What are the levels of the architecture? The file is generated from [`workspace.dsl`](architecture/workspace.dsl). |
+| [C4 model](architecture/c4.md) | What are the levels of the architecture? The diagrams show the views of [`workspace.dsl`](architecture/workspace.dsl). |
 | [Decision records](adrs/README.md) | Why did the project choose this approach? |
 | [Test strategy](quality/test-strategy.md) | Which risks exist, and which tests cover them? |
 | [Assurance case](quality/assurance-case.md) | Why does the controller meet its security requirements? |

@@ -18,7 +18,7 @@ This guide tells you how to set up your Mac, run the gates, and run the tests th
 
 * [`mise`](https://mise.jdx.dev/), from the `Brewfile`. It installs every other tool, Go and
   Orchard included.
-* A Docker runtime, for four tasks: `check-c4` (it renders the C4 model), `orchard-image` (it
+* A Docker runtime, for four tasks: `check-c4` (it validates the C4 model), `orchard-image` (it
   builds the image of the Orchard controller), `snapshot` (it builds the image), and `smoke` (it
   runs kind). `mise run check` runs `check-c4`, so it also needs
   Docker. `mise run ci` skips these tasks when Docker is absent, and CI runs them. The `Brewfile`
@@ -30,6 +30,25 @@ This guide tells you how to set up your Mac, run the gates, and run the tests th
   ```
 * Tart and Softnet, from the `Brewfile`. Only the tests in
   [Testing on real VMs](testing-on-real-vms.md) need them.
+* The draw.io desktop app, from the `Brewfile`. Only `mise run diagrams` needs it. The task
+  exports each drawing in `docs/diagrams` to an SVG file. After you edit a drawing, run the task.
+  Commit the drawing and the SVG file together. The drawings use the greens of the logo of the
+  release bot for the parts of this project, and grey for other systems:
+
+  | Element | Fill | Outline | Text |
+  |---|---|---|---|
+  | Person | `#0F5C4D` | `#7CF0B4` | `#FFFFFF` |
+  | Software system | `#1F7A5A` | `#7CF0B4` | `#FFFFFF` |
+  | Container | `#268055` | `#7CF0B4` | `#FFFFFF` |
+  | Component, and a step of a plan | `#D8EFE4` | `#2E8B57` | `#0F5C4D` |
+  | Boundary of this project: the bar, and a dashed outline | `#0F5C4D` | `#2E8B57` | `#FFFFFF` |
+  | Other system | `#5F6B77` | `#8B949E` | `#FFFFFF` |
+  | Boundary of another system: the bar, and a dashed outline | `#57606A` | `#8B949E` | `#FFFFFF` |
+  | Title of a view, at 19 px in bold | None | None | `#2E8B57` |
+
+  Each pair of text and fill has a contrast of 4.5:1 or more. A title is large text, so it needs
+  3:1 on the light theme and on the dark theme of GitHub. Orchard is another system, so its parts
+  are grey, also where a C4 view shows them as containers of this project.
 
 ## Tools
 

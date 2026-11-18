@@ -38,9 +38,6 @@ PLAN = ROOT / "docs/delivery/implementation-plan.md"
 ADR_DIR = ROOT / "docs/adrs"
 GLOSSARY = ROOT / "docs/glossary.md"
 
-# Generated files. Their producer owns their shape.
-GENERATED = {ROOT / "docs/architecture/c4.md"}
-
 MAX_WIDTH = 100
 ADR_STATUS = {"proposed", "accepted", "rejected", "deprecated"}
 
@@ -161,8 +158,11 @@ FRONT_MATTER = re.compile(r"\A---\n.*?\n---\n", re.S)
 FENCE = re.compile(r"^ *(`{3,}|~{3,})")
 COMMENT = re.compile(r"<!--.*?-->", re.S)
 HEADING = re.compile(r"^ {0,3}#{1,6} .*$", re.M)
-CODE = re.compile(r"(`+)[^`]*?\1")
-LINK = re.compile(r"!?\[[^\]\n]*\]\((?:[^()\s]|\([^()\s]*\))*\)")
+# A code span can wrap over lines, but it ends at a blank line, as its paragraph does.
+CODE = re.compile(r"(`+)(?:[^`\n]|\n(?![ \t]*\n))*?\1")
+# The text of a link can wrap over lines, but it ends at a blank line, as its paragraph does.
+LINK_TEXT = r"\[(?:[^\]\n]|\n(?![ \t]*\n))*\]"
+LINK = re.compile(r"!?" + LINK_TEXT + r"\((?:[^()\s]|\([^()\s]*\))*\)")
 REFERENCE = re.compile(r"^ {0,3}\[([^\]\n]+)\]:[ \t]*<?([^\s>]+)>?.*$", re.M)
 # A full or collapsed reference link, [text][label] or [text][], and a shortcut one, [label].
 REFERENCE_LINK = re.compile(r"!?\[([^\]\n]+)\]\[([^\]\n]*)\]|!?\[([^\]\n]+)\](?![\[(:])")
@@ -203,8 +203,14 @@ def code_spans(text: str) -> list[tuple[int, int]]:
         if inside:
             spans.append((offset, offset + len(line)))
         offset += len(line) + 1
-    for pattern in (COMMENT, CODE):
-        spans += [m.span() for m in pattern.finditer(text)]
+    comments = [m.span() for m in COMMENT.finditer(text)]
+    spans += comments
+    # A backtick in a comment does not start a code span, so the comments are blanked first. The
+    # blanks keep the length and the line breaks of the text.
+    blanked = text
+    for start, end in comments:
+        blanked = blanked[:start] + re.sub(r"[^\n]", " ", blanked[start:end]) + blanked[end:]
+    spans += [m.span() for m in CODE.finditer(blanked)]
     return spans
 
 
@@ -295,8 +301,6 @@ def check_citation_links(defined: dict[str, set[str]]) -> None:
             if f'<a id="{anchor_name(identifier)}"></a>' not in text:
                 fail(source, None, f"defines {identifier} without its anchor")
     for path in markdown_files():
-        if path in GENERATED:
-            continue
         text = read(path)
         for match in unlinked_citations(path, text, known):
             number = text.count("\n", 0, match.start()) + 1
@@ -352,16 +356,27 @@ def check_adr_direction() -> None:
 
 def check_links() -> None:
     link = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+    # The alternative text of an image can wrap over lines, so no single line holds the link.
+    wrapped_image = re.compile(r"!(?=\[[^\]\n]*\n)" + LINK_TEXT + r"\(([^)\s]+)\)")
     code_span = re.compile(r"`[^`]*`")
     for path in markdown_files():
-        for number, line in enumerate(read(path).split("\n"), 1):
+        text = read(path)
+        targets = []
+        for number, line in enumerate(text.split("\n"), 1):
             # A regular expression inside backticks can look like a link. Code is not a link.
             for target in link.findall(code_span.sub("``", line)):
-                if target.startswith(("http://", "https://", "#", "mailto:")):
-                    continue
-                resolved = (path.parent / target.split("#", 1)[0]).resolve()
-                if not resolved.exists():
-                    fail(path, number, f"link target does not exist: {target}")
+                targets.append((number, target))
+        code = code_spans(text)
+        for match in wrapped_image.finditer(text):
+            if inside(code, *match.span()):
+                continue
+            targets.append((text.count("\n", 0, match.start()) + 1, match.group(1)))
+        for number, target in targets:
+            if target.startswith(("http://", "https://", "#", "mailto:")):
+                continue
+            resolved = (path.parent / target.split("#", 1)[0]).resolve()
+            if not resolved.exists():
+                fail(path, number, f"link target does not exist: {target}")
 
 
 URL = re.compile(r"\]\((?:[^()\s]|\([^()\s]*\))*\)|(?:https?|ftp)://[^\s)>\]]+")
@@ -369,8 +384,6 @@ URL = re.compile(r"\]\((?:[^()\s]|\([^()\s]*\))*\)|(?:https?|ftp)://[^\s)>\]]+")
 
 def check_width() -> None:
     for path in markdown_files():
-        if path in GENERATED:
-            continue
         lines = read(path).split("\n")
         for number, (line, in_fence) in enumerate(zip(lines, fenced(lines), strict=True), 1):
             if in_fence or line.startswith("|"):

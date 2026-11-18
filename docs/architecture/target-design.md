@@ -121,8 +121,9 @@ model has three views:
 | 2 — Container | `Containers` | The controller, the Orchard controller, the Orchard state store, the Orchard worker, Tart, and the job VM. |
 | 3 — Component | `ControllerComponents` | The components of the controller (see "Components" below). The other containers are third-party software, so the model does not decompose them. |
 
-The workspace MUST be the source of truth for these diagrams. A change to a component, a
-container, or a relationship MUST update the workspace in the same commit.
+The workspace is the model. The draw.io drawings in `docs/diagrams/` show its three views, and
+`docs/architecture/c4.md` shows the drawings. A change to a component, a container, or a
+relationship MUST update the workspace and the matching drawing in the same pull request.
 
 CI MUST validate the workspace with the `structurizr/structurizr` image. The earlier
 `structurizr/cli` image receives no more updates, so CI MUST NOT use it.
@@ -137,11 +138,8 @@ The command uses the repository root, so it operates from all directories in the
 If the mount source does not exist, Docker mounts an empty directory, and the command fails
 with "workspace.dsl does not exist".
 
-`docs/architecture/c4.md` contains Mermaid versions of the three views for review in Markdown.
-`docs/architecture/render-c4-md.sh` generates the file. The script exports the views with
-`structurizr/structurizr export -format mermaid` and converts the HTML labels to plain text.
-Markdown renderers that run Mermaid with `securityLevel: strict` and `htmlLabels: false` cannot
-show HTML labels. CI MUST run the script and MUST fail if the committed file is different.
+`mise run diagrams` exports each drawing to an SVG file with the draw.io desktop app. No tool
+compares a drawing with the workspace, so the reviewer of a pull request checks that they agree.
 
 ### Overview
 
@@ -154,29 +152,7 @@ opens an outbound gRPC connection to the Orchard controller, and it runs the VM.
 VM runs `buildkite-agent --acquire-job`, acquires its job from the Stacks API, and runs the build.
 The controller, the Orchard controller, and the worker send OTLP telemetry to the OTel Collector.
 
-```mermaid
-flowchart LR
-    subgraph BK[Buildkite]
-        stacks[Stacks API<br/>agent.buildkite.com/v3]
-    end
-    subgraph K8S[Kubernetes]
-        ctrl[bk-agent-stack-orchard]
-        orch[Orchard controller<br/>StatefulSet]
-        otel[OTel Collector]
-    end
-    subgraph MACS[Mac hosts]
-        w1[orchard worker + Tart]
-        vm1[(macOS VM<br/>buildkite-agent --acquire-job)]
-    end
-    ctrl -- poll / reserve / JAT / states / finish --> stacks
-    ctrl -- list workers+VMs / create / delete --> orch
-    w1 -- outbound gRPC --> orch
-    w1 --> vm1
-    vm1 -- acquire job, run build --> stacks
-    ctrl -. OTLP .-> otel
-    orch -. OTLP .-> otel
-    w1 -. OTLP .-> otel
-```
+![Overview diagram of the deployment. The paragraph above describes it.](../diagrams/controller-overview.svg)
 
 The controller does not keep durable state. At each tick, it gets its view from two sources:
 
@@ -512,28 +488,7 @@ Orchard runs the startup script over the Tart guest agent. The VM runs
 `buildkite-agent start --acquire-job J`, and job J runs and finishes. The agent and the script
 exit. The get-states call returns `finished` for J, and the controller deletes the VM `bk-ID-J`.
 
-```mermaid
-sequenceDiagram
-    participant BK as Buildkite Stacks API
-    participant C as bk-agent-stack-orchard
-    participant O as Orchard
-    participant VM as macOS VM
-    C->>BK: GET scheduled-jobs (job J, tags xcode 27)
-    C->>C: Match profile xcode-27, admission finds a free slot
-    C->>BK: PUT batch-reserve J (expiry 300s)
-    C->>BK: POST job-acquisition-tokens J (lifetime 1800s)
-    C->>O: POST /v1/vms bk-ID-J
-    C->>BK: Notification VM requested
-    O->>O: Schedule on worker mac-03, clone, boot
-    C->>O: List VMs (worker mac-03, status running)
-    C->>BK: Notifications placed on mac-03, booting
-    O->>VM: Startup script over the Tart guest agent
-    VM->>BK: buildkite-agent start --acquire-job J
-    BK-->>VM: Job J runs and finishes
-    VM->>VM: Agent exits, script exits
-    C->>BK: POST get-states J returns finished
-    C->>O: DELETE /v1/vms/bk-ID-J
-```
+![Sequence diagram of one job. The paragraph above describes it.](../diagrams/normal-sequence.svg)
 
 ### 6.3 Admission
 

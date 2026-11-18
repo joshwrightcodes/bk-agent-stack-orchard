@@ -27,23 +27,15 @@ class CheckDocsTest(unittest.TestCase):
         (self.root / "docs/adrs").mkdir(parents=True)
         for number in range(1, 15):
             (self.root / f"docs/adrs/{number:04d}-x.md").write_text("# x\n")
-        self.saved = (
-            check_docs.ROOT,
-            check_docs.ADR_DIR,
-            check_docs.GENERATED,
-            check_docs.GLOSSARY,
-        )
+        self.saved = (check_docs.ROOT, check_docs.ADR_DIR, check_docs.GLOSSARY)
         check_docs.ROOT = self.root
         check_docs.ADR_DIR = self.root / "docs/adrs"
-        check_docs.GENERATED = set()
         check_docs.GLOSSARY = self.root / "docs/glossary.md"
         check_docs.errors.clear()
         self.addCleanup(self.restore)
 
     def restore(self) -> None:
-        (check_docs.ROOT, check_docs.ADR_DIR, check_docs.GENERATED, check_docs.GLOSSARY) = (
-            self.saved
-        )
+        (check_docs.ROOT, check_docs.ADR_DIR, check_docs.GLOSSARY) = self.saved
         check_docs.errors.clear()
 
     def write(self, name: str, text: str) -> None:
@@ -71,6 +63,27 @@ class CheckDocsTest(unittest.TestCase):
         self.write("README.md", f"{'word ' * 15}[the page]({target}) end.\n")
         check_docs.check_width()
         self.assertEqual([], check_docs.errors)
+
+    def test_an_image_with_wrapped_text_has_its_target_checked(self) -> None:
+        self.write("docs/a.svg", "<svg/>\n")
+        self.write("docs/x.md", "Intro.\n\n![The first line\nand the second.](a.svg)\n")
+        check_docs.check_links()
+        self.assertEqual([], check_docs.errors)
+        self.write("docs/x.md", "Intro.\n\n![The first line\nand the second.](b.svg)\n")
+        check_docs.check_links()
+        self.assertEqual(1, len(check_docs.errors), check_docs.errors)
+        self.assertIn("docs/x.md:3", check_docs.errors[0])
+
+    def test_a_wrapped_image_in_code_is_not_checked(self) -> None:
+        self.write("docs/x.md", "Intro.\n\n`![The first line\nand the second.](b.svg)`\n")
+        check_docs.check_links()
+        self.assertEqual([], check_docs.errors)
+
+    def test_a_backtick_in_a_comment_does_not_hide_a_wrapped_image(self) -> None:
+        self.write("docs/x.md", "<!-- ` -->\n\n![The first line\nand the second.](b.svg)\n\n`x`\n")
+        check_docs.check_links()
+        self.assertEqual(1, len(check_docs.errors), check_docs.errors)
+        self.assertIn("docs/x.md:3", check_docs.errors[0])
 
     def test_an_adr_range_must_match_the_files(self) -> None:
         self.write("README.md", "The set runs from ADR-0001 to ADR-0009.\n")
@@ -241,6 +254,37 @@ class CheckDocsTest(unittest.TestCase):
         self.documents(
             '| ID |\n|---|\n| <a id="t-001"></a>T-001 |\n',
             "---\nnote: T-001\n---\n# T-001\n\n`T-001`\n\n<!-- T-001 -->\n\n```\nT-001\n```\n",
+        )
+        self.assertEqual([], check_docs.errors)
+
+    def test_a_link_does_not_reach_over_a_blank_line(self) -> None:
+        self.documents(
+            '| ID |\n|---|\n| <a id="t-001"></a>T-001 |\n',
+            "[unfinished\n\nSee T-001.\n\n[details](x.md)\n",
+        )
+        self.assertEqual(1, len(check_docs.errors), check_docs.errors)
+        self.assertIn("target-design.md:3: cites T-001 without a link", check_docs.errors[0])
+
+    def test_a_backtick_in_a_comment_does_not_hide_a_citation(self) -> None:
+        self.documents(
+            '| ID |\n|---|\n| <a id="t-001"></a>T-001 |\n',
+            "<!-- ` -->\n\nSee T-001.\n\n`x`\n",
+        )
+        self.assertEqual(1, len(check_docs.errors), check_docs.errors)
+        self.assertIn("target-design.md:3: cites T-001 without a link", check_docs.errors[0])
+
+    def test_a_code_span_does_not_reach_over_a_blank_line(self) -> None:
+        self.documents(
+            '| ID |\n|---|\n| <a id="t-001"></a>T-001 |\n',
+            "A stray ` here.\n\nSee T-001.\n\nThe `x` and `T-001\nwrapped`.\n",
+        )
+        self.assertEqual(1, len(check_docs.errors), check_docs.errors)
+        self.assertIn("target-design.md:3: cites T-001 without a link", check_docs.errors[0])
+
+    def test_a_link_with_wrapped_text_around_a_citation_needs_no_other_link(self) -> None:
+        self.documents(
+            '| ID |\n|---|\n| <a id="t-001"></a>T-001 |\n',
+            "![The flow of\nT-001](x.svg)\n",
         )
         self.assertEqual([], check_docs.errors)
 

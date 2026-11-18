@@ -5,14 +5,10 @@ This page explains what the controller does with each job, and why. To try it, f
 
 ## The parts
 
-```mermaid
-flowchart LR
-    BK[Buildkite] -- scheduled jobs --> C[bk-agent-stack-orchard]
-    C -- create and delete VMs --> O[Orchard controller]
-    O -- schedule --> W[Mac host: Orchard worker and Tart]
-    W -- start --> VM[macOS VM]
-    VM -- the agent runs the job --> BK
-```
+![A loop of five parts. Buildkite sends scheduled jobs to bk-agent-stack-orchard. The controller
+creates and deletes VMs in the Orchard controller. The Orchard controller schedules each VM on a
+Mac host, which runs an Orchard worker and Tart. The host starts a macOS VM. In the VM, the agent
+runs the job for Buildkite.](../diagrams/how-it-works-parts.svg)
 
 * **Buildkite** holds the jobs. The controller serves one self-hosted queue of a cluster, with a
   cluster agent token.
