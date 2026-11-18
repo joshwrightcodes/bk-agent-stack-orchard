@@ -87,10 +87,12 @@ Orchard. If `config.orchard.url` names another port, set `networkPolicy.orchard.
 A URL without a port uses 443 for `https` and 80 for `http`, so set the port for such a URL too.
 Otherwise every call to Orchard times out.
 
-`config.orchard.plainHTTPURL: true` removes TLS from the hop to Orchard. The service account token,
-the job tokens, and the VM passwords then travel unencrypted. Use it only for an Orchard controller
-in the same cluster, and give the `orchard` destination its peers in `to`. After a trial on a
-shared network, rotate the Orchard token and the image password.
+To reach an Orchard controller that serves plain HTTP, set `config.orchard.url` to its `http://`
+URL, and set `config.orchard.plainHTTPURL: true`. The setting only permits such a URL. With an
+`https://` URL, the hop keeps TLS. Over plain HTTP, the service account token, the job tokens, and
+the VM passwords travel unencrypted. Use it only for an Orchard controller in the same cluster, and
+give the `orchard` destination its peers in `to`. After a trial on a shared network, rotate the
+Orchard token and the image password.
 
 For production, give each destination its peers in `to`. This example is a values file. The
 addresses are placeholders from the documentation ranges of RFC 5737. Replace them with your own
