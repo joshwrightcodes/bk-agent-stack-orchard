@@ -93,6 +93,11 @@ type Orchard struct {
 	// Required.
 	URL string `yaml:"url"`
 
+	// Allows a URL without TLS that is not a loopback address, such as an Orchard controller in the
+	// same cluster that serves plain HTTP. The Orchard token then travels unencrypted, and the
+	// controller warns at start.
+	PlainHTTPURL bool `yaml:"plainHTTPURL,omitempty"`
+
 	// The Orchard service account of this controller. It needs the compute:read and compute:write
 	// roles. Required.
 	ServiceAccount string `yaml:"serviceAccount"`
@@ -207,13 +212,23 @@ func Load(path string, environment Environment) (*Config, error) {
 		cfg.Warnings = append(cfg.Warnings, p.Warnings()...)
 	}
 
-	if endpoint, err := url.Parse(cfg.Buildkite.Endpoint); err == nil && endpoint.Scheme == "http" &&
-		!loopback(endpoint.Hostname()) {
+	if plainHTTP(cfg.Buildkite.Endpoint) {
 		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("buildkite.endpoint %q uses plain HTTP, "+
 			"so the agent token travels unencrypted", cfg.Buildkite.Endpoint))
 	}
+	if plainHTTP(cfg.Orchard.URL) {
+		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("orchard.url %q uses plain HTTP, "+
+			"so the Orchard token travels unencrypted", cfg.Orchard.URL))
+	}
 
 	return cfg, nil
+}
+
+// plainHTTP reports whether an address uses plain HTTP to a host that is not this machine.
+func plainHTTP(raw string) bool {
+	address, err := url.Parse(raw)
+
+	return err == nil && address.Scheme == "http" && !loopback(address.Hostname())
 }
 
 // defaults gives the values of the target design, section 8.
@@ -420,7 +435,7 @@ func loopback(host string) bool {
 func (c *Config) validateOrchard() []error {
 	var problems []error
 
-	if err := secureAddress("orchard.url", c.Orchard.URL, false); err != nil {
+	if err := secureAddress("orchard.url", c.Orchard.URL, c.Orchard.PlainHTTPURL); err != nil {
 		problems = append(problems, err)
 	}
 	if c.Orchard.ServiceAccount == "" {

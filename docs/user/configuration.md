@@ -65,6 +65,7 @@ The connection to Orchard.
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `orchard.url` | string |  | The URL of the Orchard controller. It must use https, except on a loopback address. Required. |
+| `orchard.plainHTTPURL` | boolean | `false` | Allows a URL without TLS that is not a loopback address, such as an Orchard controller in the same cluster that serves plain HTTP. The Orchard token then travels unencrypted, and the controller warns at start. |
 | `orchard.serviceAccount` | string |  | The Orchard service account of this controller. It needs the compute:read and compute:write roles. Required. |
 | `orchard.inventoryInterval` | duration | `1s` | How often the controller reads the workers and VMs of Orchard. It must be shorter than stateFreshness. |
 | `orchard.workerOfflineTimeout` | duration | `3m` | How long a worker can be silent before the controller counts it as offline. Set it to the worker offline timeout of your Orchard controller. |

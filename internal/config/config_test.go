@@ -559,6 +559,24 @@ func TestLoadAcceptsAPlainHTTPBuildkiteEndpointThatTheConfigurationAllows(t *tes
 	}
 }
 
+// An Orchard controller in the same cluster can serve plain HTTP. The configuration must say so,
+// and the controller warns about it.
+func TestLoadAcceptsAPlainHTTPOrchardURLThatTheConfigurationAllows(t *testing.T) {
+	body := strings.Replace(minimal, "url: https://orchard.internal:6120",
+		"url: http://orchard.orchard.svc:6120\n  plainHTTPURL: true", 1)
+
+	cfg, err := load(t, body, secrets())
+	if err != nil {
+		t.Fatalf("Load() = %v, want no error", err)
+	}
+
+	if !slices.ContainsFunc(cfg.Warnings, func(w string) bool {
+		return strings.Contains(w, "orchard.url") && strings.Contains(w, "plain HTTP")
+	}) {
+		t.Fatalf("Warnings = %q, want a warning about the plain HTTP URL", cfg.Warnings)
+	}
+}
+
 // A profile names the variables whose values go into its machines. A job runs untrusted code in
 // that machine, so a name that holds a controller secret would give the secret to the job.
 func TestLoadRefusesAProfileThatNamesAControllerSecret(t *testing.T) {

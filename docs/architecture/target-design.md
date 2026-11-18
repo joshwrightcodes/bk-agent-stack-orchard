@@ -1075,7 +1075,9 @@ The controller refuses a configuration that does not. Plain `http` is accepted o
 address (`localhost`, `127.0.0.0/8`, `::1`), where the integration tests run. For
 `buildkite.endpoint`, `buildkite.plainHTTPEndpoint: true` also permits it on another host. That
 setting is for a test cluster with a fake Stacks API, and the controller warns at start that the
-agent token travels unencrypted.
+agent token travels unencrypted. For `orchard.url`, `orchard.plainHTTPURL: true` also permits it on
+another host. That setting is for an Orchard controller in the same cluster that serves plain HTTP,
+and the controller warns at start that the Orchard token travels unencrypted.
 
 The configuration MUST set `pollInterval`, `jobStatesInterval`, and `inventoryInterval` shorter
 than `stateFreshness`. Admission and the Reaper act only on data newer than `stateFreshness`, so a
