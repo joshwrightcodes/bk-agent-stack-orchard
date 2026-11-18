@@ -559,21 +559,108 @@ func TestLoadAcceptsAPlainHTTPBuildkiteEndpointThatTheConfigurationAllows(t *tes
 	}
 }
 
-// An Orchard controller in the same cluster can serve plain HTTP. The configuration must say so,
-// and the controller warns about it.
-func TestLoadAcceptsAPlainHTTPOrchardURLThatTheConfigurationAllows(t *testing.T) {
+// An Orchard controller in the same cluster can serve plain HTTP. The configuration must say so.
+// The controller warns only when plain HTTP leaves this machine, and the warning names what travels
+// unencrypted.
+func TestLoadWarnsAboutPlainHTTPOnlyWhenItLeavesTheMachine(t *testing.T) {
+	const (
+		orchardURL   = "url: https://orchard.internal:6120"
+		endpoint     = "endpoint: https://agent.buildkite.com/v3"
+		orchardPlain = `orchard.url "http://orchard.orchard.svc:6120" uses plain HTTP: the service ` +
+			"account token, the job tokens, and the VM passwords travel unencrypted, and a listener " +
+			"on the path can read, replay, or change each request"
+		buildkitePlain = `buildkite.endpoint "http://fakestacks.smoke:8080" uses plain HTTP, ` +
+			"so the agent token travels unencrypted"
+	)
+
+	for _, c := range []struct {
+		name, from, to, want string
+	}{
+		{
+			"an https Orchard URL with the setting", orchardURL,
+			"url: https://orchard.internal:6120\n  plainHTTPURL: true", "",
+		},
+		{
+			"a loopback Orchard URL with the setting", orchardURL,
+			"url: http://127.0.0.1:6120\n  plainHTTPURL: true", "",
+		},
+		{
+			"a plain HTTP Orchard URL with the setting", orchardURL,
+			"url: http://orchard.orchard.svc:6120\n  plainHTTPURL: true", orchardPlain,
+		},
+		{
+			"a plain HTTP Buildkite endpoint with the setting", endpoint,
+			"endpoint: http://fakestacks.smoke:8080\n  plainHTTPEndpoint: true", buildkitePlain,
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			cfg, err := load(t, strings.Replace(minimal, c.from, c.to, 1), secrets())
+			if err != nil {
+				t.Fatalf("Load() = %v, want no error", err)
+			}
+
+			plain := slices.ContainsFunc(cfg.Warnings, func(w string) bool {
+				return strings.Contains(w, "plain HTTP")
+			})
+			switch {
+			case c.want == "" && plain:
+				t.Fatalf("Warnings = %q, want no warning about plain HTTP", cfg.Warnings)
+			case c.want != "" && !slices.Contains(cfg.Warnings, c.want):
+				t.Fatalf("Warnings = %q, want %q", cfg.Warnings, c.want)
+			}
+		})
+	}
+}
+
+// The certificate of Orchard applies only to TLS. With a plain HTTP URL it protects nothing, so the
+// controller says so.
+func TestLoadWarnsThatTheOrchardCertificateHasNoEffectOnPlainHTTP(t *testing.T) {
 	body := strings.Replace(minimal, "url: https://orchard.internal:6120",
 		"url: http://orchard.orchard.svc:6120\n  plainHTTPURL: true", 1)
+	environment := func(name string) string {
+		if name == config.EnvOrchardCACert {
+			return "-----BEGIN CERTIFICATE-----"
+		}
 
-	cfg, err := load(t, body, secrets())
+		return secrets()(name)
+	}
+
+	cfg, err := load(t, body, environment)
 	if err != nil {
 		t.Fatalf("Load() = %v, want no error", err)
 	}
 
-	if !slices.ContainsFunc(cfg.Warnings, func(w string) bool {
-		return strings.Contains(w, "orchard.url") && strings.Contains(w, "plain HTTP")
-	}) {
-		t.Fatalf("Warnings = %q, want a warning about the plain HTTP URL", cfg.Warnings)
+	want := `BK_AGENT_STACK_ORCHARD_ORCHARD_CA_CERT is set, but orchard.url ` +
+		`"http://orchard.orchard.svc:6120" uses plain HTTP, so the certificate has no effect`
+	if !slices.Contains(cfg.Warnings, want) {
+		t.Fatalf("Warnings = %q, want %q", cfg.Warnings, want)
+	}
+}
+
+// The credentials come from the environment. An address that holds a user name or a password is a
+// mistake that would put a secret in the file and in the log, so the controller refuses it and does
+// not repeat the password.
+func TestLoadRefusesAnAddressWithAUserNameOrAPassword(t *testing.T) {
+	for _, c := range []struct{ name, from, to string }{
+		{
+			"orchard.url", "url: https://orchard.internal:6120",
+			"url: http://admin:hunter2@orchard.orchard.svc:6120\n  plainHTTPURL: true",
+		},
+		{
+			"buildkite.endpoint", "endpoint: https://agent.buildkite.com/v3",
+			"endpoint: https://agent:hunter2@agent.buildkite.com/v3",
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := load(t, strings.Replace(minimal, c.from, c.to, 1), secrets())
+			if err == nil || !strings.Contains(err.Error(), c.name) ||
+				!strings.Contains(err.Error(), "user name or a password") {
+				t.Fatalf("Load() = %v, want an error that %s must not hold credentials", err, c.name)
+			}
+			if strings.Contains(err.Error(), "hunter2") {
+				t.Fatalf("Load() = %v, want an error without the password", err)
+			}
+		})
 	}
 }
 
