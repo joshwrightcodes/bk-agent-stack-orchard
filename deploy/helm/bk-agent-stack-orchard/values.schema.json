@@ -54,6 +54,7 @@
           "required": ["url"],
           "properties": {
             "url": {"type": "string", "pattern": "^[hH][tT][tT][pP]([sS])?://.+"},
+            "plainHTTPURL": {"type": "boolean"},
             "serviceAccount": {"type": "string", "minLength": 1},
             "inventoryInterval": {"$ref": "#/definitions/duration"},
             "workerOfflineTimeout": {"$ref": "#/definitions/duration"}

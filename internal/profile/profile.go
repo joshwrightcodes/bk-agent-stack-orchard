@@ -92,8 +92,8 @@ type OTel struct {
 	// join the trace of the job.
 	Enabled bool `yaml:"enabled"`
 
-	// The OTLP endpoint that the agent sends to. It must use https, except on a loopback address.
-	// Empty means the default of the agent.
+	// The OTLP endpoint that the agent sends to. It must use https, except on a loopback address. It
+	// must not hold a user name or a password. Empty means the default of the agent.
 	Endpoint string `yaml:"endpoint,omitempty"`
 
 	// The environment variable of the controller that holds the OTLP headers of the agent, such

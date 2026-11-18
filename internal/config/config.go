@@ -57,7 +57,8 @@ type Buildkite struct {
 	// AgentToken comes from the environment, never from the file.
 	AgentToken secret.String `yaml:"-"`
 
-	// The URL of the agent API of Buildkite. It must use https, except on a loopback address.
+	// The URL of the agent API of Buildkite. It must use https, except on a loopback address or when
+	// plainHTTPEndpoint allows it. It must not hold a user name or a password.
 	Endpoint string `yaml:"endpoint,omitempty"`
 
 	// Allows an endpoint without TLS that is not a loopback address, such as a fake API in a test
@@ -89,9 +90,17 @@ type Buildkite struct {
 
 // Orchard holds the settings of the Orchard client.
 type Orchard struct {
-	// The URL of the Orchard controller. It must use https, except on a loopback address.
-	// Required.
+	// The URL of the Orchard controller. It must use https, except on a loopback address or when
+	// plainHTTPURL allows it. It must not hold a user name or a password. With the Helm chart, the
+	// NetworkPolicy allows only networkPolicy.orchard.port, 6120 by default, so set that value to the
+	// port of this URL. Required.
 	URL string `yaml:"url"`
+
+	// Allows a URL without TLS that is not a loopback address, such as an Orchard controller in the
+	// same cluster that serves plain HTTP. The service account token, the job tokens, and the VM
+	// passwords then travel unencrypted, and a listener on the path can read, replay, or change each
+	// request. Use it only inside one cluster, behind a NetworkPolicy. The controller warns at start.
+	PlainHTTPURL bool `yaml:"plainHTTPURL,omitempty"`
 
 	// The Orchard service account of this controller. It needs the compute:read and compute:write
 	// roles. Required.
@@ -207,13 +216,29 @@ func Load(path string, environment Environment) (*Config, error) {
 		cfg.Warnings = append(cfg.Warnings, p.Warnings()...)
 	}
 
-	if endpoint, err := url.Parse(cfg.Buildkite.Endpoint); err == nil && endpoint.Scheme == "http" &&
-		!loopback(endpoint.Hostname()) {
+	if plainHTTP(cfg.Buildkite.Endpoint) {
 		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("buildkite.endpoint %q uses plain HTTP, "+
 			"so the agent token travels unencrypted", cfg.Buildkite.Endpoint))
 	}
+	if plainHTTP(cfg.Orchard.URL) {
+		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("orchard.url %q uses plain HTTP: the "+
+			"service account token, the job tokens, and the VM passwords travel unencrypted, and a "+
+			"listener on the path can read, replay, or change each request", cfg.Orchard.URL))
+	}
+	if address, err := url.Parse(cfg.Orchard.URL); err == nil && address.Scheme == "http" &&
+		cfg.Orchard.CACert != "" {
+		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("%s is set, but orchard.url %q uses plain "+
+			"HTTP, so the certificate has no effect", EnvOrchardCACert, cfg.Orchard.URL))
+	}
 
 	return cfg, nil
+}
+
+// plainHTTP reports whether an address uses plain HTTP to a host that is not this machine.
+func plainHTTP(raw string) bool {
+	address, err := url.Parse(raw)
+
+	return err == nil && address.Scheme == "http" && !loopback(address.Hostname())
 }
 
 // defaults gives the values of the target design, section 8.
@@ -388,14 +413,20 @@ func (c *Config) validateFreshness() []error {
 }
 
 // secureAddress accepts an https address. A token travels with every request, so plain HTTP is
-// accepted only on a loopback address, which stays on the machine, or when plain says so.
+// accepted only on a loopback address, which stays on the machine, or when plain says so. The
+// credentials come from the environment, so an address with a user name or a password is refused,
+// and the error does not repeat the password.
 func secureAddress(name, raw string, plain bool) error {
 	address, err := url.ParseRequestURI(raw)
 	if err != nil {
-		return fmt.Errorf("%s %q is not a URL", name, raw)
+		// An address that does not parse cannot be redacted, so the error names only the key.
+		return fmt.Errorf("%s is not a URL", name)
 	}
 
 	switch {
+	case address.User != nil:
+		return fmt.Errorf("%s %q must not hold a user name or a password, because the credentials "+
+			"come from the environment", name, address.Redacted())
 	case address.Scheme == "https":
 		return nil
 	case address.Scheme == "http" && (plain || loopback(address.Hostname())):
@@ -420,7 +451,7 @@ func loopback(host string) bool {
 func (c *Config) validateOrchard() []error {
 	var problems []error
 
-	if err := secureAddress("orchard.url", c.Orchard.URL, false); err != nil {
+	if err := secureAddress("orchard.url", c.Orchard.URL, c.Orchard.PlainHTTPURL); err != nil {
 		problems = append(problems, err)
 	}
 	if c.Orchard.ServiceAccount == "" {

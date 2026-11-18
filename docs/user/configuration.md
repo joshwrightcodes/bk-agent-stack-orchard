@@ -50,7 +50,7 @@ The connection to Buildkite.
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `buildkite.queue` | string |  | The self-hosted Buildkite queue that this controller serves. Other agents and stacks may serve the same queue: the controller counts only the workers that its profiles select, and it leaves each job that no profile carries in the queue for them. Required. |
-| `buildkite.endpoint` | string | `https://agent.buildkite.com/v3` | The URL of the agent API of Buildkite. It must use https, except on a loopback address. |
+| `buildkite.endpoint` | string | `https://agent.buildkite.com/v3` | The URL of the agent API of Buildkite. It must use https, except on a loopback address or when plainHTTPEndpoint allows it. It must not hold a user name or a password. |
 | `buildkite.plainHTTPEndpoint` | boolean | `false` | Allows an endpoint without TLS that is not a loopback address, such as a fake API in a test cluster. The agent token then travels unencrypted, and the controller warns at start. |
 | `buildkite.pollInterval` | duration | `1s` | How often the controller reads the scheduled jobs of the queue. It must be shorter than stateFreshness. |
 | `buildkite.jobStatesInterval` | duration | `5s` | How often the controller reads the state of the jobs that have a VM. It must be shorter than stateFreshness. |
@@ -64,7 +64,8 @@ The connection to Orchard.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `orchard.url` | string |  | The URL of the Orchard controller. It must use https, except on a loopback address. Required. |
+| `orchard.url` | string |  | The URL of the Orchard controller. It must use https, except on a loopback address or when plainHTTPURL allows it. It must not hold a user name or a password. With the Helm chart, the NetworkPolicy allows only networkPolicy.orchard.port, 6120 by default, so set that value to the port of this URL. Required. |
+| `orchard.plainHTTPURL` | boolean | `false` | Allows a URL without TLS that is not a loopback address, such as an Orchard controller in the same cluster that serves plain HTTP. The service account token, the job tokens, and the VM passwords then travel unencrypted, and a listener on the path can read, replay, or change each request. Use it only inside one cluster, behind a NetworkPolicy. The controller warns at start. |
 | `orchard.serviceAccount` | string |  | The Orchard service account of this controller. It needs the compute:read and compute:write roles. Required. |
 | `orchard.inventoryInterval` | duration | `1s` | How often the controller reads the workers and VMs of Orchard. It must be shorter than stateFreshness. |
 | `orchard.workerOfflineTimeout` | duration | `3m` | How long a worker can be silent before the controller counts it as offline. Set it to the worker offline timeout of your Orchard controller. |
@@ -133,7 +134,7 @@ is required.
 | `profiles[].timeouts.maxVMLifetime` | duration | `defaults.timeouts.maxVMLifetime` | The longest that any VM lives, whatever the state of its job. A job that runs longer loses its VM. |
 | `profiles[].otel` | object |  | The telemetry of the agent in each VM. |
 | `profiles[].otel.enabled` | boolean | `false` | Turns on the OpenTelemetry tracing of the agent in each VM. The spans of the agent then join the trace of the job. |
-| `profiles[].otel.endpoint` | string |  | The OTLP endpoint that the agent sends to. It must use https, except on a loopback address. Empty means the default of the agent. |
+| `profiles[].otel.endpoint` | string |  | The OTLP endpoint that the agent sends to. It must use https, except on a loopback address. It must not hold a user name or a password. Empty means the default of the agent. |
 | `profiles[].otel.headersEnv` | string |  | The environment variable of the controller that holds the OTLP headers of the agent, such as a token of the collector. It must start with VM_. |
 | `profiles[].agent` | object |  | Where the agent of each VM comes from. A value that is unset takes the value of defaults.agent. |
 | `profiles[].agent.source` | string | `defaults.agent.source` | download: the VM downloads the archive at url, checks it against sha256, and runs its agent. image: the VM runs the agent of the image, which must be v4. |

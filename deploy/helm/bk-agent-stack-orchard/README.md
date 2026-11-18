@@ -82,6 +82,18 @@ of each destination. A standard NetworkPolicy matches addresses, pods, and names
 names. With no `to` list, a destination allows any peer on its port. The notes of `helm install`
 and `helm upgrade` then name each such destination in a warning.
 
+Each destination allows one port. The `orchard` destination allows TCP 6120 by default, the port of
+Orchard. If `config.orchard.url` names another port, set `networkPolicy.orchard.port` to that port.
+A URL without a port uses 443 for `https` and 80 for `http`, so set the port for such a URL too.
+Otherwise every call to Orchard times out.
+
+To reach an Orchard controller that serves plain HTTP, set `config.orchard.url` to its `http://`
+URL, and set `config.orchard.plainHTTPURL: true`. The setting only permits such a URL. With an
+`https://` URL, the hop keeps TLS. Over plain HTTP, the service account token, the job tokens, and
+the VM passwords travel unencrypted. Use it only for an Orchard controller in the same cluster, and
+give the `orchard` destination its peers in `to`. After a trial on a shared network, rotate the
+Orchard token and the image password.
+
 For production, give each destination its peers in `to`. This example is a values file. The
 addresses are placeholders from the documentation ranges of RFC 5737. Replace them with your own
 addresses:

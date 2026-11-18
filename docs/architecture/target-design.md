@@ -1070,12 +1070,20 @@ to 16 streams, and each request to 4 KiB. It closes a connection that pings more
 minute, and a connection that holds no stream for 5 minutes. Each `Watch` is a stream without an
 end, and the pod has a small memory limit, so these limits protect the pod from one client.
 
-`buildkite.endpoint` and `orchard.url` MUST use `https`, because a token travels with each request.
-The controller refuses a configuration that does not. Plain `http` is accepted only on a loopback
-address (`localhost`, `127.0.0.0/8`, `::1`), where the integration tests run. For
-`buildkite.endpoint`, `buildkite.plainHTTPEndpoint: true` also permits it on another host. That
-setting is for a test cluster with a fake Stacks API, and the controller warns at start that the
-agent token travels unencrypted.
+`buildkite.endpoint` and `orchard.url` MUST use `https`, except in the cases below, because a token
+travels with each request. The controller refuses a configuration that does not. Plain `http` is
+accepted on a loopback address (`localhost`, `127.0.0.0/8`, `::1`), where the integration tests
+run. For `buildkite.endpoint`, `buildkite.plainHTTPEndpoint: true` also permits it on another host.
+That setting is for a test cluster with a fake Stacks API, and the controller warns at start that
+the agent token travels unencrypted. For `orchard.url`, `orchard.plainHTTPURL: true` also permits
+it on another host. That setting is for an Orchard controller in the same cluster that serves plain
+HTTP, behind a NetworkPolicy. The service account token, the job tokens, and the VM passwords then
+travel unencrypted. A listener on the path can read, replay, or change each request. The controller
+warns at start. It also warns when `BK_AGENT_STACK_ORCHARD_ORCHARD_CA_CERT` is set with a plain
+HTTP URL, because the certificate then has no effect.
+
+An address MUST NOT hold a user name or a password, because the credentials come from the
+environment. The controller refuses such an address, and its error does not repeat the password.
 
 The configuration MUST set `pollInterval`, `jobStatesInterval`, and `inventoryInterval` shorter
 than `stateFreshness`. Admission and the Reaper act only on data newer than `stateFreshness`, so a
