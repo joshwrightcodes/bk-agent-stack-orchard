@@ -47,7 +47,8 @@ This guide tells you how to set up your Mac, run the gates, and run the tests th
   | Title of a view, at 19 px in bold | None | None | `#2E8B57` |
 
   Each pair of text and fill has a contrast of 4.5:1 or more. A title is large text, so it needs
-  3:1 on the light theme and on the dark theme of GitHub.
+  3:1 on the light theme and on the dark theme of GitHub. Orchard is another system, so its parts
+  are grey, also where a C4 view shows them as containers of this project.
 
 ## Tools
 
