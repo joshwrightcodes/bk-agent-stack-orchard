@@ -664,6 +664,21 @@ func TestLoadRefusesAnAddressWithAUserNameOrAPassword(t *testing.T) {
 	}
 }
 
+// An address that does not parse cannot be redacted, so the error names only the key. Here the
+// port is not valid, and the address holds a password.
+func TestLoadRefusesAnAddressThatIsNotAURLWithoutRepeatingIt(t *testing.T) {
+	body := strings.Replace(minimal, "url: https://orchard.internal:6120",
+		"url: http://admin:hunter2@orchard.orchard.svc:badport\n  plainHTTPURL: true", 1)
+
+	_, err := load(t, body, secrets())
+	if err == nil || !strings.Contains(err.Error(), "orchard.url is not a URL") {
+		t.Fatalf("Load() = %v, want an error that orchard.url is not a URL", err)
+	}
+	if strings.Contains(err.Error(), "hunter2") {
+		t.Fatalf("Load() = %v, want an error without the password", err)
+	}
+}
+
 // A profile names the variables whose values go into its machines. A job runs untrusted code in
 // that machine, so a name that holds a controller secret would give the secret to the job.
 func TestLoadRefusesAProfileThatNamesAControllerSecret(t *testing.T) {

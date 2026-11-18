@@ -419,7 +419,8 @@ func (c *Config) validateFreshness() []error {
 func secureAddress(name, raw string, plain bool) error {
 	address, err := url.ParseRequestURI(raw)
 	if err != nil {
-		return fmt.Errorf("%s %q is not a URL", name, raw)
+		// An address that does not parse cannot be redacted, so the error names only the key.
+		return fmt.Errorf("%s is not a URL", name)
 	}
 
 	switch {
