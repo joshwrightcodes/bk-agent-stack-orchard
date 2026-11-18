@@ -202,8 +202,14 @@ def code_spans(text: str) -> list[tuple[int, int]]:
         if inside:
             spans.append((offset, offset + len(line)))
         offset += len(line) + 1
-    for pattern in (COMMENT, CODE):
-        spans += [m.span() for m in pattern.finditer(text)]
+    comments = [m.span() for m in COMMENT.finditer(text)]
+    spans += comments
+    # A backtick in a comment does not start a code span, so the comments are blanked first. The
+    # blanks keep the length and the line breaks of the text.
+    blanked = text
+    for start, end in comments:
+        blanked = blanked[:start] + re.sub(r"[^\n]", " ", blanked[start:end]) + blanked[end:]
+    spans += [m.span() for m in CODE.finditer(blanked)]
     return spans
 
 
