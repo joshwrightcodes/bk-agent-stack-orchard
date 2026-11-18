@@ -158,7 +158,8 @@ FRONT_MATTER = re.compile(r"\A---\n.*?\n---\n", re.S)
 FENCE = re.compile(r"^ *(`{3,}|~{3,})")
 COMMENT = re.compile(r"<!--.*?-->", re.S)
 HEADING = re.compile(r"^ {0,3}#{1,6} .*$", re.M)
-CODE = re.compile(r"(`+)[^`]*?\1")
+# A code span can wrap over lines, but it ends at a blank line, as its paragraph does.
+CODE = re.compile(r"(`+)(?:[^`\n]|\n(?![ \t]*\n))*?\1")
 # The text of a link can wrap over lines, but it ends at a blank line, as its paragraph does.
 LINK_TEXT = r"\[(?:[^\]\n]|\n(?![ \t]*\n))*\]"
 LINK = re.compile(r"!?" + LINK_TEXT + r"\((?:[^()\s]|\([^()\s]*\))*\)")
