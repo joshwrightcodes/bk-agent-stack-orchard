@@ -223,35 +223,38 @@ func Load(path string, environment Environment) (*Config, error) {
 
 // plainHTTPWarnings names the addresses that send a token over plain HTTP to another host, and
 // the certificate of Orchard when a plain HTTP URL leaves it without effect. It parses each address
-// once.
+// once, and it prints each address without a password, so it is safe before validation too.
 func (c *Config) plainHTTPWarnings() []string {
 	var warnings []string
 
 	if address, ok := httpAddress(c.Buildkite.Endpoint); ok && !loopback(address.Hostname()) {
 		warnings = append(warnings, fmt.Sprintf("buildkite.endpoint %q uses plain HTTP, "+
-			"so the agent token travels unencrypted", c.Buildkite.Endpoint))
+			"so the agent token travels unencrypted", address.Redacted()))
 	}
 
 	if address, ok := httpAddress(c.Orchard.URL); ok {
 		if !loopback(address.Hostname()) {
 			warnings = append(warnings, fmt.Sprintf("orchard.url %q uses plain HTTP: the "+
 				"service account token, the job tokens, and the VM passwords travel unencrypted, "+
-				"and a listener on the path can read, replay, or change each request", c.Orchard.URL))
+				"and a listener on the path can read, replay, or change each request", address.Redacted()))
 		}
 		if c.Orchard.CACert != "" {
 			warnings = append(warnings, fmt.Sprintf("%s is set, but orchard.url %q uses plain "+
-				"HTTP, so the certificate has no effect", EnvOrchardCACert, c.Orchard.URL))
+				"HTTP, so the certificate has no effect", EnvOrchardCACert, address.Redacted()))
 		}
 	}
 
 	return warnings
 }
 
-// httpAddress parses an address and reports whether its scheme is http.
+// httpAddress parses an address and returns it when its scheme is http. Otherwise it returns nil.
 func httpAddress(raw string) (*url.URL, bool) {
 	address, err := url.Parse(raw)
+	if err != nil || address.Scheme != "http" {
+		return nil, false
+	}
 
-	return address, err == nil && address.Scheme == "http"
+	return address, true
 }
 
 // defaults gives the values of the target design, section 8.
