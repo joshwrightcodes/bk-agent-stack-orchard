@@ -637,6 +637,36 @@ func TestLoadWarnsThatTheOrchardCertificateHasNoEffectOnPlainHTTP(t *testing.T) 
 	}
 }
 
+// A loopback address needs no setting, but the certificate still has no effect on plain HTTP, so the
+// controller says so. It does not warn that the tokens leave the machine, because they do not.
+func TestLoadWarnsThatTheOrchardCertificateHasNoEffectOnLoopbackPlainHTTP(t *testing.T) {
+	body := strings.Replace(minimal, "url: https://orchard.internal:6120",
+		"url: http://127.0.0.1:6120", 1)
+	environment := func(name string) string {
+		if name == config.EnvOrchardCACert {
+			return "-----BEGIN CERTIFICATE-----"
+		}
+
+		return secrets()(name)
+	}
+
+	cfg, err := load(t, body, environment)
+	if err != nil {
+		t.Fatalf("Load() = %v, want no error", err)
+	}
+
+	want := `BK_AGENT_STACK_ORCHARD_ORCHARD_CA_CERT is set, but orchard.url ` +
+		`"http://127.0.0.1:6120" uses plain HTTP, so the certificate has no effect`
+	if !slices.Contains(cfg.Warnings, want) {
+		t.Fatalf("Warnings = %q, want %q", cfg.Warnings, want)
+	}
+	if slices.ContainsFunc(cfg.Warnings, func(w string) bool {
+		return strings.Contains(w, "travel unencrypted")
+	}) {
+		t.Fatalf("Warnings = %q, want no warning that the tokens travel unencrypted", cfg.Warnings)
+	}
+}
+
 // The credentials come from the environment. An address that holds a user name or a password is a
 // mistake that would put a secret in the file and in the log, so the controller refuses it and does
 // not repeat the password.
