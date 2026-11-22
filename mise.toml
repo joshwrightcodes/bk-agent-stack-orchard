@@ -382,7 +382,7 @@ version = "0.11.0"
 version = "3.14.1"
 
 [tools.ruff]
-version = "0.17.5"
+version = "0.17.6"
 
 # The original rhysd/actionlint, named by its backend: the registry entry of "actionlint" points
 # to a young fork.
