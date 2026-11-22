@@ -348,26 +348,26 @@ url = "https://github.com/astral-sh/python-build-standalone/releases/download/20
 provenance = "github-attestations"
 
 [[tools.ruff]]
-version = "0.17.5"
+version = "0.17.6"
 backend = "aqua:astral-sh/ruff"
-specifiers = ["0.17.5"]
+specifiers = ["0.17.6"]
 
 [tools.ruff."platforms.linux-arm64"]
-checksum = "sha256:4d959d4322a8cd3effe11e9fc6743da1dbb41cd0b2476e433b6e6bfd9a69b626"
-url = "https://github.com/astral-sh/ruff/releases/download/0.17.5/ruff-aarch64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/astral-sh/ruff/releases/assets/740496838"
+checksum = "sha256:d4eea36ee6228f6c6bbcf0aea4ebf66fe0e595eedc6cffe628d7b8ba3623390f"
+url = "https://github.com/astral-sh/ruff/releases/download/0.17.6/ruff-aarch64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/astral-sh/ruff/releases/assets/768306985"
 provenance = "github-attestations"
 
 [tools.ruff."platforms.linux-x64"]
-checksum = "sha256:7d261fc981a784668e19e9fa6ad437bfd95b67f2dc263fc1eab87d54d72fcc90"
-url = "https://github.com/astral-sh/ruff/releases/download/0.17.5/ruff-x86_64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/astral-sh/ruff/releases/assets/740497139"
+checksum = "sha256:94b33791f48cd54ab35ad673a443a5c001d3e6d87effeaba9899070b700d45f3"
+url = "https://github.com/astral-sh/ruff/releases/download/0.17.6/ruff-x86_64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/astral-sh/ruff/releases/assets/768307340"
 provenance = "github-attestations"
 
 [tools.ruff."platforms.macos-arm64"]
-checksum = "sha256:4ffadabec5c5fee1ddb2eecac0787ffe6fa18c665b73da9258b84211f40c5829"
-url = "https://github.com/astral-sh/ruff/releases/download/0.17.5/ruff-aarch64-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/astral-sh/ruff/releases/assets/740496814"
+checksum = "sha256:72a886253072cd1bb6a5978a33a5a7add848ee315a8b0f1589f164a11c26328d"
+url = "https://github.com/astral-sh/ruff/releases/download/0.17.6/ruff-aarch64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/astral-sh/ruff/releases/assets/768306954"
 provenance = "github-attestations"
 
 [[tools.shellcheck]]
