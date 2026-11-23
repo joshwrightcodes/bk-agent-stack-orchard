@@ -40,8 +40,8 @@ type Agent struct {
 // the same release, and a test keeps the two equal.
 var DefaultAgent = Agent{
 	Source: AgentDownload,
-	URL:    "https://github.com/buildkite/agent/releases/download/v4.10.2/buildkite-agent-darwin-arm64-4.10.2.tar.gz",
-	SHA256: "9dd2d573995f4d4ebc7c8c6334b36ce2bb90ef68d939631fa17a2994a9c71117",
+	URL:    "https://github.com/buildkite/agent/releases/download/v4.12.0/buildkite-agent-darwin-arm64-4.12.0.tar.gz",
+	SHA256: "1849bde577e0b4df4c149e274773657c5000b076ae90db216ec14922671fcb17",
 }
 
 var sha256Format = regexp.MustCompile(`^[0-9a-f]{64}$`)
