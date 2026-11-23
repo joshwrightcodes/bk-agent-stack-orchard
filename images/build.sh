@@ -66,8 +66,8 @@ REGISTRY="${IMAGE_REGISTRY:-}"
 TAG="${IMAGE_TAG:-$(git -C "$HERE" describe --always --dirty --abbrev=12 --exclude='*' 2>/dev/null || date -u +%Y%m%d%H%M%S)}"
 
 # buildkite-agent, and the SHA-256 that its release publishes in its SHA256SUMS.
-AGENT_VERSION="4.10.2"
-AGENT_SHA256="9dd2d573995f4d4ebc7c8c6334b36ce2bb90ef68d939631fa17a2994a9c71117"
+AGENT_VERSION="4.12.0"
+AGENT_SHA256="1849bde577e0b4df4c149e274773657c5000b076ae90db216ec14922671fcb17"
 
 # The Tart guest agent, and the SHA-256 that its release publishes. The vanilla image has none.
 GUEST_AGENT_VERSION="0.15.0"
@@ -88,8 +88,8 @@ PILOT_SIMULATOR="${PILOT_SIMULATOR:-iPhone 17}"
 AGENT_TAGS_PATH="/usr/local/etc/bk-agent-stack-orchard/agent-tags"
 
 # Homebrew, from the package of its release, and the SHA-256 that GitHub gives for it.
-HOMEBREW_VERSION="7.0.12"
-HOMEBREW_SHA256="a9825310dce8d94bc97f70140700089183c3a894b1048501d933865d7c2441bd"
+HOMEBREW_VERSION="7.0.16"
+HOMEBREW_SHA256="577808c0d0102681ff2aa196d4b27ce64d6a07e32b44cfbad2a2a490c85a4e37"
 
 # The disk of the pilot: Xcode, its iOS simulator runtime, and the formulae need about 50 GB beside
 # macOS, and a job needs room for its build. Tart rounds a disk up to whole 4 KiB blocks, and then

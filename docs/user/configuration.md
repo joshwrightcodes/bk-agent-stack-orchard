@@ -105,8 +105,8 @@ The values that a profile takes when it sets none of its own.
 | `defaults.timeouts.maxVMLifetime` | duration | `25h` | The longest that any VM lives, whatever the state of its job. A job that runs longer loses its VM. |
 | `defaults.agent` | object |  | Where the agent of each VM comes from, for each profile that does not say. |
 | `defaults.agent.source` | string | `download` | download: the VM downloads the archive at url, checks it against sha256, and runs its agent. image: the VM runs the agent of the image, which must be v4. |
-| `defaults.agent.url` | string | `https://github.com/buildkite/agent/releases/download/v4.10.2/buildkite-agent-darwin-arm64-4.10.2.tar.gz` | The https URL of a buildkite-agent release archive for macOS on arm64. Set it with sha256. |
-| `defaults.agent.sha256` | string | `9dd2d573995f4d4ebc7c8c6334b36ce2bb90ef68d939631fa17a2994a9c71117` | The SHA-256 of the archive at url: 64 lower-case hexadecimal characters, in quotes. Set it with url. |
+| `defaults.agent.url` | string | `https://github.com/buildkite/agent/releases/download/v4.12.0/buildkite-agent-darwin-arm64-4.12.0.tar.gz` | The https URL of a buildkite-agent release archive for macOS on arm64. Set it with sha256. |
+| `defaults.agent.sha256` | string | `1849bde577e0b4df4c149e274773657c5000b076ae90db216ec14922671fcb17` | The SHA-256 of the archive at url: 64 lower-case hexadecimal characters, in quotes. Set it with url. |
 
 ### `profiles`
 
