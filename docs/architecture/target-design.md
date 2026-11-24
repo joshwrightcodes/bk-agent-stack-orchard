@@ -1431,8 +1431,9 @@ only when the list differs. Orchard has no version to make the write conditional
 other Job MAY change the cluster settings while the Job runs. After its write, the Job reads the
 settings again, and fails with a message that names each field other than `hostDirPolicies` that
 differs from its first read, so a change that it overwrote shows at once. `HOST_DIR_POLICIES`
-holds one path on each line. An empty value clears the list. The Job refuses `/`, a path that is not absolute and clean, a path that contains `..`,
-`:`, or a control character, and a URL, as the controller does (§5). The controller has no
+holds one path on each line. An empty value clears the list. The Job refuses `/`, a path that is
+not absolute and clean, a path that contains `..`, `:`, or a control character, and a URL, as the
+controller does (§5). The controller has no
 `admin:read`, so it cannot see the policies. The operator checks them with an account that has
 `admin:read`, and a person who adds a broad entry or one without `ro` weakens both locks until the
 Job runs again.
