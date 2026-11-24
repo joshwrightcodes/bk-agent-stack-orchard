@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1186px" height="676px" viewBox="-8 -8 1186 676" style="background: transparent; color-scheme: light;">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#7d8590"/></marker></defs>
+<rect x="0" y="0" width="230" height="56" rx="8" fill="#5f6b77" stroke="#8b949e" stroke-width="1.5"/>
+<text x="115.0" y="24.5" font-family="Helvetica" font-size="13" fill="#ffffff" font-weight="bold" text-anchor="middle">Fleet operator</text>
+<text x="115.0" y="40.5" font-family="Helvetica" font-size="12" fill="#ffffff" text-anchor="middle">Ansible or by hand</text>
+<rect x="300" y="0" width="230" height="56" rx="8" fill="#5f6b77" stroke="#8b949e" stroke-width="1.5"/>
+<text x="415.0" y="24.5" font-family="Helvetica" font-size="13" fill="#ffffff" font-weight="bold" text-anchor="middle">Orchard bootstrap Job</text>
+<text x="415.0" y="40.5" font-family="Helvetica" font-size="12" fill="#ffffff" text-anchor="middle">admin:write</text>
+<rect x="600" y="0" width="250" height="56" rx="8" fill="#1F7A5A" stroke="#7CF0B4" stroke-width="1.5"/>
+<text x="725.0" y="24.5" font-family="Helvetica" font-size="13" fill="#ffffff" font-weight="bold" text-anchor="middle">bk-agent-stack-orchard</text>
+<text x="725.0" y="40.5" font-family="Helvetica" font-size="12" fill="#ffffff" text-anchor="middle">compute:write</text>
+<rect x="300" y="190" width="550" height="64" rx="8" fill="#5f6b77" stroke="#8b949e" stroke-width="1.5"/>
+<text x="575.0" y="218.5" font-family="Helvetica" font-size="13" fill="#ffffff" font-weight="bold" text-anchor="middle">Orchard controller</text>
+<text x="575.0" y="234.5" font-family="Helvetica" font-size="12" fill="#ffffff" text-anchor="middle">--insecure-allow-host-dirs (component host-dirs)</text>
+<path d="M 415 56 L 415 190" fill="none" stroke="#7d8590" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="323.2" y="97.0" width="183.6" height="36" fill="#f6f8fa" stroke="#d0d7de"/>
+<text x="415.0" y="111.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">PUT /v1/cluster-settings</text>
+<text x="415.0" y="126.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">hostDirPolicies: &lt;path&gt;:ro</text>
+<path d="M 725 56 L 725 190" fill="none" stroke="#7d8590" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="606.8" y="97.0" width="236.4" height="36" fill="#f6f8fa" stroke="#d0d7de"/>
+<text x="725.0" y="111.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">POST /v1/vms</text>
+<text x="725.0" y="126.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">hostDirs: [{name, path, ro: true}]</text>
+<rect x="870" y="70" width="300" height="92" fill="#f6f8fa" stroke="#d0d7de"/>
+<text x="878" y="97.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="start">Lock 1: the controller sets ro: true,</text>
+<text x="878" y="112.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="start">and the configuration has no field</text>
+<text x="878" y="127.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="start">that makes a mount writable.</text>
+<text x="878" y="142.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="start">It refuses .., :, /, and a URL.</text>
+<rect x="870" y="190" width="300" height="64" fill="#f6f8fa" stroke="#d0d7de"/>
+<text x="878" y="211.0" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="start">Lock 2: Orchard refuses a path that no</text>
+<text x="878" y="226.0" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="start">policy allows, and a mount that is not</text>
+<text x="878" y="241.0" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="start">read-only where the policy has ro.</text>
+<rect x="0" y="330" width="1170" height="330" rx="8" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="10" y="350" font-family="Helvetica" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="start">Mac host</text>
+<rect x="30" y="380" width="250" height="64" rx="8" fill="#ffffff" stroke="#8b949e" stroke-width="1.5"/>
+<text x="155.0" y="408.5" font-family="Helvetica" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="middle">Host directory</text>
+<text x="155.0" y="424.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">/opt/bkaso/&lt;dir&gt;</text>
+<rect x="450" y="380" width="300" height="64" rx="8" fill="#5f6b77" stroke="#8b949e" stroke-width="1.5"/>
+<text x="600.0" y="408.5" font-family="Helvetica" font-size="13" fill="#ffffff" font-weight="bold" text-anchor="middle">Orchard worker and Tart</text>
+<text x="600.0" y="424.5" font-family="Helvetica" font-size="12" fill="#ffffff" text-anchor="middle">tart run --dir=&lt;name&gt;:&lt;path&gt;:ro</text>
+<path d="M 575 254 L 575 380" fill="none" stroke="#7d8590" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="476.6" y="300.0" width="196.8" height="36" fill="#f6f8fa" stroke="#d0d7de"/>
+<text x="575.0" y="314.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">schedules the VM on a worker</text>
+<text x="575.0" y="329.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">that the workerLabels select</text>
+<path d="M 115 56 L 115 380" fill="none" stroke="#7d8590" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="-6.5" y="182.0" width="243.0" height="36" fill="#f6f8fa" stroke="#d0d7de"/>
+<text x="115.0" y="196.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">provides the directory on each host</text>
+<text x="115.0" y="211.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">replaces each file with one rename</text>
+<rect x="330" y="520" width="810" height="120" rx="8" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="340" y="540" font-family="Helvetica" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="start">Job VM (one job, deleted after it)</text>
+<rect x="360" y="560" width="330" height="60" rx="8" fill="#ffffff" stroke="#8b949e" stroke-width="1.5"/>
+<text x="525.0" y="586.5" font-family="Helvetica" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="middle">/Volumes/My Shared Files/&lt;name&gt;</text>
+<text x="525.0" y="602.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">read-only mount</text>
+<rect x="800" y="560" width="320" height="60" rx="8" fill="#1F7A5A" stroke="#7CF0B4" stroke-width="1.5"/>
+<text x="960.0" y="586.5" font-family="Helvetica" font-size="13" fill="#ffffff" font-weight="bold" text-anchor="middle">Startup script and job</text>
+<text x="960.0" y="602.5" font-family="Helvetica" font-size="12" fill="#ffffff" text-anchor="middle">read: yes; write: fails</text>
+<path d="M 600 444 L 600 560" fill="none" stroke="#7d8590" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="501.6" y="489.5" width="196.8" height="21" fill="#f6f8fa" stroke="#d0d7de"/>
+<text x="600.0" y="504.0" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">starts the VM with the mount</text>
+<path d="M 155 444 L 360 590" fill="none" stroke="#7d8590" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+<rect x="174.5" y="529.5" width="111.0" height="21" fill="#f6f8fa" stroke="#d0d7de"/>
+<text x="230" y="544.0" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">read-only share</text>
+<path d="M 800 590 L 690 590" fill="none" stroke="#7d8590" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="722.5" y="564.5" width="45.0" height="21" fill="#f6f8fa" stroke="#d0d7de"/>
+<text x="745" y="579.0" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">reads</text>
+</svg>

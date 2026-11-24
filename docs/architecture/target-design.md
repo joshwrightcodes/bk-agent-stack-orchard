@@ -505,6 +505,16 @@ These rules apply:
   a file of the image. The operator MUST NOT mount a file that a build of the queue must not read.
 * A mount holds a credential only through the `checkout` fields below.
 
+The fleet operator puts each directory on each Mac host. The Orchard bootstrap Job sets a
+`hostDirPolicies` entry with `ro` for each path, and Orchard runs with `--insecure-allow-host-dirs`
+from the component `host-dirs`. The controller creates each VM with the `hostDirs` of its profile,
+each with `ro: true`: this is the first lock. Orchard refuses a path that no policy allows, and a
+mount that is not read-only: this is the second lock. The worker starts the VM with
+`tart run --dir=<name>:<path>:ro`, and the guest sees the directory at
+`/Volumes/My Shared Files/<name>`. The startup script and the job read it, and a write fails.
+
+![Flow diagram of a read-only host directory. The paragraph above describes it.](../diagrams/host-dirs.svg)
+
 **Checkout credentials.** For a repository on GitHub.com, the operator SHOULD turn on the checkout
 tokens that Buildkite issues for each job
 ([Self-hosted agent code access](https://buildkite.com/docs/agent/self-hosted/code-access), read on
@@ -835,6 +845,16 @@ The startup script is the same text for each VM, so no value of a job is in it
 
 A failure of step 4, 5, or 6 ends the script before an agent starts. The VM then fails, and row 9 of
 §7.2 finishes the job with the last lines of the script, which name the step that failed.
+
+With host directories and checkout credentials, the start of a VM runs as follows. The Orchard
+worker runs the script with the names of the mounts in the environment. The script waits for each
+mount, for `timeouts.hostDirs` at most, and stops before the agent when one is missing. With
+`checkout.sshFrom`, it copies the SSH files of the mount into `~/.ssh` with modes `0700` and
+`0600`. With `checkout.gitCredentialsFrom`, it sets a helper that answers only `get` from
+`.git-credentials` of the mount. It then starts the agent, which checks out over SSH with
+`~/.ssh`, or over HTTPS with the helper. A write to the mount by the job fails.
+
+![Sequence diagram of the start of a VM with mounts. The paragraph above describes it.](../diagrams/host-dirs-start.svg)
 
 The image is trusted: it holds the hooks, and for `image` also the agent. The pinned SHA-256 is
 the trust in a downloaded agent, because Buildkite does not sign its checksums. The rules of step
