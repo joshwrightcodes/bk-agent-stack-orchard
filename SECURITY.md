@@ -35,7 +35,9 @@ properties, and a defect in one of them is a vulnerability:
   token and the Orchard credentials never enter a VM.
 * A job VM cannot reach the host, another VM, or a private network, except the addresses that its
   profile permits.
-* A job VM has no host directory mounts, and it never runs a second job.
+* A job VM has no writable host directory mount, and it never runs a second job. A profile can
+  name host directories that its VMs mount read-only. Every job that selects the profile can read
+  those files.
 * Telemetry contains no source code, no token, and no job or VM identifier in metric attributes.
 
 [`docs/quality/test-strategy.md`](docs/quality/test-strategy.md) holds these properties as

@@ -85,7 +85,8 @@ Non-goals:
 * Pools of started, idle VMs.
 * The addition or removal of Mac hosts. The host pool is fixed.
 * The purchase and the budget of the hosts.
-* Host directory caches, or other state that jobs share.
+* Host directory caches, or other state that jobs share. A read-only host directory of a profile
+  is not shared state, because no job can write to it ([PR-030](#pr-030)).
 * Secret injection for each job. Jobs get secrets through standard Buildkite mechanisms.
 * Automatic rotation of secrets. The fleet operator rotates them, and the runbooks describe the
   procedures (owner decision, 2026-11-03).
@@ -380,15 +381,21 @@ The target design describes the configuration, the credentials, and the observab
 
 * Requirement: Each job VM MUST serve one job only, and the controller MUST NOT use it again. The
   VM MUST NOT reach the host, another VM, or a private address that its profile does not permit.
-  The VM MUST NOT have host directory mounts. The VM MUST receive only a job acquisition token for
-  its own job. The cluster agent token and the Orchard credentials MUST NOT go into a VM. The
-  controller MUST refuse a profile that names a variable without the `VM_` prefix as the source of
-  a VM value, and it MUST refuse any `BK_AGENT_STACK_ORCHARD_` or `OTEL_` name with a message
-  that names the controller.
-* Source: owner statement (2026-09-13). Status: `accepted`.
+  The VM MUST NOT have writable host directory mounts. A profile MAY name host directories that
+  the VM mounts read-only. The only Buildkite credential that the VM receives MUST be a job
+  acquisition token for its own job. A profile MAY give the VM checkout credentials from a
+  read-only host directory. The cluster agent token and the Orchard credentials MUST NOT go into
+  a VM. The controller MUST refuse a profile that names a variable without the `VM_` prefix as the
+  source of a VM value, and it MUST refuse any `BK_AGENT_STACK_ORCHARD_` or `OTEL_` name with a
+  message that names the controller.
+* Source: owner statement (2026-09-13). The read-only host directories: owner answer
+  (2026-11-24, issue #256, [ADR-0021](../adrs/0021-mount-operator-files-read-only-in-job-vms.md)). The checkout credentials: owner answer (2026-11-24,
+  [ADR-0022](../adrs/0022-authenticate-the-checkout-with-files-of-a-read-only-mount.md)). Status: `proposed`, until the owner accepts
+  the read-only host directories.
 * Acceptance: Given a job that tries to reach the host, another VM, or a private address that the
   profile does not permit. When the job runs. Then the connection fails, and the VM contains no
-  cluster agent token.
+  cluster agent token. Given a profile with a host directory, and a job that writes to the mount.
+  When the job runs. Then the job reads the files of the directory, and the write fails.
 
 <a id="pr-031"></a>
 **PR-031: Use a dedicated queue for the macOS fleet.**

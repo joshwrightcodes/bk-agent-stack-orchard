@@ -14,7 +14,7 @@ owner: the maintainers
 * [Target design](../architecture/target-design.md)
 * [Test strategy](../quality/test-strategy.md): risks `R-01` to `R-22`, invariants `I-1` to
   `I-9`, and obligations `T-001` to `T-141`
-* [Architecture decision records](../adrs/README.md): [ADR-0001](../adrs/0001-provision-macos-job-vms-with-a-custom-stack-controller.md) to [ADR-0020](../adrs/0020-leave-the-job-vm-images-to-the-operator.md)
+* [Architecture decision records](../adrs/README.md): [ADR-0001](../adrs/0001-provision-macos-job-vms-with-a-custom-stack-controller.md) to [ADR-0022](../adrs/0022-authenticate-the-checkout-with-files-of-a-read-only-mount.md)
 
 ## Conventions
 

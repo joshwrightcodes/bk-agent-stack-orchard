@@ -19,7 +19,7 @@ protects, and the property of the release.
 |---|---|---|
 | Token isolation | A job VM receives a job acquisition token for its own job only. The cluster agent token and the Orchard credentials never enter a VM. | [I-3](test-strategy.md#i-3); target design section 9.1 |
 | Network isolation | A job VM cannot reach the host, another VM, or a private network, except the CIDRs that its profile permits. | [I-4](test-strategy.md#i-4); target design sections 9.1 and 11; the Softnet and pf tests on a real Mac, which probe another VM only while a second VM runs |
-| One job for each VM | A job VM runs one job, and it has no host directory mounts. | [I-1](test-strategy.md#i-1), [I-4](test-strategy.md#i-4), [I-6](test-strategy.md#i-6); target design section 9.1 |
+| One job for each VM | A job VM runs one job, and it has no writable host directory mount. | [I-1](test-strategy.md#i-1), [I-4](test-strategy.md#i-4), [I-6](test-strategy.md#i-6); target design section 9.1 |
 | Clean telemetry | Telemetry contains no source code, no token, and no job or VM identifier in metric attributes. | [I-7](test-strategy.md#i-7); target design section 10 |
 | Trusted release | A release that an operator installs is the code on `main`, built and signed by the release workflow of this repository. | [ADR-0013](../adrs/0013-sign-releases-with-keyless-cosign-signatures.md); `scripts/verify-release.sh`; [T-100](test-strategy.md#t-100) to [T-105](test-strategy.md#t-105) |
 
@@ -50,7 +50,7 @@ are trusted platforms.
 
 | Boundary | What crosses it | Controls |
 |---|---|---|
-| Job VM to Mac host and LAN | Network traffic of the build | Softnet gives each VM a network of its own. pf rules on each host allow only DHCP and DNS to the host, and only the `softnetAllow` CIDRs of the profiles into the private ranges (target design section 9.1). A VM has no host directory mounts, and `restart_policy` is `Never`. |
+| Job VM to Mac host and LAN | Network traffic of the build | Softnet gives each VM a network of its own. pf rules on each host allow only DHCP and DNS to the host, and only the `softnetAllow` CIDRs of the profiles into the private ranges (target design section 9.1). A VM has no writable host directory mount: the controller sets `ro` on each host directory of its profile, and the Orchard `hostDirPolicies` refuse any other (target design sections 5 and 9.2). `restart_policy` is `Never`. |
 | Job VM to controller | Nothing directly | The controller has no inbound API, only its health port, and a VM cannot reach it. What a VM does reaches the controller only as the state of the VM in Orchard and the state of the job in Buildkite. |
 | Pipeline author to controller | The agent tags of a job | Tags select a profile from the configured list only ([ADR-0006](../adrs/0006-route-jobs-to-vm-profiles-by-agent-tags.md)). A job that no profile carries stays in the queue for another runner, and the controller never reserves it ([ADR-0016](../adrs/0016-skip-a-job-that-matches-no-profile.md), [I-8](test-strategy.md#i-8)). The rule parser has a fuzz test. |
 | Controller to Buildkite | The cluster agent token, job reservations, job acquisition tokens | HTTPS with TLS 1.2 or later and certificate verification. The controller refuses a plain HTTP endpoint unless it is a loopback address or the operator sets `buildkite.plainHTTPEndpoint`. A dedicated token with an expiry and an IP allowlist ([ADR-0008](../adrs/0008-use-a-dedicated-cluster-agent-token.md)). |
