@@ -399,6 +399,9 @@ The target design describes the configuration, the credentials, and the observab
     only Buildkite credential that the VM receives MUST be a job acquisition token for its own
     job. A profile MAY give the VM a checkout credential from a read-only host directory. That
     credential MUST be read-only, and SHOULD reach only the repositories of the queue."
+  * The profile keys `hostDirs`, `checkout.sshFrom`, `checkout.gitCredentialsFrom`, and
+    `timeouts.hostDirs` belong to the one configuration file of [PR-020](#pr-020), and the controller
+    refuses a value that breaks their rules at start ([PR-021](#pr-021), target design §5).
   * Acceptance: Given a profile with a host directory, and a job that writes to the mount. When
     the job runs. Then the job reads the files of the directory, and the write fails. Given a
     profile with a checkout credential from a mount. When a job of a private repository runs. Then
