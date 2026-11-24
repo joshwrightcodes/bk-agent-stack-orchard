@@ -20,12 +20,12 @@
 <rect x="1110" y="0" width="190" height="44" rx="8" fill="#5f6b77" stroke="#8b949e" stroke-width="1.5"/>
 <text x="1205.0" y="26.5" font-family="Helvetica" font-size="13" fill="#ffffff" font-weight="bold" text-anchor="middle">Git host</text>
 <path d="M 105 110 L 325 110" fill="none" stroke="#7d8590" stroke-width="1.5" marker-end="url(#arrow)"/>
-<rect x="83.6" y="68.0" width="262.8" height="36" fill="#f6f8fa" stroke="#d0d7de"/>
-<text x="215.0" y="82.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">runs the script, env:</text>
-<text x="215.0" y="97.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">BKASO_HOST_DIRS, _WAIT, BKASO_SSH_FROM</text>
+<rect x="60.5" y="68.0" width="309.0" height="36" fill="#f6f8fa" stroke="#d0d7de"/>
+<text x="215.0" y="82.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">runs the script, env: BKASO_HOST_DIRS, _WAIT,</text>
+<text x="215.0" y="97.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">BKASO_SSH_FROM, BKASO_GIT_CREDENTIALS_FROM</text>
 <path d="M 325 180 L 545 180" fill="none" stroke="#7d8590" stroke-width="1.5" marker-end="url(#arrow)"/>
 <rect x="330.0" y="138.0" width="210.0" height="36" fill="#f6f8fa" stroke="#d0d7de"/>
-<text x="435.0" y="152.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">waits for each &lt;name&gt;</text>
+<text x="435.0" y="152.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">waits for the mounts, in total</text>
 <text x="435.0" y="167.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">up to timeouts.hostDirs (10 s)</text>
 <rect x="240" y="222" width="400" height="36" fill="#f6f8fa" stroke="#d0d7de"/>
 <text x="248" y="244.0" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="start">A mount missing after the wait: exit 1, name the mount, no agent</text>
@@ -33,13 +33,13 @@
 <rect x="326.7" y="273.0" width="216.6" height="21" fill="#f6f8fa" stroke="#d0d7de"/>
 <text x="435.0" y="287.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">reads config, known_hosts, id_*</text>
 <path d="M 325 355 L 765 355" fill="none" stroke="#7d8590" stroke-width="1.5" marker-end="url(#arrow)"/>
-<rect x="400.4" y="313.0" width="289.2" height="36" fill="#f6f8fa" stroke="#d0d7de"/>
-<text x="545.0" y="327.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">sshFrom: copies them: 0700 dir, 0600 files</text>
-<text x="545.0" y="342.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">logs the names, never the contents</text>
+<rect x="370.7" y="313.0" width="348.6" height="36" fill="#f6f8fa" stroke="#d0d7de"/>
+<text x="545.0" y="327.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">sshFrom: copies regular files, 0700 dir, 0600 files</text>
+<text x="545.0" y="342.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">logs the names; sets BUILDKITE_NO_SSH_KEYSCAN</text>
 <path d="M 325 425 L 545 425" fill="none" stroke="#7d8590" stroke-width="1.5" marker-end="url(#arrow)"/>
-<rect x="303.6" y="383.0" width="262.8" height="36" fill="#f6f8fa" stroke="#d0d7de"/>
-<text x="435.0" y="397.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">gitCredentialsFrom: helper that</text>
-<text x="435.0" y="412.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">answers only get from .git-credentials</text>
+<rect x="287.1" y="383.0" width="295.8" height="36" fill="#f6f8fa" stroke="#d0d7de"/>
+<text x="435.0" y="397.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">gitCredentialsFrom: clears the helper list,</text>
+<text x="435.0" y="412.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">then a helper that answers only get</text>
 <path d="M 325 495 L 985 495" fill="none" stroke="#7d8590" stroke-width="1.5" marker-end="url(#arrow)"/>
 <rect x="563.2" y="468.0" width="183.6" height="21" fill="#f6f8fa" stroke="#d0d7de"/>
 <text x="655.0" y="482.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">exec buildkite-agent start</text>

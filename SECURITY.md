@@ -35,9 +35,7 @@ properties, and a defect in one of them is a vulnerability:
   token and the Orchard credentials never enter a VM.
 * A job VM cannot reach the host, another VM, or a private network, except the addresses that its
   profile permits.
-* A job VM has no writable host directory mount, and it never runs a second job. A profile can
-  name host directories that its VMs mount read-only. Every job that selects the profile can read
-  those files.
+* A job VM has no host directory mounts, and it never runs a second job.
 * Telemetry contains no source code, no token, and no job or VM identifier in metric attributes.
 
 [`docs/quality/test-strategy.md`](docs/quality/test-strategy.md) holds these properties as
@@ -65,6 +63,15 @@ These are known, recorded, and accepted. They are not vulnerabilities in this pr
   alert on an unknown worker name (target design, section 10.6). The alert sees only a name that
   the operator does not know. It does not detect a stolen token that registers a known name, for
   example the record of one host. This is a residual risk.
+* Proposed, and not yet implemented: [ADR-0021](docs/adrs/0021-mount-operator-files-read-only-in-job-vms.md) lets a profile mount host directories
+  read-only, and [ADR-0022](docs/adrs/0022-authenticate-the-checkout-with-files-of-a-read-only-mount.md) lets it take a read-only checkout credential from such a mount.
+  When they are implemented, the owner accepts these risks (2026-11-24). Orchard runs with
+  `--insecure-allow-host-dirs`, so every account with `compute:write`, including another
+  controller of the same Orchard, can mount any path that the policies allow, and read a
+  credential there. Every pipeline on the queue, whoever wrote it, can read and copy the mounted
+  files and the checkout credential, which lives longer than its job. The controls are read-only
+  credentials with the smallest scope, a policy for each exact path, files that only root can
+  write, and a key that the operator rotates.
 * Job logs go to Buildkite SaaS, and they can contain parts of source code, such as compiler
   errors.
 * Artifacts go to Buildkite-managed storage, in the region of Buildkite. The owner accepts this

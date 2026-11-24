@@ -5,7 +5,7 @@
 <text x="115.0" y="24.5" font-family="Helvetica" font-size="13" fill="#ffffff" font-weight="bold" text-anchor="middle">Fleet operator</text>
 <text x="115.0" y="40.5" font-family="Helvetica" font-size="12" fill="#ffffff" text-anchor="middle">Ansible or by hand</text>
 <rect x="300" y="0" width="230" height="56" rx="8" fill="#5f6b77" stroke="#8b949e" stroke-width="1.5"/>
-<text x="415.0" y="24.5" font-family="Helvetica" font-size="13" fill="#ffffff" font-weight="bold" text-anchor="middle">Orchard bootstrap Job</text>
+<text x="415.0" y="24.5" font-family="Helvetica" font-size="13" fill="#ffffff" font-weight="bold" text-anchor="middle">Job of the policies</text>
 <text x="415.0" y="40.5" font-family="Helvetica" font-size="12" fill="#ffffff" text-anchor="middle">admin:write</text>
 <rect x="600" y="0" width="250" height="56" rx="8" fill="#1F7A5A" stroke="#7CF0B4" stroke-width="1.5"/>
 <text x="725.0" y="24.5" font-family="Helvetica" font-size="13" fill="#ffffff" font-weight="bold" text-anchor="middle">bk-agent-stack-orchard</text>
@@ -14,9 +14,9 @@
 <text x="575.0" y="218.5" font-family="Helvetica" font-size="13" fill="#ffffff" font-weight="bold" text-anchor="middle">Orchard controller</text>
 <text x="575.0" y="234.5" font-family="Helvetica" font-size="12" fill="#ffffff" text-anchor="middle">--insecure-allow-host-dirs (component host-dirs)</text>
 <path d="M 415 56 L 415 190" fill="none" stroke="#7d8590" stroke-width="1.5" marker-end="url(#arrow)"/>
-<rect x="323.2" y="97.0" width="183.6" height="36" fill="#f6f8fa" stroke="#d0d7de"/>
+<rect x="303.4" y="97.0" width="223.2" height="36" fill="#f6f8fa" stroke="#d0d7de"/>
 <text x="415.0" y="111.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">PUT /v1/cluster-settings</text>
-<text x="415.0" y="126.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">hostDirPolicies: &lt;path&gt;:ro</text>
+<text x="415.0" y="126.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">hostDirPolicies: &lt;exact path&gt;:ro</text>
 <path d="M 725 56 L 725 190" fill="none" stroke="#7d8590" stroke-width="1.5" marker-end="url(#arrow)"/>
 <rect x="606.8" y="97.0" width="236.4" height="36" fill="#f6f8fa" stroke="#d0d7de"/>
 <text x="725.0" y="111.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">POST /v1/vms</text>
@@ -29,12 +29,12 @@
 <rect x="870" y="190" width="300" height="64" fill="#f6f8fa" stroke="#d0d7de"/>
 <text x="878" y="211.0" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="start">Lock 2: Orchard refuses a path that no</text>
 <text x="878" y="226.0" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="start">policy allows, and a mount that is not</text>
-<text x="878" y="241.0" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="start">read-only where the policy has ro.</text>
+<text x="878" y="241.0" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="start">read-only. Each policy is one exact path.</text>
 <rect x="0" y="330" width="1170" height="330" rx="8" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-dasharray="6 4"/>
 <text x="10" y="350" font-family="Helvetica" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="start">Mac host</text>
-<rect x="30" y="380" width="250" height="64" rx="8" fill="#ffffff" stroke="#8b949e" stroke-width="1.5"/>
-<text x="155.0" y="408.5" font-family="Helvetica" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="middle">Host directory</text>
-<text x="155.0" y="424.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">/opt/bkaso/&lt;dir&gt;</text>
+<rect x="30" y="380" width="290" height="64" rx="8" fill="#ffffff" stroke="#8b949e" stroke-width="1.5"/>
+<text x="175.0" y="408.5" font-family="Helvetica" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="middle">Host directory /opt/bkaso/&lt;dir&gt;</text>
+<text x="175.0" y="424.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">root-owned; worker user reads only</text>
 <rect x="450" y="380" width="300" height="64" rx="8" fill="#5f6b77" stroke="#8b949e" stroke-width="1.5"/>
 <text x="600.0" y="408.5" font-family="Helvetica" font-size="13" fill="#ffffff" font-weight="bold" text-anchor="middle">Orchard worker and Tart</text>
 <text x="600.0" y="424.5" font-family="Helvetica" font-size="12" fill="#ffffff" text-anchor="middle">tart run --dir=&lt;name&gt;:&lt;path&gt;:ro</text>
@@ -45,7 +45,7 @@
 <path d="M 115 56 L 115 380" fill="none" stroke="#7d8590" stroke-width="1.5" marker-end="url(#arrow)"/>
 <rect x="-6.5" y="182.0" width="243.0" height="36" fill="#f6f8fa" stroke="#d0d7de"/>
 <text x="115.0" y="196.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">provides the directory on each host</text>
-<text x="115.0" y="211.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">replaces each file with one rename</text>
+<text x="115.0" y="211.5" font-family="Helvetica" font-size="12" fill="#1f2328" text-anchor="middle">the playbook checks owner and modes</text>
 <rect x="330" y="520" width="810" height="120" rx="8" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-dasharray="6 4"/>
 <text x="340" y="540" font-family="Helvetica" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="start">Job VM (one job, deleted after it)</text>
 <rect x="360" y="560" width="330" height="60" rx="8" fill="#ffffff" stroke="#8b949e" stroke-width="1.5"/>

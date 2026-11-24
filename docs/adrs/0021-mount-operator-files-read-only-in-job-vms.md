@@ -46,10 +46,27 @@ the worker that it picks, and a Tart `--dir` path MAY also be an `http` or `http
 `internal/controller/api_vms.go`, `internal/controller/api_cluster_settings.go`,
 `internal/worker/vmmanager/tart/tart.go`, read on 2026-11-24).
 
+Orchard accepts a path when any one policy entry allows it, and an entry allows every path under
+its prefix, so one broad entry, or one without `ro`, opens the path and the write together
+(`api_vms.go`, `validateHostDirs`; `host_dir_policy.go`, `Validate`). The check compares text
+only, so a symlink at or under a policy path opens its target. The cluster settings have no version:
+the last writer wins, and an empty `schedulerProfile` resets to its default
+(`api_cluster_settings.go`). `orchard set cluster-settings --host-dir-policies` appends to the
+list (`internal/command/set/cluster_settings.go`). An Orchard controller that starts without the
+flag marks every VM with `hostDirs` that has not ended as failed, and the worker stops it
+(`internal/controller/controller.go`, `failVMsWithHostDirs`; `internal/worker/fsm.go`). An account
+without `admin:read` cannot read the cluster settings, so this controller cannot see the policies.
+All read on 2026-11-24, at Orchard 0.58.0.
+
 The behaviour of a mount in a macOS guest is `UNKNOWN`: the mount point, when the guest mounts it
-relative to the start of the startup script, and the owner and modes of its files. The owner is the
-maintainers, and the trigger is a spike on the Mac of an engineer before this ADR is accepted
-(owner answer, 2026-11-24). The design uses `/Volumes/My Shared Files/<name>`, the automatic mount
+relative to the start of the startup script, the owner and modes of its files, whether the guest
+can run a file of the mount and what macOS does with a quarantine attribute on it, whether the
+host follows a symlink inside the share, whether root in the guest can mount the share again with
+write access, whether a rename on the host reaches a running guest at once, what Tart does when
+the directory is missing, and whether a `:` in a path can defeat the `:ro` that follows it. The
+owner is the maintainers, and the trigger is a spike on the Mac of an engineer before this ADR is
+accepted (owner answer, 2026-11-24). The design uses `/Volumes/My Shared Files/<name>`, the
+automatic mount
 point that the Tart documentation names for macOS 13 and later.
 
 [ADR-0017](0017-download-the-agent-when-the-vm-starts.md) did not mount the agent from the host,
@@ -64,7 +81,8 @@ Goals:
 * **Fleet files are configuration.** A change of a file needs no new image and no change of a
   pipeline.
 * **Containment.** A job cannot change a file that a later job reads
-  ([PR-030](../product/requirements.md#pr-030)).
+  ([PR-030](../product/requirements.md#pr-030)), and neither can a process on the host that
+  escaped from a VM.
 * **Two locks on the read-only rule.** A defect of the controller alone cannot make a mount
   writable.
 * **Auditability.** The configuration shows which profile mounts which directory.
@@ -113,16 +131,29 @@ enforce the read-only rule.
 * A profile MAY have `hostDirs`, a list of entries with a `name` and a `path`.
 * The controller MUST set `ro: true` on each `hostDirs` entry of a VM specification. The
   configuration MUST NOT have a field that makes a mount writable.
-* The controller MUST refuse at start a `name` that does not match `[a-z0-9-]+`, a duplicate
+* The controller MUST refuse at start a `name` that does not match `^[a-z0-9-]+$`, a duplicate
   `name` in one profile, and a `path` that is not an absolute, clean local path. It MUST refuse a
-  `path` with `..` or `:`, the path `/`, and a URL.
+  `path` that contains `..` anywhere, `:`, or a control character, the path `/`, and a URL. The
+  `..` rule is the rule of Orchard, so the controller refuses what Orchard would refuse.
 * The Orchard controller MUST run with `--insecure-allow-host-dirs` only on a fleet that has a
-  profile with `hostDirs`. Each entry of `hostDirPolicies` MUST have `ro`.
-* Before the agent starts, the startup script MUST wait for each mount, for a time that the
-  configuration sets for each profile, with a short default. If a mount does not appear in that
-  time, the script MUST stop with a message that names the mount.
+  profile with `hostDirs`. Each entry of `hostDirPolicies` MUST have `ro`, and MUST be the exact
+  path of a profile entry, never a parent of it.
+* A Job of its own MUST set `hostDirPolicies`. It replaces the whole list with the paths that the
+  operator gives it, keeps every other field of the cluster settings, and changes nothing when the
+  list already matches. It MUST refuse a path that the controller would refuse.
+* Each directory and each file under it MUST belong to root, and MUST NOT be writable by the user
+  of the Orchard worker or by any other user. No symlink MAY be at or under a policy path. The
+  playbook of the hosts MUST check these rules, and MUST check that each directory of the profiles
+  that the labels of the host select exists.
+* The operator MUST add a directory in this order: the directory on every host, then the policy,
+  then the profile. The operator MUST remove it in the reverse order, and MUST wait until no VM
+  with the directory exists before removing the policy or the flag, because an Orchard controller
+  without the flag fails every such VM.
+* Before the agent starts, the startup script MUST wait for the mounts, for a total time that the
+  configuration sets for each profile, 10 s by default (owner decision, 2026-11-24). If a mount
+  does not appear in that time, the script MUST stop with a message that names the mount.
 * The controller MUST write a warning at start that names each profile with `hostDirs` and its
-  paths, and says that every job of the queue that selects the profile can read them.
+  paths, and says that every pipeline on the queue, whoever wrote it, can read them.
 * The operator MUST NOT put a file in a mounted directory that a build of the queue must not read.
   The operator MUST NOT put a credential in a mounted directory, unless a later decision permits
   that credential.
@@ -147,7 +178,9 @@ Good:
 
 * An operator changes a fleet file on the hosts. No image build and no pipeline change is
   necessary.
-* A plugin can run a binary from a mount, and the job does not download it.
+* A plugin can run a binary from a mount, and the job does not download it, if the spike shows
+  that a guest runs a file of a mount. Such a binary is arm64, signed at least ad hoc, and has no
+  quarantine attribute on the host.
 * No job can change a file that another job reads, because both the controller and Orchard refuse
   a writable mount.
 
@@ -155,13 +188,20 @@ Bad:
 
 * Each VM has a read-only file path to its host. A defect of the file sharing of Tart or of the
   Virtualization framework of macOS reaches the host through it.
-* Every job of the queue that selects the profile can read and copy each mounted file, as it can a
+* Every pipeline on the queue, whoever wrote it, can read and copy each mounted file, as it can a
   file of the image.
 * A change of a file on a host reaches the VMs that run. A job can read a file that the operator is
   writing, unless the operator replaces each file in one rename.
 * Orchard runs with `--insecure-allow-host-dirs`. Every account with `compute:write` can mount any
   path that the policies allow, and Orchard 0.58.0 has no narrower control.
-* If a host lacks a directory, each VM of the profile on that host fails, and its job fails.
+* If a host lacks a directory, each VM of the profile on that host fails, and its job fails. The
+  failure looks like any other failed VM, so the check of the playbook is the main control.
+* If the flag or a policy is missing, Orchard refuses each create of the profile, and its jobs
+  return to the queue with no end (target design §7.5). The controller cannot read the policies,
+  so it cannot say why.
+* A removal of the flag fails the VMs with host directories that run, so a rollback needs an order.
+* The policies are a second lock only while each entry has `ro` and names one exact path. A person
+  with `admin:write` can weaken them, and the Job of the policies restores them only when it runs.
 
 Review trigger:
 
@@ -178,7 +218,10 @@ Review trigger:
 * Configuration tests confirm the refusal of each invalid `name` and `path`, and the warning.
 * Script tests confirm that the agent does not start when a mount is missing, and that the message
   names the mount.
-* A test of the bootstrap Job confirms that each `hostDirPolicies` entry has `ro`, and that the Job
-  keeps the other cluster settings.
+* A test of the Job of the policies confirms that each `hostDirPolicies` entry has `ro`, that the
+  Job replaces the list, keeps the other cluster settings, changes nothing on a second run, and
+  refuses a path that the controller would refuse.
+* A test against Orchard confirms that a create with `ro: false`, a create of a path that no policy
+  allows, and a create without the flag all fail.
 * A test on a real Tart VM confirms that a job reads a mounted file, that a write to the mount
   fails, and that a missing directory fails the job before an agent starts.
