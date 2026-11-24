@@ -561,7 +561,7 @@ mount ([ADR-0022](../adrs/0022-authenticate-the-checkout-with-files-of-a-read-on
   write back to the read-only file, or to the keychain of the VM.
 * The operator MUST NOT turn on the tokens of Buildkite for a queue with a profile that sets
   `checkout.gitCredentialsFrom`. `buildkite-agent` v4.10.2 sets its own helper when the tokens are
-  on (`internal/job/executor.go`, read on 2026-11-24). With the two values of the script, the
+  on (`internal/job/executor.go`, read on 2026-11-24). With the two or more stored values, the
   agent fails to set it, so the job fails instead of losing the helper. One controller serves one
   queue, so a fleet that needs both runs a second controller and queue.
 * A credential of a mount MUST be read-only, and SHOULD reach only the repositories of the queue:
@@ -871,9 +871,11 @@ The startup script is the same text for each VM, so no value of a job is in it
 
    The empty value clears the helpers of the system, and the helper answers `get` only. The name
    is shell text here, which is safe only because a name matches `^[a-z0-9-]+$` (§5). This step
-   comes after step 3, which leaves at most one global helper, so the list is the empty value and
-   this helper. If the mount holds none of the SSH files, a copy fails, or `.git-credentials` is
-   missing, the script writes the name of the mount and exits 1.
+   comes after step 3, which leaves at most one global helper, so the global configuration stores
+   two or three values: that helper if any, the empty value, and this helper. The empty value
+   resets the list, so this helper is the only active one. If the mount holds none of the SSH
+   files, a copy fails, or `.git-credentials` is missing, the script writes the name of the mount
+   and exits 1.
 6. It finds the agent, as `agent.source` says (§5):
    * `download`: it makes a new temporary directory, downloads `BKASO_AGENT_URL` there with
      `curl` (three retries, a 120 s limit), checks the file against `BKASO_AGENT_SHA256` with

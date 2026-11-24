@@ -170,7 +170,7 @@ through a read-only helper. Prefer the tokens of Buildkite for GitHub.com.
   The helper answers `get` only, so git never writes to the read-only file or to the keychain. The
   name is shell text in this helper, which is safe only because a name matches `^[a-z0-9-]+$`. If
   the file does not exist, the script MUST stop before the agent starts, with a message that names
-  the mount. With two values in the list, the agent fails to set its own helper, so a queue that
+  the mount. With two or more stored values, the agent fails to set its own helper, so a queue that
   turns on the tokens of Buildkite by mistake fails its jobs, and does not lose the helper silently.
 * The controller MUST refuse at start a `checkout` field that names no `hostDirs` entry of the
   same profile. A `checkout` field is set only when its value is not empty.
