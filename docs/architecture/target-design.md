@@ -1428,10 +1428,13 @@ them (§11), apart from the bootstrap Job, so that a failure here does not block
 worker accounts. It reads the settings, replaces `hostDirPolicies` with one `ro` entry for each
 path of `HOST_DIR_POLICIES`, keeps every other field as it read it, and writes the settings back
 only when the list differs. Orchard has no version to make the write conditional, so no person or
-other Job MAY change the cluster settings while the Job runs. After its write, the Job reads the
-settings again, and fails with a message that names each field other than `hostDirPolicies` that
-differs from its first read, so a change that it overwrote shows at once. `HOST_DIR_POLICIES`
-holds one path on each line. An empty value clears the list. The Job refuses `/`, a path that is
+other Job MAY change the cluster settings while the Job runs. The operator enforces this with the
+procedure: a change of the cluster settings goes through the runbook of the policies, which runs
+the Job and waits for it to end, and no other tool writes the settings. Just before its write, the
+Job reads the settings again, and stops without writing when a field differs from its first read.
+That narrows the window, but it cannot close it, and a read after the write cannot show a change
+that the write replaced, so the procedure is the control. `HOST_DIR_POLICIES` holds one path on
+each line. An empty value clears the list. The Job refuses `/`, a path that is
 not absolute and clean, a path that contains `..`, `:`, or a control character, and a URL, as the
 controller does (§5). The controller has no
 `admin:read`, so it cannot see the policies. The operator checks them with an account that has
