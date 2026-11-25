@@ -405,7 +405,8 @@ The target design describes the configuration, the credentials, and the observab
   * Acceptance: Given a profile with a host directory, and a job that writes to the mount. When
     the job runs. Then the job reads the files of the directory, and the write fails. Given a
     profile with a checkout credential from a mount. When a job of a private repository runs. Then
-    the checkout passes, and the job log holds no part of the credential.
+    the checkout passes, and the startup script and the agent write no part of the credential to
+    the event log or the job log.
 
 <a id="pr-031"></a>
 **PR-031: Use a dedicated queue for the macOS fleet.**

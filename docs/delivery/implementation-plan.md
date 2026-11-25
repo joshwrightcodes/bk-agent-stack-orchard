@@ -211,9 +211,9 @@ section 5.
 
 | ID | Outcome | Boundary | Depends on | Completion evidence | Requirements |
 |---|---|---|---|---|---|
-| <a id="w-28"></a>W-28 | A profile mounts read-only host directories | `internal/profile`, `internal/config`, `internal/vmspec`, `tools/orchardgen`, `deploy/helm` (values schema), the configuration reference | The spike | [T-2](../quality/test-strategy.md#t-2), [T-3](../quality/test-strategy.md#t-3), [T-6](../quality/test-strategy.md#t-6), [T-111](../quality/test-strategy.md#t-111); the generated `HostDir` type with `ro`, and the schema of the chart knows each new key | [PR-030](../product/requirements.md#pr-030) |
+| <a id="w-28"></a>W-28 | A profile mounts read-only host directories | `internal/profile`, `internal/config`, `internal/vmspec`, `tools/orchardgen`, `deploy/helm` (values schema), the configuration reference | The spike | [T-002](../quality/test-strategy.md#t-002), [T-003](../quality/test-strategy.md#t-003), [T-006](../quality/test-strategy.md#t-006), [T-111](../quality/test-strategy.md#t-111); the generated `HostDir` type with `ro`, and the schema of the chart knows each new key | [PR-030](../product/requirements.md#pr-030) |
 | <a id="w-29"></a>W-29 | Orchard and the hosts serve the directories | `deploy/orchard-overlays/host-dirs` (flag and the Job of the policies), `deploy/hosts` (checks of the directories) | [W-28](#w-28) | [T-110](../quality/test-strategy.md#t-110), [T-108](../quality/test-strategy.md#t-108); the runbooks to add, remove, and roll back a directory, and the rows of the troubleshooting guide | [PR-030](../product/requirements.md#pr-030) |
-| <a id="w-30"></a>W-30 | A profile checks out with the credentials of a mount | `internal/vmspec` (the script), the runbook to rotate a checkout key | [W-28](#w-28), [W-29](#w-29) | [T-3](../quality/test-strategy.md#t-3), [T-109](../quality/test-strategy.md#t-109) | [PR-030](../product/requirements.md#pr-030) |
+| <a id="w-30"></a>W-30 | A profile checks out with the credentials of a mount | `internal/vmspec` (the script), the runbook to rotate a checkout key | [W-28](#w-28), [W-29](#w-29) | [T-003](../quality/test-strategy.md#t-003), [T-109](../quality/test-strategy.md#t-109) | [PR-030](../product/requirements.md#pr-030) |
 
 ## 5. Order and critical path
 

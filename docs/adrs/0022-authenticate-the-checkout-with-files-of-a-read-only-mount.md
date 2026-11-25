@@ -156,18 +156,26 @@ through a read-only helper. Prefer the tokens of Buildkite for GitHub.com.
   the files that it copied to the event log, and never their contents. If the mount holds none of
   the files, or a copy fails, the script MUST stop before the agent starts, with a message that
   names the mount.
-* With `checkout.sshFrom`, the script MUST export `BUILDKITE_NO_SSH_KEYSCAN=true`, so that the
-  agent does not add `accept-new` and `ssh` keeps to the `known_hosts` of the mount.
+* With `checkout.sshFrom`, the script MUST export `BUILDKITE_NO_SSH_KEYSCAN=true`. The agent then
+  adds `-o StrictHostKeyChecking=yes` to `GIT_SSH_COMMAND` instead of `accept-new`
+  (`internal/job/executor.go`, `configureSSHKeyChecking`, v4.10.2, read on 2026-11-26). An option
+  on the command line wins over `~/.ssh/config`, so a copied `config` cannot turn the check off.
+  The mount MUST hold `known_hosts`, and the script MUST stop before the agent starts when it does
+  not, so that `ssh` trusts only the hosts that the operator listed.
 * A profile MAY set `checkout.gitCredentialsFrom` to the `name` of one of its `hostDirs`. Before
-  the agent starts, the startup script MUST add two values to the global `credential.helper`: an
-  empty value, which clears the helpers of the system, and then this helper, with the name of the
-  mount in place of `<name>`:
+  the agent starts, the startup script MUST set the global `credential.useHttpPath` to `true`, and
+  MUST add two values to the global `credential.helper`: an empty value, which clears the helpers
+  of the system, and then this helper, with the name of the mount in place of `<name>`:
 
   ```text
   !f() { test "$1" = get || exit 0; exec git credential-store --file '/Volumes/My Shared Files/<name>/.git-credentials' get; }; f
   ```
 
-  The helper answers `get` only, so git never writes to the read-only file or to the keychain. The
+  With `useHttpPath`, git sends the path of the repository. An entry of `.git-credentials` with a
+  path then answers for that repository only, and an entry without a path answers for every
+  repository of its host. Without it, git sends no path, and an entry with a path never answers
+  (git-credentials, `credential.useHttpPath`). The helper answers `get` only, so git never writes
+  to the read-only file or to the keychain. The
   name is shell text in this helper, which is safe only because a name matches `^[a-z0-9-]+$`. If
   the file does not exist, the script MUST stop before the agent starts, with a message that names
   the mount. With two or more stored values, the agent fails to set its own helper, so a queue that
@@ -185,7 +193,9 @@ through a read-only helper. Prefer the tokens of Buildkite for GitHub.com.
 * The controller MUST write a warning at start that names each profile with a `checkout` field,
   and says that every pipeline on the queue, whoever wrote it, can read and copy the credentials.
 * The image SHOULD register the values of the credentials with `buildkite-agent redactor add` in a
-  hook, so that a job log does not show them.
+  hook, so that a job log does not show them by mistake. This does not stop a job that reads the
+  file and changes what it prints, so the startup script and the agent never write a credential,
+  and a job can.
 
 The owner accepts that every Orchard account with `compute:write`, including another controller of
 the same Orchard, can reach the credentials of a mount (2026-11-24). `SECURITY.md` lists this risk.
@@ -238,8 +248,10 @@ Review trigger:
 * Script tests, in `sh` and `zsh`, confirm that the script copies only the named regular files,
   with modes `0700` and `0600`, removes a symlink at the destination first, writes their names and
   not their contents, exports `BUILDKITE_NO_SSH_KEYSCAN=true`, and stops before the agent starts
-  when the mount holds none of them or `.git-credentials` is missing.
-* Script tests confirm that the helper list starts with an empty value, that the helper answers
-  `get` from the file, and that it ignores `store` and `erase`.
+  when the mount has no `known_hosts` or `.git-credentials` is missing.
+* Script tests confirm that the stored helper list has the empty value before the helper of the
+  mount, that no helper before the empty value answers, that `credential.useHttpPath` is `true`,
+  that an entry with a path answers for its repository only and an entry without a path for each
+  repository of its host, and that the helper ignores `store` and `erase`.
 * A test on a real Tart VM confirms a checkout of a private repository over SSH, and one over HTTPS
   with `.git-credentials`, with the files of a mount.

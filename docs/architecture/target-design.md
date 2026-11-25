@@ -505,14 +505,17 @@ These rules apply:
   write access, whether a rename on the host reaches a running guest at once, and what Tart does
   when the directory is missing.
 * The fleet operator provides each directory on each Mac host that the `workerLabels` of the
-  profile select (owner answer, 2026-11-24). Each directory and each file under it MUST belong to
-  root, and MUST NOT be writable by the user of the Orchard worker or by any other user, because a
-  process that escapes a VM runs as that user (§11). No symlink MAY be at or under the path. The
-  playbook of `deploy/hosts` MUST check these rules, and MUST check that each directory of the
-  profiles that the labels of the host select exists (§11).
+  profile select (owner answer, 2026-11-24). Each directory, each file under it, and each
+  directory above it MUST belong to root, and MUST NOT be writable by the user of the Orchard
+  worker or by any other user, because a process that escapes a VM runs as that user (§11). A
+  process that can write a parent can rename the directory and put its own in its place. No
+  symlink MAY be at, under, or above the path. The playbook of `deploy/hosts` MUST check these
+  rules on each run, and MUST check that each directory of the profiles that the labels of the
+  host select exists (§11).
 * The operator adds a directory in this order: the directory on every host, then its policy
   (§9.2), then the profile. The operator removes it in the reverse order, and waits until no VM
-  with the directory exists before removing the policy or the flag (§9.2).
+  with the directory exists before removing the policy or the flag (§9.2). Between the steps, the
+  policy names a directory that no profile uses yet, or no longer uses, which §9.2 permits.
 * Orchard does not check that the directory exists on the worker. If it is missing, either
   `tart run` fails and row 9 of §7.2 finishes the job with the message of Tart, or the guest has no
   such directory and the startup script names the mount (§6.4). Which one is `UNKNOWN` until the
@@ -551,14 +554,19 @@ mount ([ADR-0022](../adrs/0022-authenticate-the-checkout-with-files-of-a-read-on
   the mount reports, and never writes through a symlink of the image. It also exports
   `BUILDKITE_NO_SSH_KEYSCAN=true`: with the keyscan on, `buildkite-agent` v4.10.2 adds
   `-o StrictHostKeyChecking=accept-new` to `GIT_SSH_COMMAND`, which wins over the copied
-  `config` and trusts an unknown host the first time (`internal/job/ssh_host_key_checking.go`,
-  read on 2026-11-24). The `buildkite/docker-ssh-env-config` script of the stack for Kubernetes
-  copies the same files from environment variables, but never replaces a file that exists.
+  `config` and trusts an unknown host the first time, and with it off the agent adds
+  `-o StrictHostKeyChecking=yes`, which a copied `config` cannot turn off
+  (`internal/job/ssh_host_key_checking.go`, `internal/job/executor.go`, read on 2026-11-26). The
+  mount MUST hold `known_hosts`, so that `ssh` trusts only the hosts of the operator. The
+  `buildkite/docker-ssh-env-config` script of the stack for Kubernetes copies the same files from
+  environment variables, but never replaces a file that exists.
 * `checkout.gitCredentialsFrom: <name>`: the startup script adds two values to the global
   `credential.helper`: an empty value, which clears the helpers of the system such as
   `osxkeychain`, and a helper that answers only `get`, from `.git-credentials` of the mount (§6.4),
   as `gitCredentialsSecret` of the stack for Kubernetes does. A helper that answers `store` would
-  write back to the read-only file, or to the keychain of the VM.
+  write back to the read-only file, or to the keychain of the VM. The script also sets
+  `credential.useHttpPath` to `true`, so that an entry with a path answers for its repository
+  only, and an entry without a path for each repository of its host (git-credentials).
 * The operator MUST NOT turn on the tokens of Buildkite for a queue with a profile that sets
   `checkout.gitCredentialsFrom`. `buildkite-agent` v4.10.2 sets its own helper when the tokens are
   on (`internal/job/executor.go`, read on 2026-11-24). With the two or more stored values, the
@@ -873,8 +881,9 @@ The startup script is the same text for each VM, so no value of a job is in it
    is shell text here, which is safe only because a name matches `^[a-z0-9-]+$` (§5). This step
    comes after step 3, which leaves at most one global helper, so the global configuration stores
    two or three values: that helper if any, the empty value, and this helper. The empty value
-   resets the list, so this helper is the only active one. If the mount holds none of the SSH
-   files, a copy fails, or `.git-credentials` is missing, the script writes the name of the mount
+   resets the list, so this helper is the only active one. It also sets the global
+   `credential.useHttpPath` to `true`. If the mount has no `known_hosts`, a copy fails, or
+   `.git-credentials` is missing, the script writes the name of the mount
    and exits 1.
 6. It finds the agent, as `agent.source` says (§5):
    * `download`: it makes a new temporary directory, downloads `BKASO_AGENT_URL` there with
@@ -1408,12 +1417,19 @@ controller starts with `--insecure-allow-host-dirs`, and each path MUST match an
 `hostDirPolicies` in the cluster settings (`internal/controller/api_vms.go`, read on 2026-11-24).
 The fleet MUST start Orchard with the flag only when a profile has `hostDirs`. Each policy entry
 MUST have `ro`, so that Orchard refuses a mount that is not read-only, and MUST be the exact path of
-one profile entry, never a parent of it. Orchard accepts a path when any one entry allows it, and
-an entry allows every path under it, so one broad entry, or one without `ro`, removes both locks
-(`api_vms.go`, `host_dir_policy.go`). The flag applies to the whole Orchard controller: every
-account with `compute:write` (this controller, the workers, `operator`, and any other controller
-of the same Orchard) can then mount any path that the policies allow. Orchard 0.58.0 has no
-narrower control, so the owner accepts this risk ([ADR-0021](../adrs/0021-mount-operator-files-read-only-in-job-vms.md), [ADR-0022](../adrs/0022-authenticate-the-checkout-with-files-of-a-read-only-mount.md),
+one profile entry, or of a directory that the operator adds or removes in the order of §5, never a
+parent of it. The Job of the policies authenticates as the Orchard service account
+`host-dir-policies`, with the roles `admin:read` and `admin:write`, because Orchard 0.58.0 needs
+`admin:read` to read the cluster settings and `admin:write` to write them. The bootstrap Job sets
+the account when the Secret `orchard-host-dir-policies` holds its token, and only the Job of the
+policies mounts that Secret, so the bootstrap admin token stays with the bootstrap Job. Orchard
+0.58.0 has no narrower role, so `admin:write` also lets the account change service accounts, and
+this risk is accepted as it is for the bootstrap admin. Orchard accepts a path when any one entry
+allows it, and an entry allows every path under it, so one broad entry, or one without `ro`,
+removes both locks (`api_vms.go`, `host_dir_policy.go`). The flag applies to the whole Orchard
+controller: every account with `compute:write` (this controller, the workers, `operator`, and any
+other controller of the same Orchard) can then mount any path that the policies allow. Orchard
+0.58.0 has no narrower control, so the owner accepts this risk ([ADR-0021](../adrs/0021-mount-operator-files-read-only-in-job-vms.md), [ADR-0022](../adrs/0022-authenticate-the-checkout-with-files-of-a-read-only-mount.md),
 2026-11-24).
 
 An Orchard controller that starts without the flag marks every VM with `hostDirs` that has not
@@ -1769,9 +1785,11 @@ APIs.
 A fleet with a profile that has `hostDirs` adds the kustomize component
 `deploy/orchard-overlays/host-dirs` to the Orchard controller. The component adds
 `--insecure-allow-host-dirs` and the Job of the policies, which reads `HOST_DIR_POLICIES`
-(§9.2). The base has neither, so a fleet without host directories keeps the flag off. A change of
-the component changes the template of the StatefulSet, so Orchard restarts. A removal of the
-component fails the VMs with host directories that run, so the operator follows the order of
+(§9.2). The component also adds the pods of that Job to the NetworkPolicy, so that they reach TCP
+6120. The Job authenticates as the Orchard service account `host-dir-policies` (§9.2). The base
+has neither the flag nor the Job, so a fleet without host directories keeps the flag off. A
+change of the component changes the template of the StatefulSet, so Orchard restarts. A removal of
+the component fails the VMs with host directories that run, so the operator follows the order of
 §9.2. The fleet operator provides the directories and their files on each Mac host (§5). The
 playbook of `deploy/hosts` MUST check that each directory of the profiles that the labels of the
 host select exists, belongs to root, is not writable by the worker user or by another user, and

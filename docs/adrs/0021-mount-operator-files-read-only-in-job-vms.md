@@ -137,14 +137,16 @@ enforce the read-only rule.
   `..` rule is the rule of Orchard, so the controller refuses what Orchard would refuse.
 * The Orchard controller MUST run with `--insecure-allow-host-dirs` only on a fleet that has a
   profile with `hostDirs`. Each entry of `hostDirPolicies` MUST have `ro`, and MUST be the exact
-  path of a profile entry, never a parent of it.
+  path of a profile entry, or of a directory that the operator adds or removes in the order below,
+  never a parent of it.
 * A Job of its own MUST set `hostDirPolicies`. It replaces the whole list with the paths that the
   operator gives it, keeps every other field of the cluster settings, and changes nothing when the
   list already matches. It MUST refuse a path that the controller would refuse.
-* Each directory and each file under it MUST belong to root, and MUST NOT be writable by the user
-  of the Orchard worker or by any other user. No symlink MAY be at or under a policy path. The
-  playbook of the hosts MUST check these rules, and MUST check that each directory of the profiles
-  that the labels of the host select exists.
+* Each directory, each file under it, and each directory above it MUST belong to root, and MUST
+  NOT be writable by the user of the Orchard worker or by any other user. Otherwise a process that
+  can write a parent can rename the directory and put its own in its place. No symlink MAY be at,
+  under, or above a policy path. The playbook of the hosts MUST check these rules on each run, and
+  MUST check that each directory of the profiles that the labels of the host select exists.
 * The operator MUST add a directory in this order: the directory on every host, then the policy,
   then the profile. The operator MUST remove it in the reverse order, and MUST wait until no VM
   with the directory exists before removing the policy or the flag, because an Orchard controller
