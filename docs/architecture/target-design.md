@@ -11,7 +11,7 @@ owner: the maintainers
 * [Product requirements](../product/requirements.md): requirement identifiers such as `PR-005`
 * [System design baseline](system-design-baseline.md): driver identifiers such
   as `QA-01`
-* [Architecture decision records](../adrs/README.md): [ADR-0001](../adrs/0001-provision-macos-job-vms-with-a-custom-stack-controller.md) to [ADR-0020](../adrs/0020-leave-the-job-vm-images-to-the-operator.md)
+* [Architecture decision records](../adrs/README.md): [ADR-0001](../adrs/0001-provision-macos-job-vms-with-a-custom-stack-controller.md) to [ADR-0022](../adrs/0022-authenticate-the-checkout-with-files-of-a-read-only-mount.md)
 
 ## Conventions
 
@@ -60,7 +60,8 @@ less than 15 min ([QA-03](system-design-baseline.md#qa-03)). The design MUST mee
 
 * Warm pools of started VMs. The controller creates VMs only for scheduled jobs.
 * Automatic scaling of the Mac hosts. The host pool is fixed and always on.
-* Host directory caches, or other state that jobs share.
+* Host directory caches, or other state that jobs share. A read-only host directory of a profile
+  (§5) is not shared state, because no job can write to it.
 * Secret injection for each job. Jobs get secrets through standard Buildkite mechanisms.
 * Automatic rotation of secrets. Secret rotation is the responsibility of the fleet operator, and
   the runbooks describe the procedures (§9.2, [PR-023](../product/requirements.md#pr-023)).
@@ -286,6 +287,12 @@ profiles:
     diskSizeGB: 150
     workerLabels: {pool: general}
     softnetAllow: ["10.20.30.40/32"]
+    hostDirs: # read-only; see "Host directories" below
+      - {name: fleet-config, path: /opt/bkaso/fleet-config}
+      - {name: plugin-tools, path: /opt/bkaso/plugin-tools}
+      - {name: git-auth, path: /opt/bkaso/git-auth}
+    checkout: # see "Checkout credentials" below
+      sshFrom: git-auth
     startupTransport: tart-guest-agent
     timeouts: {boot: 20m}
     otel: {enabled: false}
@@ -412,9 +419,25 @@ notifications for unmatched jobs.
   than /29 that overlaps the ranges from which Softnet picks the network of each VM (§9.1),
   because such a CIDR holds an address of the host. A CIDR outside them, such as one in
   `192.168.100.0`–`192.168.255.255`, can be up to /16.
+* Each `hostDirs` entry has a `name` that matches `^[a-z0-9-]+$` and is unique in its profile,
+  and a `path` that is absolute and clean (`filepath.Clean` gives it back unchanged). The
+  controller refuses a `path` that contains `..` anywhere, `:`, or a control character, the path
+  `/`, and a URL. Orchard refuses a path that contains `..` anywhere, so the controller refuses the
+  same paths, and a colon would break the `name:path:ro` text that the worker gives to
+  `tart run` (§9.2). Tart reads an `http` or `https` path as an archive to download, and a profile
+  names local directories only. A profile has at most 8 entries. The bound is a project choice.
+* `checkout.sshFrom` and `checkout.gitCredentialsFrom`, when set, each name a `hostDirs` entry of
+  the same profile. A `checkout` field is set only when its value is not empty, so `checkout: {}`
+  sets nothing.
 * When `profile.otel.enabled` is true, `profile.otel.endpoint` uses `https`. Plain HTTP is
   acceptable only on a loopback address (§10.4).
 * For each profile, `unplaced + boot + acquire + 1 min ≤ jobTokenLifetime` (§7.3).
+* For each profile with `hostDirs`, the resolved `timeouts.hostDirs` is a whole number of
+  seconds, at least 1 s, and less than the resolved `timeouts.acquire`. The controller resolves it
+  with `defaults.timeouts.hostDirs` when it loads the configuration, as it resolves the agent, and
+  the VM specification builder refuses a profile with `hostDirs` and a wait under 1 s, so no VM
+  gets a wait of 0. The wait runs inside the acquire timeout, so it adds nothing to the lifetime of
+  the token (§7.3). A profile without `hostDirs` ignores the value.
 
 If a profile `image` has no digest, the controller MUST write a warning. The controller then
 starts.
@@ -424,6 +447,11 @@ the profile and says that every pipeline on the queue gets the allow (§9.1). If
 address that Softnet can give the host as the gateway of a VM, the controller MUST also write a
 warning that names the address, because the pf rules of the hosts refuse a connection to that
 address on a port on which the host listens (§9.1).
+
+If a profile has `hostDirs` entries, the controller MUST write a warning at start that names the
+profile and each path, and says that every pipeline on the queue, whoever wrote it, can read them
+(§9.1). If a profile has a `checkout` field, the warning also says that every such pipeline can
+read and copy the checkout credentials.
 
 The fleet operator MUST set `diskSizeGB` to at least the disk size of the profile image. The Xcode
 27 reference image of `images/` has a 104 GB disk, and other Xcode images up to 140 GB ([SC-07](system-design-baseline.md#sc-07)).
@@ -453,6 +481,102 @@ SHA-256 `9dd2d573995f4d4ebc7c8c6334b36ce2bb90ef68d939631fa17a2994a9c71117` (chec
 the same pin as `images/build.sh`). The controller MUST refuse an `agent.url` that is not `https`,
 and an `agent.sha256` that is not 64 lower-case hexadecimal characters. YAML reads a value of
 digits as a number, so the examples put the SHA-256 in quotes.
+
+**Host directories.** `hostDirs` names directories of the Mac host that each VM of the profile
+mounts read-only ([ADR-0021](../adrs/0021-mount-operator-files-read-only-in-job-vms.md), [PR-030](../product/requirements.md#pr-030)). They hold files that every job of the profile reads
+and no job changes, for example:
+
+* an SSH configuration, `known_hosts` with the host keys of GitHub, and CA certificates;
+* binaries that Buildkite plugins run, so that each job does not download them, if the spike shows
+  that a guest runs a file of a mount. Such a binary is arm64, signed at least ad hoc, and has no
+  quarantine attribute on the host.
+
+These rules apply:
+
+* The controller sets `ro: true` on each entry of the VM specification (§6.4). The configuration
+  has no field that makes a mount writable. Orchard refuses a writable mount too, because each
+  entry of its `hostDirPolicies` has `ro` (§9.2).
+* The guest mounts each entry at `/Volumes/My Shared Files/<name>`, the automatic mount point of
+  Tart for macOS 13 and later. A pipeline or a hook of the image reads the files there. These are
+  `UNKNOWN`, with the maintainers as the owner and the spike on the Mac of an engineer that
+  [ADR-0021](../adrs/0021-mount-operator-files-read-only-in-job-vms.md) names as the trigger: when the guest mounts the directory, the owner and
+  modes of its files in the guest, whether the guest runs a file of the mount, whether the host
+  follows a symlink inside the share, whether root in the guest can mount the share again with
+  write access, whether a rename on the host reaches a running guest at once, and what Tart does
+  when the directory is missing.
+* The fleet operator provides each directory on each Mac host that the `workerLabels` of the
+  profile select (owner answer, 2026-11-24). Each directory, each file under it, and each
+  directory above it MUST belong to root, and MUST NOT be writable by the user of the Orchard
+  worker or by any other user, because a process that escapes a VM runs as that user (§11). A
+  process that can write a parent can rename the directory and put its own in its place. No
+  symlink MAY be at, under, or above the path. The playbook of `deploy/hosts` MUST check these
+  rules on each run, and MUST check that each directory of the profiles that the labels of the
+  host select exists (§11).
+* The operator adds a directory in this order: the directory on every host, then its policy
+  (§9.2), then the profile. The operator removes it in the reverse order, and waits until no VM
+  with the directory exists before removing the policy or the flag (§9.2). Between the steps, the
+  policy names a directory that no profile uses yet, or no longer uses, which §9.2 permits.
+* Orchard does not check that the directory exists on the worker. If it is missing, either
+  `tart run` fails and row 9 of §7.2 finishes the job with the message of Tart, or the guest has no
+  such directory and the startup script names the mount (§6.4). Which one is `UNKNOWN` until the
+  spike. Either way the failure is `vm_failed`, so the check of the playbook is the main control.
+* The operator replaces a file with one rename, so that a VM that runs never reads half a file. A
+  change reaches the VMs that run. Several files change one at a time, so a VM that starts during
+  a change can see old and new files together.
+* Every pipeline on the queue, whoever wrote it, can read and copy each mounted file, as it can a
+  file of the image. The operator MUST NOT mount a file that a build of the queue must not read.
+* A mount holds a credential only through the `checkout` fields below.
+
+The fleet operator puts each directory on each Mac host. The Job of the policies sets a
+`hostDirPolicies` entry with `ro` for each path, and Orchard runs with `--insecure-allow-host-dirs`
+from the component `host-dirs`. The controller creates each VM with the `hostDirs` of its profile,
+each with `ro: true`: this is the first lock. Orchard refuses a path that no policy allows, and a
+mount that is not read-only: this is the second lock. The worker starts the VM with
+`tart run --dir=<name>:<path>:ro`, and the guest sees the directory at
+`/Volumes/My Shared Files/<name>`. The startup script and the job read it, and a write fails.
+
+![Flow diagram of a read-only host directory. The paragraph above describes it.](../diagrams/host-dirs.svg)
+
+**Checkout credentials.** For a repository on GitHub.com, the operator SHOULD turn on the checkout
+tokens that Buildkite issues for each job
+([Self-hosted agent code access](https://buildkite.com/docs/agent/self-hosted/code-access), read on
+2026-11-24): each token is read-only, and it expires after one hour. The agent asks for a token
+for each repository that git asks about, so a job can get a token for any repository that
+Buildkite permits. The queue turns them on, and they need the GitHub App of Buildkite with full
+access. GitHub Enterprise Server needs an
+HTTPS repository URL. For other Git hosts, a profile MAY take its checkout credentials from a
+mount ([ADR-0022](../adrs/0022-authenticate-the-checkout-with-files-of-a-read-only-mount.md)):
+
+* `checkout.sshFrom: <name>`: the startup script copies `config`, `known_hosts`, `id_ed25519`,
+  `id_ecdsa`, and `id_rsa` of the mount, each one that is a regular file and not a symlink, into
+  `~/.ssh` (§6.4). It removes the file of the same name first, and writes each file with mode
+  `0600` in a directory with mode `0700`, so the copy gives `ssh` the modes that it needs, whatever
+  the mount reports, and never writes through a symlink of the image. It also exports
+  `BUILDKITE_NO_SSH_KEYSCAN=true`: with the keyscan on, `buildkite-agent` v4.10.2 adds
+  `-o StrictHostKeyChecking=accept-new` to `GIT_SSH_COMMAND`, which wins over the copied
+  `config` and trusts an unknown host the first time, and with it off the agent adds
+  `-o StrictHostKeyChecking=yes`, which a copied `config` cannot turn off
+  (`internal/job/ssh_host_key_checking.go`, `internal/job/executor.go`, read on 2026-11-26). The
+  mount MUST hold `known_hosts`, so that `ssh` trusts only the hosts of the operator. The
+  `buildkite/docker-ssh-env-config` script of the stack for Kubernetes copies the same files from
+  environment variables, but never replaces a file that exists.
+* `checkout.gitCredentialsFrom: <name>`: the startup script adds two values to the global
+  `credential.helper`: an empty value, which clears the helpers of the system such as
+  `osxkeychain`, and a helper that answers only `get`, from `.git-credentials` of the mount (§6.4),
+  as `gitCredentialsSecret` of the stack for Kubernetes does. A helper that answers `store` would
+  write back to the read-only file, or to the keychain of the VM. The script also sets
+  `credential.useHttpPath` to `true`, so that an entry with a path answers for its repository
+  only, and an entry without a path for each repository of its host (git-credentials).
+* The operator MUST NOT turn on the tokens of Buildkite for a queue with a profile that sets
+  `checkout.gitCredentialsFrom`. `buildkite-agent` v4.10.2 sets its own helper when the tokens are
+  on (`internal/job/executor.go`, read on 2026-11-24). With the two or more stored values, the
+  agent fails to set it, so the job fails instead of losing the helper. One controller serves one
+  queue, so a fleet that needs both runs a second controller and queue.
+* A credential of a mount MUST be read-only, and SHOULD reach only the repositories of the queue:
+  a deploy key, or the key of an account that reads only those repositories. Every step of every
+  pipeline on the queue, whoever wrote it, can read and copy it, and not only the checkout. Every
+  Orchard account with `compute:write`, and every other controller of the same Orchard, can reach
+  it through a VM of its own (§9.2). The owner accepts this risk (2026-11-24, [ADR-0022](../adrs/0022-authenticate-the-checkout-with-files-of-a-read-only-mount.md)).
 
 **Implements.** [PR-003](../product/requirements.md#pr-003), [PR-004](../product/requirements.md#pr-004), [PR-020](../product/requirements.md#pr-020), [PR-021](../product/requirements.md#pr-021), [QA-05](system-design-baseline.md#qa-05), [SC-07](system-design-baseline.md#sc-07), [SC-08](system-design-baseline.md#sc-08).
 
@@ -654,6 +778,7 @@ For the admitted jobs, the Launcher MUST do these steps:
   "netSoftnet": true,
   "netSoftnetAllow": ["<profile.softnetAllow>"],
   "restart_policy": "Never",
+  "hostDirs": [{"name": "<profile.hostDirs[].name>", "path": "<profile.hostDirs[].path>", "ro": true}],
   "labels": {"pool": "general"},
   "resources": {
     "org.cirruslabs.tart-vms": 1,
@@ -669,7 +794,11 @@ For the admitted jobs, the Launcher MUST do these steps:
       "BUILDKITE_AGENT_NAME": "bk-macos-prod-<job-uuid>",
       "BUILDKITE_AGENT_TAGS": "queue=macos,agent-stack=orchard,profile=xcode-27,xcode=27",
       "BKASO_AGENT_URL": "<agent.url, for agent.source download>",
-      "BKASO_AGENT_SHA256": "<agent.sha256, for agent.source download>"
+      "BKASO_AGENT_SHA256": "<agent.sha256, for agent.source download>",
+      "BKASO_HOST_DIRS": "<the names of profile.hostDirs, one on each line, if any>",
+      "BKASO_HOST_DIRS_WAIT": "<the resolved timeouts.hostDirs, a decimal number of seconds such as 10>",
+      "BKASO_SSH_FROM": "<checkout.sshFrom, if set>",
+      "BKASO_GIT_CREDENTIALS_FROM": "<checkout.gitCredentialsFrom, if set>"
     }
   }
 }
@@ -729,7 +858,34 @@ The startup script is the same text for each VM, so no value of a job is in it
    two values with one, so the checkout would fail. After this step the VM has the helper of the
    system, as an image without the manager has, and the agent adds its own. The VM serves one job,
    so the change ends with the VM.
-4. It finds the agent, as `agent.source` says (§5):
+4. If `BKASO_HOST_DIRS` is set, it waits for `/Volumes/My Shared Files/<name>` of each name, for
+   `BKASO_HOST_DIRS_WAIT` seconds in total for all the mounts: the resolved `timeouts.hostDirs` of
+   the profile (§5, §8, 10 s by default, owner decision 2026-11-24). The names are one on each
+   line, and the script reads them with a `while IFS= read -r name` loop over a here-document.
+   zsh, which runs the script on a `darwin` VM, does not split an unquoted variable, and a loop in a
+   pipe would run in a subshell, where `exit 1` would not stop the script. It writes how long each
+   mount took. If a directory does not appear in time, the script writes the name of the mount and
+   exits 1. The tests replace the mount root, as they replace `ImageTagsPath`.
+5. If `BKASO_SSH_FROM` is set, it copies the SSH files of that mount into `~/.ssh` as §5 says
+   (checkout credentials): regular files only, each destination removed first, mode `0600` in a
+   directory with mode `0700`. It writes the names of the files that it copied to the event log,
+   never their contents, and exports `BUILDKITE_NO_SSH_KEYSCAN=true`. If
+   `BKASO_GIT_CREDENTIALS_FROM` is set, it adds to the global `credential.helper` an empty value
+   and then this helper, with the name of the mount in place of `<name>`:
+
+   ```text
+   !f() { test "$1" = get || exit 0; exec git credential-store --file '/Volumes/My Shared Files/<name>/.git-credentials' get; }; f
+   ```
+
+   The empty value clears the helpers of the system, and the helper answers `get` only. The name
+   is shell text here, which is safe only because a name matches `^[a-z0-9-]+$` (§5). This step
+   comes after step 3, which leaves at most one global helper, so the global configuration stores
+   two or three values: that helper if any, the empty value, and this helper. The empty value
+   resets the list, so this helper is the only active one. It also sets the global
+   `credential.useHttpPath` to `true`. If the mount has no `known_hosts`, a copy fails, or
+   `.git-credentials` is missing, the script writes the name of the mount
+   and exits 1.
+6. It finds the agent, as `agent.source` says (§5):
    * `download`: it makes a new temporary directory, downloads `BKASO_AGENT_URL` there with
      `curl` (three retries, a 120 s limit), checks the file against `BKASO_AGENT_SHA256` with
      `shasum -a 256`, extracts the archive, and checks that it holds an executable
@@ -740,11 +896,22 @@ The startup script is the same text for each VM, so no value of a job is in it
      check, or the extraction fails, the script writes which step failed and exits 1.
    * `image`: it reads the version of `buildkite-agent` on the `PATH`. If the major version is not
      4, the script writes the version that it found and exits 1.
-5. It starts the agent with `exec`, so the exit status of the agent is the exit status of the
+7. It starts the agent with `exec`, so the exit status of the agent is the exit status of the
    script.
 
-A failure of step 4 ends the script before an agent starts. The VM then fails, and row 9 of §7.2
-finishes the job with the last lines of the script, which name the step that failed.
+A failure of step 4, 5, or 6 ends the script before an agent starts. The VM then fails, and row 9 of
+§7.2 finishes the job with the last lines of the script, which name the step that failed.
+
+With host directories and checkout credentials, the start of a VM runs as follows. The Orchard
+worker runs the script with the names of the mounts in the environment. The script waits for each
+mount, for `timeouts.hostDirs` at most, and stops before the agent when one is missing. With
+`checkout.sshFrom`, it copies the SSH files of the mount into `~/.ssh` with modes `0700` and
+`0600`, and turns off the keyscan of the agent. With `checkout.gitCredentialsFrom`, it clears the
+helper list and sets a helper that answers only `get` from `.git-credentials` of the mount. It
+then starts the agent, which checks out over SSH with `~/.ssh`, or over HTTPS with the helper. A
+write to the mount by the job fails.
+
+![Sequence diagram of the start of a VM with mounts. The paragraph above describes it.](../diagrams/host-dirs-start.svg)
 
 The image is trusted: it holds the hooks, and for `image` also the agent. The pinned SHA-256 is
 the trust in a downloaded agent, because Buildkite does not sign its checksums. The rules of step
@@ -752,7 +919,10 @@ the trust in a downloaded agent, because Buildkite does not sign its checksums. 
 
 The script has one text for `download` and one for `image`. The URL and the SHA-256 are values in
 the environment, never script text. The controller MUST add only the environment variables
-above, and for `download` also `BKASO_AGENT_URL` and `BKASO_AGENT_SHA256`. When
+above, for `download` also `BKASO_AGENT_URL` and `BKASO_AGENT_SHA256`, and for a profile with
+`hostDirs` also `BKASO_HOST_DIRS` and `BKASO_HOST_DIRS_WAIT`, and `BKASO_SSH_FROM` and
+`BKASO_GIT_CREDENTIALS_FROM` for the `checkout` fields that it sets. The names of the mounts are
+values in the environment, never script text. No credential is in the environment. When
 `profile.otel.enabled` is true, the controller also adds the OTel variables of §10.4.
 
 **Implements.** [PR-001](../product/requirements.md#pr-001), [PR-005](../product/requirements.md#pr-005), [PR-006](../product/requirements.md#pr-006), [PR-007](../product/requirements.md#pr-007), [PR-009](../product/requirements.md#pr-009), [QA-01](system-design-baseline.md#qa-01), [QA-02](system-design-baseline.md#qa-02), [DR-01](system-design-baseline.md#dr-01), [SC-02](system-design-baseline.md#sc-02).
@@ -964,7 +1134,7 @@ At start-up, before the first Admission, the controller MUST do these steps:
 | The Buildkite API is not available, or applies a rate limit | The controller obeys `Retry-After`. JobStates data becomes stale. The controller does not reserve or finish jobs. The controller deletes VMs only for rows 1 and 2. |
 | A worker is offline | After the worker offline timeout (3 min), Orchard sets the VMs of the worker to `failed`. Rows 7 and 9 apply. `restart_policy: Never` prevents a new VM for the same job on a different worker. |
 | The get-states answer names none of the jobs | JobStates counts it as a failed call, and its data becomes stale (§7.1, rule 4). The result is the same as for a Buildkite outage of the get-states call only: admission stops while owned VMs exist, and the Reaper deletes VMs only by rows 1 and 2. |
-| Orchard refuses the creates, for example after an upgrade that no longer accepts a field of the VM | The Launcher counts each refused create as `create_failed` in `bkaso.vm.starts` and writes "VM request failed" on the job page (§10.5). The job keeps its reservation with no VM, and returns to the queue when the reservation ends. Admission then starts it again, so the job loops until Orchard accepts the create. |
+| Orchard refuses the creates, for example after an upgrade that no longer accepts a field of the VM | The Launcher counts each refused create as `create_failed` in `bkaso.vm.starts` and writes "VM request failed" on the job page (§10.5). The job keeps its reservation with no VM, and returns to the queue when the reservation ends. Admission then starts it again, so the job loops until Orchard accepts the create. A profile with `hostDirs` meets this when the flag or the policy of a path is missing (§9.2): Orchard answers 400, which the controller counts as `invalid_request`. The controller cannot read the cluster settings, so the operator checks them (§9.2). |
 | The queue is `dispatch_paused` | Admission stops. The controller does not write new notifications for unmatched jobs. The Reaper continues for existing VMs. |
 
 An API that accepts calls and does not answer is an outage of the same kind. Each call ends at
@@ -1024,6 +1194,7 @@ defaults:
     boot: 15m
     acquire: 5m
     maxVMLifetime: 25h
+    hostDirs: 10s # the wait of the startup script for the host directories of a profile (§6.4)
   agent: # see §5; a profile can set its own agent
     source: download # download or image
     url: https://github.com/buildkite/agent/releases/download/v4.10.2/buildkite-agent-darwin-arm64-4.10.2.tar.gz
@@ -1156,15 +1327,22 @@ The controller MUST treat all builds as untrusted ([PR-030](../product/requireme
   trusted pipeline may reach. A separate trust level needs a separate queue, with its own
   controller and its own profiles. [ADR-0004](../adrs/0004-treat-all-builds-as-untrusted.md) (accepted, so it stays unchanged) treats all builds
   as untrusted, and this rule follows from it.
-* The VM has no host directory mounts. Profiles cannot configure them.
-* The VM gets only a job acquisition token for its own job. The token lasts the start timeouts of
-  its profile and one minute (23 min with the defaults), and never more than 30 minutes (1800 s):
-  the controller refuses a longer `jobTokenLifetime` at start-up (§8). After the agent acquires
-  the job, the token has no use. Buildkite ends the token when the reservation of its job
-  expires (§3). After the Reaper gives up on the start of a VM, it finishes the job (rows 11 and
-  12) or stops the extensions (row 10), so the reservation, and with it the token, ends within
-  `reservationExpiry` (300 s) at most. The lifetime of the token bounds it when the controller
-  holds a reservation for longer (§6.4).
+* The VM has no writable host directory mount. A profile MAY name host directories that the VM
+  mounts read-only (§5, [ADR-0021](../adrs/0021-mount-operator-files-read-only-in-job-vms.md)). The controller sets `ro` on each, and Orchard refuses
+  a mount that is not read-only (§9.2), so no job can change what a later job reads. Each mount is
+  a read-only file path from the VM to its host. The files of a mount belong to every pipeline on
+  the queue, whoever wrote it, as the files of the image do.
+* The only Buildkite credential of the VM is a job acquisition token for its own job. A profile
+  MAY add checkout credentials from a mount (§5, [ADR-0022](../adrs/0022-authenticate-the-checkout-with-files-of-a-read-only-mount.md)). They live longer than the
+  job, every pipeline on the queue, whoever wrote it, can read and copy them, and every Orchard
+  account with `compute:write` can reach them (§9.2). The token lasts the start
+  timeouts of its profile and one minute (23 min with the defaults), and never more than 30
+  minutes (1800 s): the controller refuses a longer `jobTokenLifetime` at start-up (§8). After the
+  agent acquires the job, the token has no use. Buildkite ends the token when the reservation of
+  its job expires (§3). After the Reaper gives up on the start of a VM, it finishes the job (rows
+  11 and 12) or stops the extensions (row 10), so the reservation, and with it the token, ends
+  within `reservationExpiry` (300 s) at most. The lifetime of the token bounds it when the
+  controller holds a reservation for longer (§6.4).
 
 The cluster agent token and the Orchard credentials MUST NOT go into a VM.
 
@@ -1233,6 +1411,53 @@ startup scripts ([ADR-0009](../adrs/0009-run-startup-scripts-over-the-tart-guest
 ([pull request #490](https://github.com/openai/orchard/pull/490), merged 2026-09-09). The VM
 specification then contains no credentials. A profile MAY select `ssh` when its image does not
 run the Tart guest agent.
+
+**Host directories in Orchard.** Orchard 0.58.0 refuses every `hostDirs` entry unless its
+controller starts with `--insecure-allow-host-dirs`, and each path MUST match an entry of
+`hostDirPolicies` in the cluster settings (`internal/controller/api_vms.go`, read on 2026-11-24).
+The fleet MUST start Orchard with the flag only when a profile has `hostDirs`. Each policy entry
+MUST have `ro`, so that Orchard refuses a mount that is not read-only, and MUST be the exact path of
+one profile entry, or of a directory that the operator adds or removes in the order of §5, never a
+parent of it. The Job of the policies authenticates as the Orchard service account
+`host-dir-policies`, with the roles `admin:read` and `admin:write`, because Orchard 0.58.0 needs
+`admin:read` to read the cluster settings and `admin:write` to write them. The bootstrap Job sets
+the account when the Secret `orchard-host-dir-policies` holds its token, and only the Job of the
+policies mounts that Secret, so the bootstrap admin token stays with the bootstrap Job. Orchard
+0.58.0 has no narrower role, so `admin:write` also lets the account change service accounts, and
+this risk is accepted as it is for the bootstrap admin. Orchard accepts a path when any one entry
+allows it, and an entry allows every path under it, so one broad entry, or one without `ro`,
+removes both locks (`api_vms.go`, `host_dir_policy.go`). The flag applies to the whole Orchard
+controller: every account with `compute:write` (this controller, the workers, `operator`, and any
+other controller of the same Orchard) can then mount any path that the policies allow. Orchard
+0.58.0 has no narrower control, so the owner accepts this risk ([ADR-0021](../adrs/0021-mount-operator-files-read-only-in-job-vms.md), [ADR-0022](../adrs/0022-authenticate-the-checkout-with-files-of-a-read-only-mount.md),
+2026-11-24).
+
+An Orchard controller that starts without the flag marks every VM with `hostDirs` that has not
+ended as failed, and the worker stops it (`internal/controller/controller.go`,
+`failVMsWithHostDirs`, read on 2026-11-24). The operator therefore removes host directories in
+this order: `hostDirs` out of the profiles, then a wait until `GET /v1/vms` lists no VM with
+`hostDirs`, then the policies, then the flag.
+
+Only `admin:write` can change the cluster settings. A change replaces the whole object, with no
+version, so the last writer wins, and an empty `schedulerProfile` resets to its default
+(`internal/controller/api_cluster_settings.go`). `orchard set cluster-settings
+--host-dir-policies` appends to the list. A Job of its own, the Job of the policies, therefore sets
+them (§11), apart from the bootstrap Job, so that a failure here does not block a change of the
+worker accounts. It reads the settings, replaces `hostDirPolicies` with one `ro` entry for each
+path of `HOST_DIR_POLICIES`, keeps every other field as it read it, and writes the settings back
+only when the list differs. Orchard has no version to make the write conditional, so no person or
+other Job MAY change the cluster settings while the Job runs. The operator enforces this with the
+procedure: a change of the cluster settings goes through the runbook of the policies, which runs
+the Job and waits for it to end, and no other tool writes the settings. Just before its write, the
+Job reads the settings again, and stops without writing when a field differs from its first read.
+That narrows the window, but it cannot close it, and a read after the write cannot show a change
+that the write replaced, so the procedure is the control. `HOST_DIR_POLICIES` holds one path on
+each line. An empty value clears the list. The Job refuses `/`, a path that is
+not absolute and clean, a path that contains `..`, `:`, or a control character, and a URL, as the
+controller does (§5). The controller has no
+`admin:read`, so it cannot see the policies. The operator checks them with an account that has
+`admin:read`, and a person who adds a broad entry or one without `ro` weakens both locks until the
+Job runs again.
 
 ### 9.3 Data sovereignty
 
@@ -1316,7 +1541,8 @@ These rules come from the conventions and MUST hold:
   for the same measurement would disagree with it. A rate limit and a status that the controller
   cannot use are `cicd.system.errors`. The controller counts each call to either API that fails,
   in one place in front of each API, with `error.type` = `unauthorized` (401 from Buildkite, 401
-  or 403 from Orchard), `rate_limited` (429), `timeout`, or `_OTHER`, and with the call in
+  or 403 from Orchard), `rate_limited` (429), `invalid_request` (400 from Orchard on `create_vm`,
+  for example a host directory that no policy allows), `timeout`, or `_OTHER`, and with the call in
   `bkaso.operation`: `register`, `deregister`, `scheduled_jobs`, `reserve`, `tokens`, `states`,
   `finish`, and `notify` for Buildkite, and `create_vm`, `list_vms`, `delete_vm`, `list_workers`,
   and `events` for Orchard. A call counts once, after its last try. The tries inside a call show
@@ -1555,6 +1781,19 @@ APIs.
 | Orchard controller | Kubernetes | `deploy/orchard`, a kustomize base. The image is the Orchard release at the version of §9.2, built by `deploy/orchard/image` for the registry of the fleet, because `ghcr.io/openai/orchard` does not answer a pull without credentials (2026-09-26, [openai/orchard#501](https://github.com/openai/orchard/issues/501)). A 1-replica StatefulSet with a PVC at `/data`, a headless governing Service, and the certificate and key of a Secret that an authority of the operator signs. A StatefulSet, because Orchard keeps its state in an embedded database with one scheduler and no leader election, so at most one pod may write to `/data`, and a StatefulSet starts no replacement until the old pod is gone. A deletion of the StatefulSet leaves the PVC. A ClusterIP Service on port 6120 in the base, so the API of Orchard stays inside the cluster by default, and a NetworkPolicy that admits TCP 6120 only from the controller, the bootstrap Job, and the CIDRs of the Mac hosts, and egress only to DNS and to OTLP on TCP 4317, because the Orchard controller dials nothing else (the workers dial it). An operator reaches the API through `kubectl port-forward`, which the policy admits. An overlay (`deploy/orchard-overlays/internal-lb` is the example) adds an internal LoadBalancer with `externalTrafficPolicy: Local`, so that the policy sees the address of a Mac host. `ORCHARD_BOOTSTRAP_ADMIN_TOKEN` from a Secret, for the first bootstrap only, through the component `deploy/orchard-overlays/first-start`, which the base does not include: the operator then removes the component, so Orchard 0.58.0 does not make the account again at each start and the environment of the pod holds no admin token. The `bootstrap-admin` account stays, with its token in the Secret `orchard-bootstrap`, which only the bootstrap Job mounts, so a change of a host needs the Job and no restart of Orchard. While the account exists, the PVC also holds its token: in the database, and in `/data/orchard.yml`, which Orchard writes at each start. The operator rotates the token, and MAY delete the account for a fleet with no planned change of a host (runbook `orchard-bootstrap-admin`). A bootstrap Job that sets the `bk-agent-stack-orchard` service account, the `operator` service account, and one `worker-<host>` service account for each key of the Secret `orchard-worker-tokens`, through the REST API, on every run, with the credentials on standard input of `curl`. The Job never deletes an account (§9.2). An explicit `OTEL_EXPORTER_OTLP_ENDPOINT`. The loss of the PVC is recoverable, because workers register again and the controller removes in-flight VMs. A backup is not necessary. |
 | Mac hosts | Mac mini with M5 Pro, 64 GB memory, and 1 TB storage ([SC-04](system-design-baseline.md#sc-04)) | Ansible and launchd (`deploy/hosts`). The playbook installs Tart, Softnet, and Orchard at pinned versions, from their release archives, checked against their SHA-256. Softnet has the setuid bit, because Tart starts it with root for each VM (§9.1), and without the bit Tart asks for a password on a terminal. Only root and the worker user MAY run Softnet: its mode is `04750` and an access control entry permits the worker user. A group of the worker user would not work, because Orchard drops to the worker user with `setregid` and `setreuid` and keeps the groups of root (`cirruslabs/chacha` `pkg/privdrop` v0.16.3, which Orchard 0.58.0 uses, read 2026-11-03). Each program that root runs, each file that root reads, and each directory above them up to `/usr/local` MUST be owned by root and the group wheel, with no write permission for a group or other users, because a VM escape lands as the worker user. The release archives of Tart and Softnet give their files uid 501, the first user of a Mac, so the playbook unpacks them with `--no-same-owner`. The playbook turns off the sleep of the system and the disks, and sets the host to start again after a power failure (`pmset`): Orchard fails the VMs of a worker that does not report for its offline timeout, so a host that sleeps fails its jobs. A launchd job loads a pf anchor at each start of the host, at each change of the network, and every 30 seconds. The anchor blocks traffic from the VM networks to the host, except DHCP and DNS, and to the private ranges, except the `softnetAllow` CIDRs of the profiles of the host (§9.1). The same launchd job enables pf again, and logs it, when pf is not enabled. The anchor is under `com.apple/`, which `/etc/pf.conf` evaluates, so the host keeps the `/etc/pf.conf` of macOS. Another launchd job runs `orchard worker run --bootstrap-token-stdin --labels pool=<pool>` as root with `--user`. Each host has its own worker name and its own account `worker-<name>` (§9.2). The playbook MUST change one host at a time by default (`serial: 1`, which the operator MAY raise), and a failed host MUST stop it, so that a change that breaks the worker reaches no other host. A change that restarts the worker (a new Orchard, Tart, or Softnet, a new token, labels, or controller URL) MUST drain the host first, because the worker stops and deletes every VM on the host when it stops (`Worker.Close`, `internal/worker/worker.go`, Orchard tag 0.58.0, read on 2026-11-03). The drain pauses the worker (`scheduling_paused`, which the Orchard scheduler and the admission of §6.3 honour), waits until no VM of the worker is pending or running (the test of `orchard pause worker --wait`), makes the change, waits until the worker reports again, and resumes it. A worker that registers again keeps `scheduling_paused` (`createWorker`, `internal/controller/api_workers.go`, tag 0.58.0, read on 2026-11-03). A run that restarts nothing MUST NOT drain. The drain time limit is an operator setting, by default 90 min: the default boot and acquire timeouts (20 min), the longest job of [SC-06](system-design-baseline.md#sc-06) (60 min), and 10 min to spare. When the limit comes first, the playbook MUST resume the worker, apply no change that restarts it, continue with the next host, and name the host at the end. A worker that an operator paused before the run stays paused. The calls to the API run on the host with the account of the host, and the token is in no command line and no output. An upgrade of Orchard changes the hosts first and the Orchard controller after them, because the Orchard 0.58.0 worker keeps code for an older controller (`internal/worker/worker.go`, `pkg/client/vms.go`); a rollback takes the reverse order. The old version directories stay on the host, so a rollback pins the previous version and runs the drained playbook again (runbook `mac-host-changes`). A host leaves service through a drain, the removal of its files, and the revocation of its account (runbook `mac-host-removal`). The bootstrap token carries the CA of the controller certificate, so a host trusts that CA with no change of its trust settings, and a new certificate of the same CA needs no new token. The token is in a file that only root can read, not in an argument. The automatic login of the worker user unlocks the login keychain. On macOS 27, `sysadminctl -autologin set` failed and a written `/etc/kcpassword` was ignored (2026-09-27), so the operator turns it on in System Settings, and the playbook checks it. The playbook sets `OTEL_EXPORTER_OTLP_ENDPOINT`. It runs `tart pull` for the image of each profile whose `workerLabels` the worker labels contain. It reads the image list from the controller configuration file. A new image MUST reach each host before the controller applies the profile that uses it, because otherwise each VM pulls the image inside its boot timeout, and an image leaves the hosts only after the controller stops using it (runbook `mac-host-changes`). The playbook removes each cached image that no profile of the host names and no VM of the worker uses, so that old images do not fill the disk; the removal keeps a tag or a digest that a kept image can depend on, because `tart delete` also removes a digest that no tag links to (`VMStorageOCI.gc`, Tart 2.41.1, read on 2026-11-03). The fleet operator builds the images ([ADR-0020](../adrs/0020-leave-the-job-vm-images-to-the-operator.md)), and each image MUST meet the image requirements of §5 and the image rules of §9.2. The Xcode 27 reference image of `images/` has a 104 GB disk, of which the host stores 59 GB, and other Xcode images up to 140 GB, so a 1 TB host holds only a few images ([SC-09](system-design-baseline.md#sc-09)). The reference build starts from a vanilla macOS image with only the software of an explicit list, and it fails on anything else ([ADR-0012](../adrs/0012-build-the-job-vm-images-from-a-vanilla-macos-image.md)). Its Xcode variant is `images/build.sh pilot`: Xcode 27 from an archive that the operator downloads with an Apple ID, so that no build signs in to Apple, its iOS simulator runtime, and the Homebrew formulae of its list. Each host MUST run macOS 27.2 or later, because the job VMs run macOS 27.2 and a macOS guest needs a host of the same version or later ([CO-07](system-design-baseline.md#co-07)). The playbook refuses an older host. |
 | Local development | One Mac | `orchard dev` and `bk-agent-stack-orchard` with a configuration file. A separate Buildkite test cluster and queue. |
+
+A fleet with a profile that has `hostDirs` adds the kustomize component
+`deploy/orchard-overlays/host-dirs` to the Orchard controller. The component adds
+`--insecure-allow-host-dirs` and the Job of the policies, which reads `HOST_DIR_POLICIES`
+(§9.2). The component also adds the pods of that Job to the NetworkPolicy, so that they reach TCP
+6120. The Job authenticates as the Orchard service account `host-dir-policies` (§9.2). The base
+has neither the flag nor the Job, so a fleet without host directories keeps the flag off. A
+change of the component changes the template of the StatefulSet, so Orchard restarts. A removal of
+the component fails the VMs with host directories that run, so the operator follows the order of
+§9.2. The fleet operator provides the directories and their files on each Mac host (§5). The
+playbook of `deploy/hosts` MUST check that each directory of the profiles that the labels of the
+host select exists, belongs to root, is not writable by the worker user or by another user, and
+has no symlink at or under it.
 
 The chart is `deploy/helm/bk-agent-stack-orchard`. A standard Kubernetes NetworkPolicy matches
 addresses, pods, and namespaces, and not DNS names. The chart therefore limits the egress to the

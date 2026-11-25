@@ -85,7 +85,8 @@ Non-goals:
 * Pools of started, idle VMs.
 * The addition or removal of Mac hosts. The host pool is fixed.
 * The purchase and the budget of the hosts.
-* Host directory caches, or other state that jobs share.
+* Host directory caches, or other state that jobs share. A read-only host directory of a profile
+  is not shared state, because no job can write to it ([PR-030](#pr-030)).
 * Secret injection for each job. Jobs get secrets through standard Buildkite mechanisms.
 * Automatic rotation of secrets. The fleet operator rotates them, and the runbooks describe the
   procedures (owner decision, 2026-11-03).
@@ -389,6 +390,23 @@ The target design describes the configuration, the credentials, and the observab
 * Acceptance: Given a job that tries to reach the host, another VM, or a private address that the
   profile does not permit. When the job runs. Then the connection fails, and the VM contains no
   cluster agent token.
+* Proposed amendment (owner answer, 2026-11-24, issue #256, [ADR-0021](../adrs/0021-mount-operator-files-read-only-in-job-vms.md), [ADR-0022](../adrs/0022-authenticate-the-checkout-with-files-of-a-read-only-mount.md)). Status:
+  `proposed`. The rest of [PR-030](#pr-030) stays `accepted`.
+  * The sentence "The VM MUST NOT have host directory mounts" becomes: "The VM MUST NOT have a
+    writable host directory mount. A profile MAY name host directories that the VM mounts
+    read-only."
+  * The sentence "The VM MUST receive only a job acquisition token for its own job" becomes: "The
+    only Buildkite credential that the VM receives MUST be a job acquisition token for its own
+    job. A profile MAY give the VM a checkout credential from a read-only host directory. That
+    credential MUST be read-only, and SHOULD reach only the repositories of the queue."
+  * The profile keys `hostDirs`, `checkout.sshFrom`, `checkout.gitCredentialsFrom`, and
+    `timeouts.hostDirs` belong to the one configuration file of [PR-020](#pr-020), and the controller
+    refuses a value that breaks their rules at start ([PR-021](#pr-021), target design §5).
+  * Acceptance: Given a profile with a host directory, and a job that writes to the mount. When
+    the job runs. Then the job reads the files of the directory, and the write fails. Given a
+    profile with a checkout credential from a mount. When a job of a private repository runs. Then
+    the checkout passes, and the startup script and the agent write no part of the credential to
+    the event log or the job log.
 
 <a id="pr-031"></a>
 **PR-031: Use a dedicated queue for the macOS fleet.**

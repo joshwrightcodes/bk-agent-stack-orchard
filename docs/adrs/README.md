@@ -103,3 +103,5 @@ take it.
 | 0018 | Reserved. The number stays free for a later decision, and no ADR has it. | reserved |
 | [ADR-0019](0019-sweep-the-queue-behind-a-long-head.md) | Sweep the queue behind a long head | accepted |
 | [ADR-0020](0020-leave-the-job-vm-images-to-the-operator.md) | Leave the job VM images to the operator | accepted |
+| [ADR-0021](0021-mount-operator-files-read-only-in-job-vms.md) | Mount operator files read-only in job VMs | proposed |
+| [ADR-0022](0022-authenticate-the-checkout-with-files-of-a-read-only-mount.md) | Authenticate the checkout with files of a read-only mount | proposed |

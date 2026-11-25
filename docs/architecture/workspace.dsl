@@ -76,7 +76,7 @@ workspace "bk-agent-stack-orchard" "C4 model of the Buildkite agent stack that r
 
         # Level 2 relationships
         operator -> stack.controller "Configures profiles through the deployment platform."
-        operator -> stack.orchardWorker "Installs and configures with Ansible."
+        operator -> stack.orchardWorker "Installs and configures with Ansible. Provides the host directories of the profiles."
         kubernetes -> stack.controller "Runs and probes liveness and readiness."
         kubernetes -> stack.orchardController "Runs the Orchard controller."
         stack.controller -> buildkite "Lists and reserves jobs. Gets tokens and job states. Finishes jobs. Sends notifications." "Stacks API, HTTPS/JSON"
@@ -89,7 +89,7 @@ workspace "bk-agent-stack-orchard" "C4 model of the Buildkite agent stack that r
         stack.orchardWorker -> stack.jobVm "Runs the startup script." "Tart guest agent"
         stack.orchardWorker -> telemetry "Exports metrics." "OTLP"
         stack.tart -> registry "Pulls VM images." "OCI Distribution API over HTTPS"
-        stack.tart -> stack.jobVm "Runs." "Virtualization.framework"
+        stack.tart -> stack.jobVm "Runs. Shares the host directories of the profile, read-only." "Virtualization.framework"
         stack.jobVm -> buildkite "Acquires its job. Sends logs, artifacts, and the result." "Agent API, HTTPS"
         stack.jobVm -> sources "Gets source code and cache entries." "HTTPS through Softnet"
         stack.jobVm -> telemetry "Exports agent traces when the profile enables it." "OTLP through a public ingest collector"
